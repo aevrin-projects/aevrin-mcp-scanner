@@ -8,7 +8,8 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .db import SupabaseRestError
-from .routers import api_keys, cli, export, findings, hook, scans
+from .quota import QuotaExceeded
+from .routers import account, api_keys, billing, cli, device, export, findings, hook, scans
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aevrin.api")
@@ -31,6 +32,9 @@ app.include_router(hook.router)
 app.include_router(cli.router)
 app.include_router(api_keys.router)
 app.include_router(export.router)
+app.include_router(device.router)
+app.include_router(account.router)
+app.include_router(billing.router)
 
 
 @app.get("/health")
@@ -44,6 +48,23 @@ async def supabase_error_handler(request: Request, exc: SupabaseRestError) -> JS
     # to the client — log it server-side, return a generic message.
     logger.error("PostgREST error on %s %s: %s", request.method, request.url.path, exc)
     return JSONResponse(status_code=502, content={"detail": "Upstream data store error"})
+
+
+@app.exception_handler(QuotaExceeded)
+async def quota_exceeded_handler(request: Request, exc: QuotaExceeded) -> JSONResponse:
+    # Structured, never a bare 403/429 — the addendum requires callers (CLI,
+    # hook, dashboard) be able to show which bucket is exhausted, when it
+    # resets, and where to upgrade, in the same breath as declining.
+    return JSONResponse(
+        status_code=402,
+        content={
+            "detail": f"{exc.bucket} scan quota exceeded ({exc.limit}/month).",
+            "bucket": exc.bucket,
+            "limit": exc.limit,
+            "resets_at": exc.resets_at.isoformat(),
+            "upgrade_url": exc.upgrade_url,
+        },
+    )
 
 
 @app.exception_handler(Exception)

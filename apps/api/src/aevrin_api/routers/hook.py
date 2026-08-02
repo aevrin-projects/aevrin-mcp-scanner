@@ -16,6 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from ..config import Settings, get_settings
 from ..db import SupabaseRest
 from ..deps import enforce_rate_limit, get_api_key_user, get_db
+from ..quota import QuotaExceeded, check_and_increment_quota
 from ..scan_service import start_scan
 from ..schemas import HookCacheResponse
 from ..security import AuthenticatedUser
@@ -38,6 +39,19 @@ async def check_cache(
 
     cached = await db.select("hook_cache", {"user_id": user.id, "target": target})
     if not cached:
+        try:
+            await check_and_increment_quota(settings, db, user.id, "hook")
+        except QuotaExceeded as exc:
+            # Never a bare refusal — addendum §10 requires the same
+            # what-happened/when-it-resets/where-to-upgrade shape the CLI
+            # and dashboard get, surfaced through the hook's own decision
+            # logic rather than an HTTP error (the hook fails open on
+            # errors, but a quota refusal is a deliberate decision, not a
+            # failure, so it must not look like one).
+            return HookCacheResponse(
+                decision="quota_exceeded", quota_resets_at=exc.resets_at, upgrade_url=exc.upgrade_url
+            )
+
         scan_id = uuid4()
         await db.insert(
             "scans",

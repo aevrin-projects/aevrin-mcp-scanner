@@ -1,0 +1,28 @@
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
+
+from ..config import Settings, get_settings
+from ..db import SupabaseRest
+from ..deps import get_current_user, get_db
+from ..quota import get_or_create_account, get_usage
+from ..schemas import AccountUsageResponse, BucketUsageOut
+from ..security import AuthenticatedUser
+
+router = APIRouter(prefix="/account", tags=["account"])
+
+
+@router.get("/usage", response_model=AccountUsageResponse)
+async def account_usage(
+    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AccountUsageResponse:
+    account = await get_or_create_account(db, user.id)
+    usage = await get_usage(settings, db, user.id)
+    return AccountUsageResponse(
+        tier=account["tier"],
+        buckets=[BucketUsageOut(bucket=u.bucket, used=u.used, limit=u.limit, resets_at=u.resets_at) for u in usage],
+    )

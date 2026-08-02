@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from ..config import Settings, get_settings
 from ..db import SupabaseRest
 from ..deps import enforce_rate_limit, get_current_user, get_db
+from ..quota import check_and_increment_quota
 from ..scan_service import start_scan
 from ..schemas import CreateScanRequest, FindingOut, ScanOut, ScanStageOut
 from ..security import AuthenticatedUser
@@ -25,6 +26,7 @@ async def create_scan(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ScanOut:
     enforce_rate_limit(settings, "scan_create", user.id, settings.scans_per_user_per_hour)
+    await check_and_increment_quota(settings, db, user.id, "dashboard")
 
     scan_id = uuid4()
     rows = await db.insert(

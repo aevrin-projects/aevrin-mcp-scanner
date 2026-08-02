@@ -82,11 +82,13 @@ class TriageRequest(BaseModel):
 
 
 class HookCacheResponse(BaseModel):
-    decision: str  # "allow_clean" | "block" | "allow_unscanned"
+    decision: str  # "allow_clean" | "block" | "allow_unscanned" | "quota_exceeded"
     score: int | None = None
     scan_id: UUID | None = None
     checked_at: datetime | None = None
     findings_summary: list[dict[str, Any]] = Field(default_factory=list)
+    quota_resets_at: datetime | None = None
+    upgrade_url: str | None = None
 
 
 class ApiKeyCreateRequest(BaseModel):
@@ -130,3 +132,81 @@ class CliUploadRequest(BaseModel):
     target: str
     score: int
     findings: list[CliUploadFinding]
+
+
+class DeviceCodeRequest(BaseModel):
+    client_kind: str
+    machine_id_hash: str | None = None
+
+    @field_validator("client_kind")
+    @classmethod
+    def _valid_client_kind(cls, v: str) -> str:
+        if v not in {"cli", "hook"}:
+            raise ValueError("client_kind must be one of ['cli', 'hook']")
+        return v
+
+
+class DeviceCodeResponse(BaseModel):
+    device_code: str
+    user_code: str
+    verification_uri: str
+    expires_in: int
+    interval: int
+
+
+class DeviceTokenRequest(BaseModel):
+    device_code: str
+
+
+class DeviceTokenResponse(BaseModel):
+    # RFC 8628 §3.5 error codes when not yet approved; on success, api_key is set.
+    status: str  # "authorization_pending" | "slow_down" | "expired_token" | "access_denied" | "approved"
+    api_key: str | None = None
+
+
+class DeviceApproveRequest(BaseModel):
+    user_code: str
+    fingerprint: str | None = None
+
+
+class BucketUsageOut(BaseModel):
+    bucket: str
+    used: int
+    limit: int | None
+    resets_at: datetime
+
+
+class AccountUsageResponse(BaseModel):
+    tier: str
+    buckets: list[BucketUsageOut]
+
+
+class CheckoutRequest(BaseModel):
+    tier: str
+    cycle: str
+
+    @field_validator("tier")
+    @classmethod
+    def _valid_tier(cls, v: str) -> str:
+        if v not in {"hobby", "team"}:
+            raise ValueError("tier must be one of ['hobby', 'team']")
+        return v
+
+    @field_validator("cycle")
+    @classmethod
+    def _valid_cycle(cls, v: str) -> str:
+        if v not in {"monthly", "annual"}:
+            raise ValueError("cycle must be one of ['monthly', 'annual']")
+        return v
+
+
+class CheckoutResponse(BaseModel):
+    subscription_id: str
+    razorpay_key_id: str
+
+
+class SubscriptionResponse(BaseModel):
+    tier: str
+    subscription_status: str | None
+    razorpay_subscription_id: str | None
+    downgrade_effective_at: datetime | None = None

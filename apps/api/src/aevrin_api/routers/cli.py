@@ -9,10 +9,27 @@ from fastapi import APIRouter, Depends, status
 from ..config import Settings, get_settings
 from ..db import SupabaseRest
 from ..deps import enforce_rate_limit, get_api_key_user, get_db
+from ..quota import check_and_increment_quota, would_exceed_quota
 from ..schemas import CliUploadRequest, ScanOut
 from ..security import AuthenticatedUser
 
 router = APIRouter(prefix="/cli", tags=["cli"])
+
+
+@router.get("/precheck")
+async def precheck(
+    user: Annotated[AuthenticatedUser, Depends(get_api_key_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, bool]:
+    """The CLI calls this *before* running its local scan (which can take
+    minutes) so a quota-exhausted account fails fast instead of doing real
+    work first. Read-only — does not consume quota; /cli/upload is still the
+    actual gate, since that's the moment a scan is genuinely recorded."""
+    exceeded = await would_exceed_quota(settings, db, user.id, "cli")
+    if exceeded:
+        raise exceeded
+    return {"ok": True}
 
 
 @router.post("/upload", response_model=ScanOut, status_code=status.HTTP_201_CREATED)
@@ -26,6 +43,7 @@ async def upload_scan(
     the backend) — this just persists the result to the user's account. It
     never re-runs the pipeline server-side."""
     enforce_rate_limit(settings, "cli_upload", user.id, settings.cli_uploads_per_key_per_hour)
+    await check_and_increment_quota(settings, db, user.id, "cli")
 
     scan_id = uuid4()
     now = datetime.now(UTC).isoformat()
