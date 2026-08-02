@@ -14,7 +14,7 @@ from uuid import UUID
 
 from ..models import Finding, Location, ToolName
 from ..owasp import OwaspMcpCategory
-from ..runner import DockerRunSpec
+from ..runner import DockerRunSpec, LocalCommandSpec
 from ..severity_utils import scorecard_score_to_severity
 from .base import ScannerAdapter
 
@@ -33,6 +33,15 @@ class ScorecardAdapter(ScannerAdapter):
             args=[f"--repo=github.com/{self.github_repo}", "--format", "json"],
             mounts={},  # operates against the GitHub API, not the local clone
             network_enabled=True,
+            timeout_s=180,
+            env={"GITHUB_AUTH_TOKEN": self.github_token},
+            ok_exit_codes=(0,),
+        )
+
+    def build_local_command(self, target_dir: str) -> LocalCommandSpec:
+        return LocalCommandSpec(
+            binary="scorecard",
+            args=[f"--repo=github.com/{self.github_repo}", "--format", "json"],
             timeout_s=180,
             env={"GITHUB_AUTH_TOKEN": self.github_token},
             ok_exit_codes=(0,),

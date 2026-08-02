@@ -21,13 +21,14 @@ Invocation confirmed live against aevrin/mcp-shield:local (npm mcp-shield@1.0.4)
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any
 from uuid import UUID
 
 from ..models import Finding, Location, Severity, ToolName
 from ..owasp import OwaspMcpCategory
-from ..runner import DockerRunSpec
+from ..runner import DockerRunSpec, LocalCommandSpec
 from .base import ScannerAdapter
 
 _RISK_MAP = {"HIGH": Severity.HIGH, "MEDIUM": Severity.MEDIUM, "LOW": Severity.LOW}
@@ -64,6 +65,14 @@ class McpShieldAdapter(ScannerAdapter):
             args=["--path", self.config_path_in_container],
             mounts={target_dir: ("/scan", True)},
             network_enabled=True,  # connects to live/remote MCP servers
+            timeout_s=90,
+            ok_exit_codes=(0, 1),
+        )
+
+    def build_local_command(self, target_dir: str) -> LocalCommandSpec:
+        return LocalCommandSpec(
+            binary="mcp-shield",
+            args=["--path", os.path.join(target_dir, "mcp.json")],
             timeout_s=90,
             ok_exit_codes=(0, 1),
         )

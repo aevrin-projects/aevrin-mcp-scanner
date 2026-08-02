@@ -168,6 +168,25 @@ def _run_clone_stage(
         raise PipelineError(msg) from exc
 
 
+def _normalize_paths(findings: list[Finding], root: str) -> list[Finding]:
+    """Strips `root` (the real host directory a tool just scanned) from any
+    absolute file_path it reported. Docker-mode tools report paths relative
+    to the fixed /src mount already (or get fixed up by paths.relative_to_mount);
+    subprocess-mode tools run with cwd=root and *mostly* report relative
+    paths too, but at least one (osv-scanner, confirmed live) canonicalizes
+    to an absolute path regardless of the "." it was given — this is the
+    single place that catches any absolute path leak, in either mode."""
+    root_prefix = root.rstrip("/") + "/"
+    for f in findings:
+        path = f.location.file_path
+        if not path:
+            continue
+        path = path.removeprefix(root_prefix)
+        path = path.removeprefix("./")  # e.g. bandit run with "-r ." reports "./app.py"
+        f.location.file_path = path
+    return findings
+
+
 def _run_static_analysis_stage(
     scan_id: UUID, repo_dir: str, stage: ScanStage, on_stage: OnStage, emit: OnFindings, errors: list[str]
 ) -> None:
@@ -175,7 +194,7 @@ def _run_static_analysis_stage(
     tool_errors: list[str] = []
     for label, adapter in (("semgrep", SemgrepAdapter()), ("bandit", BanditAdapter())):
         findings, error = _run_isolated(label, lambda a=adapter: a.run(scan_id, repo_dir))  # type: ignore[misc]
-        emit(findings)
+        emit(_normalize_paths(findings, repo_dir))
         if error:
             tool_errors.append(error)
     _finish_stage(stage, tool_errors, on_stage, errors)
@@ -188,7 +207,7 @@ def _run_secrets_stage(
     tool_errors: list[str] = []
     for label, adapter in (("gitleaks", GitleaksAdapter()), ("trufflehog", TruffleHogAdapter())):
         findings, error = _run_isolated(label, lambda a=adapter: a.run(scan_id, repo_dir))  # type: ignore[misc]
-        emit(findings)
+        emit(_normalize_paths(findings, repo_dir))
         if error:
             tool_errors.append(error)
     _finish_stage(stage, tool_errors, on_stage, errors)
@@ -208,7 +227,7 @@ def _run_dependencies_stage(
     tool_errors: list[str] = []
     for label, adapter in (("osv-scanner", OsvScannerAdapter()), ("trivy", TrivyAdapter())):
         findings, error = _run_isolated(label, lambda a=adapter: a.run(scan_id, repo_dir))  # type: ignore[misc]
-        emit(findings)
+        emit(_normalize_paths(findings, repo_dir))
         if error:
             tool_errors.append(error)
 

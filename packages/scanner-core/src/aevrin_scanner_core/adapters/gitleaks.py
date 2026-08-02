@@ -4,7 +4,9 @@ Invocation confirmed live against zricethezav/gitleaks:latest — note the
 image's ENTRYPOINT is already the `gitleaks` binary, so args start at the
 subcommand (`git`), not the binary name. Report is written to a file inside
 the mount (gitleaks doesn't reliably support stdout-only JSON alongside its
-log lines), then read back from the host.
+log lines), then read back from the host. Subprocess mode (installed
+`gitleaks` binary) uses the same report-file pattern, just without the
+container mount indirection.
 """
 
 from __future__ import annotations
@@ -15,7 +17,13 @@ from uuid import UUID
 
 from ..models import Finding, Location, Severity, ToolName
 from ..owasp import OwaspMcpCategory
-from ..runner import DockerRunSpec
+from ..runner import (
+    DockerRunSpec,
+    LocalCommandSpec,
+    get_executor_mode,
+    run_container,
+    run_local_command,
+)
 from .base import ScannerAdapter
 
 REPORT_FILENAME = ".aevrin-gitleaks-report.json"
@@ -47,11 +55,20 @@ class GitleaksAdapter(ScannerAdapter):
             ok_exit_codes=(0,),
         )
 
-    def run(self, scan_id: UUID, target_dir: str) -> list[Finding]:
-        from ..runner import run_container
+    def build_local_command(self, target_dir: str) -> LocalCommandSpec:
+        return LocalCommandSpec(
+            binary="gitleaks",
+            args=["git", ".", "-f", "json", "--report-path", REPORT_FILENAME, "--no-banner", "--exit-code", "0"],
+            timeout_s=120,
+            ok_exit_codes=(0,),
+        )
 
-        spec = self.build_spec(target_dir)
-        run_container(self.tool.value, spec)
+    def run(self, scan_id: UUID, target_dir: str) -> list[Finding]:
+        if get_executor_mode() == "subprocess":
+            run_local_command(self.tool.value, self.build_local_command(target_dir), target_dir)
+        else:
+            run_container(self.tool.value, self.build_spec(target_dir))
+
         report_path = os.path.join(target_dir, REPORT_FILENAME)
         try:
             with open(report_path) as f:

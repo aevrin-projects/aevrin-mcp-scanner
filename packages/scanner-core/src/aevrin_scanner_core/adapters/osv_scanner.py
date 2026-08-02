@@ -14,7 +14,7 @@ from uuid import UUID
 from ..models import Finding, Location, Severity, ToolName
 from ..owasp import OwaspMcpCategory
 from ..paths import relative_to_mount
-from ..runner import DockerRunSpec
+from ..runner import DockerRunSpec, LocalCommandSpec
 from ..severity_utils import cvss_vector_to_severity, ghsa_severity
 from .base import ScannerAdapter
 
@@ -30,6 +30,18 @@ class OsvScannerAdapter(ScannerAdapter):
             network_enabled=True,  # queries the OSV API
             timeout_s=180,
             ok_exit_codes=(0, 1),  # 1 = vulnerabilities found, still a clean run
+        )
+
+    def build_local_command(self, target_dir: str) -> LocalCommandSpec:
+        return LocalCommandSpec(
+            binary="osv-scanner",
+            args=["scan", "source", "--format", "json", "."],
+            timeout_s=180,
+            # Matches build_spec's ok_exit_codes exactly — a repo with no
+            # manifest files exits non-zero here too (observed exit 128);
+            # that's an isolated per-tool failure, not something to paper
+            # over as a false "0 findings" success.
+            ok_exit_codes=(0, 1),
         )
 
     def parse_output(self, scan_id: UUID, stdout: str) -> list[Finding]:

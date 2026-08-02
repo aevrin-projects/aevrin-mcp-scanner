@@ -12,9 +12,12 @@ confirmation in Phase 7.
 Cost note (flagged, not silently absorbed): this image is 8.64GB — it pulls
 in torch, CUDA packages, transformers, and llamafirewall as hard
 dependencies of the package itself, none of which this project asked for.
-That is much too heavy to spin up as a disposable per-scan container. Keep
-this wired as the documented fallback only (invoked when the primary
-mcp-scan adapter raises ToolExecutionError), not as a default pipeline step.
+That is much too heavy to spin up as a disposable per-scan container, and
+far too heavy to bake into apps/api's own image for AEVRIN_EXECUTOR=subprocess
+mode (Railway) — this adapter is Docker-only, deliberately with no
+build_local_command. On Railway, if the primary mcp-scan adapter fails,
+there is no backup; that's an accepted, documented gap for this one
+specific fallback tool, not a silent omission.
 """
 
 from __future__ import annotations

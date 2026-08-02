@@ -13,7 +13,7 @@ from uuid import UUID
 from ..models import Finding, Location, Severity, ToolName
 from ..owasp import OwaspMcpCategory
 from ..paths import relative_to_mount
-from ..runner import DockerRunSpec
+from ..runner import DockerRunSpec, LocalCommandSpec
 from .base import ScannerAdapter
 
 _SEVERITY_MAP = {
@@ -45,6 +45,25 @@ class SemgrepAdapter(ScannerAdapter):
             mounts={target_dir: ("/src", True)},
             workdir="/src",
             network_enabled=True,  # pulls rulesets from the semgrep registry
+            timeout_s=180,
+            ok_exit_codes=(0,),
+        )
+
+    def build_local_command(self, target_dir: str) -> LocalCommandSpec:
+        return LocalCommandSpec(
+            binary="semgrep",
+            args=[
+                "scan",
+                "--config",
+                "p/security-audit",
+                "--config",
+                "p/owasp-top-ten",
+                "--config",
+                "p/python",
+                "--json",
+                "--metrics=off",
+                ".",
+            ],
             timeout_s=180,
             ok_exit_codes=(0,),
         )

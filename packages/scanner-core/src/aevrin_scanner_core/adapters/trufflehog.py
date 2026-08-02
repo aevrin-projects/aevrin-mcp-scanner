@@ -14,7 +14,7 @@ from uuid import UUID
 from ..models import Finding, Location, Severity, ToolName
 from ..owasp import OwaspMcpCategory
 from ..paths import relative_to_mount
-from ..runner import DockerRunSpec
+from ..runner import DockerRunSpec, LocalCommandSpec
 from .base import ScannerAdapter
 
 
@@ -29,6 +29,14 @@ class TruffleHogAdapter(ScannerAdapter):
             network_enabled=True,  # live credential verification calls out to the provider
             timeout_s=180,
             ok_exit_codes=(0, 183),  # trufflehog exits 183 when verified secrets are found
+        )
+
+    def build_local_command(self, target_dir: str) -> LocalCommandSpec:
+        return LocalCommandSpec(
+            binary="trufflehog",
+            args=["filesystem", ".", "--json", "--no-update"],
+            timeout_s=180,
+            ok_exit_codes=(0, 183),
         )
 
     def parse_output(self, scan_id: UUID, stdout: str) -> list[Finding]:

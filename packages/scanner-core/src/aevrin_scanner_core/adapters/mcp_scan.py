@@ -16,11 +16,18 @@ real running server, confirm in Phase 7.
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 from uuid import UUID
 
 from ..models import Finding, ToolName
-from ..runner import DockerRunSpec
+from ..runner import (
+    DockerRunSpec,
+    LocalCommandSpec,
+    get_executor_mode,
+    run_container,
+    run_local_command,
+)
 from .base import ScannerAdapter
 
 
@@ -57,11 +64,27 @@ class McpScanAdapter(ScannerAdapter):
             ok_exit_codes=(0, 1),
         )
 
-    def inspect_signatures(self, target_dir: str) -> list[McpScanInspectResult]:
-        from ..runner import run_container
+    def build_local_command(self, target_dir: str) -> LocalCommandSpec:
+        return LocalCommandSpec(
+            binary="snyk-agent-scan",
+            args=[
+                "inspect",
+                os.path.join(target_dir, "mcp.json"),
+                "--json",
+                "--dangerously-run-mcp-servers",
+                "--no-skills",
+            ],
+            timeout_s=90,
+            ok_exit_codes=(0, 1),
+        )
 
-        spec = self.build_spec(target_dir)
-        stdout, _stderr, _code = run_container(self.tool.value, spec)
+    def inspect_signatures(self, target_dir: str) -> list[McpScanInspectResult]:
+        if get_executor_mode() == "subprocess":
+            stdout, _stderr, _code = run_local_command(
+                self.tool.value, self.build_local_command(target_dir), target_dir
+            )
+        else:
+            stdout, _stderr, _code = run_container(self.tool.value, self.build_spec(target_dir))
         data = json.loads(stdout) if stdout.strip() else {}
         results: list[McpScanInspectResult] = []
         for config_result in data.values():

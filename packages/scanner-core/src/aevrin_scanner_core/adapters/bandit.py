@@ -15,7 +15,7 @@ from uuid import UUID
 from ..models import Finding, Location, Severity, ToolName
 from ..owasp import OwaspMcpCategory
 from ..paths import relative_to_mount
-from ..runner import DockerRunSpec
+from ..runner import DockerRunSpec, LocalCommandSpec
 from .base import ScannerAdapter
 
 _SEVERITY_MAP = {
@@ -36,6 +36,14 @@ class BanditAdapter(ScannerAdapter):
             args=["-r", "/src", "-f", "json"],
             mounts={target_dir: ("/src", True)},
             network_enabled=False,
+            timeout_s=120,
+            ok_exit_codes=(0, 1),
+        )
+
+    def build_local_command(self, target_dir: str) -> LocalCommandSpec:
+        return LocalCommandSpec(
+            binary="bandit",
+            args=["-r", ".", "-f", "json"],
             timeout_s=120,
             ok_exit_codes=(0, 1),
         )

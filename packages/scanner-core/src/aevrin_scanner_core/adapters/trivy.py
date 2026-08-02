@@ -15,7 +15,7 @@ from uuid import UUID
 
 from ..models import Finding, Location, Severity, ToolName
 from ..owasp import OwaspMcpCategory
-from ..runner import DockerRunSpec
+from ..runner import DockerRunSpec, LocalCommandSpec
 from .base import ScannerAdapter
 
 _SEVERITY_MAP = {
@@ -36,6 +36,14 @@ class TrivyAdapter(ScannerAdapter):
             args=["fs", "--format", "json", "--scanners", "vuln,secret,misconfig", "/src"],
             mounts={target_dir: ("/src", True)},
             network_enabled=True,  # pulls the vulnerability DB
+            timeout_s=180,
+            ok_exit_codes=(0,),
+        )
+
+    def build_local_command(self, target_dir: str) -> LocalCommandSpec:
+        return LocalCommandSpec(
+            binary="trivy",
+            args=["fs", "--format", "json", "--scanners", "vuln,secret,misconfig", "."],
             timeout_s=180,
             ok_exit_codes=(0,),
         )
