@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from ..config import Settings, get_settings
 from ..db import SupabaseRest
 from ..deps import get_current_user, get_db
-from ..quota import get_or_create_account, get_usage
+from ..quota import effective_tier, get_or_create_account, get_usage
 from ..schemas import AccountUsageResponse, BucketUsageOut
 from ..security import AuthenticatedUser
 
@@ -23,6 +23,7 @@ async def account_usage(
     account = await get_or_create_account(db, user.id)
     usage = await get_usage(settings, db, user.id)
     return AccountUsageResponse(
-        tier=account["tier"],
+        tier=effective_tier(account),
+        paid_until=account.get("paid_until"),
         buckets=[BucketUsageOut(bucket=u.bucket, used=u.used, limit=u.limit, resets_at=u.resets_at) for u in usage],
     )

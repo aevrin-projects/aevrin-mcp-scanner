@@ -1,18 +1,15 @@
-"""Razorpay Subscriptions API client — billing for Hobby/Team tiers.
+"""Razorpay Standard Checkout (Orders API) — one-time payments for Hobby/Team
+tiers, billed per cycle rather than auto-recurring (explicit product
+decision: paying activates a tier through accounts.paid_until; nothing
+charges again automatically — the account pays again next cycle).
 
-Swapped in for the addendum's original Stripe design (user decision).
-Structural differences from Stripe worth keeping in mind everywhere this is
-used: Razorpay has no hosted Checkout redirect (we use Checkout.js, a
-client-side modal, instead — see routers/billing.py's /checkout endpoint,
-which just returns what the modal needs) and no hosted customer portal
-equivalent (routers/billing.py's /cancel + /subscription back a minimal
-in-app "manage subscription" page instead). Razorpay itself is never queried
-on the scan hot-path — the webhook handler is the only writer of
-accounts.tier/subscription_status, which is what quota.py actually reads.
+Razorpay itself is never queried on the scan hot-path — routers/billing.py's
+/verify endpoint (plus the /webhook safety net) is the only writer of
+accounts.tier/paid_until, which is what quota.py actually reads.
 
-Prep-only until the user supplies real Key ID/Secret/Plan IDs from their
-Razorpay dashboard: every method raises RazorpayUnavailable if unconfigured,
-exactly mirroring defectdojo_client.py's DefectDojoUnavailable pattern.
+Prep-only until the user supplies real Key ID/Secret: every method raises
+RazorpayUnavailable if unconfigured, mirroring defectdojo_client.py's
+DefectDojoUnavailable pattern.
 """
 
 from __future__ import annotations
@@ -35,6 +32,7 @@ class RazorpayClient:
         if not settings.razorpay_key_id or not settings.razorpay_key_secret:
             raise RazorpayUnavailable("RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET not configured")
         self._key_id = settings.razorpay_key_id
+        self._key_secret = settings.razorpay_key_secret
         self._auth = (settings.razorpay_key_id, settings.razorpay_key_secret)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -44,48 +42,28 @@ class RazorpayClient:
         result: dict[str, Any] = resp.json() if resp.content else {}
         return result
 
-    async def create_plan(self, *, name: str, amount_minor_units: int, currency: str, period: str) -> str:
-        """period: 'monthly' | 'yearly'. amount_minor_units: paise (INR) /
-        cents — Razorpay always wants the smallest currency unit, same
-        convention as Stripe. Used once, ahead of time, to create the four
-        Hobby/Team x monthly/annual plans — not called on the request path."""
-        created = await self._request(
-            "POST",
-            "/plans",
-            json={
-                "period": period,
-                "interval": 1,
-                "item": {"name": name, "amount": amount_minor_units, "currency": currency},
-            },
-        )
-        return str(created["id"])
-
-    async def create_subscription(self, *, plan_id: str, user_id: str) -> dict[str, Any]:
-        """Returns the raw Razorpay subscription object — routers/billing.py
-        hands `id` straight to the frontend for Checkout.js. total_count is
-        set high (120 cycles) since Razorpay subscriptions require a count
-        rather than supporting an open-ended "until cancelled" — cancellation
-        is what actually ends billing, this is just an upper bound."""
+    async def create_order(
+        self, *, amount_paise: int, currency: str, receipt: str, notes: dict[str, str]
+    ) -> dict[str, Any]:
+        """amount_paise: smallest currency unit (paise for INR), matching
+        Razorpay's convention. Returns the raw order object — `id` is what
+        Checkout.js needs client-side."""
         return await self._request(
             "POST",
-            "/subscriptions",
-            json={
-                "plan_id": plan_id,
-                "customer_notify": 1,
-                "total_count": 120,
-                "notes": {"aevrin_user_id": user_id},
-            },
+            "/orders",
+            json={"amount": amount_paise, "currency": currency, "receipt": receipt, "notes": notes},
         )
 
-    async def get_subscription(self, subscription_id: str) -> dict[str, Any]:
-        return await self._request("GET", f"/subscriptions/{subscription_id}")
-
-    async def cancel_subscription(self, subscription_id: str, *, at_cycle_end: bool = True) -> dict[str, Any]:
-        return await self._request(
-            "POST",
-            f"/subscriptions/{subscription_id}/cancel",
-            json={"cancel_at_cycle_end": 1 if at_cycle_end else 0},
-        )
+    def verify_payment_signature(self, *, order_id: str, payment_id: str, signature: str) -> bool:
+        """Standard Checkout's actual security model: Razorpay computes
+        HMAC-SHA256(order_id + "|" + payment_id, key_secret) and returns it
+        to the client on success. Recomputing and comparing server-side is
+        sufficient proof of payment on its own — this doesn't need the
+        webhook to be trustworthy, the webhook (see routers/billing.py) is
+        just a safety net for the tab-closed-before-callback edge case."""
+        payload = f"{order_id}|{payment_id}".encode()
+        expected = hmac.new(self._key_secret.encode(), payload, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, signature)
 
 
 def verify_webhook_signature(*, body: bytes, signature: str, webhook_secret: str) -> bool:

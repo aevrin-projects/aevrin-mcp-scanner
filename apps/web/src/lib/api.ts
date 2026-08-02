@@ -82,11 +82,15 @@ export const api = {
     }),
   getSubscription: () => request<import("@/lib/types").Subscription>("/billing/subscription"),
   createCheckout: (tier: "hobby" | "team", cycle: "monthly" | "annual") =>
-    request<{ subscription_id: string; razorpay_key_id: string }>("/billing/checkout", {
+    request<{ order_id: string; amount_paise: number; currency: string; razorpay_key_id: string }>(
+      "/billing/checkout",
+      { method: "POST", body: JSON.stringify({ tier, cycle }) },
+    ),
+  verifyPayment: (razorpay_order_id: string, razorpay_payment_id: string, razorpay_signature: string) =>
+    request<{ status: string; tier: string; paid_until: string }>("/billing/verify", {
       method: "POST",
-      body: JSON.stringify({ tier, cycle }),
+      body: JSON.stringify({ razorpay_order_id, razorpay_payment_id, razorpay_signature }),
     }),
-  cancelSubscription: () => request<{ status: string }>("/billing/cancel", { method: "POST" }),
 };
 
 // GET /device/{code} doesn't require auth (the approval page needs to show

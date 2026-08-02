@@ -178,6 +178,7 @@ class BucketUsageOut(BaseModel):
 
 class AccountUsageResponse(BaseModel):
     tier: str
+    paid_until: datetime | None = None
     buckets: list[BucketUsageOut]
 
 
@@ -201,15 +202,28 @@ class CheckoutRequest(BaseModel):
 
 
 class CheckoutResponse(BaseModel):
-    subscription_id: str
+    order_id: str
+    amount_paise: int
+    currency: str
     razorpay_key_id: str
+
+
+class VerifyPaymentRequest(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+class VerifyPaymentResponse(BaseModel):
+    status: str
+    tier: str
+    paid_until: datetime
 
 
 class SubscriptionResponse(BaseModel):
     tier: str
-    subscription_status: str | None
-    razorpay_subscription_id: str | None
-    downgrade_effective_at: datetime | None = None
+    effective_tier: str
+    paid_until: datetime | None = None
 
 
 class AccountLookupResponse(BaseModel):

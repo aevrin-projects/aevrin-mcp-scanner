@@ -1,16 +1,20 @@
-"""Razorpay billing — checkout, webhook, and the in-app "manage
-subscription" page's backing endpoints (Razorpay has no hosted customer
-portal like Stripe's, so /billing/cancel + /billing/subscription exist to
-back a minimal self-serve page instead — see apps/web's
-settings/billing/page.tsx).
+"""Razorpay Standard Checkout billing (Orders API) — one-time payments per
+cycle, not auto-recurring subscriptions (explicit product decision: pay
+monthly or annually, get prompted to pay again when the period ends, never
+charged automatically). /billing/verify's HMAC signature check is the
+trusted proof of payment; /billing/webhook is a safety net for the case
+where the browser tab closes before that call fires.
 
-The webhook handler is the *only* writer of accounts.tier/subscription_status
-— quota.py reads Postgres, never Razorpay, on the scan hot-path.
+/billing/verify (and the webhook, as a fallback) are the *only* writers of
+accounts.tier/paid_until — quota.py reads Postgres, never Razorpay, on the
+scan hot-path.
 """
 
 from __future__ import annotations
 
 import logging
+import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -18,53 +22,133 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from ..config import Settings, get_settings
 from ..db import SupabaseRest
 from ..deps import get_current_user, get_db
-from ..quota import get_or_create_account
+from ..quota import effective_tier, get_or_create_account
 from ..razorpay_client import RazorpayClient, RazorpayUnavailable, verify_webhook_signature
-from ..schemas import CheckoutRequest, CheckoutResponse, SubscriptionResponse
+from ..schemas import CheckoutRequest, CheckoutResponse, SubscriptionResponse, VerifyPaymentRequest, VerifyPaymentResponse
 from ..security import AuthenticatedUser
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 logger = logging.getLogger("aevrin.billing")
 
+# Placeholder pricing — mirrors the USD figures shown on the pricing page
+# (pricing-section.tsx: Hobby $15/mo or $12/mo billed annually, Team $59/mo
+# or $49/mo billed annually) multiplied by 100 to get INR rupees, purely so
+# there's a real, testable amount wired up end to end. This is NOT an actual
+# USD->INR conversion — replace with real INR pricing before going live.
+# "annual" is billed as one lump sum (12x the per-month figure), not a
+# discount schedule, since there's no recurring billing to apply it to.
+_PRICE_PAISE: dict[tuple[str, str], int] = {
+    ("hobby", "monthly"): 150_000,
+    ("hobby", "annual"): 1_440_000,
+    ("team", "monthly"): 590_000,
+    ("team", "annual"): 5_880_000,
+}
+_CURRENCY = "INR"
 
-def _plan_id_for(settings: Settings, tier: str, cycle: str) -> str | None:
-    return {
-        ("hobby", "monthly"): settings.razorpay_plan_hobby_monthly,
-        ("hobby", "annual"): settings.razorpay_plan_hobby_annual,
-        ("team", "monthly"): settings.razorpay_plan_team_monthly,
-        ("team", "annual"): settings.razorpay_plan_team_annual,
-    }.get((tier, cycle))
 
-
-def _tier_for_plan_id(settings: Settings, plan_id: str) -> str | None:
-    mapping = {
-        settings.razorpay_plan_hobby_monthly: "hobby",
-        settings.razorpay_plan_hobby_annual: "hobby",
-        settings.razorpay_plan_team_monthly: "team",
-        settings.razorpay_plan_team_annual: "team",
-    }
-    return mapping.get(plan_id)
+def _paid_until(existing: str | None, cycle: str) -> datetime:
+    """Extends from the later of now/existing paid_until, so paying early
+    doesn't forfeit remaining time on the current cycle."""
+    now = datetime.now(UTC)
+    base = now
+    if existing:
+        existing_dt = datetime.fromisoformat(existing) if isinstance(existing, str) else existing
+        if existing_dt > base:
+            base = existing_dt
+    if cycle == "annual":
+        return base.replace(year=base.year + 1)
+    if base.month == 12:
+        return base.replace(year=base.year + 1, month=1)
+    return base.replace(month=base.month + 1)
 
 
 @router.post("/checkout", response_model=CheckoutResponse)
 async def create_checkout(
     body: CheckoutRequest,
     user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> CheckoutResponse:
-    plan_id = _plan_id_for(settings, body.tier, body.cycle)
-    if not plan_id:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Billing isn't configured yet for this plan.",
-        )
+    amount_paise = _PRICE_PAISE[(body.tier, body.cycle)]
     try:
         client = RazorpayClient(settings)
     except RazorpayUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing isn't configured yet.") from exc
 
-    subscription = await client.create_subscription(plan_id=plan_id, user_id=user.id)
-    return CheckoutResponse(subscription_id=subscription["id"], razorpay_key_id=settings.razorpay_key_id or "")
+    receipt = f"aevrin_{user.id}_{uuid.uuid4().hex[:12]}"
+    order = await client.create_order(
+        amount_paise=amount_paise,
+        currency=_CURRENCY,
+        receipt=receipt,
+        notes={"aevrin_user_id": user.id, "tier": body.tier, "cycle": body.cycle},
+    )
+
+    await get_or_create_account(db, user.id)
+    await db.insert(
+        "payments",
+        {
+            "user_id": user.id,
+            "tier": body.tier,
+            "cycle": body.cycle,
+            "amount_paise": amount_paise,
+            "currency": _CURRENCY,
+            "razorpay_order_id": order["id"],
+            "status": "created",
+        },
+    )
+
+    return CheckoutResponse(
+        order_id=order["id"], amount_paise=amount_paise, currency=_CURRENCY, razorpay_key_id=settings.razorpay_key_id or ""
+    )
+
+
+@router.post("/verify", response_model=VerifyPaymentResponse)
+async def verify_payment(
+    body: VerifyPaymentRequest,
+    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> VerifyPaymentResponse:
+    rows = await db.select("payments", {"razorpay_order_id": body.razorpay_order_id})
+    if not rows or rows[0]["user_id"] != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    payment = rows[0]
+
+    try:
+        client = RazorpayClient(settings)
+    except RazorpayUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing isn't configured yet.") from exc
+
+    valid = client.verify_payment_signature(
+        order_id=body.razorpay_order_id, payment_id=body.razorpay_payment_id, signature=body.razorpay_signature
+    )
+    if not valid:
+        await db.update(
+            "payments",
+            {"razorpay_order_id": body.razorpay_order_id},
+            {"status": "failed", "razorpay_payment_id": body.razorpay_payment_id},
+        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment signature mismatch")
+
+    account = await get_or_create_account(db, user.id)
+    new_paid_until = _paid_until(account.get("paid_until"), payment["cycle"])
+
+    if payment["status"] != "paid":
+        await db.update(
+            "payments",
+            {"razorpay_order_id": body.razorpay_order_id},
+            {
+                "status": "paid",
+                "razorpay_payment_id": body.razorpay_payment_id,
+                "razorpay_signature": body.razorpay_signature,
+                "verified_at": datetime.now(UTC).isoformat(),
+            },
+        )
+        await db.update(
+            "accounts", {"user_id": user.id}, {"tier": payment["tier"], "paid_until": new_paid_until.isoformat()}
+        )
+
+    return VerifyPaymentResponse(status="ok", tier=payment["tier"], paid_until=new_paid_until)
 
 
 @router.post("/webhook")
@@ -74,6 +158,9 @@ async def razorpay_webhook(
     settings: Annotated[Settings, Depends(get_settings)],
     x_razorpay_signature: Annotated[str | None, Header()] = None,
 ) -> dict[str, str]:
+    """Safety net only — /billing/verify's HMAC check is what actually
+    activates a tier. This exists purely to catch a captured payment whose
+    browser never made it back to call /verify (tab closed, network drop)."""
     if not settings.razorpay_webhook_secret:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing isn't configured yet.")
     raw_body = await request.body()
@@ -84,73 +171,33 @@ async def razorpay_webhook(
 
     payload = await request.json()
     event = payload.get("event", "")
-    entity = payload.get("payload", {}).get("subscription", {}).get("entity", {})
-    subscription_id = entity.get("id")
-    plan_id = entity.get("plan_id")
-    user_id = (entity.get("notes") or {}).get("aevrin_user_id")
-
-    logger.info("razorpay webhook: event=%s subscription=%s user=%s", event, subscription_id, user_id)
-
-    if not user_id:
-        # Not every webhook event carries our notes (e.g. payment-only
-        # events) — nothing to reconcile against our schema without it.
+    if event != "payment.captured":
         return {"status": "ignored"}
 
-    await get_or_create_account(db, user_id)
+    entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
+    order_id = entity.get("order_id")
+    payment_id = entity.get("id")
+    if not order_id:
+        return {"status": "ignored"}
 
-    if event in ("subscription.activated", "subscription.charged"):
-        tier = _tier_for_plan_id(settings, plan_id) or "free"
-        await db.update(
-            "accounts",
-            {"user_id": user_id},
-            {
-                "tier": tier,
-                "razorpay_subscription_id": subscription_id,
-                "subscription_status": "active",
-                "downgrade_effective_at": None,
-            },
-        )
-    elif event == "subscription.cancelled":
-        # cancel_at_cycle_end=1 by default (see /billing/cancel) — access
-        # continues until the period actually ends, which is when Razorpay
-        # sends subscription.completed below. Don't downgrade the tier yet.
-        await db.update("accounts", {"user_id": user_id}, {"subscription_status": "cancelled"})
-    elif event == "subscription.completed":
-        # The paid period is genuinely over now — this is the real downgrade
-        # moment. Retention isn't truncated immediately (addendum §10's
-        # grace-period rule): downgrade_effective_at marks when the *new*
-        # tier's retention starts being enforced, read by a scheduled check
-        # elsewhere rather than deleting anything here.
-        from datetime import UTC, datetime
+    rows = await db.select("payments", {"razorpay_order_id": order_id})
+    if not rows or rows[0]["status"] == "paid":
+        return {"status": "ok"}
+    payment = rows[0]
 
-        await db.update(
-            "accounts",
-            {"user_id": user_id},
-            {"tier": "free", "subscription_status": "completed", "downgrade_effective_at": datetime.now(UTC).isoformat()},
-        )
-    elif event == "payment.failed":
-        await db.update("accounts", {"user_id": user_id}, {"subscription_status": "payment_failed"})
+    account = await get_or_create_account(db, payment["user_id"])
+    new_paid_until = _paid_until(account.get("paid_until"), payment["cycle"])
 
+    await db.update(
+        "payments",
+        {"razorpay_order_id": order_id},
+        {"status": "paid", "razorpay_payment_id": payment_id, "verified_at": datetime.now(UTC).isoformat()},
+    )
+    await db.update(
+        "accounts", {"user_id": payment["user_id"]}, {"tier": payment["tier"], "paid_until": new_paid_until.isoformat()}
+    )
+    logger.info("razorpay webhook activated payment: order=%s user=%s", order_id, payment["user_id"])
     return {"status": "ok"}
-
-
-@router.post("/cancel")
-async def cancel_subscription(
-    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
-    db: Annotated[SupabaseRest, Depends(get_db)],
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> dict[str, str]:
-    account = await get_or_create_account(db, user.id)
-    if not account.get("razorpay_subscription_id"):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active subscription")
-    try:
-        client = RazorpayClient(settings)
-    except RazorpayUnavailable as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing isn't configured yet.") from exc
-
-    await client.cancel_subscription(account["razorpay_subscription_id"], at_cycle_end=True)
-    await db.update("accounts", {"user_id": user.id}, {"subscription_status": "cancelled"})
-    return {"status": "cancelled"}
 
 
 @router.get("/subscription", response_model=SubscriptionResponse)
@@ -160,8 +207,5 @@ async def get_subscription(
 ) -> SubscriptionResponse:
     account = await get_or_create_account(db, user.id)
     return SubscriptionResponse(
-        tier=account["tier"],
-        subscription_status=account.get("subscription_status"),
-        razorpay_subscription_id=account.get("razorpay_subscription_id"),
-        downgrade_effective_at=account.get("downgrade_effective_at"),
+        tier=account["tier"], effective_tier=effective_tier(account), paid_until=account.get("paid_until")
     )

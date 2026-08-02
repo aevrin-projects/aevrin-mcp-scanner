@@ -6,44 +6,30 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import type { Subscription } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
-// Razorpay has no hosted customer-portal equivalent to Stripe's — this page
-// exists specifically to back that gap: current plan/status, next charge
-// (implied by subscription_status), and cancel, all against apps/api's
-// /billing/* endpoints.
+// Billing is one-time-payment-per-cycle, not auto-recurring (see
+// apps/api's routers/billing.py) — there's no subscription to cancel, just
+// a paid-until date. This page shows that date and a link back to pricing
+// to renew or upgrade, backed by GET /billing/subscription.
 export default function BillingPage() {
   const [sub, setSub] = useState<Subscription | null>(null);
-  const [canceling, setCanceling] = useState(false);
 
-  function refresh() {
+  useEffect(() => {
     api
       .getSubscription()
       .then(setSub)
       .catch((err) => toast.error(err instanceof ApiError ? err.message : "Could not load billing info."));
-  }
+  }, []);
 
-  useEffect(refresh, []);
-
-  async function cancel() {
-    setCanceling(true);
-    try {
-      await api.cancelSubscription();
-      toast.success("Subscription canceled — you'll keep access until the end of this billing period.");
-      refresh();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Could not cancel subscription.");
-    } finally {
-      setCanceling(false);
-    }
-  }
+  const expired = sub?.tier !== "free" && sub?.effective_tier === "free";
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-12">
       <h1 className="text-2xl font-semibold tracking-tight">Billing</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Manage your Aevrin subscription.</p>
+      <p className="mt-1 text-sm text-muted-foreground">Your Aevrin plan is billed one cycle at a time — no auto-renewal.</p>
 
       {sub === null && <Skeleton className="mt-6 h-32 w-full" />}
 
@@ -51,32 +37,21 @@ export default function BillingPage() {
         <Card className="mt-6">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-medium capitalize">{sub.tier} plan</CardTitle>
-              {sub.subscription_status && (
-                <Badge variant={sub.subscription_status === "active" ? "secondary" : "outline"}>
-                  {sub.subscription_status}
-                </Badge>
-              )}
+              <CardTitle className="text-base font-medium capitalize">{sub.effective_tier} plan</CardTitle>
+              {expired && <Badge variant="outline">Expired</Badge>}
             </div>
-            {sub.downgrade_effective_at && (
+            {sub.paid_until && (
               <CardDescription>
-                Your plan changed on {new Date(sub.downgrade_effective_at).toLocaleDateString()} — existing scan
-                history is kept through a grace period, not deleted immediately.
+                {expired
+                  ? `Your ${sub.tier} plan's paid period ended on ${new Date(sub.paid_until).toLocaleDateString()}. Renew to restore your limits.`
+                  : `Paid through ${new Date(sub.paid_until).toLocaleDateString()}. You'll be prompted to pay again after that — nothing charges automatically.`}
               </CardDescription>
             )}
           </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {sub.tier === "free" ? (
+          <CardContent>
+            {(sub.effective_tier === "free" || expired) && (
               <Link href="/pricing" className={buttonVariants()}>
-                Upgrade
-              </Link>
-            ) : sub.subscription_status === "active" ? (
-              <Button variant="outline" onClick={cancel} disabled={canceling}>
-                {canceling ? "Canceling…" : "Cancel subscription"}
-              </Button>
-            ) : (
-              <Link href="/pricing" className={buttonVariants()}>
-                Resubscribe
+                {expired ? "Renew" : "Upgrade"}
               </Link>
             )}
           </CardContent>

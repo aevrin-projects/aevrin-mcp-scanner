@@ -100,12 +100,12 @@ export interface BucketUsage {
 
 export interface AccountUsage {
   tier: "free" | "hobby" | "team";
+  paid_until: string | null;
   buckets: BucketUsage[];
 }
 
 export interface Subscription {
   tier: "free" | "hobby" | "team";
-  subscription_status: string | null;
-  razorpay_subscription_id: string | null;
-  downgrade_effective_at: string | null;
+  effective_tier: "free" | "hobby" | "team";
+  paid_until: string | null;
 }

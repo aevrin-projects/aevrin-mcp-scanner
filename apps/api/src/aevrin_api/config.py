@@ -40,15 +40,12 @@ class Settings(BaseSettings):
     defectdojo_url: str | None = None
     defectdojo_api_key: str | None = None
 
-    # Razorpay billing (prep-only until the user supplies real values — see
-    # razorpay_client.py; None means "billing disabled", not an error).
+    # Razorpay billing — Standard Checkout (Orders API), one-time payments
+    # per cycle rather than Subscriptions (see razorpay_client.py). None
+    # means "billing disabled", not an error, same as defectdojo_url below.
     razorpay_key_id: str | None = None
     razorpay_key_secret: str | None = None
     razorpay_webhook_secret: str | None = None
-    razorpay_plan_hobby_monthly: str | None = None
-    razorpay_plan_hobby_annual: str | None = None
-    razorpay_plan_team_monthly: str | None = None
-    razorpay_plan_team_annual: str | None = None
 
     # CORS
     web_origin: str = "http://localhost:3000"

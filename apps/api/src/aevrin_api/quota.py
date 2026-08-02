@@ -78,6 +78,24 @@ def _period_start(anchor_day: int, now: datetime) -> datetime:
     return candidate
 
 
+def effective_tier(account: dict[str, Any]) -> str:
+    """A paid tier only counts while accounts.paid_until hasn't passed —
+    billing is one-time-per-cycle, not auto-recurring (see routers/billing.py),
+    so there's no webhook that reliably downgrades accounts.tier itself the
+    moment a cycle ends. Computing the effective tier at read time avoids
+    needing a cron job to flip the stored tier back to 'free' on schedule."""
+    if account["tier"] == "free":
+        return "free"
+    paid_until = account.get("paid_until")
+    if not paid_until:
+        return "free"
+    if isinstance(paid_until, str):
+        paid_until = datetime.fromisoformat(paid_until)
+    if paid_until < datetime.now(UTC):
+        return "free"
+    return account["tier"]
+
+
 async def get_or_create_account(db: SupabaseRest, user_id: str) -> dict[str, Any]:
     rows = await db.select("accounts", {"user_id": user_id})
     if rows:
@@ -106,7 +124,7 @@ def _redis_key(user_id: str, bucket: Bucket, period_start: datetime) -> str:
 
 async def check_and_increment_quota(settings: Settings, db: SupabaseRest, user_id: str, bucket: Bucket) -> None:
     account = await get_or_create_account(db, user_id)
-    limit = await _tier_limit(db, account["tier"], bucket)
+    limit = await _tier_limit(db, effective_tier(account), bucket)
     if limit is None:
         return  # unlimited (Team)
 
@@ -131,7 +149,7 @@ async def would_exceed_quota(settings: Settings, db: SupabaseRest, user_id: str,
     increment; `check_and_increment_quota` is still the actual gate at
     upload/create time."""
     account = await get_or_create_account(db, user_id)
-    limit = await _tier_limit(db, account["tier"], bucket)
+    limit = await _tier_limit(db, effective_tier(account), bucket)
     if limit is None:
         return None
 
@@ -157,7 +175,7 @@ async def get_usage(settings: Settings, db: SupabaseRest, user_id: str) -> list[
 
     results: list[BucketUsage] = []
     for bucket in ("cli", "hook", "dashboard"):
-        limit = await _tier_limit(db, account["tier"], bucket)
+        limit = await _tier_limit(db, effective_tier(account), bucket)
         raw = client.get(_redis_key(user_id, bucket, period_start))
         used = int(raw) if raw else 0
         results.append(BucketUsage(bucket=bucket, used=used, limit=limit, resets_at=period_end))

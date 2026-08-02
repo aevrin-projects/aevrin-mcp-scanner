@@ -156,18 +156,36 @@ export function PricingSection() {
 
     setLoadingTier(tier.id);
     try {
-      const { subscription_id, razorpay_key_id } = await api.createCheckout(
+      const cycle = annual ? "annual" : "monthly";
+      const { order_id, amount_paise, currency, razorpay_key_id } = await api.createCheckout(
         tier.id as "hobby" | "team",
-        annual ? "annual" : "monthly",
+        cycle,
       );
       await loadRazorpayScript();
-      const Razorpay = (window as unknown as { Razorpay: new (opts: object) => { open: () => void } }).Razorpay;
+      type RazorpaySuccess = { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string };
+      type RazorpayInstance = { open: () => void; on: (event: string, handler: (resp: unknown) => void) => void };
+      const Razorpay = (window as unknown as { Razorpay: new (opts: object) => RazorpayInstance }).Razorpay;
       const checkout = new Razorpay({
         key: razorpay_key_id,
-        subscription_id,
+        order_id,
+        amount: amount_paise,
+        currency,
         name: "Aevrin",
-        description: `${tier.name} — ${annual ? "annual" : "monthly"}`,
+        description: `${tier.name} — ${cycle}`,
         theme: { color: "#000000" },
+        handler: async (resp: unknown) => {
+          const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = resp as RazorpaySuccess;
+          try {
+            await api.verifyPayment(razorpay_order_id, razorpay_payment_id, razorpay_signature);
+            toast.success(`${tier.name} plan activated.`);
+            router.push("/dashboard");
+          } catch (err) {
+            toast.error(err instanceof ApiError ? err.message : "Payment succeeded but activation failed — contact support.");
+          }
+        },
+      });
+      checkout.on("payment.failed", () => {
+        toast.error("Payment failed. You weren't charged — try again.");
       });
       checkout.open();
     } catch (err) {
