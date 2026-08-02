@@ -75,7 +75,9 @@ async def create_checkout(
     except RazorpayUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing isn't configured yet.") from exc
 
-    receipt = f"aevrin_{user.id}_{uuid.uuid4().hex[:12]}"
+    # Razorpay caps receipt at 40 chars — the user_id already travels in
+    # `notes` below, so the receipt itself just needs to be unique.
+    receipt = f"aevrin_{uuid.uuid4().hex}"
     order = await client.create_order(
         amount_paise=amount_paise,
         currency=_CURRENCY,
