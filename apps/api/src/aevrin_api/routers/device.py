@@ -113,6 +113,14 @@ async def poll_device_token(
         return DeviceTokenResponse(status="access_denied")
     if row["status"] == "pending":
         return DeviceTokenResponse(status="authorization_pending")
+    if row["status"] != "approved":
+        # Already consumed by an earlier poll (status was flipped to
+        # "expired" right after minting, below) — a replayed poll must
+        # never mint a second key for the same approval. Confirmed as a
+        # real bug via live testing: this check was originally missing,
+        # so a second poll silently minted a second API key instead of
+        # hitting this branch.
+        return DeviceTokenResponse(status="expired_token")
 
     # approved — mint the key exactly once, then burn the device_code so a
     # replayed poll can never mint a second key for the same approval.
