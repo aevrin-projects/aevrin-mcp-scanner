@@ -159,6 +159,19 @@ def _run_clone_stage(
             timeout=120,
             check=True,
         )
+        if clone_url != github_url:
+            # git writes the clone URL verbatim into .git/config — if it
+            # carried our token, that token is now sitting on disk inside
+            # the very directory every scanner tool (trufflehog, gitleaks,
+            # semgrep...) is about to scan. Confirmed live: this shipped an
+            # actual verified, highly-privileged Aevrin GitHub token back to
+            # users as a "critical finding" on their own scan results.
+            # Strip it immediately — the token was only ever needed for the
+            # clone transport itself, not for anything scanned afterward.
+            subprocess.run(
+                ["git", "-C", repo_dir, "remote", "set-url", "origin", github_url],
+                capture_output=True, text=True, timeout=10, check=True,
+            )
         _mark(stage, StageStatus.DONE, on_stage)
         return repo_dir
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
