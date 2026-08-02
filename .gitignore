@@ -1,0 +1,44 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+env.txt
+infra/defectdojo/secrets.generated.md
+*.pem
+*.key
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+npm-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.uv-cache/
+
+# OS / editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+
+# Misc
+*.log
+.cache/
