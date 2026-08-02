@@ -103,6 +103,7 @@ class DefectDojoClient:
                 "severity": _DEFECTDOJO_SEVERITY[finding.severity],
                 "mitigation": finding.remediation,
                 "test": test_id,
+                "found_by": [1],  # matches the "Static Check" test_type used in create_test
                 "date": _today(),
                 "active": finding.triage_status.value == "open",
                 "verified": bool(finding.verified),

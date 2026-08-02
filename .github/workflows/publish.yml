@@ -1,0 +1,63 @@
+name: Publish Python packages
+
+# Triggered by a version tag, e.g. `v0.1.0`. Publishes both PyPI packages via
+# Trusted Publishing (OIDC) — no stored PyPI token. Before the first run,
+# register each project as a trusted publisher at
+# https://pypi.org/manage/project/<name>/settings/publishing/ (or, for a
+# not-yet-existing project, https://pypi.org/manage/account/publishing/)
+# pointing at this repo, workflow file `publish.yml`, and the matching
+# environment name below.
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish-scanner-core:
+    name: Publish aevrin-scanner-core
+    runs-on: ubuntu-latest
+    environment: pypi-scanner-core
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build
+        working-directory: packages/scanner-core
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/scanner-core/dist
+
+  publish-cli:
+    name: Publish aevrin (CLI)
+    runs-on: ubuntu-latest
+    needs: publish-scanner-core
+    environment: pypi-cli
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build
+        working-directory: packages/cli
+        # Build in isolation from the workspace so the wheel records a normal
+        # PyPI dependency on aevrin-scanner-core, not the local path override
+        # in [tool.uv.sources] (that override only applies to editable dev
+        # installs inside this workspace).
+        run: uv build --no-sources
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/cli/dist
