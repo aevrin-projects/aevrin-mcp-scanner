@@ -49,6 +49,7 @@ export interface Scan {
   status: ScanStatus;
   score: number | null;
   error: string | null;
+  mcp_detected: boolean | null;
   created_at: string;
   completed_at: string | null;
 }

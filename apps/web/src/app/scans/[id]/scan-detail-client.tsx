@@ -181,6 +181,18 @@ function ResultsView({ scan, findings }: { scan: Scan; findings: Finding[] }) {
 
   return (
     <div className="mt-8 flex flex-col gap-8" data-testid="scan-results">
+      {scan.mcp_detected === false && (
+        <Alert className="border-severity-medium/50 text-severity-medium [&>svg]:text-severity-medium">
+          <AlertTriangle className="size-4" />
+          <AlertTitle>This doesn&apos;t look like an MCP server</AlertTitle>
+          <AlertDescription>
+            No MCP SDK dependency was found (checked package.json, pyproject.toml, requirements.txt,
+            and similar manifests). The findings below are still real, but they&apos;re general code
+            security findings, not an MCP-specific risk assessment — best-effort detection, not a
+            guarantee.
+          </AlertDescription>
+        </Alert>
+      )}
       <Card>
         <CardContent className="flex items-center justify-between pt-6">
           <div>
