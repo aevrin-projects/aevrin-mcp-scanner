@@ -7,7 +7,7 @@ the CLI and in a hook block message.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
@@ -131,7 +131,7 @@ class Finding(BaseModel):
     not_tested: bool = False  # true only for the synthetic MCP08 placeholder
     raw: dict[str, Any] | None = None  # original tool output, for debugging/audit
     triage_status: TriageStatus = TriageStatus.OPEN
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ScanStage(BaseModel):
@@ -152,5 +152,5 @@ class Scan(BaseModel):
     score: int | None = None
     stages: list[ScanStage] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None

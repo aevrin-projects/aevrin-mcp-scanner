@@ -37,6 +37,24 @@ _SEVERITY_RANK: dict[Severity, int] = {
 }
 
 
+def _version_callback(show_version: bool) -> None:
+    if show_version:
+        from importlib.metadata import version as pkg_version
+
+        typer.echo(pkg_version("aevrin"))
+        raise typer.Exit()
+
+
+@app.callback()
+def main_callback(
+    version: Annotated[
+        bool,
+        typer.Option("--version", callback=_version_callback, is_eager=True, help="Show the installed version and exit."),
+    ] = False,
+) -> None:
+    pass
+
+
 @app.command()
 def scan(
     target: Annotated[str, typer.Argument(help="GitHub URL, local path, or live MCP server URL.")],

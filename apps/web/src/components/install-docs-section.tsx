@@ -6,12 +6,18 @@ import { Button } from "@/components/ui/button";
 import { Copy, Check } from "lucide-react";
 import { Reveal } from "@/components/reveal";
 
+// pipx first — a bare `pip install` fails on modern Debian/Ubuntu and
+// Homebrew Python with "externally-managed-environment" unless you pass
+// --break-system-packages or use a venv. pipx sidesteps that by giving the
+// CLI its own isolated environment automatically, which is also just the
+// correct way to install a Python CLI tool regardless. Requires Python 3.10+.
 const OS_INSTALL: Record<string, string> = {
-  macos: "brew install aevrin\n# or download the binary directly from the releases page",
-  windows: "winget install Aevrin.CLI\n# or: scoop install aevrin\n# or download the .msi from the releases page",
-  linux:
-    "curl -fsSL https://aevrin.net/install.sh | sh\n# or use your distro's package manager if a repo is published\n# or download the binary from the releases page",
+  macos: "brew install pipx\npipx ensurepath\npipx install aevrin",
+  windows: "py -m pip install --user pipx\npy -m pipx ensurepath\npipx install aevrin",
+  linux: "python3 -m pip install --user pipx\npython3 -m pipx ensurepath\npipx install aevrin",
 };
+
+const PIP_FALLBACK = "pip install aevrin";
 
 const VERIFY_BLOCK = "aevrin --version      # confirms the install worked\naevrin login          # opens the device-flow login in your browser";
 
@@ -62,11 +68,16 @@ export function InstallDocsSection() {
               <pre className="overflow-x-auto text-sm">
                 <code>{OS_INSTALL[os]}</code>
               </pre>
-              <CopyButton text={OS_INSTALL[os].split("\n")[0]} label="Copy" />
+              <CopyButton text={OS_INSTALL[os]} label="Copy" />
             </div>
           </TabsContent>
         ))}
       </Tabs>
+
+      <p className="mt-4 text-sm text-muted-foreground">
+        Already have pipx, or prefer a plain venv? <code className="text-foreground">{PIP_FALLBACK}</code> works
+        too. Requires Python 3.10+.
+      </p>
 
       <div className="mt-6 rounded-lg border border-border bg-muted/40 p-4">
         <pre className="overflow-x-auto text-sm">

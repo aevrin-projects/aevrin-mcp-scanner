@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -69,9 +69,9 @@ def _mark(stage: ScanStage, status: StageStatus, on_stage: OnStage, error: str |
     stage.status = status
     stage.error = error
     if status == StageStatus.RUNNING:
-        stage.started_at = datetime.now(UTC)
+        stage.started_at = datetime.now(timezone.utc)
     elif status in (StageStatus.DONE, StageStatus.FAILED, StageStatus.SKIPPED):
-        stage.finished_at = datetime.now(UTC)
+        stage.finished_at = datetime.now(timezone.utc)
     on_stage(stage)
 
 
@@ -136,7 +136,7 @@ def run_pipeline(
         emit([not_tested_placeholder(scan_id)])
         scan.score = compute_score(scan.findings)
         scan.status = ScanStatus.FAILED if len(errors) == len(scan.stages) else ScanStatus.COMPLETED
-        scan.completed_at = datetime.now(UTC)
+        scan.completed_at = datetime.now(timezone.utc)
         _mark(stage_by_name[StageName.AGGREGATING], StageStatus.DONE, on_stage)
         return scan
     finally:
