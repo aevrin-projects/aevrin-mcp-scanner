@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useActionState, useState } from "react";
+import { Suspense, useActionState, useState, type ChangeEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   signInWithGoogle,
@@ -22,6 +22,16 @@ import { Separator } from "@/components/ui/separator";
 
 const idleState: LoginState = { status: "idle" };
 const idleResetState: ResetState = { status: "idle" };
+
+// Supabase's configured email-OTP length for this project — confirmed by
+// inspecting a real delivered code, not assumed. The code input previously
+// capped at 6 characters, silently truncating every code before submit, so
+// no code could ever verify (see auth/actions.ts's verifySignupCode).
+const OTP_LENGTH = 8;
+
+function stripNonDigits(e: ChangeEvent<HTMLInputElement>) {
+  e.currentTarget.value = e.currentTarget.value.replace(/\D/g, "").slice(0, OTP_LENGTH);
+}
 
 function GoogleIcon() {
   return (
@@ -61,71 +71,75 @@ function LoginForm() {
   );
   const [resetResendState, resetResendAction] = useActionState(resendPasswordResetCode, idleResetState);
 
-  if (mode === "reset") {
-    const codeSent = resetVerifyState.status === "code-sent" ? resetVerifyState : resetRequestState;
-    if (codeSent.status === "code-sent" && codeSent.email) {
-      const email = codeSent.email;
-      return (
-        <div className="flex min-h-svh items-center justify-center bg-background px-4">
-          <Card className="w-full max-w-sm">
-            <CardHeader>
-              <CardTitle className="text-xl">Reset your password</CardTitle>
-              <CardDescription>{resetResendState.message ?? codeSent.message}</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <form action={resetVerifyAction} className="flex flex-col gap-4">
-                <input type="hidden" name="email" value={email} />
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="reset-code">6-digit code</Label>
-                  <Input
-                    id="reset-code"
-                    name="code"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={6}
-                    placeholder="123456"
-                    required
-                    autoFocus
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="new-password">New password</Label>
-                  <Input
-                    id="new-password"
-                    name="newPassword"
-                    type="password"
-                    placeholder="At least 8 characters"
-                    minLength={8}
-                    required
-                  />
-                </div>
-                {resetVerifyState.status === "error" && (
-                  <p className="text-sm text-destructive" role="alert">
-                    {resetVerifyState.message}
-                  </p>
-                )}
-                <Button type="submit" disabled={resetVerifyPending} className="w-full">
-                  {resetVerifyPending ? "Resetting…" : "Reset password"}
-                </Button>
-              </form>
-              <form action={resetResendAction}>
-                <input type="hidden" name="email" value={email} />
-                <Button type="submit" variant="ghost" className="w-full text-sm">
-                  Resend code
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
-      );
-    }
+  // Unconditional on `mode` so this also catches the "sign in with Google
+  // first, set a password" path below, which requests a reset code without
+  // ever switching into mode "reset".
+  const codeSent = resetVerifyState.status === "code-sent" ? resetVerifyState : resetRequestState;
+  if (codeSent.status === "code-sent" && codeSent.email) {
+    const email = codeSent.email;
+    return (
+      <div className="flex min-h-svh items-center justify-center bg-background px-4">
+        <Card className="w-full max-w-sm">
+          <CardHeader>
+            <CardTitle className="text-xl">Set your password</CardTitle>
+            <CardDescription>{resetResendState.message ?? codeSent.message}</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <form action={resetVerifyAction} className="flex flex-col gap-4">
+              <input type="hidden" name="email" value={email} />
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="reset-code">Code</Label>
+                <Input
+                  id="reset-code"
+                  name="code"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={OTP_LENGTH}
+                  onChange={stripNonDigits}
+                  placeholder="12345678"
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="new-password">New password</Label>
+                <Input
+                  id="new-password"
+                  name="newPassword"
+                  type="password"
+                  placeholder="At least 8 characters"
+                  minLength={8}
+                  required
+                />
+              </div>
+              {resetVerifyState.status === "error" && (
+                <p className="text-sm text-destructive" role="alert">
+                  {resetVerifyState.message}
+                </p>
+              )}
+              <Button type="submit" disabled={resetVerifyPending} className="w-full">
+                {resetVerifyPending ? "Saving…" : "Save password"}
+              </Button>
+            </form>
+            <form action={resetResendAction}>
+              <input type="hidden" name="email" value={email} />
+              <Button type="submit" variant="ghost" className="w-full text-sm">
+                Resend code
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
+  if (mode === "reset") {
     return (
       <div className="flex min-h-svh items-center justify-center bg-background px-4">
         <Card className="w-full max-w-sm">
           <CardHeader>
             <CardTitle className="text-xl">Reset your password</CardTitle>
-            <CardDescription>We&apos;ll email you a 6-digit code.</CardDescription>
+            <CardDescription>We&apos;ll email you a code.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <form action={resetRequestAction} className="flex flex-col gap-4">
@@ -172,14 +186,15 @@ function LoginForm() {
               <input type="hidden" name="email" value={email} />
               <input type="hidden" name="next" value={next} />
               <div className="flex flex-col gap-2">
-                <Label htmlFor="code">6-digit code</Label>
+                <Label htmlFor="code">Code</Label>
                 <Input
                   id="code"
                   name="code"
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  maxLength={6}
-                  placeholder="123456"
+                  maxLength={OTP_LENGTH}
+                  onChange={stripNonDigits}
+                  placeholder="12345678"
                   required
                   autoFocus
                 />
@@ -205,6 +220,47 @@ function LoginForm() {
     );
   }
 
+  if (signInState.status === "google-only" && signInState.email) {
+    const email = signInState.email;
+    return (
+      <div className="flex min-h-svh items-center justify-center bg-background px-4">
+        <Card className="w-full max-w-sm">
+          <CardHeader>
+            <CardTitle className="text-xl">This email uses Google sign-in</CardTitle>
+            <CardDescription>{signInState.message}</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <form action={signInWithGoogle}>
+              <input type="hidden" name="next" value={next} />
+              <Button type="submit" variant="outline" className="w-full gap-2">
+                <GoogleIcon />
+                Continue with Google
+              </Button>
+            </form>
+            <div className="flex items-center gap-3">
+              <Separator className="flex-1" />
+              <span className="text-xs text-muted-foreground">or</span>
+              <Separator className="flex-1" />
+            </div>
+            <form action={resetRequestAction}>
+              <input type="hidden" name="email" value={email} />
+              <Button type="submit" variant="secondary" disabled={resetRequestPending} className="w-full">
+                {resetRequestPending ? "Sending…" : "Email me a code to set a password"}
+              </Button>
+            </form>
+            <button
+              type="button"
+              onClick={() => setMode("signin")}
+              className="text-center text-sm text-muted-foreground hover:text-foreground"
+            >
+              Back to sign in
+            </button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const activeState = mode === "signin" ? signInState : signUpState;
   const activeAction = mode === "signin" ? signInAction : signUpAction;
   const activePending = mode === "signin" ? signInPending : signUpPending;
@@ -215,7 +271,7 @@ function LoginForm() {
         <CardHeader>
           <CardTitle className="text-xl">{mode === "signin" ? "Sign in to Aevrin" : "Create your Aevrin account"}</CardTitle>
           <CardDescription>
-            {mode === "signin" ? "Welcome back." : "We'll email you a 6-digit code to verify your address."}
+            {mode === "signin" ? "Welcome back." : "We'll email you a code to verify your address."}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">

@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, RateLimitExceededError } from "@/lib/rate-limit";
 
 export type LoginState = {
-  status: "idle" | "verify-code" | "error";
+  status: "idle" | "verify-code" | "google-only" | "error";
   message?: string;
   email?: string;
   mode?: "signin" | "signup";
@@ -18,6 +18,26 @@ export type ResetState = {
 };
 
 const siteUrl = () => process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+const apiUrl = () => process.env.NEXT_PUBLIC_API_URL!;
+
+type AccountLookup = { exists: boolean; providers: string[]; has_password: boolean };
+
+// Backed by a service-role-only Postgres function (see
+// infra/migrations/0004_account_lookup_function.sql) — Supabase auto-links
+// identities across providers for the same email, so telling "no account"
+// apart from "account exists via Google, no password set" needs to read
+// auth.identities, which the anon key can't reach directly.
+async function lookupAccount(email: string): Promise<AccountLookup> {
+  try {
+    const res = await fetch(`${apiUrl()}/auth/lookup?email=${encodeURIComponent(email)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return { exists: false, providers: [], has_password: false };
+    return (await res.json()) as AccountLookup;
+  } catch {
+    return { exists: false, providers: [], has_password: false };
+  }
+}
 
 // Only ever redirect to a relative, in-app path — formData is
 // user-controlled, and an unvalidated redirect target is an open-redirect
@@ -69,6 +89,15 @@ export async function signInWithPassword(_prevState: LoginState, formData: FormD
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
+    const lookup = await lookupAccount(email);
+    if (lookup.exists && !lookup.has_password) {
+      return {
+        status: "google-only",
+        email,
+        mode: "signin",
+        message: "This email signed in with Google and doesn't have a password yet.",
+      };
+    }
     return { status: "error", message: "Incorrect email or password.", mode: "signin" };
   }
   redirect(safeNext(formData));
@@ -91,6 +120,22 @@ export async function signUpWithPassword(_prevState: LoginState, formData: FormD
       return { status: "error", message: "Too many signup attempts. Try again in a bit.", mode: "signup" };
     }
     throw err;
+  }
+
+  // Checked before calling signUp() rather than relying on GoTrue's
+  // anti-enumeration "fake success, no email sent" response for already-
+  // confirmed users — that silent success left people staring at a "check
+  // your email" screen for a code that would never arrive.
+  const lookup = await lookupAccount(email);
+  if (lookup.exists) {
+    const viaGoogle = lookup.providers.includes("google") && !lookup.has_password;
+    return {
+      status: "error",
+      mode: "signup",
+      message: viaGoogle
+        ? "An account with this email already exists — you signed in with Google. Sign in with Google, or use \"Forgot password\" to set one."
+        : "An account with this email already exists. Try signing in instead.",
+    };
   }
 
   const supabase = await createClient();
