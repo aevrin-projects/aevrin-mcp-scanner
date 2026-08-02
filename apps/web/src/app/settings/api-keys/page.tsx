@@ -54,8 +54,8 @@ export default function ApiKeysPage() {
     <div className="mx-auto max-w-2xl px-6 py-12">
       <h1 className="text-2xl font-semibold tracking-tight">API keys</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Used by <code>aevrin scan --upload</code> and the Claude Code hook. Set{" "}
-        <code>AEVRIN_API_KEY</code> in your environment.
+        For CI and automation, where <code>aevrin login</code>&apos;s interactive browser flow isn&apos;t
+        practical — set <code>AEVRIN_API_KEY</code> in your environment instead.
       </p>
 
       {justCreated && (

@@ -6,7 +6,7 @@
 [![Downloads](https://img.shields.io/pypi/dm/aevrin.svg)](https://pypi.org/project/aevrin/)
 [![Publish status](https://github.com/aevrin-projects/aevrin-mcp-scanner/actions/workflows/publish.yml/badge.svg)](https://github.com/aevrin-projects/aevrin-mcp-scanner/actions/workflows/publish.yml)
 
-Aevrin MCP Security Scanner CLI. Wraps the same open-source scanner binaries and normalization logic (`aevrin-scanner-core`) that the Aevrin backend uses, run locally against your own machine — no network call required unless you pass `--upload`.
+Aevrin MCP Security Scanner CLI. Wraps the same open-source scanner binaries and normalization logic (`aevrin-scanner-core`) that the Aevrin backend uses, run locally against your own machine. Results save to your Aevrin dashboard automatically once you're logged in — pass `--no-upload` for a purely local, ephemeral scan.
 
 ## Install
 
@@ -23,7 +23,7 @@ aevrin scan ./my-mcp-server
 aevrin scan github.com/owner/repo
 aevrin scan https://my-live-server.example.com --json
 aevrin scan ./my-mcp-server --fail-on high
-aevrin scan ./my-mcp-server --upload   # requires AEVRIN_API_KEY env var
+aevrin scan ./my-mcp-server --no-upload   # skip saving to your dashboard (e.g. in CI)
 ```
 
 Target type is auto-detected: a `github.com` URL scans the full pipeline (static analysis, secrets, dependencies, tool-description checks); any other `http(s)://` URL is treated as a live MCP server (manifest-level checks only); anything that exists on disk is scanned as a local path (full pipeline, no cloning).
@@ -33,7 +33,7 @@ Target type is auto-detected: a `github.com` URL scans the full pipeline (static
 | Flag | Behavior |
 |---|---|
 | `--json` | Machine-readable JSON on stdout instead of a formatted table. |
-| `--upload` | Pushes the result to your Aevrin account. Requires `AEVRIN_API_KEY`, set from your account's API keys settings page — never required for a local-only scan. |
+| `--no-upload` | Skip saving the result to your Aevrin dashboard (on by default once logged in). Useful in CI, or for a purely local, ephemeral scan. |
 | `--fail-on <severity>` | Minimum severity that causes a non-zero exit code. One of `critical`, `high`, `medium`, `low`, `info`. Defaults to `high` (both `critical` and `high` findings fail the build). |
 
 ### Exit codes
@@ -42,7 +42,7 @@ Target type is auto-detected: a `github.com` URL scans the full pipeline (static
 |---|---|
 | `0` | Clean — no findings at or above the `--fail-on` threshold. |
 | `1` | Findings at or above the `--fail-on` threshold were found. |
-| `2` | Misuse — bad arguments, a target that couldn't be resolved, every scan stage failed to run, or `--upload` failed. |
+| `2` | Misuse — bad arguments, a target that couldn't be resolved, or every scan stage failed to run. A dashboard-save failure does *not* set this — it's a warning on stderr, not a scan failure. |
 
 Results go to stdout; stage progress and diagnostics go to stderr — safe to pipe `--json` output without stage-progress noise mixed in.
 

@@ -60,8 +60,14 @@ def scan(
     target: Annotated[str, typer.Argument(help="GitHub URL, local path, or live MCP server URL.")],
     json_output: Annotated[bool, typer.Option("--json", help="Machine-readable JSON output.")] = False,
     upload: Annotated[
-        bool, typer.Option("--upload", help="Upload results to your Aevrin account (requires AEVRIN_API_KEY).")
-    ] = False,
+        bool,
+        typer.Option(
+            "--upload/--no-upload",
+            help="Save results to your Aevrin dashboard. On by default when logged in — pass "
+            "--no-upload for a purely local, ephemeral scan (e.g. in CI, where you don't want scan "
+            "history persisted).",
+        ),
+    ] = True,
     fail_on: Annotated[
         str, typer.Option("--fail-on", help="Minimum severity that causes a non-zero exit code.")
     ] = "high",
@@ -134,13 +140,16 @@ def scan(
         output.print_terminal_report(result)
 
     if upload:
+        # Non-fatal: upload is on by default now (not an explicit ask), so a
+        # transient network hiccup syncing to the dashboard shouldn't turn an
+        # otherwise-successful scan into a failure — that would be a bad
+        # surprise in a CI pipeline that only cares about the scan result.
         try:
             upload_scan(result)
             if not json_output:
-                output.stderr_console.print("[green]Uploaded to your Aevrin account.[/green]")
+                output.stderr_console.print("[green]Saved to your Aevrin dashboard.[/green]")
         except UploadError as exc:
-            output.print_error(str(exc))
-            raise typer.Exit(code=2) from None
+            output.print_error(f"Scan completed, but saving to your dashboard failed: {exc}")
 
     all_stages_failed = result.stages and all(s.status == StageStatus.FAILED for s in result.stages)
     if all_stages_failed:
