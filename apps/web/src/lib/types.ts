@@ -88,3 +88,24 @@ export interface ApiKey {
   last_used_at: string | null;
   revoked_at: string | null;
 }
+
+export type UsageBucket = "cli" | "hook" | "dashboard";
+
+export interface BucketUsage {
+  bucket: UsageBucket;
+  used: number;
+  limit: number | null; // null = unlimited (Team)
+  resets_at: string;
+}
+
+export interface AccountUsage {
+  tier: "free" | "hobby" | "team";
+  buckets: BucketUsage[];
+}
+
+export interface Subscription {
+  tier: "free" | "hobby" | "team";
+  subscription_status: string | null;
+  razorpay_subscription_id: string | null;
+  downgrade_effective_at: string | null;
+}

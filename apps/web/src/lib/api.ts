@@ -74,4 +74,28 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
   revokeApiKey: (id: number) => request<void>(`/api-keys/${id}`, { method: "DELETE" }),
+  getUsage: () => request<import("@/lib/types").AccountUsage>("/account/usage"),
+  approveDevice: (userCode: string, fingerprint: string | null) =>
+    request<{ status: string }>(`/device/${userCode}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ user_code: userCode, fingerprint }),
+    }),
+  getSubscription: () => request<import("@/lib/types").Subscription>("/billing/subscription"),
+  createCheckout: (tier: "hobby" | "team", cycle: "monthly" | "annual") =>
+    request<{ subscription_id: string; razorpay_key_id: string }>("/billing/checkout", {
+      method: "POST",
+      body: JSON.stringify({ tier, cycle }),
+    }),
+  cancelSubscription: () => request<{ status: string }>("/billing/cancel", { method: "POST" }),
 };
+
+// GET /device/{code} doesn't require auth (the approval page needs to show
+// what's pending before the person is necessarily logged in) — plain fetch,
+// not the authHeaders()-wrapped `request` helper above.
+export async function getDeviceCodeInfo(userCode: string): Promise<{ client_kind: string; status: string }> {
+  const res = await fetch(`${API_URL}/device/${userCode}`);
+  if (!res.ok) {
+    throw new ApiError(res.status, res.status === 404 ? "This code is invalid or has expired." : res.statusText);
+  }
+  return res.json();
+}

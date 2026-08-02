@@ -1,179 +1,91 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { api, ApiError } from "@/lib/api";
-import type { Scan, TargetType } from "@/lib/types";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
+import { buttonVariants } from "@/components/ui/button";
+import { SeverityBadge } from "@/components/severity-badge";
+import { PricingSection } from "@/components/pricing-section";
+import { InstallDocsSection } from "@/components/install-docs-section";
+import { SiteFooter } from "@/components/site-footer";
+import { ArrowRight } from "lucide-react";
 
-const DEMO_SERVERS = [
-  { label: "modelcontextprotocol/servers", target: "https://github.com/modelcontextprotocol/servers" },
-  { label: "github/github-mcp-server", target: "https://github.com/github/github-mcp-server" },
+const HOW_IT_WORKS = [
+  { step: "1", title: "Scan", body: "Point Aevrin at a GitHub repo, a live MCP server, or a pasted config — from the CLI, the dashboard, or automatically via the Claude Code hook." },
+  { step: "2", title: "Findings", body: "Ten established open-source security tools run in parallel, normalized against the OWASP MCP Top 10 — no vocabulary drift between the CLI and the dashboard." },
+  { step: "3", title: "Score", body: "One number, 0–100, computed from severity-weighted findings — floor 0, so a server with real critical issues can't hide behind a partial scan." },
+  { step: "4", title: "Fix", body: "Every finding ships with concrete remediation, triaged in the dashboard, exportable as a compliance report." },
 ];
 
-const TARGET_LABELS: Record<TargetType, string> = {
-  github_repo: "GitHub repository URL",
-  live_mcp_server: "Live MCP server URL",
-  config_paste: "Paste config (mcp.json)",
-};
-
-export default function NewScanPage() {
-  const router = useRouter();
-  const [tab, setTab] = useState<TargetType>("github_repo");
-  const [target, setTarget] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [recentScans, setRecentScans] = useState<Scan[] | null>(null);
-
-  useEffect(() => {
-    api
-      .listScans()
-      .then(setRecentScans)
-      .catch(() => setRecentScans([]));
-  }, []);
-
-  async function submit(target_type: TargetType, targetValue: string) {
-    if (!targetValue.trim()) {
-      toast.error("Enter a target before starting a scan.");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const scan = await api.createScan(target_type, targetValue.trim());
-      router.push(`/scans/${scan.id}`);
-    } catch (err) {
-      const message = err instanceof ApiError ? err.message : "Could not start the scan.";
-      toast.error(message);
-      setSubmitting(false);
-    }
-  }
-
+export default function LandingPage() {
   return (
-    <div className="mx-auto max-w-3xl px-6 py-12">
-      <h1 className="text-2xl font-semibold tracking-tight">New scan</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Scan an MCP server against the OWASP MCP Top 10 using established open-source security
-        tools.
-      </p>
+    <div>
+      {/* Hero */}
+      <section className="mx-auto max-w-6xl px-6 pb-16 pt-20 sm:pt-28">
+        <div className="grid items-center gap-12 lg:grid-cols-2">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+              Know what an MCP server can actually do before you install it.
+            </h1>
+            <p className="mt-4 text-lg text-muted-foreground">
+              Aevrin scans MCP servers against the OWASP MCP Top 10 using established open-source
+              security tools — one score, real findings, before it touches your machine.
+            </p>
+            <div className="mt-8 flex items-center gap-3">
+              <Link href="/login" className={buttonVariants({ size: "lg" })}>
+                Get started free
+                <ArrowRight className="size-4" />
+              </Link>
+              <Link href="#install" className={buttonVariants({ size: "lg", variant: "outline" })}>
+                Install the CLI
+              </Link>
+            </div>
+          </div>
 
-      <Card className="mt-8">
-        <CardContent className="pt-6">
-          <Tabs value={tab} onValueChange={(v) => setTab(v as TargetType)}>
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="github_repo">GitHub repo</TabsTrigger>
-              <TabsTrigger value="live_mcp_server">Live server</TabsTrigger>
-              <TabsTrigger value="config_paste">Paste config</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="github_repo" className="mt-6 flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="github-target">{TARGET_LABELS.github_repo}</Label>
-                <Input
-                  id="github-target"
-                  placeholder="https://github.com/owner/repo"
-                  value={tab === "github_repo" ? target : ""}
-                  onChange={(e) => setTarget(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Enables the full scanner set: static analysis, secrets, dependencies, and
-                  tool-description checks.
-                </p>
+          <div className="rounded-lg border border-border bg-muted/40 p-5 font-mono text-sm">
+            <div className="text-muted-foreground">$ aevrin scan github.com/owner/mcp-server</div>
+            <div className="mt-2 flex flex-col gap-1 text-muted-foreground">
+              <span>[✓] static analysis</span>
+              <span>[✓] secrets</span>
+              <span>[✓] dependencies</span>
+              <span>[✓] tool description check</span>
+              <span>[✓] aggregating</span>
+            </div>
+            <div className="mt-3">
+              Score: <span className="font-semibold">62/100</span>{" "}
+              <span className="text-muted-foreground">— Significant risk</span>
+            </div>
+            <div className="mt-4 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <SeverityBadge severity="critical" />
+                <span>Hardcoded secret — MCP01</span>
               </div>
-              <Button
-                disabled={submitting}
-                onClick={() => submit("github_repo", target)}
-                data-testid="submit-scan"
-              >
-                {submitting ? "Starting scan…" : "Scan repository"}
-              </Button>
-              <div className="flex flex-wrap gap-2">
-                {DEMO_SERVERS.map((demo) => (
-                  <Button
-                    key={demo.target}
-                    variant="outline"
-                    size="sm"
-                    disabled={submitting}
-                    onClick={() => {
-                      setTarget(demo.target);
-                      submit("github_repo", demo.target);
-                    }}
-                  >
-                    {demo.label}
-                  </Button>
-                ))}
+              <div className="flex items-center gap-2">
+                <SeverityBadge severity="high" />
+                <span>subprocess shell=True — MCP05</span>
               </div>
-            </TabsContent>
-
-            <TabsContent value="live_mcp_server" className="mt-6 flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="live-target">{TARGET_LABELS.live_mcp_server}</Label>
-                <Input
-                  id="live-target"
-                  placeholder="https://my-mcp-server.example.com"
-                  value={tab === "live_mcp_server" ? target : ""}
-                  onChange={(e) => setTarget(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Manifest-level checks only, via MCP-Shield and mcp-scan.
-                </p>
-              </div>
-              <Button disabled={submitting} onClick={() => submit("live_mcp_server", target)}>
-                {submitting ? "Starting scan…" : "Scan live server"}
-              </Button>
-            </TabsContent>
-
-            <TabsContent value="config_paste" className="mt-6 flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="config-target">{TARGET_LABELS.config_paste}</Label>
-                <Textarea
-                  id="config-target"
-                  placeholder={'{\n  "mcpServers": {\n    "my-server": { "command": "node", "args": ["server.js"] }\n  }\n}'}
-                  className="min-h-40 font-mono text-sm"
-                  value={tab === "config_paste" ? target : ""}
-                  onChange={(e) => setTarget(e.target.value)}
-                />
-              </div>
-              <Button disabled={submitting} onClick={() => submit("config_paste", target)}>
-                {submitting ? "Starting scan…" : "Scan config"}
-              </Button>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
-
-      <div className="mt-10">
-        <h2 className="text-sm font-medium text-muted-foreground">Recent scans</h2>
-        <div className="mt-3 flex flex-col gap-2">
-          {recentScans === null &&
-            Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
-          {recentScans?.length === 0 && (
-            <p className="text-sm text-muted-foreground">No scans yet.</p>
-          )}
-          {recentScans?.map((scan) => (
-            <Link
-              key={scan.id}
-              href={`/scans/${scan.id}`}
-              className="flex items-center justify-between rounded-lg border border-border px-4 py-3 text-sm hover:bg-accent"
-            >
-              <span className="truncate font-mono">{scan.target}</span>
-              <div className="flex items-center gap-3">
-                {scan.score !== null && <Badge variant="outline">{scan.score}/100</Badge>}
-                <Badge variant={scan.status === "completed" ? "secondary" : "outline"}>
-                  {scan.status}
-                </Badge>
-              </div>
-            </Link>
-          ))}
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {/* How it works */}
+      <section className="border-t border-border bg-muted/20">
+        <div className="mx-auto max-w-6xl px-6 py-20">
+          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">How it works</h2>
+          <div className="mt-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+            {HOW_IT_WORKS.map((item) => (
+              <div key={item.step}>
+                <div className="flex size-8 items-center justify-center rounded-full border border-border text-sm font-medium">
+                  {item.step}
+                </div>
+                <h3 className="mt-3 font-medium">{item.title}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">{item.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <PricingSection />
+      <InstallDocsSection />
+      <SiteFooter />
     </div>
   );
 }

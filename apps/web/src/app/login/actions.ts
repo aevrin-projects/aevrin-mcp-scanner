@@ -1,26 +1,140 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, RateLimitExceededError } from "@/lib/rate-limit";
 
-export async function sendMagicLink(
-  _prevState: { status: "idle" | "sent" | "error"; message?: string },
-  formData: FormData,
-): Promise<{ status: "idle" | "sent" | "error"; message?: string }> {
-  const email = formData.get("email") as string;
-  if (!email || !email.includes("@")) {
-    return { status: "error", message: "Enter a valid email address." };
+export type LoginState = {
+  status: "idle" | "verify-code" | "error";
+  message?: string;
+  email?: string;
+  mode?: "signin" | "signup";
+};
+
+const siteUrl = () => process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+
+// Only ever redirect to a relative, in-app path — formData is
+// user-controlled, and an unvalidated redirect target is an open-redirect
+// vector (never accept a full URL / protocol-relative "//" path here).
+function safeNext(formData: FormData): string {
+  const next = formData.get("next");
+  if (typeof next === "string" && next.startsWith("/") && !next.startsWith("//") && next !== "/") {
+    return next;
+  }
+  return "/dashboard";
+}
+
+export async function signInWithGoogle(formData: FormData): Promise<void> {
+  const next = safeNext(formData);
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${siteUrl()}/auth/callback?next=${encodeURIComponent(next)}`,
+      skipBrowserRedirect: true,
+    },
+  });
+  if (error || !data.url) {
+    // Nothing sensible to return to the caller — signInWithGoogle is a
+    // plain <form action> with no useActionState wired to it, so surface
+    // failure the same way redirect() would: throw and let Next's default
+    // error boundary handle a genuinely broken OAuth config.
+    throw new Error(error?.message ?? "Could not start Google sign-in.");
+  }
+  redirect(data.url);
+}
+
+export async function signInWithPassword(_prevState: LoginState, formData: FormData): Promise<LoginState> {
+  const email = (formData.get("email") as string) ?? "";
+  const password = (formData.get("password") as string) ?? "";
+  if (!email || !password) {
+    return { status: "error", message: "Enter your email and password.", mode: "signin" };
+  }
+
+  try {
+    await checkRateLimit(`verify:${email}`, 10, 900);
+  } catch (err) {
+    if (err instanceof RateLimitExceededError) {
+      return { status: "error", message: "Too many attempts. Try again in a few minutes.", mode: "signin" };
+    }
+    throw err;
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/auth/confirm`,
-    },
-  });
-
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
-    return { status: "error", message: error.message };
+    return { status: "error", message: "Incorrect email or password.", mode: "signin" };
   }
-  return { status: "sent", message: `Check ${email} for a sign-in link.` };
+  redirect(safeNext(formData));
+}
+
+export async function signUpWithPassword(_prevState: LoginState, formData: FormData): Promise<LoginState> {
+  const email = (formData.get("email") as string) ?? "";
+  const password = (formData.get("password") as string) ?? "";
+  if (!email || !password) {
+    return { status: "error", message: "Enter an email and password.", mode: "signup" };
+  }
+  if (password.length < 8) {
+    return { status: "error", message: "Password must be at least 8 characters.", mode: "signup" };
+  }
+
+  try {
+    await checkRateLimit(`request:${email}`, 5, 3600);
+  } catch (err) {
+    if (err instanceof RateLimitExceededError) {
+      return { status: "error", message: "Too many signup attempts. Try again in a bit.", mode: "signup" };
+    }
+    throw err;
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signUp({ email, password });
+  if (error) {
+    return { status: "error", message: error.message, mode: "signup" };
+  }
+  return { status: "verify-code", email, mode: "signup", message: `We emailed a code to ${email}.` };
+}
+
+export async function verifySignupCode(_prevState: LoginState, formData: FormData): Promise<LoginState> {
+  const email = (formData.get("email") as string) ?? "";
+  const code = (formData.get("code") as string) ?? "";
+  if (!email || !code) {
+    return { status: "verify-code", email, mode: "signup", message: "Enter the code from your email." };
+  }
+
+  try {
+    // The guess-limit — this is the one that actually matters, since a
+    // 6-digit code has only a million possibilities.
+    await checkRateLimit(`verify:${email}`, 5, 900);
+  } catch (err) {
+    if (err instanceof RateLimitExceededError) {
+      return { status: "error", message: "Too many incorrect attempts. Request a new code and try again." };
+    }
+    throw err;
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "signup" });
+  if (error) {
+    return { status: "verify-code", email, mode: "signup", message: "That code is incorrect or expired." };
+  }
+  redirect(safeNext(formData));
+}
+
+export async function resendSignupCode(_prevState: LoginState, formData: FormData): Promise<LoginState> {
+  const email = (formData.get("email") as string) ?? "";
+  try {
+    await checkRateLimit(`request:${email}`, 5, 3600);
+  } catch (err) {
+    if (err instanceof RateLimitExceededError) {
+      return { status: "verify-code", email, mode: "signup", message: "Too many resend attempts. Try again later." };
+    }
+    throw err;
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resend({ type: "signup", email });
+  if (error) {
+    return { status: "verify-code", email, mode: "signup", message: error.message };
+  }
+  return { status: "verify-code", email, mode: "signup", message: `Sent a new code to ${email}.` };
 }
