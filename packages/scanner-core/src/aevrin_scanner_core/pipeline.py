@@ -113,17 +113,6 @@ def run_pipeline(
             _run_dependencies_stage(
                 scan_id, repo_dir, target, config, stage_by_name[StageName.DEPENDENCIES], on_stage, emit, errors
             )
-        elif target_type == TargetType.LOCAL_PATH:
-            # CLI scanning the user's own machine — nothing to clone, the
-            # target IS the directory to scan. Not a git URL, so Scorecard
-            # (github-repo-only) is skipped inside _run_dependencies_stage.
-            repo_dir = target
-            _mark(stage_by_name[StageName.CLONING], StageStatus.SKIPPED, on_stage)
-            _run_static_analysis_stage(scan_id, repo_dir, stage_by_name[StageName.STATIC_ANALYSIS], on_stage, emit, errors)
-            _run_secrets_stage(scan_id, repo_dir, stage_by_name[StageName.SECRETS], on_stage, emit, errors)
-            _run_dependencies_stage(
-                scan_id, repo_dir, target, config, stage_by_name[StageName.DEPENDENCIES], on_stage, emit, errors
-            )
         else:
             for name in (StageName.CLONING, StageName.STATIC_ANALYSIS, StageName.SECRETS, StageName.DEPENDENCIES):
                 _mark(stage_by_name[name], StageStatus.SKIPPED, on_stage)
@@ -212,17 +201,15 @@ def _run_dependencies_stage(
         if error:
             tool_errors.append(error)
 
-    if config.github_token and github_url.startswith("https://github.com/"):
+    if config.github_token:
         owner_repo = github_url.removeprefix("https://github.com/").removesuffix(".git")
         scorecard = ScorecardAdapter(github_repo=owner_repo, github_token=config.github_token)
         findings, error = _run_isolated("openssf-scorecard", lambda: scorecard.run(scan_id, repo_dir))
         emit(findings)
         if error:
             tool_errors.append(error)
-    elif not config.github_token:
-        tool_errors.append("openssf-scorecard: skipped, no GITHUB_TOKEN configured")
     else:
-        tool_errors.append("openssf-scorecard: skipped, target is not a github.com repo URL")
+        tool_errors.append("openssf-scorecard: skipped, no GITHUB_TOKEN configured")
 
     _finish_stage(stage, tool_errors, on_stage, errors)
 

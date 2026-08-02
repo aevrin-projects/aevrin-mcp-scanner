@@ -43,7 +43,6 @@ class TargetType(str, Enum):
     GITHUB_REPO = "github_repo"
     LIVE_MCP_SERVER = "live_mcp_server"
     CONFIG_PASTE = "config_paste"
-    LOCAL_PATH = "local_path"  # CLI-only — website Screen 1 doesn't expose this mode
 
 
 class ScanStatus(str, Enum):
