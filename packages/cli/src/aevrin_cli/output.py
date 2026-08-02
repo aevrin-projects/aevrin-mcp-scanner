@@ -35,6 +35,15 @@ def print_stage_update(name: str, status: str, error: str | None = None) -> None
 def print_terminal_report(scan: Scan) -> None:
     stdout_console.print()
     stdout_console.print(f"[bold]Target:[/bold] {scan.target}")
+    if scan.mcp_detected is False:
+        stdout_console.print(
+            "[bold yellow]⚠ This doesn't look like an MCP server[/bold yellow] — no MCP SDK "
+            "dependency was found (checked package.json, pyproject.toml, requirements.txt, and "
+            "similar manifests). The findings below are still real, but they're general code "
+            "security findings, not an MCP-specific risk assessment — best-effort detection, not "
+            "a guarantee."
+        )
+        stdout_console.print()
     score = scan.score if scan.score is not None else 0
     score_style = "bold green" if score >= 90 else "bold yellow" if score >= 40 else "bold red"
     stdout_console.print(f"[bold]Score:[/bold]  [{score_style}]{score}/100[/{score_style}]  {verdict(score)}")
@@ -73,6 +82,7 @@ def print_json_report(scan: Scan) -> None:
         "status": scan.status.value,
         "score": scan.score,
         "verdict": verdict(scan.score) if scan.score is not None else None,
+        "mcp_detected": scan.mcp_detected,
         "findings": [
             {
                 "id": str(f.id),

@@ -32,6 +32,7 @@ def upload_scan(scan: Scan) -> None:
         "target_type": scan.target_type.value,
         "target": scan.target,
         "score": scan.score if scan.score is not None else 0,
+        "mcp_detected": scan.mcp_detected,
         "findings": [
             {
                 "id": str(f.id),
