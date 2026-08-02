@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import get_settings
 from .db import SupabaseRestError
@@ -18,6 +19,25 @@ settings = get_settings()
 
 app = FastAPI(title="Aevrin API", version="0.1.0")
 
+
+class CatchUnhandledErrorsMiddleware(BaseHTTPMiddleware):
+    """@app.exception_handler(Exception) attaches to Starlette's outermost
+    ServerErrorMiddleware, which sits *outside* CORSMiddleware — its 500
+    response never passes back through CORS header injection, so any
+    unhandled exception (e.g. an upstream Razorpay/Supabase call failing)
+    shows up in the browser as an opaque CORS error instead of a real one.
+    This middleware is added before CORSMiddleware below, which puts it
+    *inside* CORS in the stack, so its response gets proper headers."""
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
+        try:
+            return await call_next(request)
+        except Exception:
+            logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+            return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+app.add_middleware(CatchUnhandledErrorsMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.web_origin],
@@ -66,11 +86,3 @@ async def quota_exceeded_handler(request: Request, exc: QuotaExceeded) -> JSONRe
             "upgrade_url": exc.upgrade_url,
         },
     )
-
-
-@app.exception_handler(Exception)
-async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
-    if isinstance(exc, HTTPException):
-        raise exc
-    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
