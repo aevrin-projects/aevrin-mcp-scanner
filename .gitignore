@@ -43,3 +43,4 @@ blob-report/
 # Misc
 *.log
 .cache/
+.claude/

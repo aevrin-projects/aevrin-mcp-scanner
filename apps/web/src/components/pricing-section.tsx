@@ -11,6 +11,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Check } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
+import { Reveal } from "@/components/reveal";
 
 type TierId = "free" | "hobby" | "team";
 
@@ -182,9 +183,12 @@ export function PricingSection() {
 
   return (
     <section id="pricing" className="mx-auto max-w-6xl px-6 py-20">
-      <div className="text-center">
-        <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">Pricing</h2>
-        <p className="mt-2 text-muted-foreground">Simple per-scan-type limits. No surprise overages.</p>
+      <Reveal className="text-center">
+        <span className="text-xs font-medium tracking-wide text-brand uppercase">Pricing</span>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+          Simple per-scan-type limits
+        </h2>
+        <p className="mt-2 text-muted-foreground">No surprise overages, ever.</p>
         <div className="mt-6 flex items-center justify-center gap-3">
           <span className={annual ? "text-muted-foreground" : ""}>Monthly</span>
           <Switch checked={annual} onCheckedChange={setAnnual} aria-label="Toggle annual billing" />
@@ -192,50 +196,55 @@ export function PricingSection() {
             Annual
           </span>
         </div>
-      </div>
+      </Reveal>
 
       <div className="mt-10 grid gap-6 sm:grid-cols-3">
-        {TIERS.map((tier) => {
+        {TIERS.map((tier, i) => {
           const price = annual ? tier.annual : tier.monthly;
           return (
-            <Card
-              key={tier.id}
-              className={tier.popular ? "border-primary shadow-lg shadow-primary/10 sm:scale-105" : ""}
-            >
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>{tier.name}</CardTitle>
-                  {tier.popular && <Badge>Most popular</Badge>}
-                </div>
-                <div className="flex items-baseline gap-1 pt-2">
-                  <span className="text-3xl font-semibold">${price}</span>
-                  <span className="text-sm text-muted-foreground">/mo</span>
-                </div>
-                {annual && tier.id !== "free" && (
-                  <p className="text-xs text-muted-foreground">
-                    Billed annually — save ${savingsByTier[tier.id]}/year
-                  </p>
-                )}
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4">
-                <ul className="flex flex-col gap-2 text-sm">
-                  {tier.features.map((f) => (
-                    <li key={f} className="flex items-start gap-2">
-                      <Check className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Button
-                  className="w-full"
-                  variant={tier.popular ? "default" : "outline"}
-                  disabled={loadingTier === tier.id}
-                  onClick={() => handleCta(tier)}
-                >
-                  {loadingTier === tier.id ? "Please wait…" : tier.cta}
-                </Button>
-              </CardContent>
-            </Card>
+            <Reveal key={tier.id} delay={i * 80} className="h-full">
+              <Card
+                className={
+                  tier.popular ? "h-full border-brand shadow-lg shadow-brand/20 sm:scale-105" : "h-full"
+                }
+              >
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>{tier.name}</CardTitle>
+                    {tier.popular && (
+                      <Badge className="border-transparent bg-brand text-brand-foreground">Most popular</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-baseline gap-1 pt-2">
+                    <span className="text-3xl font-semibold">${price}</span>
+                    <span className="text-sm text-muted-foreground">/mo</span>
+                  </div>
+                  {annual && tier.id !== "free" && (
+                    <p className="text-xs text-muted-foreground">
+                      Billed annually — save ${savingsByTier[tier.id]}/year
+                    </p>
+                  )}
+                </CardHeader>
+                <CardContent className="flex flex-col gap-4">
+                  <ul className="flex flex-col gap-2 text-sm">
+                    {tier.features.map((f) => (
+                      <li key={f} className="flex items-start gap-2">
+                        <Check className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <Button
+                    className="w-full"
+                    variant={tier.popular ? "default" : "outline"}
+                    disabled={loadingTier === tier.id}
+                    onClick={() => handleCta(tier)}
+                  >
+                    {loadingTier === tier.id ? "Please wait…" : tier.cta}
+                  </Button>
+                </CardContent>
+              </Card>
+            </Reveal>
           );
         })}
       </div>

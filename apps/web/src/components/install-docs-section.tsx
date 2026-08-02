@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Copy, Check } from "lucide-react";
+import { Reveal } from "@/components/reveal";
 
 const OS_INSTALL: Record<string, string> = {
   macos: "brew install aevrin\n# or download the binary directly from the releases page",
@@ -42,8 +43,12 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 export function InstallDocsSection() {
   return (
     <section id="install" className="mx-auto max-w-3xl px-6 py-20">
-      <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">Get started</h2>
-      <p className="mt-2 text-muted-foreground">Install the CLI for your platform, then log in.</p>
+      <Reveal>
+        <span className="text-xs font-medium tracking-wide text-brand uppercase">Get started</span>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+          Install the CLI, then log in.
+        </h2>
+      </Reveal>
 
       <Tabs defaultValue="macos" className="mt-8">
         <TabsList className="grid w-full grid-cols-3">

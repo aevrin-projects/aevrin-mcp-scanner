@@ -17,8 +17,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   title: "Aevrin — MCP Security Scanner",
   description: "Scan MCP servers for vulnerabilities using established open-source security tools.",
+  icons: {
+    icon: "/favicon.ico",
+    apple: "/logo.png",
+  },
+  openGraph: {
+    title: "Aevrin — MCP Security Scanner",
+    description: "Scan MCP servers for vulnerabilities using established open-source security tools.",
+    images: ["/logo.png"],
+  },
 };
 
 export default async function RootLayout({
