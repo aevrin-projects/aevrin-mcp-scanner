@@ -7,13 +7,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # frozen=True makes Settings hashable (all fields are str/int/None), which
+    # get_redis()/get_r2_client() rely on — both are @lru_cache'd on a
+    # `settings` argument to reuse one connection/client per process.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", frozen=True)
 
-    # Supabase
+    # Supabase. No JWT secret needed — auth tokens are verified against the
+    # project's JWKS endpoint (see security.py), which handles both current
+    # asymmetric signing keys and legacy HS256 tokens during rotation.
     supabase_url: str
     supabase_anon_key: str
     supabase_service_role_key: str
-    supabase_jwt_secret: str
 
     # Server-side pepper for HMAC-hashing CLI API keys before storage.
     api_key_pepper: str

@@ -38,6 +38,7 @@ venv/
 test-results/
 playwright-report/
 blob-report/
+.playwright-mcp/
 
 # Misc
 *.log

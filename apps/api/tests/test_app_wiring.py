@@ -12,7 +12,6 @@ def app_client(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
     monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role-key")
-    monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-jwt-secret-that-is-long-enough")
     monkeypatch.setenv("API_KEY_PEPPER", "test-pepper")
     monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "https://test-redis.upstash.io")
     monkeypatch.setenv("UPSTASH_REDIS_REST_TOKEN", "redis-token")

@@ -13,6 +13,7 @@ from uuid import UUID
 
 from ..models import Finding, Location, Severity, ToolName
 from ..owasp import OwaspMcpCategory
+from ..paths import relative_to_mount
 from ..runner import DockerRunSpec
 from .base import ScannerAdapter
 
@@ -60,7 +61,7 @@ class TruffleHogAdapter(ScannerAdapter):
                         else "TruffleHog matched a credential pattern but could not "
                         "verify it against the live service."
                     ),
-                    location=Location(file_path=meta.get("file")),
+                    location=Location(file_path=relative_to_mount(meta.get("file"))),
                     verified=verified,
                     remediation=(
                         "Revoke this credential immediately and rotate it — it was "

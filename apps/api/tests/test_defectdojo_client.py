@@ -18,9 +18,9 @@ def test_raises_when_not_configured(settings):
 
 @pytest.fixture
 def dd_settings(settings):
-    settings.defectdojo_url = "https://defectdojo.example.com"
-    settings.defectdojo_api_key = "test-token"
-    return settings
+    return settings.model_copy(
+        update={"defectdojo_url": "https://defectdojo.example.com", "defectdojo_api_key": "test-token"}
+    )
 
 
 @respx.mock
