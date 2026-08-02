@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from .config import get_settings
 from .db import SupabaseRestError
 from .quota import QuotaExceeded
-from .routers import account, api_keys, billing, cli, device, export, findings, hook, scans
+from .routers import account, api_keys, auth_lookup, billing, cli, device, export, findings, hook, scans
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aevrin.api")
@@ -35,6 +35,7 @@ app.include_router(export.router)
 app.include_router(device.router)
 app.include_router(account.router)
 app.include_router(billing.router)
+app.include_router(auth_lookup.router)
 
 
 @app.get("/health")

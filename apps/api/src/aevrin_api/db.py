@@ -96,3 +96,10 @@ class SupabaseRest:
             resp = await client.delete(f"{self._base_url}/{table}", headers=self._headers, params=params)
         if resp.status_code >= 400:
             raise SupabaseRestError(resp.status_code, resp.text)
+
+    async def rpc(self, fn: str, args: dict[str, Any]) -> Any:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(f"{self._base_url}/rpc/{fn}", headers=self._headers, json=args)
+        if resp.status_code >= 400:
+            raise SupabaseRestError(resp.status_code, resp.text)
+        return resp.json()

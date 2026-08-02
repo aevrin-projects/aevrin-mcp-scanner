@@ -210,3 +210,9 @@ class SubscriptionResponse(BaseModel):
     subscription_status: str | None
     razorpay_subscription_id: str | None
     downgrade_effective_at: datetime | None = None
+
+
+class AccountLookupResponse(BaseModel):
+    exists: bool
+    providers: list[str]
+    has_password: bool
