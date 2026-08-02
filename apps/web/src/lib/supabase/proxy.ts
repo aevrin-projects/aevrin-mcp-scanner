@@ -8,7 +8,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // actual app now lives under /dashboard, /scans, /settings, all still
 // gated by default since they're not in this list.
 const PUBLIC_PATHS_EXACT = ["/"];
-const PUBLIC_PATH_PREFIXES = ["/login", "/auth", "/device", "/pricing", "/docs", "/terms", "/privacy", "/status"];
+const PUBLIC_PATH_PREFIXES = ["/login", "/auth", "/device", "/pricing", "/docs", "/terms", "/privacy", "/status", "/error"];
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });

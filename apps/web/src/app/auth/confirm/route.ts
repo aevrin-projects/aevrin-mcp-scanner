@@ -18,7 +18,8 @@ export async function GET(request: NextRequest) {
     if (!error) {
       return NextResponse.redirect(new URL("/dashboard", siteUrl()));
     }
+    return NextResponse.redirect(new URL("/error?reason=exchange_failed", siteUrl()));
   }
 
-  return NextResponse.redirect(new URL("/error", siteUrl()));
+  return NextResponse.redirect(new URL("/error?reason=missing_code", siteUrl()));
 }

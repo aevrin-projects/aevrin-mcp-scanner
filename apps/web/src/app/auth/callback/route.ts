@@ -16,13 +16,23 @@ export async function GET(request: NextRequest) {
   const next = searchParams.get("next");
   const path = next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
 
+  // Google appends its own error instead of a code when the person denies
+  // consent or the request itself was malformed — surfacing which one
+  // happened beats dumping every failure on the same generic error page.
+  const googleError = searchParams.get("error");
+  if (googleError) {
+    const reason = googleError === "access_denied" ? "google_denied" : "google_error";
+    return NextResponse.redirect(new URL(`/error?reason=${reason}`, siteUrl()));
+  }
+
   if (code) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
       return NextResponse.redirect(new URL(path, siteUrl()));
     }
+    return NextResponse.redirect(new URL("/error?reason=exchange_failed", siteUrl()));
   }
 
-  return NextResponse.redirect(new URL("/error", siteUrl()));
+  return NextResponse.redirect(new URL("/error?reason=missing_code", siteUrl()));
 }
