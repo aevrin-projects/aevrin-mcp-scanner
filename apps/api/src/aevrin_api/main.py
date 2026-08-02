@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+import logging
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from .config import get_settings
+from .db import SupabaseRestError
+from .routers import api_keys, cli, export, findings, hook, scans
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("aevrin.api")
+
+settings = get_settings()
+
+app = FastAPI(title="Aevrin API", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.web_origin],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
+)
+
+app.include_router(scans.router)
+app.include_router(findings.router)
+app.include_router(hook.router)
+app.include_router(cli.router)
+app.include_router(api_keys.router)
+app.include_router(export.router)
+
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.exception_handler(SupabaseRestError)
+async def supabase_error_handler(request: Request, exc: SupabaseRestError) -> JSONResponse:
+    # Never leak PostgREST's raw error body (may include table/column names)
+    # to the client — log it server-side, return a generic message.
+    logger.error("PostgREST error on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=502, content={"detail": "Upstream data store error"})
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    if isinstance(exc, HTTPException):
+        raise exc
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})

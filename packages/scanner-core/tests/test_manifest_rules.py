@@ -1,6 +1,11 @@
 from uuid import uuid4
 
-from aevrin_scanner_core.manifest_rules import ToolDescriptor, TransportInfo, check_excessive_agency, check_weak_auth
+from aevrin_scanner_core.manifest_rules import (
+    ToolDescriptor,
+    TransportInfo,
+    check_excessive_agency,
+    check_weak_auth,
+)
 from aevrin_scanner_core.owasp import OwaspMcpCategory
 
 
