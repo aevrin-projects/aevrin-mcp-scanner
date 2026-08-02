@@ -11,6 +11,12 @@ export type LoginState = {
   mode?: "signin" | "signup";
 };
 
+export type ResetState = {
+  status: "idle" | "code-sent" | "error" | "done";
+  message?: string;
+  email?: string;
+};
+
 const siteUrl = () => process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
 // Only ever redirect to a relative, in-app path — formData is
@@ -137,4 +143,86 @@ export async function resendSignupCode(_prevState: LoginState, formData: FormDat
     return { status: "verify-code", email, mode: "signup", message: error.message };
   }
   return { status: "verify-code", email, mode: "signup", message: `Sent a new code to ${email}.` };
+}
+
+// --- Forgot password: same rate-limited code pattern as signup, but the
+// code both verifies identity (type: 'recovery') and immediately gates a
+// new-password submission — Supabase's verifyOtp for 'recovery' establishes
+// a real session, which updateUser({ password }) then uses.
+
+export async function requestPasswordReset(_prevState: ResetState, formData: FormData): Promise<ResetState> {
+  const email = (formData.get("email") as string) ?? "";
+  if (!email) {
+    return { status: "error", message: "Enter your email address." };
+  }
+
+  try {
+    await checkRateLimit(`request:${email}`, 5, 3600);
+  } catch (err) {
+    if (err instanceof RateLimitExceededError) {
+      return { status: "error", message: "Too many reset attempts. Try again in a bit.", email };
+    }
+    throw err;
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email);
+  if (error) {
+    return { status: "error", message: error.message, email };
+  }
+  return { status: "code-sent", email, message: `We emailed a code to ${email}.` };
+}
+
+export async function resendPasswordResetCode(_prevState: ResetState, formData: FormData): Promise<ResetState> {
+  const email = (formData.get("email") as string) ?? "";
+  try {
+    await checkRateLimit(`request:${email}`, 5, 3600);
+  } catch (err) {
+    if (err instanceof RateLimitExceededError) {
+      return { status: "code-sent", email, message: "Too many resend attempts. Try again later." };
+    }
+    throw err;
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email);
+  if (error) {
+    return { status: "code-sent", email, message: error.message };
+  }
+  return { status: "code-sent", email, message: `Sent a new code to ${email}.` };
+}
+
+export async function verifyPasswordResetCode(_prevState: ResetState, formData: FormData): Promise<ResetState> {
+  const email = (formData.get("email") as string) ?? "";
+  const code = (formData.get("code") as string) ?? "";
+  const newPassword = (formData.get("newPassword") as string) ?? "";
+  if (!email || !code || !newPassword) {
+    return { status: "code-sent", email, message: "Enter the code and a new password." };
+  }
+  if (newPassword.length < 8) {
+    return { status: "code-sent", email, message: "Password must be at least 8 characters." };
+  }
+
+  try {
+    // The guess-limit on the code itself — same reasoning as signup: a
+    // 6-digit code is brute-forceable without a strict attempt cap.
+    await checkRateLimit(`verify:${email}`, 5, 900);
+  } catch (err) {
+    if (err instanceof RateLimitExceededError) {
+      return { status: "error", message: "Too many incorrect attempts. Request a new code and try again." };
+    }
+    throw err;
+  }
+
+  const supabase = await createClient();
+  const { error: verifyError } = await supabase.auth.verifyOtp({ email, token: code, type: "recovery" });
+  if (verifyError) {
+    return { status: "code-sent", email, message: "That code is incorrect or expired." };
+  }
+
+  const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+  if (updateError) {
+    return { status: "code-sent", email, message: updateError.message };
+  }
+
+  redirect("/dashboard");
 }

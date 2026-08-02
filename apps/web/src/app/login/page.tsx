@@ -8,7 +8,11 @@ import {
   signUpWithPassword,
   verifySignupCode,
   resendSignupCode,
+  requestPasswordReset,
+  resendPasswordResetCode,
+  verifyPasswordResetCode,
   type LoginState,
+  type ResetState,
 } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Separator } from "@/components/ui/separator";
 
 const idleState: LoginState = { status: "idle" };
+const idleResetState: ResetState = { status: "idle" };
 
 function GoogleIcon() {
   return (
@@ -40,11 +45,115 @@ export default function LoginPage() {
 function LoginForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "/dashboard";
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
   const [signInState, signInAction, signInPending] = useActionState(signInWithPassword, idleState);
   const [signUpState, signUpAction, signUpPending] = useActionState(signUpWithPassword, idleState);
   const [verifyState, verifyAction, verifyPending] = useActionState(verifySignupCode, idleState);
   const [resendState, resendAction] = useActionState(resendSignupCode, idleState);
+
+  const [resetRequestState, resetRequestAction, resetRequestPending] = useActionState(
+    requestPasswordReset,
+    idleResetState,
+  );
+  const [resetVerifyState, resetVerifyAction, resetVerifyPending] = useActionState(
+    verifyPasswordResetCode,
+    idleResetState,
+  );
+  const [resetResendState, resetResendAction] = useActionState(resendPasswordResetCode, idleResetState);
+
+  if (mode === "reset") {
+    const codeSent = resetVerifyState.status === "code-sent" ? resetVerifyState : resetRequestState;
+    if (codeSent.status === "code-sent" && codeSent.email) {
+      const email = codeSent.email;
+      return (
+        <div className="flex min-h-svh items-center justify-center bg-background px-4">
+          <Card className="w-full max-w-sm">
+            <CardHeader>
+              <CardTitle className="text-xl">Reset your password</CardTitle>
+              <CardDescription>{resetResendState.message ?? codeSent.message}</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <form action={resetVerifyAction} className="flex flex-col gap-4">
+                <input type="hidden" name="email" value={email} />
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="reset-code">6-digit code</Label>
+                  <Input
+                    id="reset-code"
+                    name="code"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    placeholder="123456"
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="new-password">New password</Label>
+                  <Input
+                    id="new-password"
+                    name="newPassword"
+                    type="password"
+                    placeholder="At least 8 characters"
+                    minLength={8}
+                    required
+                  />
+                </div>
+                {resetVerifyState.status === "error" && (
+                  <p className="text-sm text-destructive" role="alert">
+                    {resetVerifyState.message}
+                  </p>
+                )}
+                <Button type="submit" disabled={resetVerifyPending} className="w-full">
+                  {resetVerifyPending ? "Resetting…" : "Reset password"}
+                </Button>
+              </form>
+              <form action={resetResendAction}>
+                <input type="hidden" name="email" value={email} />
+                <Button type="submit" variant="ghost" className="w-full text-sm">
+                  Resend code
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex min-h-svh items-center justify-center bg-background px-4">
+        <Card className="w-full max-w-sm">
+          <CardHeader>
+            <CardTitle className="text-xl">Reset your password</CardTitle>
+            <CardDescription>We&apos;ll email you a 6-digit code.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <form action={resetRequestAction} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="reset-email">Email</Label>
+                <Input id="reset-email" name="email" type="email" placeholder="you@company.com" required autoFocus />
+              </div>
+              {resetRequestState.status === "error" && (
+                <p className="text-sm text-destructive" role="alert">
+                  {resetRequestState.message}
+                </p>
+              )}
+              <Button type="submit" disabled={resetRequestPending} className="w-full">
+                {resetRequestPending ? "Sending…" : "Send reset code"}
+              </Button>
+            </form>
+            <button
+              type="button"
+              onClick={() => setMode("signin")}
+              className="text-center text-sm text-muted-foreground hover:text-foreground"
+            >
+              Back to sign in
+            </button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const pendingVerify = verifyState.status === "verify-code" ? verifyState : signUpState;
   const showVerifyStep = pendingVerify.status === "verify-code" && pendingVerify.email;
@@ -130,7 +239,18 @@ function LoginForm() {
               <Input id="email" name="email" type="email" placeholder="you@company.com" required autoFocus />
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                {mode === "signin" && (
+                  <button
+                    type="button"
+                    onClick={() => setMode("reset")}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
               <Input
                 id="password"
                 name="password"
