@@ -12,6 +12,8 @@ SKIPPED, not silently absent.
 
 from __future__ import annotations
 
+import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -128,6 +130,12 @@ def run_pipeline(
             for name in (StageName.CLONING, StageName.STATIC_ANALYSIS, StageName.SECRETS, StageName.DEPENDENCIES):
                 _mark(stage_by_name[name], StageStatus.SKIPPED, on_stage)
 
+        # A live-server URL or a pasted mcp.json *is* MCP by construction —
+        # only a repo/local-path target is actually ambiguous.
+        scan.mcp_detected = (
+            _detect_mcp_sdk_usage(repo_dir) if repo_dir and target_type in (TargetType.GITHUB_REPO, TargetType.LOCAL_PATH) else True
+        )
+
         _run_tool_description_stage(
             scan_id, target_type, target, repo_dir, config, stage_by_name[StageName.TOOL_DESCRIPTION_CHECK], on_stage, emit, errors
         )
@@ -141,6 +149,47 @@ def run_pipeline(
         return scan
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+_MCP_MANIFEST_FILENAMES = frozenset({
+    "package.json", "pyproject.toml", "requirements.txt", "requirements-dev.txt",
+    "setup.py", "setup.cfg", "Pipfile", "go.mod", "Cargo.toml",
+})
+_MCP_DEPENDENCY_RE = re.compile(
+    r"@modelcontextprotocol/sdk"
+    r"|\bfastmcp\b"
+    r"|\bmcp[-_]server[-_][\w-]+"
+    r"|\bmcp\s*[><=~^!]",  # bare "mcp" (the official PyPI SDK name) as a dependency line
+    re.IGNORECASE,
+)
+_MCP_SCAN_DIR_EXCLUDES = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"})
+
+
+def _detect_mcp_sdk_usage(repo_dir: str, max_depth: int = 3) -> bool:
+    """Best-effort: does this repo actually depend on an MCP SDK anywhere?
+    Confirmed live: matches modelcontextprotocol/servers (`"mcp>=1.0.0"` in
+    pyproject.toml, `"@modelcontextprotocol/sdk"` in package.json) and
+    correctly finds zero matches in pallets/flask. A stronger signal than
+    _discover_mcp_entries's committed-client-config check below, which
+    doesn't even catch modelcontextprotocol/servers itself — a server's own
+    repo has no reason to check in a *client* config referencing itself."""
+    root_depth = repo_dir.rstrip("/").count("/")
+    for dirpath, dirnames, filenames in os.walk(repo_dir):
+        if dirpath.rstrip("/").count("/") - root_depth > max_depth:
+            dirnames[:] = []
+            continue
+        dirnames[:] = [d for d in dirnames if d not in _MCP_SCAN_DIR_EXCLUDES]
+        for filename in filenames:
+            if filename not in _MCP_MANIFEST_FILENAMES:
+                continue
+            try:
+                with open(os.path.join(dirpath, filename), encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+            except OSError:
+                continue
+            if _MCP_DEPENDENCY_RE.search(content):
+                return True
+    return False
 
 
 def _run_clone_stage(

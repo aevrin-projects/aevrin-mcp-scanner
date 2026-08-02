@@ -150,6 +150,15 @@ class Scan(BaseModel):
     target: str
     status: ScanStatus = ScanStatus.QUEUED
     score: int | None = None
+    # Best-effort: does this target actually look like an MCP server? None
+    # for target types where the question doesn't apply (a live server URL
+    # or a pasted mcp.json *is* MCP by construction). False means the
+    # findings below are still real, but they're generic code-security
+    # findings, not an MCP-specific risk assessment — surfaced prominently
+    # rather than silently, confirmed live: scanning pallets/flask (zero MCP
+    # relation) produced a full scored report with MCP-labeled OWASP
+    # categories and no indication anywhere that this wasn't an MCP server.
+    mcp_detected: bool | None = None
     stages: list[ScanStage] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
