@@ -143,6 +143,7 @@ def _run_and_persist(
         {
             "status": scan.status.value,
             "score": scan.score,
+            "mcp_detected": scan.mcp_detected,
             "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
         },
     )

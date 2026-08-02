@@ -37,6 +37,7 @@ class ScanOut(BaseModel):
     status: str
     score: int | None
     error: str | None = None
+    mcp_detected: bool | None = None
     created_at: datetime
     completed_at: datetime | None = None
 
@@ -139,6 +140,7 @@ class CliUploadRequest(BaseModel):
     target_type: str
     target: str
     score: int
+    mcp_detected: bool | None = None
     findings: list[CliUploadFinding]
 
 

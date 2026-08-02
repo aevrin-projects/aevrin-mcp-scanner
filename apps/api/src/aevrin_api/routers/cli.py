@@ -56,6 +56,7 @@ async def upload_scan(
             "target": body.target,
             "status": "completed",
             "score": body.score,
+            "mcp_detected": body.mcp_detected,
             "completed_at": now,
         },
     )
