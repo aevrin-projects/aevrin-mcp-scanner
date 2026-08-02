@@ -10,7 +10,12 @@ Decision logic (exactly per the master build spec, Section 8):
    not a scan).
 2. Clean cached score -> allow silently.
 3. Cached score shows critical/high -> block, with score + specific
-   findings + OWASP category, same language as the website/CLI.
+   findings (including file/line and remediation, so the session that just
+   got blocked has enough to actually fix the code) + three explicit next
+   steps: fix it directly, `aevrin hook allow <target>` to install anyway,
+   or `aevrin findings triage <id> false_positive` to dispute a finding.
+3a. An active `aevrin hook allow` override for this exact target -> allow,
+    once, without re-blocking.
 4. No cached score -> allow with a visible "not yet scanned" warning. The
    actual background scan is triggered server-side by the /hook/cache call
    itself (FastAPI BackgroundTasks) — this script never runs or waits on a
@@ -193,15 +198,29 @@ def main() -> None:
         return
 
     decision = result.get("decision")
+    if decision == "allow_override":
+        _allow("Aevrin: proceeding — an install-anyway override is active for this target.")
+        return
+
     if decision == "block":
         score = result.get("score")
         findings = result.get("findings_summary", [])
         lines = [f"Aevrin: this MCP server scored {score}/100 with unresolved high/critical findings:"]
         for f in findings[:5]:
-            lines.append(f"  - [{f['severity'].upper()}] {f['title']} ({f['owasp_category']})")
+            loc = f" — {f['file_path']}" + (f":{f['line_start']}" if f.get("line_start") else "") if f.get("file_path") else ""
+            lines.append(f"  - [{f['severity'].upper()}] {f['title']} ({f['owasp_category']}){loc}")
+            if f.get("remediation"):
+                lines.append(f"      fix: {f['remediation']}")
+            lines.append(f"      finding id: {f['id']}")
         if len(findings) > 5:
-            lines.append(f"  ...and {len(findings) - 5} more.")
-        lines.append("Review the findings in your Aevrin dashboard before installing.")
+            lines.append(f"  ...and {len(findings) - 5} more — see your Aevrin dashboard for the full list.")
+        lines.append("")
+        lines.append("You have three options — ask the person which they want:")
+        lines.append("  1. Fix it: edit the flagged files yourself (you have full tool access in this")
+        lines.append("     session) using the locations and remediation above, then retry the install.")
+        lines.append(f"  2. Install anyway: run `aevrin hook allow {target_value}`, then retry.")
+        lines.append("  3. False report: if a specific finding above is wrong, run")
+        lines.append("     `aevrin findings triage <finding id> false_positive`, then retry.")
         _deny("\n".join(lines))
         return
 

@@ -82,13 +82,21 @@ class TriageRequest(BaseModel):
 
 
 class HookCacheResponse(BaseModel):
-    decision: str  # "allow_clean" | "block" | "allow_unscanned" | "quota_exceeded"
+    decision: str  # "allow_clean" | "block" | "allow_override" | "allow_unscanned" | "quota_exceeded"
     score: int | None = None
     scan_id: UUID | None = None
     checked_at: datetime | None = None
     findings_summary: list[dict[str, Any]] = Field(default_factory=list)
     quota_resets_at: datetime | None = None
     upgrade_url: str | None = None
+
+
+class HookOverrideRequest(BaseModel):
+    target: str
+
+
+class HookOverrideResponse(BaseModel):
+    expires_at: datetime
 
 
 class ApiKeyCreateRequest(BaseModel):

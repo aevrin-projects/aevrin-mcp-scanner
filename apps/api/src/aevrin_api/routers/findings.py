@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..db import SupabaseRest
-from ..deps import get_current_user, get_db
+from ..deps import get_current_user, get_db, get_user_from_jwt_or_api_key
 from ..schemas import FindingOut, TriageRequest
 from ..security import AuthenticatedUser
 
@@ -29,7 +29,9 @@ async def get_finding(
 async def triage_finding(
     finding_id: UUID,
     body: TriageRequest,
-    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    # Both the dashboard (JWT) and `aevrin findings triage` (API key) call
+    # this — that's the CLI-side "false report" action.
+    user: Annotated[AuthenticatedUser, Depends(get_user_from_jwt_or_api_key)],
     db: Annotated[SupabaseRest, Depends(get_db)],
 ) -> FindingOut:
     existing = await db.select("findings", {"id": str(finding_id), "user_id": user.id})

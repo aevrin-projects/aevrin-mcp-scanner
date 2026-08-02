@@ -7,6 +7,7 @@ this target" and, on a cache miss, kicks off a background scan so the
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import uuid4
 
@@ -18,12 +19,29 @@ from ..db import SupabaseRest
 from ..deps import enforce_rate_limit, get_api_key_user, get_db
 from ..quota import QuotaExceeded, check_and_increment_quota
 from ..scan_service import start_scan
-from ..schemas import HookCacheResponse
+from ..schemas import HookCacheResponse, HookOverrideRequest, HookOverrideResponse
 from ..security import AuthenticatedUser
 
 router = APIRouter(prefix="/hook", tags=["hook"])
 
 _BLOCKING_SEVERITIES = ("critical", "high")
+_OVERRIDE_TTL_SECONDS = 600  # long enough for the person to retry the same install right after
+
+
+@router.post("/override", response_model=HookOverrideResponse)
+async def create_override(
+    body: HookOverrideRequest,
+    user: Annotated[AuthenticatedUser, Depends(get_api_key_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> HookOverrideResponse:
+    """Backs `aevrin hook allow <target>` — the "install anyway" path. A
+    person who saw the hook's block reason and decided to proceed
+    shouldn't have to disable the hook entirely to do it."""
+    enforce_rate_limit(settings, "hook_override", user.id, 30)
+    expires_at = datetime.now(UTC) + timedelta(seconds=_OVERRIDE_TTL_SECONDS)
+    await db.insert("hook_overrides", {"user_id": user.id, "target": body.target, "expires_at": expires_at.isoformat()})
+    return HookOverrideResponse(expires_at=expires_at)
 
 
 @router.get("/cache", response_model=HookCacheResponse)
@@ -76,17 +94,32 @@ async def check_cache(
             "findings",
             {"scan_id": row["last_scan_id"], "user_id": user.id},
         )
-        blocking = [f for f in blocking if f["severity"] in _BLOCKING_SEVERITIES and not f["not_tested"]]
+        blocking = [
+            f for f in blocking
+            if f["severity"] in _BLOCKING_SEVERITIES and not f["not_tested"] and f["triage_status"] != "false_positive"
+        ]
         if blocking:
             decision = "block"
+            # file_path/line_start/remediation give Claude (running in the
+            # same session the hook just blocked) enough to actually locate
+            # and fix the flagged code, not just know it exists.
             findings_summary = [
                 {
+                    "id": f["id"],
                     "title": f["title"],
                     "severity": f["severity"],
                     "owasp_category": f["owasp_category"],
+                    "file_path": f.get("file_path"),
+                    "line_start": f.get("line_start"),
+                    "remediation": f.get("remediation"),
                 }
                 for f in blocking
             ]
+
+            overrides = await db.select("hook_overrides", {"user_id": user.id, "target": target})
+            now_iso = datetime.now(UTC).isoformat()
+            if any(o["expires_at"] > now_iso for o in overrides):
+                decision = "allow_override"
 
     return HookCacheResponse(
         decision=decision,

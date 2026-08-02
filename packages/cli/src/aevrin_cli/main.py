@@ -205,6 +205,65 @@ def hook_logout() -> None:
     output.stderr_console.print("Hook logged out.")
 
 
+@hook_app.command("allow")
+def hook_allow(
+    target: Annotated[str, typer.Argument(help="The exact target the hook blocked (URL or repo it printed).")],
+) -> None:
+    """Install anyway: grants a short-lived override so the hook lets the
+    next install of TARGET through despite unresolved high/critical
+    findings. Use after reviewing the risk — this doesn't fix or dismiss
+    the findings, it just doesn't block on them once."""
+    api_key = load_api_key(HOOK_CREDENTIALS_PATH)
+    if not api_key:
+        output.print_error("Hook not logged in. Run `aevrin hook setup` first.")
+        raise typer.Exit(code=2)
+    try:
+        resp = httpx.post(
+            f"{api_url()}/hook/override", json={"target": target}, headers={"X-API-Key": api_key}, timeout=15
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        output.print_error(f"Could not reach {api_url()}: {exc}")
+        raise typer.Exit(code=2) from None
+    expires_at = resp.json()["expires_at"]
+    output.stderr_console.print(f"[green]Override granted[/green] — retry the install now. Expires {expires_at}.")
+
+
+findings_app = typer.Typer(help="Manage scan findings.", no_args_is_help=True)
+app.add_typer(findings_app, name="findings")
+
+
+@findings_app.command("triage")
+def findings_triage(
+    finding_id: Annotated[str, typer.Argument(help="Finding ID, e.g. from a hook block message or --json scan output.")],
+    triage_status: Annotated[
+        str, typer.Argument(help="New status: open, fixed, or false_positive.")
+    ],
+) -> None:
+    """Update a finding's triage status — the "false report" action: mark a
+    finding you've reviewed and believe is wrong as false_positive so it
+    stops blocking installs and is excluded from future risk summaries."""
+    api_key = load_api_key() or load_api_key(HOOK_CREDENTIALS_PATH)
+    if not api_key:
+        output.print_error("Not logged in. Run `aevrin login` (or `aevrin hook setup`) first.")
+        raise typer.Exit(code=2)
+    try:
+        resp = httpx.patch(
+            f"{api_url()}/findings/{finding_id}",
+            json={"triage_status": triage_status},
+            headers={"X-API-Key": api_key},
+            timeout=15,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        output.print_error(f"Could not update finding ({exc.response.status_code}): {exc.response.text}")
+        raise typer.Exit(code=2) from None
+    except httpx.HTTPError as exc:
+        output.print_error(f"Could not reach {api_url()}: {exc}")
+        raise typer.Exit(code=2) from None
+    output.stderr_console.print(f"[green]Finding {finding_id} marked {triage_status}.[/green]")
+
+
 @app.command()
 def version() -> None:
     """Print the installed aevrin CLI version."""

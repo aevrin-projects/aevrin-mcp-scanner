@@ -44,6 +44,23 @@ async def get_api_key_user(
     return AuthenticatedUser(id=row["user_id"], email=None)
 
 
+async def get_user_from_jwt_or_api_key(
+    settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    authorization: Annotated[str | None, Header()] = None,
+    x_api_key: Annotated[str | None, Header()] = None,
+) -> AuthenticatedUser:
+    """For endpoints both the dashboard (Supabase JWT) and the CLI/hook
+    (long-lived API key) need to call — e.g. finding triage, so `aevrin
+    findings triage` works without a browser session. Tries JWT first since
+    that's the more common caller."""
+    if authorization and authorization.lower().startswith("bearer "):
+        return decode_supabase_jwt(authorization.split(" ", 1)[1], settings)
+    if x_api_key:
+        return await get_api_key_user(settings, db, x_api_key)
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token or X-API-Key")
+
+
 def enforce_rate_limit(settings: Settings, bucket: str, identity: str, limit: int) -> None:
     """Called explicitly inside route handlers once they've already resolved
     an identity (JWT user id, API key's user id, or client IP for
