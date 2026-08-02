@@ -1,0 +1,28 @@
+[project]
+name = "aevrin-scanner-core"
+version = "0.1.0"
+description = "Shared scanning engine for Aevrin: models, OWASP MCP Top 10 mapping, scoring, and containerized scanner adapters. Imported by apps/api and packages/cli so findings never drift into different vocabularies."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.9",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.7",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.3,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
