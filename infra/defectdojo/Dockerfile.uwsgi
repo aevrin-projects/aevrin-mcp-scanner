@@ -1,0 +1,2 @@
+FROM defectdojo/defectdojo-django:latest
+ENTRYPOINT ["/entrypoint-uwsgi.sh"]

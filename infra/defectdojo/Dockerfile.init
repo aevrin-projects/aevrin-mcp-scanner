@@ -1,0 +1,8 @@
+# Railway's runtime `startCommand` override was unreliable for the
+# defectdojo/defectdojo-django image (verified empirically: every attempt —
+# both plain and shell-wrapped exec form — silently ran the image's default
+# ENTRYPOINT (/entrypoint-uwsgi.sh) instead of the one requested). Baking the
+# entrypoint into the image itself, in a real Dockerfile, sidesteps that
+# platform quirk entirely and is guaranteed to be respected.
+FROM defectdojo/defectdojo-django:latest
+ENTRYPOINT ["/entrypoint-initializer.sh"]
