@@ -1,5 +1,11 @@
 # aevrin
 
+[![PyPI version](https://img.shields.io/pypi/v/aevrin.svg)](https://pypi.org/project/aevrin/)
+[![Python versions](https://img.shields.io/pypi/pyversions/aevrin.svg)](https://pypi.org/project/aevrin/)
+[![License](https://img.shields.io/pypi/l/aevrin.svg)](https://github.com/aevrin-projects/aevrin-mcp-scanner/blob/master/LICENSE)
+[![Downloads](https://img.shields.io/pypi/dm/aevrin.svg)](https://pypi.org/project/aevrin/)
+[![Publish status](https://github.com/aevrin-projects/aevrin-mcp-scanner/actions/workflows/publish.yml/badge.svg)](https://github.com/aevrin-projects/aevrin-mcp-scanner/actions/workflows/publish.yml)
+
 Aevrin MCP Security Scanner CLI. Wraps the same open-source scanner binaries and normalization logic (`aevrin-scanner-core`) that the Aevrin backend uses, run locally against your own machine — no network call required unless you pass `--upload`.
 
 ## Install
