@@ -4,11 +4,21 @@ import os
 from typing import Annotated
 from uuid import uuid4
 
+import httpx
 import typer
 from aevrin_scanner_core import Finding, ScanStage, Severity, StageStatus
 from aevrin_scanner_core.pipeline import PipelineConfig, run_pipeline
 
 from . import output
+from .auth import (
+    HOOK_CREDENTIALS_PATH,
+    DeviceLoginError,
+    api_url,
+    clear_credentials,
+    device_login,
+    load_api_key,
+    save_credentials,
+)
 from .target_detection import TargetDetectionError, detect_target
 from .upload import UploadError, upload_scan
 
@@ -39,6 +49,34 @@ def scan(
     ] = "high",
 ) -> None:
     """Run the full Aevrin scan pipeline against TARGET."""
+    # Usage is metered server-side now (a purely local counter can be edited
+    # in an open-source CLI) — a scan without a logged-in account has
+    # nothing to meter against, so it fails fast here rather than degrading
+    # to a crippled local-only mode (explicit addendum §2 requirement).
+    api_key = load_api_key()
+    if not api_key:
+        output.print_error(
+            "Not logged in. Aevrin's free tier includes 5 CLI scans a month — "
+            "run `aevrin login` to get started."
+        )
+        raise typer.Exit(code=2)
+
+    try:
+        precheck = httpx.get(f"{api_url()}/cli/precheck", headers={"X-API-Key": api_key}, timeout=15)
+    except httpx.HTTPError as exc:
+        output.print_error(f"Could not reach {api_url()}: {exc}")
+        raise typer.Exit(code=2) from None
+    if precheck.status_code == 402:
+        body = precheck.json()
+        output.print_error(
+            f"Your {body['bucket']} scan quota is used up for this billing period. "
+            f"Resets {body['resets_at']}. Upgrade at {body['upgrade_url']}"
+        )
+        raise typer.Exit(code=2)
+    if precheck.status_code == 401:
+        output.print_error("Your login has expired or was revoked. Run `aevrin login` again.")
+        raise typer.Exit(code=2)
+
     try:
         fail_on_severity = Severity(fail_on.lower())
     except ValueError:
@@ -98,6 +136,73 @@ def scan(
     if worst is not None and _SEVERITY_RANK[worst] >= _SEVERITY_RANK[fail_on_severity]:
         raise typer.Exit(code=1)
     raise typer.Exit(code=0)
+
+
+@app.command()
+def login() -> None:
+    """Log in to your Aevrin account (opens a browser, no password needed here)."""
+    if load_api_key():
+        output.stderr_console.print("[yellow]Already logged in. Run `aevrin logout` first to switch accounts.[/yellow]")
+        raise typer.Exit(code=0)
+
+    def on_prompt(user_code: str, verification_uri: str) -> None:
+        output.stderr_console.print(f"First, copy your one-time code: [bold]{user_code}[/bold]")
+        output.stderr_console.print(f"Then visit: [bold]{verification_uri}[/bold]")
+        output.stderr_console.print("Opening your browser... waiting for approval.")
+
+    try:
+        api_key = device_login(client_kind="cli", on_prompt=on_prompt)
+    except DeviceLoginError as exc:
+        output.print_error(str(exc))
+        raise typer.Exit(code=2) from None
+
+    save_credentials(api_key)
+    output.stderr_console.print("[green]Logged in.[/green]")
+
+
+@app.command()
+def logout() -> None:
+    """Log out and remove the stored credentials."""
+    clear_credentials()
+    output.stderr_console.print("Logged out.")
+
+
+hook_app = typer.Typer(help="Manage the Claude Code security hook.", no_args_is_help=True)
+app.add_typer(hook_app, name="hook")
+
+
+@hook_app.command("setup")
+def hook_setup() -> None:
+    """Log in for the Claude Code hook (separate from `aevrin login`) and
+    print the settings.json snippet to install."""
+    if load_api_key(HOOK_CREDENTIALS_PATH):
+        output.stderr_console.print("[yellow]Hook already logged in. Run `aevrin hook logout` first to switch accounts.[/yellow]")
+        raise typer.Exit(code=0)
+
+    def on_prompt(user_code: str, verification_uri: str) -> None:
+        output.stderr_console.print(f"First, copy your one-time code: [bold]{user_code}[/bold]")
+        output.stderr_console.print(f"Then visit: [bold]{verification_uri}[/bold]")
+        output.stderr_console.print("Opening your browser... waiting for approval.")
+
+    try:
+        api_key = device_login(client_kind="hook", on_prompt=on_prompt)
+    except DeviceLoginError as exc:
+        output.print_error(str(exc))
+        raise typer.Exit(code=2) from None
+
+    save_credentials(api_key, HOOK_CREDENTIALS_PATH)
+    output.stderr_console.print("[green]Hook logged in.[/green]")
+    output.stderr_console.print(
+        "Now add the PreToolUse hook to Claude Code — see apps/hook/README.md, "
+        "or run apps/hook/install.sh from this repo, to merge the hook into your settings.json."
+    )
+
+
+@hook_app.command("logout")
+def hook_logout() -> None:
+    """Log out the hook and remove its stored credentials."""
+    clear_credentials(HOOK_CREDENTIALS_PATH)
+    output.stderr_console.print("Hook logged out.")
 
 
 @app.command()

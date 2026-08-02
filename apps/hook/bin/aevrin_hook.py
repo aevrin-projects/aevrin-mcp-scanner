@@ -34,8 +34,27 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-API_URL = os.environ.get("AEVRIN_API_URL", "https://api.aevrin.dev")
-API_KEY = os.environ.get("AEVRIN_API_KEY")
+API_URL = os.environ.get("AEVRIN_API_URL", "https://api-production-2617.up.railway.app")
+
+
+def _load_hook_api_key() -> str | None:
+    # AEVRIN_API_KEY stays supported as an override; the normal path is the
+    # credentials file `aevrin hook setup` writes — deliberately separate
+    # from the CLI's own ~/.aevrin/credentials (addendum §3: hook and CLI
+    # usage should be independently attributable even for the same person).
+    env_key = os.environ.get("AEVRIN_API_KEY")
+    if env_key:
+        return env_key
+    try:
+        with open(os.path.expanduser("~/.aevrin/hook_credentials"), encoding="utf-8") as f:
+            data = json.load(f)
+            key = data.get("api_key")
+            return key if isinstance(key, str) else None
+    except (OSError, ValueError):
+        return None
+
+
+API_KEY = _load_hook_api_key()
 HTTP_TIMEOUT_S = 4  # keep well under the hook's settings.json `timeout` (recommend 5-8s)
 
 _URL_RE = re.compile(r"https?://[^\s\"']+")
@@ -162,8 +181,9 @@ def main() -> None:
 
     if not API_KEY:
         _allow(
-            "Aevrin hook is installed but AEVRIN_API_KEY is not set — this install was "
-            "not checked. Set AEVRIN_API_KEY to enable scanning."
+            "Aevrin hook is installed but not logged in — this install was not checked. "
+            "Aevrin's free tier includes 2 hook auto-scans a month — run `aevrin hook setup` "
+            "to get started."
         )
         return
 
@@ -183,6 +203,19 @@ def main() -> None:
             lines.append(f"  ...and {len(findings) - 5} more.")
         lines.append("Review the findings in your Aevrin dashboard before installing.")
         _deny("\n".join(lines))
+        return
+
+    if decision == "quota_exceeded":
+        # Not a security block — exceeding a scan quota isn't a finding, so
+        # this stays an allow with an explanatory note, same two-part
+        # shape (what happened + where to upgrade) as the CLI/dashboard.
+        resets_at = result.get("quota_resets_at")
+        upgrade_url = result.get("upgrade_url")
+        _allow(
+            f"Aevrin: hook scan quota used up for this billing period"
+            f"{f' (resets {resets_at})' if resets_at else ''}. "
+            f"This install was not checked. Upgrade at {upgrade_url}"
+        )
         return
 
     if decision == "allow_unscanned":

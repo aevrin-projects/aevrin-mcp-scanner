@@ -1,25 +1,32 @@
 from __future__ import annotations
 
-import os
-
 import httpx
 from aevrin_scanner_core import Scan
 
-DEFAULT_API_URL = "https://api.aevrin.dev"
+from .auth import api_url as get_api_url
+from .auth import load_api_key
 
 
 class UploadError(Exception):
     pass
 
 
-def upload_scan(scan: Scan) -> None:
-    api_key = os.environ.get("AEVRIN_API_KEY")
-    if not api_key:
-        raise UploadError(
-            "--upload requires AEVRIN_API_KEY. Get one from your account settings "
-            "(Aevrin dashboard → API keys) and set it in your environment."
+class QuotaExceededError(UploadError):
+    def __init__(self, bucket: str, resets_at: str, upgrade_url: str):
+        self.bucket = bucket
+        self.resets_at = resets_at
+        self.upgrade_url = upgrade_url
+        super().__init__(
+            f"Your {bucket} scan quota is used up for this billing period. "
+            f"Resets {resets_at}. Upgrade at {upgrade_url}"
         )
-    api_url = os.environ.get("AEVRIN_API_URL", DEFAULT_API_URL)
+
+
+def upload_scan(scan: Scan) -> None:
+    api_key = load_api_key()
+    if not api_key:
+        raise UploadError("Not logged in. Run `aevrin login` first.")
+    api_url = get_api_url()
 
     body = {
         "target_type": scan.target_type.value,
@@ -57,6 +64,9 @@ def upload_scan(scan: Scan) -> None:
     except httpx.HTTPError as exc:
         raise UploadError(f"Could not reach {api_url}: {exc}") from exc
 
+    if resp.status_code == 402:
+        body = resp.json()
+        raise QuotaExceededError(body["bucket"], body["resets_at"], body["upgrade_url"])
     if resp.status_code >= 400:
         detail = resp.text
         try:
