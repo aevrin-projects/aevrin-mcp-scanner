@@ -26,6 +26,18 @@ _SEVERITY_MAP = {
 
 BANDIT_IMAGE = "aevrin/bandit:local"
 
+# Confirmed live: without this, every `assert` in a pytest test file (fully
+# idiomatic, not a security issue — assert is *how* pytest assertions work)
+# gets reported as a LOW "assert_used" finding. On a real scan of
+# modelcontextprotocol/servers this alone was 96 of ~110 LOW findings,
+# almost entirely drowning out the small number of real production-code
+# findings. Bandit's own docs recommend --skip B101 for exactly this reason
+# when a project uses assert deliberately; excluding test paths is more
+# targeted — it keeps B101 meaningful for an assert actually used for
+# validation in production code (which *is* a real risk, since assert
+# statements are stripped under `python -O`).
+_TEST_PATH_EXCLUDES = "*/tests/*,*/test/*,test_*.py,*_test.py"
+
 
 class BanditAdapter(ScannerAdapter):
     tool = ToolName.BANDIT
@@ -33,7 +45,7 @@ class BanditAdapter(ScannerAdapter):
     def build_spec(self, target_dir: str) -> DockerRunSpec:
         return DockerRunSpec(
             image=BANDIT_IMAGE,
-            args=["-r", "/src", "-f", "json"],
+            args=["-r", "/src", "-f", "json", "-x", _TEST_PATH_EXCLUDES],
             mounts={target_dir: ("/src", True)},
             network_enabled=False,
             timeout_s=120,
@@ -43,7 +55,7 @@ class BanditAdapter(ScannerAdapter):
     def build_local_command(self, target_dir: str) -> LocalCommandSpec:
         return LocalCommandSpec(
             binary="bandit",
-            args=["-r", ".", "-f", "json"],
+            args=["-r", ".", "-f", "json", "-x", _TEST_PATH_EXCLUDES],
             timeout_s=120,
             ok_exit_codes=(0, 1),
         )
