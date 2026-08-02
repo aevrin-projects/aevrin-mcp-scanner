@@ -14,6 +14,7 @@ from uuid import UUID
 
 from ..models import Finding, Location, Severity, ToolName
 from ..owasp import OwaspMcpCategory
+from ..paths import relative_to_mount
 from ..runner import DockerRunSpec
 from .base import ScannerAdapter
 
@@ -57,7 +58,7 @@ class BanditAdapter(ScannerAdapter):
                     title=result.get("test_name", "Bandit finding"),
                     description=result.get("issue_text", ""),
                     location=Location(
-                        file_path=result.get("filename"),
+                        file_path=relative_to_mount(result.get("filename")),
                         line_start=result.get("line_number"),
                         line_end=(result.get("line_range") or [None])[-1],
                     ),

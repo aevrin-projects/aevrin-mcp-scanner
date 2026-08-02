@@ -13,6 +13,7 @@ from uuid import UUID
 
 from ..models import Finding, Location, Severity, ToolName
 from ..owasp import OwaspMcpCategory
+from ..paths import relative_to_mount
 from ..runner import DockerRunSpec
 from ..severity_utils import cvss_vector_to_severity, ghsa_severity
 from .base import ScannerAdapter
@@ -35,7 +36,7 @@ class OsvScannerAdapter(ScannerAdapter):
         data = json.loads(stdout) if stdout.strip() else {}
         findings: list[Finding] = []
         for result in data.get("results", []):
-            source_path = result.get("source", {}).get("path")
+            source_path = relative_to_mount(result.get("source", {}).get("path"))
             for pkg in result.get("packages", []):
                 package_info = pkg.get("package", {})
                 pkg_label = f"{package_info.get('name')}@{package_info.get('version')}"

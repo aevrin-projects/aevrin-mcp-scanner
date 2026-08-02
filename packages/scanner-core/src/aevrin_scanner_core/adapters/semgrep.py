@@ -12,6 +12,7 @@ from uuid import UUID
 
 from ..models import Finding, Location, Severity, ToolName
 from ..owasp import OwaspMcpCategory
+from ..paths import relative_to_mount
 from ..runner import DockerRunSpec
 from .base import ScannerAdapter
 
@@ -66,7 +67,7 @@ class SemgrepAdapter(ScannerAdapter):
                     title=check_id.split(".")[-1].replace("-", " "),
                     description=message,
                     location=Location(
-                        file_path=result.get("path"),
+                        file_path=relative_to_mount(result.get("path")),
                         line_start=result.get("start", {}).get("line"),
                         line_end=result.get("end", {}).get("line"),
                     ),
