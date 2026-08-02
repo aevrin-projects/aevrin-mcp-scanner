@@ -1,15 +1,32 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+const emptySubscribe = () => () => {};
+
+// next-themes 0.4 resolves `resolvedTheme` synchronously on the client's
+// first paint (via its own useSyncExternalStore), which no longer matches
+// the server's render — so an explicit mounted flag, not resolvedTheme
+// itself, has to gate which icon renders to avoid a hydration mismatch.
+// useSyncExternalStore (rather than a useState+useEffect pair) is the
+// lint-clean way to get that flag: it returns the server snapshot (false)
+// for the SSR-matching first render, then true once mounted client-side.
+function useHasMounted() {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
+}
+
 export function ThemeToggle() {
-  // resolvedTheme is undefined until next-themes hydrates client-side — that
-  // itself is the "mounted" signal, no extra effect/state needed to avoid a
-  // hydration mismatch: server and first client paint both render the
-  // fallback (moon) icon.
   const { resolvedTheme, setTheme } = useTheme();
+  const mounted = useHasMounted();
+
+  const isDark = mounted && resolvedTheme === "dark";
 
   return (
     <Button
@@ -19,7 +36,7 @@ export function ThemeToggle() {
       aria-label="Toggle theme"
       onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
     >
-      {resolvedTheme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+      {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
     </Button>
   );
 }

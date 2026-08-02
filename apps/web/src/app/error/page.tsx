@@ -40,7 +40,7 @@ export default async function ErrorPage({
   const { reason } = await searchParams;
   const { title, description } = (reason && MESSAGES[reason]) || DEFAULT_MESSAGE;
   return (
-    <div className="flex min-h-svh items-center justify-center bg-background px-4">
+    <div className="flex min-h-[calc(100svh-3.5rem)] items-center justify-center bg-background px-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>{title}</CardTitle>

@@ -7,14 +7,18 @@ import { createClient } from "@/lib/supabase/client";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-const HIDDEN_PATHS = ["/login", "/error"];
 const AUTH_PREFIXES = ["/auth"];
 
 export function NavBar({ email }: { email?: string | null }) {
   const pathname = usePathname();
   const router = useRouter();
 
-  if (HIDDEN_PATHS.includes(pathname) || AUTH_PREFIXES.some((p) => pathname.startsWith(p))) {
+  // Auth redirect routes (/auth/callback, /auth/confirm) are never actually
+  // rendered to a user, so hiding the navbar there is harmless. /login and
+  // /error used to be hidden too, which made both feel like a dead end with
+  // no way back to the rest of the site — the navbar (and the "Aevrin" logo
+  // link back to "/") should always be reachable.
+  if (AUTH_PREFIXES.some((p) => pathname.startsWith(p))) {
     return null;
   }
 

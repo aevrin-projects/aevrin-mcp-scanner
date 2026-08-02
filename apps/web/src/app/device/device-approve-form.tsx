@@ -70,7 +70,7 @@ export function DeviceApproveForm({ initialUserCode }: { initialUserCode: string
 
   if (status === "approved") {
     return (
-      <div className="flex min-h-svh items-center justify-center bg-background px-4">
+      <div className="flex min-h-[calc(100svh-3.5rem)] items-center justify-center bg-background px-4">
         <Card className="w-full max-w-sm">
           <CardHeader>
             <CardTitle className="text-xl">Device connected</CardTitle>
@@ -93,7 +93,7 @@ export function DeviceApproveForm({ initialUserCode }: { initialUserCode: string
         : null;
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-background px-4">
+    <div className="flex min-h-[calc(100svh-3.5rem)] items-center justify-center bg-background px-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle className="text-xl">Connect a device</CardTitle>

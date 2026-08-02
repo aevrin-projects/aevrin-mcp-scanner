@@ -2,6 +2,9 @@
 
 import { Suspense, useActionState, useState, type ChangeEvent } from "react";
 import { useSearchParams } from "next/navigation";
+import Image from "next/image";
+import Link from "next/link";
+import { FileWarning, ShieldCheck, Terminal } from "lucide-react";
 import {
   signInWithGoogle,
   signInWithPassword,
@@ -44,6 +47,56 @@ function GoogleIcon() {
   );
 }
 
+// Site chrome (navbar) stays mounted around this page — the sign-in flow
+// previously hid the navbar entirely and forced a full-viewport card, which
+// made the site feel like a dead end with no way back. This shell instead
+// fills the space under the sticky navbar (h-14) and keeps the rest of the
+// site one click away at all times.
+//
+// The split panel itself is deliberately NOT stretched to fill that whole
+// height — on a large/tall viewport, a `min-h-svh` grid pulls the marketing
+// copy and the card apart into huge empty voids on each side. Capping the
+// panel to `max-w-5xl`/`lg:h-[600px]` and centering it in the available
+// space keeps its proportions consistent across viewport sizes instead of
+// stretching edge-to-edge.
+function AuthShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-[calc(100svh-3.5rem)] items-center justify-center bg-background p-4 lg:p-10">
+      <div className="grid w-full max-w-5xl overflow-hidden rounded-xl border border-border lg:h-[600px] lg:grid-cols-2">
+        <div className="hidden flex-col justify-center gap-8 border-r border-border bg-muted/40 p-10 lg:flex">
+          <Link href="/" className="flex items-center gap-2 font-semibold">
+            <Image src="/logo.png" alt="" width={22} height={24} />
+            <span>Aevrin</span>
+          </Link>
+          <div className="flex max-w-sm flex-col gap-6">
+            <h2 className="text-2xl font-semibold tracking-tight text-balance">
+              Know what your MCP servers can actually do before you install them.
+            </h2>
+            <ul className="flex flex-col gap-4 text-sm text-muted-foreground">
+              <li className="flex items-start gap-3">
+                <ShieldCheck className="mt-0.5 size-4 shrink-0 text-foreground" />
+                <span>Static analysis against the OWASP MCP Top 10 — nothing runs against production traffic.</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <Terminal className="mt-0.5 size-4 shrink-0 text-foreground" />
+                <span>Scan from the CLI, a Claude Code hook, or paste a repo URL straight into the dashboard.</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <FileWarning className="mt-0.5 size-4 shrink-0 text-foreground" />
+                <span>Every finding is scored and mapped to a fix — not a wall of raw tool output.</span>
+              </li>
+            </ul>
+          </div>
+          <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Aevrin</p>
+        </div>
+        <div className="flex items-center justify-center overflow-y-auto p-8">
+          <div className="w-full max-w-sm py-8">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LoginPage() {
   return (
     <Suspense fallback={null}>
@@ -78,8 +131,8 @@ function LoginForm() {
   if (codeSent.status === "code-sent" && codeSent.email) {
     const email = codeSent.email;
     return (
-      <div className="flex min-h-svh items-center justify-center bg-background px-4">
-        <Card className="w-full max-w-sm">
+      <AuthShell>
+        <Card className="w-full">
           <CardHeader>
             <CardTitle className="text-xl">Set your password</CardTitle>
             <CardDescription>{resetResendState.message ?? codeSent.message}</CardDescription>
@@ -107,6 +160,7 @@ function LoginForm() {
                   id="new-password"
                   name="newPassword"
                   type="password"
+                  autoComplete="new-password"
                   placeholder="At least 8 characters"
                   minLength={8}
                   required
@@ -129,14 +183,14 @@ function LoginForm() {
             </form>
           </CardContent>
         </Card>
-      </div>
+      </AuthShell>
     );
   }
 
   if (mode === "reset") {
     return (
-      <div className="flex min-h-svh items-center justify-center bg-background px-4">
-        <Card className="w-full max-w-sm">
+      <AuthShell>
+        <Card className="w-full">
           <CardHeader>
             <CardTitle className="text-xl">Reset your password</CardTitle>
             <CardDescription>We&apos;ll email you a code.</CardDescription>
@@ -145,7 +199,15 @@ function LoginForm() {
             <form action={resetRequestAction} className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="reset-email">Email</Label>
-                <Input id="reset-email" name="email" type="email" placeholder="you@company.com" required autoFocus />
+                <Input
+                  id="reset-email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@company.com"
+                  required
+                  autoFocus
+                />
               </div>
               {resetRequestState.status === "error" && (
                 <p className="text-sm text-destructive" role="alert">
@@ -165,7 +227,7 @@ function LoginForm() {
             </button>
           </CardContent>
         </Card>
-      </div>
+      </AuthShell>
     );
   }
 
@@ -175,8 +237,8 @@ function LoginForm() {
   if (showVerifyStep) {
     const email = pendingVerify.email!;
     return (
-      <div className="flex min-h-svh items-center justify-center bg-background px-4">
-        <Card className="w-full max-w-sm">
+      <AuthShell>
+        <Card className="w-full">
           <CardHeader>
             <CardTitle className="text-xl">Check your email</CardTitle>
             <CardDescription>{resendState.message ?? pendingVerify.message}</CardDescription>
@@ -216,15 +278,15 @@ function LoginForm() {
             </form>
           </CardContent>
         </Card>
-      </div>
+      </AuthShell>
     );
   }
 
   if (signInState.status === "google-only" && signInState.email) {
     const email = signInState.email;
     return (
-      <div className="flex min-h-svh items-center justify-center bg-background px-4">
-        <Card className="w-full max-w-sm">
+      <AuthShell>
+        <Card className="w-full">
           <CardHeader>
             <CardTitle className="text-xl">This email uses Google sign-in</CardTitle>
             <CardDescription>{signInState.message}</CardDescription>
@@ -257,7 +319,7 @@ function LoginForm() {
             </button>
           </CardContent>
         </Card>
-      </div>
+      </AuthShell>
     );
   }
 
@@ -266,8 +328,8 @@ function LoginForm() {
   const activePending = mode === "signin" ? signInPending : signUpPending;
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-sm">
+    <AuthShell>
+      <Card className="w-full">
         <CardHeader>
           <CardTitle className="text-xl">{mode === "signin" ? "Sign in to Aevrin" : "Create your Aevrin account"}</CardTitle>
           <CardDescription>
@@ -292,7 +354,15 @@ function LoginForm() {
           <form action={activeAction} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" name="email" type="email" placeholder="you@company.com" required autoFocus />
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                placeholder="you@company.com"
+                required
+                autoFocus
+              />
             </div>
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
@@ -311,6 +381,7 @@ function LoginForm() {
                 id="password"
                 name="password"
                 type="password"
+                autoComplete={mode === "signup" ? "new-password" : "current-password"}
                 placeholder={mode === "signup" ? "At least 8 characters" : "••••••••"}
                 required
                 minLength={mode === "signup" ? 8 : undefined}
@@ -335,6 +406,6 @@ function LoginForm() {
           </button>
         </CardContent>
       </Card>
-    </div>
+    </AuthShell>
   );
 }
