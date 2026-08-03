@@ -88,14 +88,17 @@ COPY apps/api /repo/apps/api
 # runtime sandbox. Keep the application environment in /opt so neither Python
 # nor generated console scripts need to execute from /repo after deployment.
 ENV UV_PROJECT_ENVIRONMENT=/opt/aevrin-venv
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev \
+    && cp -a /opt/aevrin-venv/lib/python3.12/site-packages/. \
+      /usr/local/lib/python3.12/site-packages/ \
+    && rm -rf /opt/aevrin-venv
 
 ENV AEVRIN_EXECUTOR=subprocess
-ENV PATH="/opt/aevrin-venv/bin:${PATH}"
 # Railway's runtime blocks direct execution from application image
-# directories, but Python can safely import the locked environment from
-# there. The system interpreter remains executable under /usr/local/bin.
-ENV PYTHONPATH="/opt/aevrin-venv/lib/python3.12/site-packages:/repo/apps/api/src:/repo/packages/scanner-core/src"
+# directories and strips PYTHONPATH. Copying the frozen environment into the
+# system interpreter's standard import location makes startup independent of
+# both restrictions. Editable package links still point at the read-only
+# application sources under /repo.
 
 # uv's Python-tool launchers point into /opt, so expose small launchers from
 # /usr/local/bin that run the same pinned modules through the system Python.
@@ -106,8 +109,8 @@ RUN install -m 0755 docker-bin/semgrep /usr/local/bin/semgrep \
 # The API and every scanner run without root privileges. Scanner workspaces
 # live under /tmp and Semgrep's cache lives in this user's writable home.
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin aevrin
-RUN chown -R aevrin:aevrin /opt/aevrin-venv /opt/uv-tools \
-    && chmod -R a+rX /opt/aevrin-venv /opt/uv-tools
+RUN chown -R aevrin:aevrin /opt/uv-tools \
+    && chmod -R a+rX /opt/uv-tools
 USER aevrin
 
 EXPOSE 8000
