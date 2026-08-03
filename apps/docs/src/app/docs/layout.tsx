@@ -8,7 +8,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     <DocsLayout
       tree={source.pageTree}
       {...baseOptions}
-      containerProps={{ style: { "--fd-layout-width": "1500px" } as CSSProperties }}
+      containerProps={{ style: { "--fd-layout-width": "100%" } as CSSProperties }}
     >
       {children}
     </DocsLayout>
