@@ -1,14 +1,14 @@
 [project]
 name = "aevrin"
-version = "0.1.7"
-description = "Aevrin MCP Security Scanner CLI — scan a GitHub repo, local path, or live MCP server."
+version = "0.1.8"
+description = "Aevrin MCP Security Scanner CLI — scan a source repository, local path, or live MCP server."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Aevrin" }]
 keywords = ["mcp", "security", "scanner", "model-context-protocol"]
 dependencies = [
-    "aevrin-scanner-core>=0.1.6",
+    "aevrin-scanner-core>=0.1.8",
     "typer>=0.15",
     "rich>=13.9",
     "httpx>=0.27",
@@ -18,8 +18,9 @@ dependencies = [
 aevrin = "aevrin_cli.main:app"
 
 [project.urls]
-Homepage = "https://github.com/aevrin-projects/aevrin-mcp-scanner"
-Repository = "https://github.com/aevrin-projects/aevrin-mcp-scanner"
+Homepage = "https://mcp.aevrin.net"
+Documentation = "https://docs.mcp.aevrin.net/docs"
+Support = "mailto:support@aevrin.net"
 
 [dependency-groups]
 dev = [

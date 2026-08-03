@@ -13,7 +13,7 @@ resolution-markers = [
 
 [[package]]
 name = "aevrin"
-version = "0.1.7"
+version = "0.1.8"
 source = { editable = "." }
 dependencies = [
     { name = "aevrin-scanner-core" },
@@ -46,7 +46,7 @@ dev = [
 
 [[package]]
 name = "aevrin-scanner-core"
-version = "0.1.7"
+version = "0.1.8"
 source = { editable = "../scanner-core" }
 dependencies = [
     { name = "mcp" },
