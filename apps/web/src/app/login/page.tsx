@@ -56,25 +56,25 @@ function GoogleIcon() {
 // The split panel itself is deliberately NOT stretched to fill that whole
 // height — on a large/tall viewport, a `min-h-svh` grid pulls the marketing
 // copy and the card apart into huge empty voids on each side. Capping the
-// panel to `max-w-5xl`/`lg:h-[600px]` and centering it in the available
-// space keeps its proportions consistent across viewport sizes instead of
-// stretching edge-to-edge.
+// panel nearly fills the available viewport while keeping a deliberate
+// breathing gap around it. The form column scrolls independently for the
+// longer verification and reset states.
 function AuthShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="auth-ambient relative flex min-h-[calc(100svh-3.5rem)] items-center justify-center overflow-hidden bg-background p-4 lg:p-10">
+    <div className="auth-ambient relative flex min-h-[calc(100svh-4.5rem)] items-center justify-center overflow-hidden bg-background p-3 sm:p-5 lg:p-6">
       <div className="security-mesh absolute inset-0 opacity-35" aria-hidden="true" />
       <div className="security-orb security-orb-one" aria-hidden="true" />
       <div className="security-orb security-orb-two" aria-hidden="true" />
       <h1 className="sr-only">Aevrin account access</h1>
-      <div className="auth-panel-enter relative grid w-full max-w-5xl overflow-hidden rounded-[28px] border border-border/80 bg-background/88 shadow-2xl shadow-black/15 backdrop-blur-xl lg:h-[600px] lg:grid-cols-2">
-        <div className="auth-grid relative hidden flex-col justify-center gap-8 overflow-hidden border-r border-border bg-muted/40 p-10 lg:flex">
+      <div className="auth-panel-enter relative grid min-h-[calc(100svh-6rem)] w-full max-w-[1480px] overflow-hidden rounded-[28px] border border-border/80 bg-background/88 shadow-2xl shadow-black/15 backdrop-blur-xl lg:min-h-[calc(100svh-7.5rem)] lg:max-h-[900px] lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="auth-grid relative hidden flex-col justify-center gap-10 overflow-hidden border-r border-border bg-muted/40 p-12 lg:flex xl:p-16">
           <div className="auth-scan-line" aria-hidden="true" />
           <Link href="/" className="flex items-center gap-2 font-semibold">
             <Image src="/logo.png" alt="" width={22} height={24} />
             <span>Aevrin</span>
           </Link>
-          <div className="flex max-w-sm flex-col gap-6">
-            <h2 className="text-2xl font-semibold tracking-tight text-balance">
+          <div className="flex max-w-xl flex-col gap-7">
+            <h2 className="text-3xl font-semibold tracking-tight text-balance xl:text-4xl">
               Know what your MCP servers can actually do before you install them.
             </h2>
             <ul className="flex flex-col gap-4 text-sm text-muted-foreground">
@@ -84,7 +84,7 @@ function AuthShell({ children }: { children: React.ReactNode }) {
               </li>
               <li className="flex items-start gap-3">
                 <Terminal className="mt-0.5 size-4 shrink-0 text-foreground" />
-                <span>Scan from the CLI, a Claude Code hook, or paste a repo URL straight into the dashboard.</span>
+                <span>Scan from the CLI, a Claude Code hook, or paste a repository URL straight into the dashboard.</span>
               </li>
               <li className="flex items-start gap-3">
                 <FileWarning className="mt-0.5 size-4 shrink-0 text-foreground" />
@@ -101,8 +101,8 @@ function AuthShell({ children }: { children: React.ReactNode }) {
           </div>
           <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Aevrin</p>
         </div>
-        <div className="relative flex items-center justify-center overflow-y-auto bg-background/70 p-6 sm:p-8">
-          <div className="w-full max-w-sm py-8">{children}</div>
+        <div className="relative flex items-start justify-center overflow-y-auto bg-background/70 p-5 sm:items-center sm:p-8 lg:p-10">
+          <div className="w-full max-w-md py-5 sm:py-8">{children}</div>
         </div>
       </div>
     </div>

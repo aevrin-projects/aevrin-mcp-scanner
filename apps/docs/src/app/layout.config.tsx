@@ -11,12 +11,16 @@ export const baseOptions: BaseLayoutProps = {
   },
   links: [
     {
-      text: "Dashboard",
+      text: "Home",
       url: "https://mcp.aevrin.net",
     },
     {
-      text: "GitHub",
-      url: "https://github.com/aevrin-projects/aevrin-mcp-scanner",
+      text: "Dashboard",
+      url: "https://mcp.aevrin.net/dashboard",
+    },
+    {
+      text: "Support",
+      url: "mailto:support@aevrin.net",
     },
   ],
 };

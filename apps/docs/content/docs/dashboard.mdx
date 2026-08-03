@@ -43,6 +43,18 @@ latest 50 charged scans with source filters, timestamp, status, score, target ty
 the full report. Hook cache hits are not listed because they do not consume a scan credit. See
 [Concepts → Quota & tiers](/docs/concepts#quota-and-tiers) for the exact numbers per plan.
 
+## History and deletion
+
+**Scan history** lists dashboard, CLI, and hook-originated reports together. Delete one report
+from its row, or use **Clear history** to remove every owned scan after confirmation. Deletion
+cascades to that scan's stages and findings; it does not refund quota already consumed.
+
+## Finding review
+
+Finding detail supports `open`, `fixed`, and `false_positive` triage. False-positive reports
+require a review reason, and the reason plus triage timestamp remain visible in the report and
+printable export. See [Triage and False Positives](/docs/triage).
+
 ## API keys
 
 Settings → API Keys lets you mint additional long-lived keys for automation contexts where

@@ -12,8 +12,8 @@ import { formatDate, formatDateTime } from "@/lib/presentation";
 
 const PLAN_COPY = {
   free: { price: "$0", billing: "No renewal", body: "Five CLI scans, two hook auto-scans, and five dashboard scans each month." },
-  hobby: { price: "₹1,500 / ₹1,200", billing: "One cycle at a time", body: "Monthly / effective annual monthly price, charged in INR with no automatic renewal." },
-  team: { price: "₹5,900 / ₹4,900", billing: "One cycle at a time", body: "Monthly / effective annual monthly price, charged in INR with no automatic renewal." },
+  hobby: { price: "$19 / $15", billing: "One cycle at a time", body: "Monthly / effective annual monthly price, charged in USD with no automatic renewal." },
+  team: { price: "$79 / $59", billing: "One cycle at a time", body: "Monthly / effective annual monthly price, charged in USD with no automatic renewal." },
 } as const;
 
 export default function BillingPage() {

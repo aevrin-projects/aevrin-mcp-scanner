@@ -62,11 +62,6 @@ function isDashboardTargetType(value: string | null): value is DashboardTargetTy
   return DASHBOARD_MODES.some((mode) => mode === value);
 }
 
-const DEMO_SERVERS = [
-  { label: "modelcontextprotocol/servers", target: "https://github.com/modelcontextprotocol/servers" },
-  { label: "github/github-mcp-server", target: "https://github.com/github/github-mcp-server" },
-];
-
 export default function NewScanPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -228,30 +223,6 @@ export default function NewScanPage() {
         </SectionCard>
 
         <div className="space-y-6">
-          <SectionCard
-            title="Demo targets"
-            description="Use a known public repository as a safe sample."
-          >
-            <div className="flex flex-col gap-3">
-              {DEMO_SERVERS.map((server) => (
-                <Button
-                  key={server.target}
-                  variant="outline"
-                  className="justify-between"
-                  disabled={submitting}
-                  onClick={() => {
-                    setMode("github_repo");
-                    setValues((current) => ({ ...current, github_repo: server.target }));
-                    void handleSubmit("github_repo", server.target);
-                  }}
-                >
-                  <span>{server.label}</span>
-                  <ArrowRight className="size-4" />
-                </Button>
-              ))}
-            </div>
-          </SectionCard>
-
           <SectionCard
             title="Recent scans"
             description="Resume the last result or review what was scanned most recently."

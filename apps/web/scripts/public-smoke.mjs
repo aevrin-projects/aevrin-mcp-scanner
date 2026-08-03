@@ -83,6 +83,9 @@ for (const viewport of viewports) {
       (viewport.name === "mobile" || viewport.name === "desktop") &&
       route !== "/definitely-not-a-route"
     ) {
+      // Audit the settled interface rather than a deliberate reveal animation's
+      // partially transparent transition frame.
+      await page.waitForTimeout(900);
       const accessibility = await new AxeBuilder({ page })
         .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
         .analyze();
@@ -114,10 +117,10 @@ const toggle = page.getByRole("switch", { name: "Toggle annual billing" });
 if (!(await toggle.isVisible())) failures.push("pricing toggle is not visible");
 await toggle.press("Space");
 const monthlyText = await page.locator("section#pricing").innerText();
-if (!annualText.includes("₹14,400 billed today")) {
+if (!annualText.includes("$180 billed today")) {
   failures.push("annual total is not visible");
 }
-if (!monthlyText.includes("₹1,500 billed today for one month")) {
+if (!monthlyText.includes("$19 billed today for one month")) {
   failures.push("monthly charge is not visible after toggle");
 }
 const faq = page.getByRole("button", {

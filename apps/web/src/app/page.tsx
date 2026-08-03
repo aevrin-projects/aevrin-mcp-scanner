@@ -76,8 +76,8 @@ export default function LandingPage() {
         <div className="security-orb security-orb-one" aria-hidden="true" />
         <div className="security-orb security-orb-two" aria-hidden="true" />
         <div className="hero-scan-beam" aria-hidden="true" />
-        <div className="relative mx-auto max-w-[1500px] px-6 pb-20 pt-16 lg:px-10 lg:pb-24 lg:pt-20 xl:px-14">
-          <div className="grid gap-12 xl:grid-cols-[minmax(0,1.08fr)_minmax(460px,0.92fr)] xl:items-center">
+        <div className="relative mx-auto max-w-[1600px] px-6 pb-20 pt-16 lg:px-10 lg:pb-24 lg:pt-20 xl:px-14">
+          <div className="grid gap-10 xl:grid-cols-[minmax(0,0.78fr)_minmax(600px,1.22fr)] xl:items-center">
             <div className="space-y-8">
               <Reveal>
                 <div className="inline-flex items-center gap-3 rounded-full border border-border/80 bg-background/80 px-4 py-2">
@@ -101,7 +101,7 @@ export default function LandingPage() {
                 </Reveal>
                 <Reveal delay={190}>
                   <p className="max-w-3xl text-base leading-8 text-muted-foreground sm:text-lg">
-                    Review GitHub repositories, live MCP servers, or pasted configuration through the
+                    Review source repositories, live MCP servers, or pasted configuration through the
                     same authenticated product workspace your team will use to triage, verify, and
                     repeat scans. No invented trend lines. No fake confidence.
                   </p>
@@ -142,15 +142,15 @@ export default function LandingPage() {
             </div>
 
             <Reveal delay={140} className="h-full">
-              <div className="motion-float-card relative overflow-hidden rounded-[30px] border border-border/80 bg-card/75 p-4 shadow-2xl shadow-black/15 backdrop-blur-sm sm:p-6">
+              <div className="motion-float-card relative overflow-hidden rounded-[30px] border border-border/80 bg-card/75 p-3 shadow-2xl shadow-black/15 backdrop-blur-sm sm:p-5">
                 <div className="preview-scan-sweep" aria-hidden="true" />
-                <div className="rounded-[26px] border border-border/80 bg-background/92 p-5">
+                <div className="rounded-[26px] border border-border/80 bg-background/92 p-4 sm:p-5">
                   <div className="flex flex-col gap-4 border-b border-border/80 pb-5 sm:flex-row sm:items-start sm:justify-between">
                     <div className="space-y-1">
                       <p className="text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
                         Authenticated workflow preview
                       </p>
-                      <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+                      <h2 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
                         Review the available evidence before a server gets installed.
                       </h2>
                     </div>
@@ -159,14 +159,14 @@ export default function LandingPage() {
                     </div>
                   </div>
 
-                  <div className="mt-5 grid gap-4 lg:grid-cols-[1.02fr_0.98fr]">
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
                     <PreviewCard
                       eyebrow="New scan"
                       title="Start from the target you actually have"
-                      body="GitHub repository, live MCP server, or pasted config input. Aevrin explains the trade-off in coverage before you launch the scan."
+                      body="Source repository, live MCP server, or pasted config input. Aevrin explains the trade-off in coverage before you launch the scan."
                     >
                       <ul className="space-y-2 text-sm text-muted-foreground">
-                        <li>GitHub repo: broadest source, dependency, and secret coverage</li>
+                        <li>Source repo: broadest code, dependency, and secret coverage</li>
                         <li>Live MCP server: runtime install decision, reduced static visibility</li>
                         <li>Pasted config: fastest route for triage and follow-up</li>
                       </ul>

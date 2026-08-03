@@ -1,0 +1,40 @@
+---
+title: Authentication
+description: Browser sign-in, CLI device login, hook credentials, and automation keys.
+---
+
+Aevrin separates browser sessions, CLI credentials, hook credentials, and manually created
+automation keys. All belong to the same account, but their usage remains attributable.
+
+## Dashboard sign-in
+
+Use email/password or Google on the sign-in page. Email verification and password-reset codes
+are eight digits. The browser session is managed by Supabase Auth and sent to the API as a bearer
+token; it is never copied into CLI configuration.
+
+## CLI device login
+
+```bash
+aevrin login
+```
+
+The terminal prints a one-time code, opens the Aevrin approval page, and polls until you approve
+it. No account password is entered in the terminal. The resulting key is stored in
+`~/.aevrin/credentials`. Run `aevrin logout` to remove it.
+
+## Hook device login
+
+```bash
+aevrin hook setup
+aevrin hook logout
+```
+
+The hook uses `~/.aevrin/hook_credentials`, separate from the CLI key. This is why Usage can show
+CLI scans and hook auto-scans independently even when they come from the same machine.
+
+## API keys for automation
+
+Open **Dashboard → API keys**, create a named key, and copy it immediately; plaintext is shown
+once. Store it in the CI provider's secret manager and expose it as `AEVRIN_API_KEY` only for the
+scan process. Revoke unused keys from the same page. Never commit keys to configuration or a
+shared shell profile.

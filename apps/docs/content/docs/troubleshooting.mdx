@@ -1,0 +1,50 @@
+---
+title: Troubleshooting
+description: Fix installation, authentication, scanner, sync, hook, and coverage failures.
+---
+
+## Command not found
+
+Run `pipx ensurepath`, restart the terminal, then confirm `pipx list` contains Aevrin. On Windows,
+open a new PowerShell session after changing PATH.
+
+## Login expired or revoked
+
+```bash
+aevrin logout
+aevrin login
+```
+
+For hook-only failures, use `aevrin hook logout` followed by `aevrin hook setup` instead.
+
+## Scanner exited 1
+
+An exit code can mean findings or execution failure depending on the scanner. Aevrin recognizes
+each tool's finding codes and parses JSON before deciding. Malformed or empty JSON, timeout,
+missing image, mount denial, or network failure marks coverage unreliable instead of returning
+zero findings.
+
+## Docker or mount failure
+
+Start Docker, select Linux containers on Windows, allocate at least 4 GB, and allow drive or temp-
+directory sharing. Rerun the same command. Do not accept the old incomplete score as clean.
+
+## No MCP entrypoint discovered
+
+This is a non-applicable tool-description check, not a source-scanner failure. Confirm the target
+contains an MCP SDK dependency and recognizable server entrypoint. Source findings remain valid
+even when the target is not an MCP server.
+
+## CLI scan missing from dashboard
+
+Confirm the terminal printed **Saved to your Aevrin dashboard**, `--no-upload` was not used, and
+the CLI account matches the browser account. A network failure after local completion does not
+change the scan exit code; rerun after connectivity returns if persistence is required.
+
+## Hook did not block
+
+The first cache miss starts a background scan and allows with a warning. Retry after that scan
+completes. Network, timeout, missing credentials, and exhausted hook quota deliberately fail open.
+
+Still stuck? Email [support@aevrin.net](mailto:support@aevrin.net) with the Aevrin version, target
+type, stage name, and redacted error text.

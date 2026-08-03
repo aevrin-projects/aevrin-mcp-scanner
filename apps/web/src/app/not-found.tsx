@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft, SearchX } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 
 export default function NotFound() {
   return (
@@ -15,11 +15,11 @@ export default function NotFound() {
           This route does not exist. Return to the product overview or start a new security scan.
         </p>
         <div className="mt-7 flex flex-wrap justify-center gap-3">
-          <Button render={<Link href="/" />} variant="outline">
+          <Link href="/" className={buttonVariants({ variant: "outline" })}>
             <ArrowLeft className="size-4" />
             Home
-          </Button>
-          <Button render={<Link href="/scans/new" />}>Start a scan</Button>
+          </Link>
+          <Link href="/scans/new" className={buttonVariants()}>Start a scan</Link>
         </div>
       </div>
     </section>

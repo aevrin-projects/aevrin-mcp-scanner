@@ -55,20 +55,20 @@ is stored at `~/.aevrin/credentials`.
 ## Run your first scan
 
 ```bash
-aevrin scan https://github.com/modelcontextprotocol/servers
+aevrin scan https://github.com/owner/mcp-server
 ```
 
 `TARGET` can be a GitHub URL, a local directory path, or a live MCP server URL — see
 [CLI Reference → scan](/docs/cli#scan) for the full breakdown of what each target type actually
-checks. The scan runs entirely on your machine (each tool in its own disposable Docker
-container, or as a bundled binary if Docker isn't available) and, once logged in, the result is
+checks. The scan runs entirely on your machine with each tool in its own version-pinned Docker
+container and, once logged in, the result is
 uploaded to your dashboard automatically.
 
 You'll see a stage-by-stage progress trace, then a score, a findings table, and any coverage
 notes:
 
 ```
-Target: https://github.com/modelcontextprotocol/servers
+Target: https://github.com/owner/mcp-server
 
 Score:  46/100  High risk — several findings need attention
 

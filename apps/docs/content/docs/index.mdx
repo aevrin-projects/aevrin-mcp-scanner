@@ -4,7 +4,7 @@ description: What Aevrin scans, how it scores risk, and where to start.
 ---
 
 Aevrin scans [Model Context Protocol](https://modelcontextprotocol.io) (MCP) servers for
-security risks before you trust them — as a GitHub repository, a local path on your machine, or
+security risks before you trust them — as a source repository, a local path on your machine, or
 a live server URL. It runs a fixed set of established open-source scanners (Semgrep, Bandit,
 Gitleaks, TruffleHog, OSV-Scanner, Trivy, mcp-shield, and the official MCP SDK) and maps every result onto the
 [OWASP MCP Top 10](/docs/concepts#owasp-mcp-top-10), so a finding means the same thing
@@ -31,7 +31,7 @@ everywhere it appears: in the CLI, in a Claude Code hook block, and on the dashb
 ```bash
 pipx install aevrin
 aevrin login
-aevrin scan https://github.com/modelcontextprotocol/servers
+aevrin scan https://github.com/owner/mcp-server
 ```
 
 See [Getting Started](/docs/getting-started) for the full walkthrough, including installing on
@@ -39,7 +39,7 @@ older Python versions and connecting the Claude Code hook.
 
 ## What a scan actually checks
 
-A GitHub-repo or local-path scan clones (or reads) the target and runs, in order:
+A repository or local-path scan clones (or reads) the target and runs, in order:
 
 1. **Static analysis** — Semgrep + Bandit for injection, path traversal, SSRF, and other
    code-level risks.

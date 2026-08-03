@@ -54,8 +54,8 @@ const TIERS: Tier[] = [
   {
     id: "hobby",
     name: "Hobby",
-    monthly: 1500,
-    annual: 1200,
+    monthly: 19,
+    annual: 15,
     cli: "50 / month",
     hook: "20 / month",
     dashboard: "50 / month",
@@ -75,8 +75,8 @@ const TIERS: Tier[] = [
   {
     id: "team",
     name: "Team",
-    monthly: 5900,
-    annual: 4900,
+    monthly: 79,
+    annual: 59,
     cli: "Unlimited",
     hook: "Unlimited",
     dashboard: "Unlimited",
@@ -128,10 +128,10 @@ function loadRazorpayScript(): Promise<void> {
   });
 }
 
-function formatInr(value: number) {
-  return new Intl.NumberFormat("en-IN", {
+function formatUsd(value: number) {
+  return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "INR",
+    currency: "USD",
     maximumFractionDigits: 0,
   }).format(value);
 }
@@ -241,16 +241,16 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
                     )}
                   </div>
                   <div className="flex items-baseline gap-1 pt-2">
-                    <span className="text-3xl font-semibold">{formatInr(price)}</span>
+                    <span className="text-3xl font-semibold">{formatUsd(price)}</span>
                     <span className="text-sm text-muted-foreground">/month</span>
                   </div>
                   {annual && tier.id !== "free" && (
                     <p className="text-xs text-muted-foreground">
-                      {formatInr(price * 12)} billed today for one year — save {formatInr(savingsByTier[tier.id])}
+                      {formatUsd(price * 12)} billed today for one year — save {formatUsd(savingsByTier[tier.id])}
                     </p>
                   )}
                   {!annual && tier.id !== "free" ? (
-                    <p className="text-xs text-muted-foreground">{formatInr(price)} billed today for one month</p>
+                    <p className="text-xs text-muted-foreground">{formatUsd(price)} billed today for one month</p>
                   ) : null}
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
@@ -331,7 +331,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
       </div>
 
       <p className="mt-8 text-center text-xs leading-5 text-muted-foreground">
-        Prices are charged in INR through Razorpay. Taxes may apply. Aevrin pauses new scans at the configured limit and does not create automatic overage charges.
+        Prices are charged in US dollars through Razorpay. Taxes may apply. Aevrin pauses new scans at the configured limit and does not create automatic overage charges.
       </p>
     </section>
   );

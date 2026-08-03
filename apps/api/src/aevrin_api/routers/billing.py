@@ -36,16 +36,16 @@ from ..security import AuthenticatedUser
 router = APIRouter(prefix="/billing", tags=["billing"])
 logger = logging.getLogger("aevrin.billing")
 
-# INR prices mirrored by the public pricing and account billing screens.
+# USD prices mirrored by the public pricing and account billing screens.
 # "annual" is one lump-sum charge for 12 months; the UI shows both the
 # amount charged today and its effective monthly equivalent.
 _PRICE_PAISE: dict[tuple[str, str], int] = {
-    ("hobby", "monthly"): 150_000,
-    ("hobby", "annual"): 1_440_000,
-    ("team", "monthly"): 590_000,
-    ("team", "annual"): 5_880_000,
+    ("hobby", "monthly"): 1_900,
+    ("hobby", "annual"): 18_000,
+    ("team", "monthly"): 7_900,
+    ("team", "annual"): 70_800,
 }
-_CURRENCY = "INR"
+_CURRENCY = "USD"
 
 
 def _paid_until(existing: str | None, cycle: str) -> datetime:

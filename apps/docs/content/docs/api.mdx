@@ -43,6 +43,8 @@ dashboard and `aevrin findings triage` need to call them.
 | `GET /scans/{id}/stages` | JWT | Per-stage status (cloning, static analysis, secrets, dependencies, tool description check, aggregating). |
 | `GET /scans/{id}/findings` | JWT | Full findings list for a scan. |
 | `GET /scans/{id}/export` | JWT | OWASP MCP-mapped HTML report with Print / Save as PDF (Hobby/Team only). |
+| `DELETE /scans/{id}` | JWT | Delete one owned scan with its stages and findings. |
+| `DELETE /scans` | JWT | Clear all scan history owned by the current account. |
 
 ## CLI upload
 
@@ -71,6 +73,22 @@ dashboard and `aevrin findings triage` need to call them.
 | Method & path | Auth | Description |
 |---|---|---|
 | `GET /account/usage` | JWT | Current-period limits plus the latest 50 attributed CLI, hook, and dashboard scans with report IDs. |
+
+## Billing
+
+| Method & path | Auth | Description |
+|---|---|---|
+| `GET /billing/subscription` | JWT | Stored and effective tier plus paid-through time. |
+| `POST /billing/checkout` | JWT | Create a USD Razorpay order for one monthly or annual cycle. |
+| `POST /billing/verify` | JWT | Verify checkout signature and activate the paid period. |
+| `POST /billing/webhook` | Razorpay signature | Recover a captured payment when the browser verification callback did not complete. |
+
+## Device authorization
+
+The CLI and hook use an RFC 8628-style browser approval flow. `POST /device/code` issues the
+one-time user code and polling secret; `POST /device/token` returns only pending/slow-down/error
+states until the signed-in browser approves that code. These endpoints are used by `aevrin login`
+and `aevrin hook setup`; applications should prefer manually created API keys for automation.
 
 ## API keys
 

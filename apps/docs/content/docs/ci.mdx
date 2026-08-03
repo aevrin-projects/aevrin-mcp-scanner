@@ -1,0 +1,33 @@
+---
+title: CI and Automation
+description: Run deterministic scans in pipelines with JSON output and severity gates.
+---
+
+Create a named API key in the dashboard, store it in the CI secret manager, and expose it only to
+the scan step as `AEVRIN_API_KEY`.
+
+```bash
+aevrin --version
+aevrin scan . --json --fail-on high --no-upload > aevrin-report.json
+```
+
+Remove `--no-upload` when the result should appear in account History and Usage.
+
+## Exit-code contract
+
+| Code | Pipeline meaning |
+|---|---|
+| `0` | Complete scan with no finding at or above the configured threshold |
+| `1` | Complete scan with a finding at or above the threshold |
+| `2` | Request could not start, such as authentication, quota, target, or API failure |
+| `3` | Required coverage was incomplete; never treat this as a clean pass |
+
+## Recommended gate
+
+```bash
+set -o pipefail
+aevrin scan . --json --fail-on high | tee aevrin-report.json
+```
+
+Keep Docker available to the job, pin the Aevrin package version for reproducibility, retain JSON
+as a build artifact, and fail closed on both exit `1` and exit `3`.

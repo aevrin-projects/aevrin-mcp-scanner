@@ -44,10 +44,30 @@ export const API_KEY_ENV_COMMANDS = [
   },
 ] as const;
 
-export const AGENT_INSTALL_PROMPT = `Install the Aevrin CLI on this machine.
-Use the operating system-appropriate pipx installation steps first if pipx is missing, then install Aevrin, run aevrin --version, and run aevrin login.
-Tell me the exact commands you ran, and stop immediately if any command fails.`;
+export const AGENT_INSTALL_PROMPT = `Set up the Aevrin CLI on this machine and verify the installation end to end.
 
-export const AGENT_HOOK_PROMPT = `Install and configure the Aevrin MCP security hook in this project.
-Run aevrin hook setup, complete the login flow it opens, then add the PreToolUse hook it generates to my Claude Code settings so any claude mcp add command or edit to .mcp.json / claude_desktop_config.json is checked against Aevrin before the install completes.
-Show me the exact hook configuration you added when you finish.`;
+1. Detect the operating system and shell. Do not use sudo and do not modify the system Python.
+2. If pipx is unavailable, install it with the matching command:
+   - macOS: brew install pipx && pipx ensurepath
+   - Linux: python3 -m pip install --user pipx && python3 -m pipx ensurepath
+   - Windows PowerShell: py -m pip install --user pipx; py -m pipx ensurepath
+3. Install or upgrade Aevrin with: pipx install aevrin (use pipx upgrade aevrin if already installed).
+4. Run: aevrin --version
+5. Run: aevrin login
+6. Pause while I approve the browser device-login page. Never ask me to paste a password, API key, or browser token into the terminal.
+7. After approval, show me how to run a local check with: aevrin scan . --no-upload --fail-on high
+
+Report every command you executed and its result. If a command fails, stop at that command, preserve the full non-secret error, and explain the smallest corrective action.`;
+
+export const AGENT_HOOK_PROMPT = `Configure Aevrin's Claude Code PreToolUse security hook for this project without overwriting existing settings.
+
+1. Verify the CLI first with: aevrin --version
+2. Run: aevrin hook setup
+3. Pause while I approve the browser device-login page. Never request or print the resulting credential.
+4. Copy the exact PreToolUse JSON printed by Aevrin.
+5. Open this project's .claude/settings.json. If it exists, preserve every existing key and hook; merge the new Bash and Write matcher entries instead of replacing the file. If it does not exist, create it.
+6. Validate that the finished file is valid JSON.
+7. Confirm that Bash commands using claude mcp add and full writes to .mcp.json or claude_desktop_config.json are covered. Do not claim partial Edit operations are covered.
+8. Show me the final non-secret hook configuration and the file path changed.
+
+Stop if setup fails, JSON cannot be merged safely, or an existing matcher conflicts. Do not invent paths or credentials and do not run an MCP server as part of setup.`;

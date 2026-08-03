@@ -1,0 +1,27 @@
+---
+title: Usage and Activity
+description: Track dashboard scans, CLI uploads, hook auto-scans, quotas, and resets.
+---
+
+The **Usage** page combines plan meters with an attributed activity ledger. It answers both how
+much capacity remains and where each consumed scan originated.
+
+## Separate buckets
+
+CLI, hook, and dashboard scans have independent limits. Using a dashboard scan does not consume
+a CLI credit. Each meter shows used, limit, remaining capacity, and the exact rolling reset time.
+
+## Activity ledger
+
+The latest 50 charged scans show source, target, target type, request time, final status, score,
+and a link to the same full report used by History. Use source filters to isolate automation or
+developer activity.
+
+Hook cache lookups do not appear because reusing an existing result consumes no new scan. A hook
+cache miss that starts a server-side scan appears as Hook.
+
+## History retention
+
+Retention depends on plan. History supports individual deletion and **Clear history**. Deleting a
+scan removes its stages and findings from the dashboard; quota usage for the already-consumed
+period is not refunded.

@@ -45,7 +45,7 @@ class RazorpayClient:
     async def create_order(
         self, *, amount_paise: int, currency: str, receipt: str, notes: dict[str, str]
     ) -> dict[str, Any]:
-        """amount_paise: smallest currency unit (paise for INR), matching
+        """amount_paise: smallest currency unit (cents for USD), matching
         Razorpay's convention. Returns the raw order object — `id` is what
         Checkout.js needs client-side."""
         return await self._request(

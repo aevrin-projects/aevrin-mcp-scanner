@@ -230,7 +230,7 @@ export function AuthenticatedAppShell({
             id="main-content"
             className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-7 xl:px-9 lg:py-8"
           >
-            <div className="flex w-full flex-col gap-6">{children}</div>
+            <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-6">{children}</div>
           </main>
         </div>
       </div>

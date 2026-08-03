@@ -1,4 +1,30 @@
 {
   "title": "Aevrin Docs",
-  "pages": ["index", "getting-started", "cli", "hook", "dashboard", "api", "concepts"]
+  "pages": [
+    "index",
+    "getting-started",
+    "---Setup---",
+    "installation",
+    "authentication",
+    "agent-prompts",
+    "---Scanning---",
+    "targets",
+    "scanners",
+    "results",
+    "concepts",
+    "---Workflows---",
+    "dashboard",
+    "cli",
+    "hook",
+    "usage",
+    "ci",
+    "---Review and governance---",
+    "triage",
+    "reports",
+    "security",
+    "---Reference---",
+    "api",
+    "troubleshooting",
+    "faq"
+  ]
 }
