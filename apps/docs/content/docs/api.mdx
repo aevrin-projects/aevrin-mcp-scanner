@@ -11,8 +11,8 @@ hook, and the dashboard's own frontend actually call — nothing hidden behind a
 
 Two schemes, depending on the caller:
 
-<Tabs items={['API key (CLI / hook)', 'Bearer JWT (dashboard)']}>
-  <Tab value="API key (CLI / hook)">
+<Tabs items={['API-key', 'Bearer-token']}>
+  <Tab value="API-key">
     A long-lived key from `aevrin login` / `aevrin hook setup`, or minted manually from
     **Settings → API Keys** on the dashboard. Sent as a header:
 
@@ -20,7 +20,7 @@ Two schemes, depending on the caller:
     curl -H "X-API-Key: aevrin_xxxxx" https://api-production-2617.up.railway.app/cli/precheck
     ```
   </Tab>
-  <Tab value="Bearer JWT (dashboard)">
+  <Tab value="Bearer-token">
     A Supabase session token, sent as a standard bearer token. This is what the web dashboard
     uses after you sign in — not something you'd typically construct by hand.
 

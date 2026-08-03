@@ -26,12 +26,12 @@ Runs the full scan pipeline against `TARGET` and prints a report.
 
 **What gets checked depends on the target type:**
 
-<Tabs items={['GitHub repo / local path', 'Live server URL']}>
-  <Tab value="GitHub repo / local path">
+<Tabs items={['Source-target', 'Live-server']}>
+  <Tab value="Source-target">
     Full pipeline: cloning (repos only), static analysis, secrets, dependencies, then the tool
     description check. See [Introduction](/docs/#what-a-scan-actually-checks).
   </Tab>
-  <Tab value="Live server URL">
+  <Tab value="Live-server">
     Only the tool description check runs — there's no source to clone or scan statically. The
     URL itself becomes the entrypoint for MCP-Shield and the patched official MCP SDK. Live
     targets must use public HTTPS; local, private, metadata, and credential-bearing URLs are
