@@ -49,7 +49,7 @@ class BanditAdapter(ScannerAdapter):
     def build_spec(self, target_dir: str) -> DockerRunSpec:
         return DockerRunSpec(
             image=BANDIT_IMAGE,
-            args=["-r", "/src", "-f", "json", "-x", _TEST_PATH_EXCLUDES],
+            args=["-q", "-r", "/src", "-f", "json", "-x", _TEST_PATH_EXCLUDES],
             mounts={target_dir: ("/src", True)},
             network_enabled=False,
             timeout_s=120,
@@ -59,13 +59,19 @@ class BanditAdapter(ScannerAdapter):
     def build_local_command(self, target_dir: str) -> LocalCommandSpec:
         return LocalCommandSpec(
             binary="bandit",
-            args=["-r", ".", "-f", "json", "-x", _TEST_PATH_EXCLUDES],
+            args=["-q", "-r", ".", "-f", "json", "-x", _TEST_PATH_EXCLUDES],
             timeout_s=120,
             ok_exit_codes=(0, 1),
         )
 
     def parse_output(self, scan_id: UUID, stdout: str) -> list[Finding]:
-        data = json.loads(stdout)
+        # Bandit 1.9.x can emit a Rich progress line on stdout before its JSON
+        # document. `-q` suppresses that in normal runs; locating the opening
+        # object keeps parsing safe if a future launcher re-enables progress.
+        json_start = stdout.find("{")
+        if json_start < 0:
+            raise json.JSONDecodeError("Bandit returned no JSON object", stdout, 0)
+        data = json.loads(stdout[json_start:])
         findings: list[Finding] = []
         for result in data.get("results", []):
             severity = _SEVERITY_MAP.get(result.get("issue_severity", "MEDIUM"), Severity.MEDIUM)
