@@ -32,7 +32,19 @@ def upload_scan(scan: Scan) -> None:
         "target_type": scan.target_type.value,
         "target": scan.target,
         "score": scan.score if scan.score is not None else 0,
+        "status": scan.status.value,
         "mcp_detected": scan.mcp_detected,
+        "unreliable_stages": [s.value for s in scan.unreliable_stages],
+        "stages": [
+            {
+                "name": s.name.value,
+                "status": s.status.value,
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+                "finished_at": s.finished_at.isoformat() if s.finished_at else None,
+                "error": s.error,
+            }
+            for s in scan.stages
+        ],
         "findings": [
             {
                 "id": str(f.id),

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from aevrin_scanner_core import Scan, Severity, category_label, verdict
+from aevrin_scanner_core import STAGE_LABELS, Scan, ScanStatus, Severity, category_label, verdict
 from rich.console import Console
 from rich.table import Table
 
@@ -44,15 +44,30 @@ def print_terminal_report(scan: Scan) -> None:
             "a guarantee."
         )
         stdout_console.print()
+    if scan.status == ScanStatus.INCOMPLETE:
+        failed_labels = ", ".join(STAGE_LABELS[s] for s in scan.unreliable_stages)
+        stdout_console.print(
+            f"[bold red]⚠ SCAN INCOMPLETE[/bold red] — could not run: {failed_labels}. "
+            "This is usually Docker not running, a missing tool binary, or no network "
+            "access. The score and findings below only reflect checks that actually "
+            "ran — treat this as [bold]inconclusive, not clean[/bold]."
+        )
+        stdout_console.print()
     score = scan.score if scan.score is not None else 0
     score_style = "bold green" if score >= 90 else "bold yellow" if score >= 40 else "bold red"
-    stdout_console.print(f"[bold]Score:[/bold]  [{score_style}]{score}/100[/{score_style}]  {verdict(score)}")
+    verdict_text = "Incomplete — not a reliable result" if scan.status == ScanStatus.INCOMPLETE else verdict(score)
+    stdout_console.print(f"[bold]Score:[/bold]  [{score_style}]{score}/100[/{score_style}]  {verdict_text}")
+    stdout_console.print(
+        "[dim]Self-reported by your local scan, not independently re-verified by Aevrin.[/dim]"
+    )
     stdout_console.print()
 
     real_findings = [f for f in scan.findings if not f.not_tested]
     not_tested = [f for f in scan.findings if f.not_tested]
 
-    if not real_findings:
+    if not real_findings and scan.status == ScanStatus.INCOMPLETE:
+        stdout_console.print("[yellow]No findings — but the scan didn't fully run, so this is not a clean result.[/yellow]")
+    elif not real_findings:
         stdout_console.print("[green]No findings — clean scan.[/green]")
     else:
         table = Table(show_lines=False)
@@ -81,8 +96,14 @@ def print_json_report(scan: Scan) -> None:
         "target_type": scan.target_type.value,
         "status": scan.status.value,
         "score": scan.score,
-        "verdict": verdict(scan.score) if scan.score is not None else None,
+        "verdict": (
+            "Incomplete — not a reliable result"
+            if scan.status == ScanStatus.INCOMPLETE
+            else (verdict(scan.score) if scan.score is not None else None)
+        ),
         "mcp_detected": scan.mcp_detected,
+        "unreliable_stages": [s.value for s in scan.unreliable_stages],
+        "disclaimer": "Self-reported by the scanning client, not independently re-verified by Aevrin.",
         "findings": [
             {
                 "id": str(f.id),

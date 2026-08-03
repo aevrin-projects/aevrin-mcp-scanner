@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import httpx
 import typer
-from aevrin_scanner_core import Finding, ScanStage, Severity, StageStatus
+from aevrin_scanner_core import Finding, ScanStage, ScanStatus, Severity
 from aevrin_scanner_core.pipeline import PipelineConfig, run_pipeline
 
 from . import output
@@ -151,9 +151,13 @@ def scan(
         except UploadError as exc:
             output.print_error(f"Scan completed, but saving to your dashboard failed: {exc}")
 
-    all_stages_failed = result.stages and all(s.status == StageStatus.FAILED for s in result.stages)
-    if all_stages_failed:
-        raise typer.Exit(code=2)
+    if result.status == ScanStatus.INCOMPLETE:
+        # Non-zero unconditionally — independent of --fail-on — so a broken
+        # environment (Docker down, missing binary, no network) can never
+        # look like a clean pass in CI or a hook check. A distinct exit code
+        # (3) lets callers tell "incomplete" apart from "quota/auth error"
+        # (2) and "findings at/above --fail-on" (1).
+        raise typer.Exit(code=3)
 
     worst = max(
         (f.severity for f in result.findings if not f.not_tested),
