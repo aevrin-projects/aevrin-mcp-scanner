@@ -31,7 +31,7 @@ export function InstallDocsSection({ headingLevel = "h2" }: { headingLevel?: "h1
 
             <Reveal delay={90}>
               <Tabs defaultValue={CLI_INSTALL_COMMANDS[0].id} className="w-full">
-                <TabsList className="grid w-full grid-cols-3 rounded-2xl bg-background/80 p-1">
+                <TabsList className="grid h-auto w-full grid-cols-2 rounded-2xl bg-background/80 p-1 sm:grid-cols-4">
                   {CLI_INSTALL_COMMANDS.map((item) => (
                     <TabsTrigger key={item.id} value={item.id}>
                       {item.label}

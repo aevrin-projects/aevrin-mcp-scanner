@@ -14,6 +14,11 @@ export const CLI_INSTALL_COMMANDS = [
     label: "Windows PowerShell",
     value: "py -m pip install --user pipx\npy -m pipx ensurepath\npipx install aevrin",
   },
+  {
+    id: "npm",
+    label: "npm",
+    value: "npm install --global aevrin",
+  },
 ] as const;
 
 export const CLI_VERIFY_COMMANDS =
@@ -47,11 +52,11 @@ export const API_KEY_ENV_COMMANDS = [
 export const AGENT_INSTALL_PROMPT = `Set up the Aevrin CLI on this machine and verify the installation end to end.
 
 1. Detect the operating system and shell. Do not use sudo and do not modify the system Python.
-2. If pipx is unavailable, install it with the matching command:
+2. Choose exactly one installation path. If Node.js 18+ and npm are already available, run: npm install --global aevrin. Otherwise use pipx and install it with the matching command:
    - macOS: brew install pipx && pipx ensurepath
    - Linux: python3 -m pip install --user pipx && python3 -m pipx ensurepath
    - Windows PowerShell: py -m pip install --user pipx; py -m pipx ensurepath
-3. Install or upgrade Aevrin with: pipx install aevrin (use pipx upgrade aevrin if already installed).
+3. For pipx, install or upgrade Aevrin with: pipx install aevrin (use pipx upgrade aevrin if already installed). For npm, use: npm install --global aevrin@latest. Do not install both variants in the same run.
 4. Run: aevrin --version
 5. Run: aevrin login
 6. Pause while I approve the browser device-login page. Never ask me to paste a password, API key, or browser token into the terminal.

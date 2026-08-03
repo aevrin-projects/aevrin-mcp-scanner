@@ -5,12 +5,12 @@ description: Install the CLI, log in, and run your first scan.
 
 ## Install
 
-Aevrin is distributed on PyPI as `aevrin`, and supports **Python 3.10 and newer**.
-[pipx](https://pipx.pypa.io) is recommended — it installs the CLI into its own isolated
-environment so it can't conflict with other Python tooling on your machine.
+Aevrin is distributed on PyPI and npm. Both installation paths run the same CLI and require
+**Python 3.10 or newer**. The npm package requires Node.js 18 or newer and creates a private
+Python environment inside its own package directory, so it does not modify global Python packages.
 
-<Tabs items={['pipx (recommended)', 'pip']}>
-  <Tab value="pipx (recommended)">
+<Tabs items={['pipx', 'pip', 'npm']}>
+  <Tab value="pipx">
     ```bash
     python3 -m pip install --user pipx
     pipx ensurepath
@@ -22,12 +22,20 @@ environment so it can't conflict with other Python tooling on your machine.
   </Tab>
   <Tab value="pip">
     ```bash
-    pip install aevrin
+    python3 -m pip install --upgrade aevrin
     ```
 
     If you see an `externally-managed-environment` error (common on recent Debian/Ubuntu and
     Homebrew Python), that's your system telling you to use pipx or a virtualenv instead of
     installing into the system interpreter directly.
+  </Tab>
+  <Tab value="npm">
+    ```bash
+    npm install --global aevrin
+    ```
+
+    npm installs the matching Python release into an isolated environment owned by the npm
+    package. Set `AEVRIN_PYTHON` if it should use a specific Python 3.10+ executable.
   </Tab>
 </Tabs>
 

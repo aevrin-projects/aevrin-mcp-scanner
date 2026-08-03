@@ -1,10 +1,37 @@
 ---
 title: Installation
-description: Supported platforms, pipx setup, upgrades, verification, and removal.
+description: Supported platforms, pip, pipx, npm, upgrades, verification, and removal.
 ---
 
-Aevrin supports Python 3.10 or newer on macOS, Linux, and Windows. `pipx` is recommended because
-it keeps the CLI and its Python dependencies isolated from the system Python.
+Aevrin supports Python 3.10 or newer on macOS, Linux, and Windows. Install it from PyPI with
+`pip` or `pipx`, or from npm with Node.js 18 or newer.
+
+## Choose a package manager
+
+<Tabs items={['pipx', 'pip', 'npm']}>
+  <Tab value="pipx">
+    ```bash
+    pipx install aevrin
+    ```
+
+    Recommended for Python-based global installation because dependencies stay isolated.
+  </Tab>
+  <Tab value="pip">
+    ```bash
+    python3 -m pip install --upgrade aevrin
+    ```
+
+    This works in a virtual environment or any Python installation that permits package writes.
+  </Tab>
+  <Tab value="npm">
+    ```bash
+    npm install --global aevrin
+    ```
+
+    npm creates its own private Python environment and installs the matching Aevrin release there.
+    It does not alter globally installed Python libraries.
+  </Tab>
+</Tabs>
 
 ## Install by platform
 
@@ -55,3 +82,7 @@ aevrin --version
 
 Use `pipx reinstall aevrin` to repair an installation. To remove everything cleanly, run
 `aevrin logout`, `aevrin hook logout`, then `pipx uninstall aevrin`.
+
+For pip, repair with `python3 -m pip install --upgrade --force-reinstall --no-cache-dir aevrin`.
+For npm, upgrade or repair with `npm install --global aevrin@latest` and remove with
+`npm uninstall --global aevrin`.

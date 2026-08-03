@@ -11,7 +11,13 @@ Aevrin MCP Security Scanner CLI. Wraps the same open-source scanner binaries and
 ## Install
 
 ```bash
-pip install aevrin
+python3 -m pip install --upgrade aevrin
+```
+
+The same CLI is also available through npm:
+
+```bash
+npm install --global aevrin
 ```
 
 Requires Docker using Linux containers (each scanner runs in its own disposable container). On

@@ -58,6 +58,14 @@ jobs:
         # installs inside this workspace).
         run: uv build --no-sources
 
+      - name: Verify pip installation
+        run: |
+          python -m venv "${RUNNER_TEMP}/aevrin-pip-verify"
+          "${RUNNER_TEMP}/aevrin-pip-verify/bin/python" -m pip install packages/cli/dist/*.whl
+          "${RUNNER_TEMP}/aevrin-pip-verify/bin/python" -m pip check
+          "${RUNNER_TEMP}/aevrin-pip-verify/bin/aevrin" --version
+          "${RUNNER_TEMP}/aevrin-pip-verify/bin/aevrin" --help >/dev/null
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
