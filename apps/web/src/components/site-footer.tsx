@@ -4,12 +4,12 @@ import Link from "next/link";
 export function SiteFooter() {
   return (
     <footer className="border-t border-border">
-      <div className="mx-auto max-w-6xl px-6 py-14">
+      <div className="mx-auto max-w-[1500px] px-6 py-14 lg:px-10 xl:px-14">
         <div className="grid gap-10 sm:grid-cols-[1.5fr_1fr_1fr]">
           <div>
-            <div className="flex items-center gap-2 font-semibold">
-              <Image src="/logo.png" alt="" width={18} height={20} />
-              <span>Aevrin</span>
+            <div className="flex items-center gap-3 font-semibold">
+              <Image src="/logo.png" alt="" width={22} height={24} />
+              <span className="text-lg tracking-[0.14em] uppercase">Aevrin</span>
             </div>
             <p className="mt-3 max-w-xs text-sm text-muted-foreground">
               MCP security scanning — know what a server can do before it touches your machine.

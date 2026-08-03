@@ -24,7 +24,13 @@ from ..db import SupabaseRest
 from ..deps import get_current_user, get_db
 from ..quota import effective_tier, get_or_create_account
 from ..razorpay_client import RazorpayClient, RazorpayUnavailable, verify_webhook_signature
-from ..schemas import CheckoutRequest, CheckoutResponse, SubscriptionResponse, VerifyPaymentRequest, VerifyPaymentResponse
+from ..schemas import (
+    CheckoutRequest,
+    CheckoutResponse,
+    SubscriptionResponse,
+    VerifyPaymentRequest,
+    VerifyPaymentResponse,
+)
 from ..security import AuthenticatedUser
 
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -53,8 +59,7 @@ def _paid_until(existing: str | None, cycle: str) -> datetime:
     base = now
     if existing:
         existing_dt = datetime.fromisoformat(existing) if isinstance(existing, str) else existing
-        if existing_dt > base:
-            base = existing_dt
+        base = max(base, existing_dt)
     if cycle == "annual":
         return base.replace(year=base.year + 1)
     if base.month == 12:

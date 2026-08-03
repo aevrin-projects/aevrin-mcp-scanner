@@ -200,7 +200,7 @@ export function PricingSection() {
   }
 
   return (
-    <section id="pricing" className="mx-auto max-w-6xl px-6 py-20">
+    <section id="pricing" className="mx-auto max-w-[1500px] px-6 py-24 lg:px-10 xl:px-14">
       <Reveal className="text-center">
         <span className="text-xs font-medium tracking-wide text-brand uppercase">Pricing</span>
         <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
@@ -216,7 +216,7 @@ export function PricingSection() {
         </div>
       </Reveal>
 
-      <div className="mt-10 grid gap-6 sm:grid-cols-3">
+      <div className="mt-10 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         {TIERS.map((tier, i) => {
           const price = annual ? tier.annual : tier.monthly;
           return (

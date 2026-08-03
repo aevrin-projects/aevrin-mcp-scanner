@@ -230,10 +230,12 @@ def main() -> None:
 
     if decision == "block_incomplete":
         lines = [
-            "Aevrin: this target's last scan could not be verified — required scanning "
-            "tools failed to run (Docker not running, a missing tool, or no network "
-            "access on the machine that scanned it). An empty findings list here does "
-            "NOT mean this target is clean.",
+            (
+                "Aevrin: this target's last scan could not be verified — required scanning "
+                "tools failed to run (Docker not running, a missing tool, or no network "
+                "access on the machine that scanned it). An empty findings list here does "
+                "NOT mean this target is clean."
+            ),
             "",
             "You have two options — ask the person which they want:",
             f"  1. Install anyway: run `aevrin hook allow {target_value}`, then retry — only",

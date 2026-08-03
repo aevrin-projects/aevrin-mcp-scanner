@@ -1,53 +1,54 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, MinusCircle, Search, XCircle } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type { Finding, Scan, ScanStage, Severity } from "@/lib/types";
 import { OWASP_CATEGORY_LABELS, STAGE_LABELS, STAGE_ORDER } from "@/lib/types";
-import { verdict } from "@/lib/scoring";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import {
+  formatDateTime,
+  formatDuration,
+  summarizeCoverage,
+  summarizeFindings,
+  TARGET_TYPE_LABELS,
+  verdictLabel,
+} from "@/lib/presentation";
+import { PageHeader, SectionCard, EmptyState } from "@/components/product-ui";
+import { StatusBadge } from "@/components/status-badge";
+import { SeverityBadge } from "@/components/severity-badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SeverityBadge } from "@/components/severity-badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { CheckCircle2, CircleDashed, Loader2, MinusCircle, XCircle, AlertTriangle } from "lucide-react";
 
 const POLL_INTERVAL_MS = 2000;
 
 const STAGE_ICON: Record<ScanStage["status"], React.ReactNode> = {
   pending: <CircleDashed className="size-4 text-muted-foreground" />,
-  running: <Loader2 className="size-4 animate-spin text-foreground" />,
-  done: <CheckCircle2 className="size-4 text-severity-low" />,
+  running: <Loader2 className="size-4 animate-spin text-brand" />,
+  done: <CheckCircle2 className="size-4 text-brand" />,
   failed: <XCircle className="size-4 text-severity-critical" />,
   skipped: <MinusCircle className="size-4 text-muted-foreground" />,
 };
 
-const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low", "info"];
-
 export function ScanDetailClient({ scanId }: { scanId: string }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [scan, setScan] = useState<Scan | null>(null);
   const [stages, setStages] = useState<ScanStage[]>([]);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [scanData, stagesData] = await Promise.all([
-        api.getScan(scanId),
-        api.getScanStages(scanId),
-      ]);
+      const [scanData, stagesData] = await Promise.all([api.getScan(scanId), api.getScanStages(scanId)]);
       setScan(scanData);
       setStages(stagesData);
       setLoadError(null);
@@ -63,273 +64,339 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Could not load this scan.";
       setLoadError(message);
-      toast.error(message);
     }
   }, [scanId]);
 
   useEffect(() => {
-    // Fetch-on-mount + poll: `load` synchronizes component state with the
-    // server-side scan status, which is exactly what an effect is for here —
-    // there's no non-effect way to start polling an external resource.
+    // Initial fetch plus polling keeps the page synchronized with the scan worker.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    load();
-    intervalRef.current = setInterval(load, POLL_INTERVAL_MS);
+    void load();
+    intervalRef.current = setInterval(() => void load(), POLL_INTERVAL_MS);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [load]);
 
+  const query = searchParams.get("q") ?? "";
+  const severityFilter = searchParams.get("severity") ?? "all";
+  const triageFilter = searchParams.get("triage") ?? "all";
+
+  function updateFilter(key: string, value: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (!value || value === "all") {
+      params.delete(key);
+    } else {
+      params.set(key, value);
+    }
+    router.replace(params.toString() ? `${pathname}?${params.toString()}` : pathname);
+  }
+
+  const activeFindings = useMemo(
+    () => findings.filter((finding) => !finding.not_tested),
+    [findings],
+  );
+
+  const openFindings = useMemo(
+    () => activeFindings.filter((finding) => finding.triage_status === "open"),
+    [activeFindings],
+  );
+
+  const filteredFindings = useMemo(() => {
+    return activeFindings.filter((finding) => {
+      if (severityFilter !== "all" && finding.severity !== severityFilter) return false;
+      if (triageFilter !== "all" && finding.triage_status !== triageFilter) return false;
+      if (
+        query &&
+        !`${finding.title} ${finding.description} ${finding.tool} ${finding.file_path ?? ""}`
+          .toLowerCase()
+          .includes(query.toLowerCase())
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [activeFindings, query, severityFilter, triageFilter]);
+
   if (loadError && !scan) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-12">
-        <Alert variant="destructive">
-          <AlertTriangle className="size-4" />
-          <AlertTitle>Could not load scan</AlertTitle>
-          <AlertDescription>{loadError}</AlertDescription>
-        </Alert>
-      </div>
+      <Alert variant="destructive">
+        <AlertTriangle className="size-4" />
+        <AlertTitle>Could not load scan</AlertTitle>
+        <AlertDescription>{loadError}</AlertDescription>
+      </Alert>
     );
   }
 
   if (!scan) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-12 flex flex-col gap-3">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-40 w-full" />
+      <div className="space-y-6">
+        <Skeleton className="h-24 rounded-3xl" />
+        <Skeleton className="h-80 rounded-3xl" />
       </div>
     );
   }
 
-  const inProgress = scan.status === "queued" || scan.status === "running";
+  const coverage = summarizeCoverage(stages);
+  const counts = summarizeFindings(openFindings);
+  const limitations = findings.filter((finding) => finding.not_tested);
+  const resultSummary = verdictLabel(scan, counts);
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-12">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs text-muted-foreground">{scan.target_type.replace("_", " ")}</p>
-          <h1 className="font-mono text-lg font-medium">{scan.target}</h1>
-        </div>
-        {(scan.status === "completed" || scan.status === "incomplete") && (
-          <ExportButton scanId={scanId} />
-        )}
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Scan result"
+        description="Review the target, actual coverage, score, urgent findings, and the limitations that still need separate verification."
+        actions={
+          <>
+            <Link href={`/scans/new?mode=${scan.target_type}&target=${encodeURIComponent(scan.target)}`}>
+              <Button variant="outline">Rescan target</Button>
+            </Link>
+            {(scan.status === "completed" || scan.status === "incomplete") && (
+              <Button
+                variant="outline"
+                disabled={exporting}
+                onClick={async () => {
+                  setExporting(true);
+                  try {
+                    const { url } = await api.exportReport(scanId);
+                    window.open(url, "_blank", "noopener,noreferrer");
+                  } catch (err) {
+                    toast.error(err instanceof ApiError ? err.message : "Could not export the report.");
+                  } finally {
+                    setExporting(false);
+                  }
+                }}
+              >
+                {exporting ? "Exporting…" : "Export report"}
+              </Button>
+            )}
+          </>
+        }
+      />
 
-      {inProgress && <ProgressView stages={stages} />}
+      <Card className="bg-card/80">
+        <CardContent className="grid gap-6 pt-6 lg:grid-cols-[minmax(0,1.3fr)_300px]">
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge status={scan.status} />
+              <span className="text-sm text-muted-foreground">{TARGET_TYPE_LABELS[scan.target_type]}</span>
+            </div>
+            <div className="break-all text-2xl font-semibold tracking-tight">{scan.target}</div>
+            <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{resultSummary}</p>
 
-      {scan.status === "failed" && (
-        <Alert variant="destructive" className="mt-8">
-          <AlertTriangle className="size-4" />
-          <AlertTitle>Scan failed</AlertTitle>
-          <AlertDescription>
-            {scan.error ?? "Every stage failed to complete. See stage errors below."}
-            <ul className="mt-2 list-disc pl-5">
-              {stages
-                .filter((s) => s.status === "failed" && s.error)
-                .map((s) => (
-                  <li key={s.name}>
-                    {STAGE_LABELS[s.name]}: {s.error}
-                  </li>
-                ))}
-            </ul>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {(scan.status === "completed" || scan.status === "incomplete") && (
-        <ResultsView scan={scan} findings={findings} stages={stages} />
-      )}
-    </div>
-  );
-}
-
-function ProgressView({ stages }: { stages: ScanStage[] }) {
-  const ordered = STAGE_ORDER.map(
-    (name) => stages.find((s) => s.name === name) ?? { name, status: "pending" as const, error: null, started_at: null, finished_at: null },
-  );
-  const doneCount = ordered.filter((s) => s.status === "done" || s.status === "skipped").length;
-  const percent = Math.round((doneCount / ordered.length) * 100);
-
-  return (
-    <Card className="mt-8" data-testid="scan-progress">
-      <CardHeader>
-        <CardTitle className="text-base font-medium">Scanning…</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-5">
-        <Progress value={percent} />
-        <ul className="flex flex-col gap-3">
-          {ordered.map((stage) => (
-            <li key={stage.name} className="flex items-center gap-3 text-sm">
-              {STAGE_ICON[stage.status]}
-              <span className={stage.status === "pending" ? "text-muted-foreground" : ""}>
-                {STAGE_LABELS[stage.name]}
-              </span>
-              {stage.status === "skipped" && (
-                <span className="text-xs text-muted-foreground">(not applicable)</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      </CardContent>
-    </Card>
-  );
-}
-
-function ResultsView({
-  scan,
-  findings,
-  stages,
-}: {
-  scan: Scan;
-  findings: Finding[];
-  stages: ScanStage[];
-}) {
-  const router = useRouter();
-  const counts = Object.fromEntries(SEVERITY_ORDER.map((s) => [s, 0])) as Record<Severity, number>;
-  for (const f of findings) {
-    if (!f.not_tested) counts[f.severity]++;
-  }
-  const realFindings = findings.filter((f) => !f.not_tested);
-  const notTested = findings.filter((f) => f.not_tested);
-
-  return (
-    <div className="mt-8 flex flex-col gap-8" data-testid="scan-results">
-      {scan.status === "incomplete" && (
-        <Alert variant="destructive">
-          <AlertTriangle className="size-4" />
-          <AlertTitle>Scan incomplete — not a reliable result</AlertTitle>
-          <AlertDescription>
-            {scan.unreliable_stages.length > 0
-              ? `Required tools could not run for: ${scan.unreliable_stages
-                  .map((s) => STAGE_LABELS[s])
-                  .join(", ")}. `
-              : "Required scanning tools could not run. "}
-            This is usually Docker not running, a missing tool, or no network access on the
-            machine that ran the scan. The score and findings below only reflect checks that
-            actually ran — an empty findings list here does not mean this target is clean.
-          </AlertDescription>
-        </Alert>
-      )}
-      <div className="text-xs text-muted-foreground">
-        Self-reported by the scanning client, not independently re-verified by Aevrin.
-      </div>
-      {stages.length > 0 && (
-        <div>
-          <h2 className="mb-3 text-sm font-medium text-muted-foreground">Scan stages</h2>
-          <ul className="flex flex-wrap gap-x-6 gap-y-2">
-            {STAGE_ORDER.map((name) => {
-              const stage = stages.find((s) => s.name === name);
-              if (!stage) return null;
-              return (
-                <li key={name} className="flex items-center gap-2 text-sm">
-                  {STAGE_ICON[stage.status]}
-                  <span className={stage.status === "skipped" ? "text-muted-foreground" : ""}>
-                    {STAGE_LABELS[name]}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-      {scan.mcp_detected === false && (
-        <Alert className="border-severity-medium/50 text-severity-medium [&>svg]:text-severity-medium">
-          <AlertTriangle className="size-4" />
-          <AlertTitle>This doesn&apos;t look like an MCP server</AlertTitle>
-          <AlertDescription>
-            No MCP SDK dependency was found (checked package.json, pyproject.toml, requirements.txt,
-            and similar manifests). The findings below are still real, but they&apos;re general code
-            security findings, not an MCP-specific risk assessment — best-effort detection, not a
-            guarantee.
-          </AlertDescription>
-        </Alert>
-      )}
-      <Card>
-        <CardContent className="flex items-center justify-between pt-6">
-          <div>
-            <div className="text-4xl font-semibold tabular-nums">{scan.score}</div>
-            <p className="text-sm text-muted-foreground">{scan.score !== null && verdict(scan.score)}</p>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <MetaBlock label="Scanned at" value={formatDateTime(scan.completed_at ?? scan.created_at)} />
+              <MetaBlock label="Duration" value={formatDuration(scan.created_at, scan.completed_at)} />
+              <MetaBlock label="Score" value={scan.score === null ? "Not available" : `${scan.score}/100`} />
+              <MetaBlock label="Coverage" value={`${coverage.completed}/${stages.length || 6} stages complete`} />
+            </div>
           </div>
-          <div className="flex gap-2">
-            {SEVERITY_ORDER.filter((s) => s !== "info").map((s) => (
-              <div key={s} className="flex flex-col items-center gap-1">
-                <SeverityBadge severity={s} />
-                <span className="text-sm tabular-nums">{counts[s]}</span>
-              </div>
-            ))}
+
+          <div className="rounded-3xl border border-border bg-background/70 p-5">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Active findings</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+              <CountRow severity="critical" count={counts.critical} />
+              <CountRow severity="high" count={counts.high} />
+              <CountRow severity="medium" count={counts.medium} />
+              <CountRow severity="low" count={counts.low} />
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      <div>
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">
-          Findings ({realFindings.length})
-        </h2>
-        {realFindings.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No findings — clean scan.</p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Severity</TableHead>
-                <TableHead>Title</TableHead>
-                <TableHead>OWASP category</TableHead>
-                <TableHead>Tool</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {realFindings
-                .sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity))
-                .map((f) => (
-                  <TableRow
-                    key={f.id}
-                    className="cursor-pointer"
-                    onClick={() => router.push(`/scans/${scan.id}/findings/${f.id}`)}
-                  >
-                    <TableCell>
-                      <SeverityBadge severity={f.severity} />
-                    </TableCell>
-                    <TableCell className="font-medium">{f.title}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {OWASP_CATEGORY_LABELS[f.owasp_category] ?? f.owasp_category}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{f.tool}</TableCell>
-                  </TableRow>
-                ))}
-            </TableBody>
-          </Table>
-        )}
-      </div>
-
-      {notTested.length > 0 && (
-        <Alert>
+      {scan.status === "incomplete" ? (
+        <Alert variant="destructive">
           <AlertTriangle className="size-4" />
-          <AlertTitle>Coverage limitation</AlertTitle>
-          <AlertDescription>{notTested[0].description}</AlertDescription>
+          <AlertTitle>Partial scan coverage</AlertTitle>
+          <AlertDescription>
+            Required scanners did not complete for {scan.unreliable_stages.map((stage) => STAGE_LABELS[stage]).join(", ")}. The score reflects only the checks that actually ran.
+          </AlertDescription>
         </Alert>
-      )}
+      ) : null}
+
+      {scan.status === "queued" || scan.status === "running" ? (
+        <SectionCard
+          title="Scan progress"
+          description="Stage-level status updates remain visible so you can leave the page and come back without losing context."
+        >
+          <div className="space-y-3">
+            {STAGE_ORDER.map((name) => {
+              const stage = stages.find((entry) => entry.name === name) ?? {
+                name,
+                status: "pending" as const,
+                error: null,
+                started_at: null,
+                finished_at: null,
+              };
+
+              return (
+                <div key={stage.name} className="flex items-center justify-between rounded-2xl border border-border bg-background/70 px-4 py-3 text-sm">
+                  <div className="flex items-center gap-3">
+                    {STAGE_ICON[stage.status]}
+                    <span>{STAGE_LABELS[stage.name]}</span>
+                  </div>
+                  <span className="text-muted-foreground">{stage.status}</span>
+                </div>
+              );
+            })}
+          </div>
+        </SectionCard>
+      ) : null}
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_360px]">
+        <SectionCard
+          title="Findings"
+          description="Search and filter the active findings for this scan. Limitation notices remain separate from actual findings."
+        >
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px_180px]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(event) => updateFilter("q", event.target.value)}
+                  className="pl-9"
+                  placeholder="Search title, tool, path, or description"
+                />
+              </div>
+              <select
+                className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                value={severityFilter}
+                onChange={(event) => updateFilter("severity", event.target.value)}
+              >
+                <option value="all">All severities</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+                <option value="info">Info</option>
+              </select>
+              <select
+                className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
+                value={triageFilter}
+                onChange={(event) => updateFilter("triage", event.target.value)}
+              >
+                <option value="all">All statuses</option>
+                <option value="open">Open</option>
+                <option value="fixed">Fixed</option>
+                <option value="false_positive">False positive</option>
+              </select>
+            </div>
+
+            {filteredFindings.length === 0 ? (
+              <EmptyState
+                title={activeFindings.length === 0 ? "No active findings in completed checks" : "No findings match these filters"}
+                body={
+                  activeFindings.length === 0
+                    ? "That does not mean the target is fully safe. Review the stage coverage and documented limitations below before trusting the result."
+                    : "Change the search query or filters to return to the current result set."
+                }
+                icon="attention"
+              />
+            ) : (
+              <div className="space-y-3">
+                {filteredFindings.map((finding) => {
+                  const params = new URLSearchParams(searchParams.toString());
+                  const returnTo = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+
+                  return (
+                    <button
+                      key={finding.id}
+                      type="button"
+                      onClick={() =>
+                        router.push(
+                          `/scans/${scan.id}/findings/${finding.id}?returnTo=${encodeURIComponent(returnTo)}`,
+                        )
+                      }
+                      className="w-full rounded-2xl border border-border bg-background/80 p-4 text-left transition-colors hover:bg-muted/30"
+                    >
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <SeverityBadge severity={finding.severity} />
+                            <span className="text-sm text-muted-foreground">
+                              {OWASP_CATEGORY_LABELS[finding.owasp_category] ?? finding.owasp_category}
+                            </span>
+                          </div>
+                          <p className="text-base font-medium">{finding.title}</p>
+                          <p className="text-sm leading-6 text-muted-foreground line-clamp-2">
+                            {finding.description}
+                          </p>
+                        </div>
+                        <div className="space-y-1 text-right text-sm text-muted-foreground">
+                          <div>{finding.tool}</div>
+                          <div>{finding.file_path ? `${finding.file_path}${finding.line_start ? `:${finding.line_start}` : ""}` : finding.manifest_field ?? "Location unavailable"}</div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </SectionCard>
+
+        <div className="space-y-6">
+          <SectionCard
+            title="Coverage and limitations"
+            description="Keep skipped and failed scanner stages visible so the score is not mistaken for complete coverage."
+          >
+            <div className="space-y-3">
+              {STAGE_ORDER.map((name) => {
+                const stage = stages.find((entry) => entry.name === name);
+                if (!stage) return null;
+                return (
+                  <div key={stage.name} className="rounded-2xl border border-border bg-background/80 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        {STAGE_ICON[stage.status]}
+                        <span className="font-medium text-foreground">{STAGE_LABELS[stage.name]}</span>
+                      </div>
+                      <span className="text-sm text-muted-foreground">{stage.status}</span>
+                    </div>
+                    {stage.error ? (
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">{stage.error}</p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Score method" description="The current documented method starts at 100 and subtracts severity-weighted findings.">
+            <div className="space-y-3 text-sm leading-6 text-muted-foreground">
+              <p>Critical findings subtract 40 points each, high subtract 20, medium subtract 8, and low subtract 3.</p>
+              <p>The score never guarantees safety. Coverage and failed stages must be read beside it.</p>
+            </div>
+          </SectionCard>
+
+          {limitations.map((finding) => (
+            <Alert key={finding.id}>
+              <AlertTriangle className="size-4" />
+              <AlertTitle>{finding.title}</AlertTitle>
+              <AlertDescription>{finding.description}</AlertDescription>
+            </Alert>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
 
-function ExportButton({ scanId }: { scanId: string }) {
-  const [exporting, setExporting] = useState(false);
+function MetaBlock({ label, value }: { label: string; value: string }) {
   return (
-    <Button
-      variant="outline"
-      disabled={exporting}
-      onClick={async () => {
-        setExporting(true);
-        try {
-          const { url } = await api.exportReport(scanId);
-          window.open(url, "_blank");
-        } catch (err) {
-          toast.error(err instanceof ApiError ? err.message : "Could not export report.");
-        } finally {
-          setExporting(false);
-        }
-      }}
-    >
-      {exporting ? "Exporting…" : "Export report"}
-    </Button>
+    <div className="rounded-2xl border border-border bg-background/70 p-4">
+      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
+      <p className="mt-2 text-sm font-medium text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function CountRow({ severity, count }: { severity: Severity; count: number }) {
+  return (
+    <div className="flex items-center justify-between rounded-2xl border border-border bg-background/80 px-3 py-2.5">
+      <SeverityBadge severity={severity} />
+      <span className="text-lg font-semibold">{count}</span>
+    </div>
   );
 }

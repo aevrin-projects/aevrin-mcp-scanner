@@ -93,7 +93,7 @@ def effective_tier(account: dict[str, Any]) -> str:
         paid_until = datetime.fromisoformat(paid_until)
     if paid_until < datetime.now(UTC):
         return "free"
-    return account["tier"]
+    return str(account["tier"])
 
 
 async def get_or_create_account(db: SupabaseRest, user_id: str) -> dict[str, Any]:

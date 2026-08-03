@@ -1,102 +1,134 @@
 "use client";
 
-import { useState } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { Copy, Check } from "lucide-react";
+import { CopyButton } from "@/components/copy-button";
 import { Reveal } from "@/components/reveal";
-
-// pipx first — a bare `pip install` fails on modern Debian/Ubuntu and
-// Homebrew Python with "externally-managed-environment" unless you pass
-// --break-system-packages or use a venv. pipx sidesteps that by giving the
-// CLI its own isolated environment automatically, which is also just the
-// correct way to install a Python CLI tool regardless. Requires Python 3.10+.
-const OS_INSTALL: Record<string, string> = {
-  macos: "brew install pipx\npipx ensurepath\npipx install aevrin",
-  windows: "py -m pip install --user pipx\npy -m pipx ensurepath\npipx install aevrin",
-  linux: "python3 -m pip install --user pipx\npython3 -m pipx ensurepath\npipx install aevrin",
-};
-
-const PIP_FALLBACK = "pip install aevrin";
-
-const VERIFY_BLOCK = "aevrin --version      # confirms the install worked\naevrin login          # opens the device-flow login in your browser";
-
-const HOOK_PROMPT = `Install and configure the Aevrin MCP security hook in this project.
-Run \`aevrin hook setup\`, complete the login flow it opens, then add the
-PreToolUse hook it generates to my Claude Code settings so any \`claude mcp add\`
-or edit to .mcp.json / claude_desktop_config.json is checked against Aevrin
-before the install completes.`;
-
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      onClick={async () => {
-        await navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }}
-    >
-      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      {copied ? "Copied" : label}
-    </Button>
-  );
-}
+import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AGENT_HOOK_PROMPT,
+  AGENT_INSTALL_PROMPT,
+  CLI_INSTALL_COMMANDS,
+  CLI_VERIFY_COMMANDS,
+} from "@/lib/onboarding";
 
 export function InstallDocsSection() {
   return (
-    <section id="install" className="mx-auto max-w-3xl px-6 py-20">
-      <Reveal>
-        <span className="text-xs font-medium tracking-wide text-brand uppercase">Get started</span>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-          Install the CLI, then log in.
-        </h2>
-      </Reveal>
+    <section id="install" className="border-t border-border/80 bg-muted/10">
+      <div className="mx-auto max-w-[1500px] px-6 py-24 lg:px-10 xl:px-14">
+        <div className="grid gap-8 xl:grid-cols-[1.12fr_0.88fr]">
+          <div className="space-y-6">
+            <Reveal>
+              <span className="text-xs font-medium tracking-wide text-brand uppercase">Install and verify</span>
+              <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
+                Set up Aevrin from a real terminal, not a marketing checklist.
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
+                Use the exact commands the current product supports. Device login is the default
+                path for developers. API keys are for CI and other non-interactive automation.
+              </p>
+            </Reveal>
 
-      <Tabs defaultValue="macos" className="mt-8">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="macos">macOS</TabsTrigger>
-          <TabsTrigger value="windows">Windows</TabsTrigger>
-          <TabsTrigger value="linux">Linux</TabsTrigger>
-        </TabsList>
-        {(["macos", "windows", "linux"] as const).map((os) => (
-          <TabsContent key={os} value={os} className="mt-4">
-            <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/40 p-4">
-              <pre className="overflow-x-auto text-sm">
-                <code>{OS_INSTALL[os]}</code>
-              </pre>
-              <CopyButton text={OS_INSTALL[os]} label="Copy" />
-            </div>
-          </TabsContent>
-        ))}
-      </Tabs>
+            <Reveal delay={90}>
+              <Tabs defaultValue={CLI_INSTALL_COMMANDS[0].id} className="w-full">
+                <TabsList className="grid w-full grid-cols-3 rounded-2xl bg-background/80 p-1">
+                  {CLI_INSTALL_COMMANDS.map((item) => (
+                    <TabsTrigger key={item.id} value={item.id}>
+                      {item.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+                {CLI_INSTALL_COMMANDS.map((item) => (
+                  <TabsContent key={item.id} value={item.id} className="mt-4">
+                    <CodePanel
+                      label={`${item.label} install`}
+                      value={item.value}
+                      action={<CopyButton value={item.value} label="Copy commands" />}
+                    />
+                  </TabsContent>
+                ))}
+              </Tabs>
+            </Reveal>
 
-      <p className="mt-4 text-sm text-muted-foreground">
-        Already have pipx, or prefer a plain venv? <code className="text-foreground">{PIP_FALLBACK}</code> works
-        too. Requires Python 3.10+.
-      </p>
+            <Reveal delay={160}>
+              <CodePanel
+                label="Verify and sign in"
+                value={CLI_VERIFY_COMMANDS}
+                action={<CopyButton value={CLI_VERIFY_COMMANDS} label="Copy verify steps" />}
+              />
+            </Reveal>
+          </div>
 
-      <div className="mt-6 rounded-lg border border-border bg-muted/40 p-4">
-        <pre className="overflow-x-auto text-sm">
-          <code>{VERIFY_BLOCK}</code>
-        </pre>
-      </div>
-
-      <div className="mt-10">
-        <h3 className="text-lg font-medium">Claude Code hook</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Paste this directly into a Claude Code conversation — it&apos;s not a shell command.
-        </p>
-        <div className="mt-3 flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/40 p-4">
-          <pre className="overflow-x-auto whitespace-pre-wrap text-sm">
-            <code>{HOOK_PROMPT}</code>
-          </pre>
-          <CopyButton text={HOOK_PROMPT} label="Copy prompt" />
+          <div className="space-y-6">
+            <Reveal delay={120}>
+              <PromptPanel
+                title="AI agent install prompt"
+                description="Paste this into Claude Code or another agent when you want it to install the CLI for you."
+                value={AGENT_INSTALL_PROMPT}
+                label="Copy install prompt"
+              />
+            </Reveal>
+            <Reveal delay={190}>
+              <PromptPanel
+                title="AI agent hook prompt"
+                description="Paste this into Claude Code when you want the MCP pre-install hook configured in a project."
+                value={AGENT_HOOK_PROMPT}
+                label="Copy hook prompt"
+              />
+            </Reveal>
+          </div>
         </div>
       </div>
     </section>
+  );
+}
+
+function CodePanel({
+  label,
+  value,
+  action,
+}: {
+  label: string;
+  value: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <Card className="bg-background/80">
+      <CardContent className="space-y-3 pt-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-medium text-foreground">{label}</p>
+          {action}
+        </div>
+        <pre className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 font-mono text-xs leading-6 text-foreground sm:text-sm">
+          {value}
+        </pre>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PromptPanel({
+  title,
+  description,
+  value,
+  label,
+}: {
+  title: string;
+  description: string;
+  value: string;
+  label: string;
+}) {
+  return (
+    <Card className="bg-background/80">
+      <CardContent className="space-y-4 pt-5">
+        <div className="space-y-2">
+          <p className="text-base font-medium text-foreground">{title}</p>
+          <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+        </div>
+        <pre className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 whitespace-pre-wrap font-mono text-xs leading-6 text-foreground sm:text-sm">
+          {value}
+        </pre>
+        <CopyButton value={value} label={label} />
+      </CardContent>
+    </Card>
   );
 }

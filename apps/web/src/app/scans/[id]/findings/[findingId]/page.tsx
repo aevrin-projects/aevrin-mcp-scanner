@@ -2,9 +2,12 @@ import { FindingDetailClient } from "./finding-detail-client";
 
 export default async function FindingDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string; findingId: string }>;
+  searchParams: Promise<{ returnTo?: string }>;
 }) {
   const { id, findingId } = await params;
-  return <FindingDetailClient scanId={id} findingId={findingId} />;
+  const { returnTo } = await searchParams;
+  return <FindingDetailClient scanId={id} findingId={findingId} returnTo={returnTo} />;
 }

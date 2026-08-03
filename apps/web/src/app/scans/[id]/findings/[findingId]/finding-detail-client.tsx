@@ -1,20 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { AlertTriangle, ArrowLeft, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import type { Finding } from "@/lib/types";
 import { OWASP_CATEGORY_LABELS } from "@/lib/types";
+import { PageHeader, SectionCard } from "@/components/product-ui";
 import { SeverityBadge } from "@/components/severity-badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowLeft, AlertTriangle, CheckCircle2, Ban } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { scoreImpactForSeverity, formatDateTime } from "@/lib/presentation";
 
-export function FindingDetailClient({ scanId, findingId }: { scanId: string; findingId: string }) {
+export function FindingDetailClient({
+  scanId,
+  findingId,
+  returnTo,
+}: {
+  scanId: string;
+  findingId: string;
+  returnTo?: string;
+}) {
   const [finding, setFinding] = useState<Finding | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [triaging, setTriaging] = useState(false);
@@ -26,16 +34,15 @@ export function FindingDetailClient({ scanId, findingId }: { scanId: string; fin
       .catch((err) => {
         const message = err instanceof ApiError ? err.message : "Could not load this finding.";
         setError(message);
-        toast.error(message);
       });
   }, [findingId]);
 
-  async function triage(status: "fixed" | "false_positive") {
+  async function markFixed() {
     setTriaging(true);
     try {
-      const updated = await api.triageFinding(findingId, status);
+      const updated = await api.triageFinding(findingId, "fixed");
       setFinding(updated);
-      toast.success(status === "fixed" ? "Marked as fixed" : "Marked as false positive");
+      toast.success("Marked as fixed");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not update this finding.");
     } finally {
@@ -45,21 +52,19 @@ export function FindingDetailClient({ scanId, findingId }: { scanId: string; fin
 
   if (error) {
     return (
-      <div className="mx-auto max-w-2xl px-6 py-12">
-        <Alert variant="destructive">
-          <AlertTriangle className="size-4" />
-          <AlertTitle>Could not load finding</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      </div>
+      <Alert variant="destructive">
+        <AlertTriangle className="size-4" />
+        <AlertTitle>Could not load finding</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
     );
   }
 
   if (!finding) {
     return (
-      <div className="mx-auto max-w-2xl px-6 py-12 flex flex-col gap-3">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-48 w-full" />
+      <div className="space-y-6">
+        <Skeleton className="h-20 rounded-3xl" />
+        <Skeleton className="h-80 rounded-3xl" />
       </div>
     );
   }
@@ -67,70 +72,104 @@ export function FindingDetailClient({ scanId, findingId }: { scanId: string; fin
   const location = finding.file_path
     ? `${finding.file_path}${finding.line_start ? `:${finding.line_start}` : ""}`
     : finding.manifest_field
-      ? `${finding.tool_name_in_manifest ? finding.tool_name_in_manifest + " → " : ""}${finding.manifest_field}`
-      : null;
+      ? `${finding.tool_name_in_manifest ? `${finding.tool_name_in_manifest} -> ` : ""}${finding.manifest_field}`
+      : "No file, line, or manifest field was recorded for this finding.";
+
+  const backHref = returnTo ? decodeURIComponent(returnTo) : `/scans/${scanId}`;
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-12">
+    <div className="space-y-6">
       <Link
-        href={`/scans/${scanId}`}
-        className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        href={backHref}
+        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="size-3.5" /> Back to results
+        <ArrowLeft className="size-4" />
+        Back to filtered results
       </Link>
 
-      <div className="flex items-start justify-between gap-4">
-        <h1 className="text-xl font-semibold">{finding.title}</h1>
-        <SeverityBadge severity={finding.severity} className="shrink-0" />
-      </div>
+      <PageHeader
+        title={finding.title}
+        description="Review the recorded severity, category, source, context, and remediation. Suppressive false-positive actions are not shown here because the current backend does not store an auditable reason."
+        actions={
+          !finding.not_tested ? (
+            <Button variant="outline" disabled={triaging || finding.triage_status === "fixed"} onClick={() => void markFixed()}>
+              <CheckCircle2 className="size-4" />
+              {finding.triage_status === "fixed" ? "Marked fixed" : "Mark as fixed"}
+            </Button>
+          ) : null
+        }
+      />
 
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-        <Badge variant="outline">{OWASP_CATEGORY_LABELS[finding.owasp_category] ?? finding.owasp_category}</Badge>
-        <span>via {finding.tool}</span>
-        {finding.verified !== null && (
-          <Badge variant={finding.verified ? "destructive" : "outline"}>
-            {finding.verified ? "Verified live" : "Unverified"}
-          </Badge>
-        )}
-        <Badge variant={finding.triage_status === "open" ? "outline" : "secondary"}>
-          {finding.triage_status.replace("_", " ")}
-        </Badge>
-      </div>
-
-      {location && (
-        <p className="mt-4 rounded-md bg-muted px-3 py-2 font-mono text-sm">{location}</p>
-      )}
-
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-sm font-medium text-muted-foreground">Description</CardTitle>
-        </CardHeader>
-        <CardContent className="whitespace-pre-wrap text-sm">{finding.description}</CardContent>
-      </Card>
-
-      <Card className="mt-4">
-        <CardHeader>
-          <CardTitle className="text-sm font-medium text-muted-foreground">Remediation</CardTitle>
-        </CardHeader>
-        <CardContent className="whitespace-pre-wrap text-sm">{finding.remediation}</CardContent>
-      </Card>
-
-      <div className="mt-6 flex gap-3">
-        <Button
-          variant="outline"
-          disabled={triaging || finding.triage_status === "fixed"}
-          onClick={() => triage("fixed")}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_360px]">
+        <SectionCard
+          title="Finding context"
+          description="Everything shown below comes from the stored finding record for this scan."
         >
-          <CheckCircle2 className="size-4" /> Mark as fixed
-        </Button>
-        <Button
-          variant="outline"
-          disabled={triaging || finding.triage_status === "false_positive"}
-          onClick={() => triage("false_positive")}
-        >
-          <Ban className="size-4" /> Mark as false positive
-        </Button>
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <SeverityBadge severity={finding.severity} />
+              <span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">
+                {finding.triage_status.replace("_", " ")}
+              </span>
+              <span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">
+                {OWASP_CATEGORY_LABELS[finding.owasp_category] ?? finding.owasp_category}
+              </span>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-background/80 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Location</p>
+              <p className="mt-2 break-all font-mono text-sm text-foreground">{location}</p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <MetaPanel label="Scanner source" value={finding.tool} />
+              <MetaPanel label="Recorded at" value={formatDateTime(finding.created_at)} />
+              <MetaPanel label="Score impact" value={scoreImpactForSeverity(finding.severity)} />
+              <MetaPanel label="Identifiers" value="Not available in the current backend response" />
+            </div>
+
+            <SectionBody title="Why it matters" body={finding.description} />
+            <SectionBody title="Remediation" body={finding.remediation} />
+          </div>
+        </SectionCard>
+
+        <div className="space-y-6">
+          {finding.not_tested ? (
+            <Alert>
+              <AlertTriangle className="size-4" />
+              <AlertTitle>Documented limitation</AlertTitle>
+              <AlertDescription>
+                This entry records a coverage limitation rather than an exploitable code finding, so remediation means performing the missing validation outside this static scan.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          <SectionCard title="Status" description="Finding status is currently limited to the backend states the product enforces today.">
+            <div className="space-y-3 text-sm leading-6 text-muted-foreground">
+              <p>Current status: <strong className="text-foreground">{finding.triage_status.replace("_", " ")}</strong></p>
+              <p>False-positive suppression is intentionally hidden in this redesign until the backend can require and retain an auditable reason.</p>
+            </div>
+          </SectionCard>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function MetaPanel({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-border bg-background/80 p-4">
+      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
+      <p className="mt-2 text-sm font-medium text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function SectionBody({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-2xl border border-border bg-background/80 p-4">
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{body}</p>
     </div>
   );
 }

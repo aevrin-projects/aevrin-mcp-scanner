@@ -10,7 +10,18 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from .config import get_settings
 from .db import SupabaseRestError
 from .quota import QuotaExceeded
-from .routers import account, api_keys, auth_lookup, billing, cli, device, export, findings, hook, scans
+from .routers import (
+    account,
+    api_keys,
+    auth_lookup,
+    billing,
+    cli,
+    device,
+    export,
+    findings,
+    hook,
+    scans,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aevrin.api")
