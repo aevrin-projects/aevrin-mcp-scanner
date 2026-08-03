@@ -214,6 +214,16 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
         </Alert>
       ) : null}
 
+      {scan.status === "failed" ? (
+        <Alert variant="destructive">
+          <AlertTriangle className="size-4" />
+          <AlertTitle>Scan failed</AlertTitle>
+          <AlertDescription>
+            This scan did not complete. Any results below are not a reliable assessment of this target — rescan before making a decision.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {scan.status === "queued" || scan.status === "running" ? (
         <SectionCard
           title="Scan progress"
