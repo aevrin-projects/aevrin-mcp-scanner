@@ -33,6 +33,12 @@ def test_detects_live_server_url():
     assert normalized == "https://my-mcp-server.example.com"
 
 
+def test_rejects_insecure_or_private_live_server_urls():
+    for target in ("http://example.com/mcp", "https://127.0.0.1/mcp"):
+        with pytest.raises(TargetDetectionError):
+            detect_target(target)
+
+
 def test_detects_local_path(tmp_path):
     target_type, normalized = detect_target(str(tmp_path))
     assert target_type == TargetType.LOCAL_PATH

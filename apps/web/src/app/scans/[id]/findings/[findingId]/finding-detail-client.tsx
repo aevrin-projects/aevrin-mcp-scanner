@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Flag, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import type { Finding } from "@/lib/types";
@@ -12,6 +12,7 @@ import { SeverityBadge } from "@/components/severity-badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { scoreImpactForSeverity, formatDateTime } from "@/lib/presentation";
 
 export function FindingDetailClient({
@@ -26,23 +27,28 @@ export function FindingDetailClient({
   const [finding, setFinding] = useState<Finding | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [triaging, setTriaging] = useState(false);
+  const [triageReason, setTriageReason] = useState("");
 
   useEffect(() => {
     api
       .getFinding(findingId)
-      .then(setFinding)
+      .then((loadedFinding) => {
+        setFinding(loadedFinding);
+        setTriageReason(loadedFinding.triage_reason ?? "");
+      })
       .catch((err) => {
         const message = err instanceof ApiError ? err.message : "Could not load this finding.";
         setError(message);
       });
   }, [findingId]);
 
-  async function markFixed() {
+  async function updateStatus(status: "open" | "fixed" | "false_positive", reason?: string) {
     setTriaging(true);
     try {
-      const updated = await api.triageFinding(findingId, "fixed");
+      const updated = await api.triageFinding(findingId, status, reason);
       setFinding(updated);
-      toast.success("Marked as fixed");
+      setTriageReason(updated.triage_reason ?? "");
+      toast.success(status === "open" ? "Finding reopened" : status === "fixed" ? "Marked as fixed" : "False positive recorded");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not update this finding.");
     } finally {
@@ -75,7 +81,10 @@ export function FindingDetailClient({
       ? `${finding.tool_name_in_manifest ? `${finding.tool_name_in_manifest} -> ` : ""}${finding.manifest_field}`
       : "No file, line, or manifest field was recorded for this finding.";
 
-  const backHref = returnTo ? decodeURIComponent(returnTo) : `/scans/${scanId}`;
+  const scanHref = `/scans/${scanId}`;
+  // Search params are already decoded by Next.js. Keep navigation on this
+  // scan instead of accepting an arbitrary client-supplied URL.
+  const backHref = returnTo === scanHref || returnTo?.startsWith(`${scanHref}?`) ? returnTo : scanHref;
 
   return (
     <div className="space-y-6">
@@ -89,13 +98,20 @@ export function FindingDetailClient({
 
       <PageHeader
         title={finding.title}
-        description="Review the recorded severity, category, source, context, and remediation. Suppressive false-positive actions are not shown here because the current backend does not store an auditable reason."
+        description="Review the recorded severity, category, source, context, remediation, and auditable triage history."
         actions={
           !finding.not_tested ? (
-            <Button variant="outline" disabled={triaging || finding.triage_status === "fixed"} onClick={() => void markFixed()}>
-              <CheckCircle2 className="size-4" />
-              {finding.triage_status === "fixed" ? "Marked fixed" : "Mark as fixed"}
-            </Button>
+            finding.triage_status === "open" ? (
+              <Button variant="outline" disabled={triaging} onClick={() => void updateStatus("fixed")}>
+                <CheckCircle2 className="size-4" />
+                Mark as fixed
+              </Button>
+            ) : (
+              <Button variant="outline" disabled={triaging} onClick={() => void updateStatus("open")}>
+                <RotateCcw className="size-4" />
+                Reopen finding
+              </Button>
+            )
           ) : null
         }
       />
@@ -144,10 +160,44 @@ export function FindingDetailClient({
             </Alert>
           ) : null}
 
-          <SectionCard title="Status" description="Finding status is currently limited to the backend states the product enforces today.">
-            <div className="space-y-3 text-sm leading-6 text-muted-foreground">
+          <SectionCard title="Status" description="Triage changes are retained with their reason and timestamp.">
+            <div className="space-y-4 text-sm leading-6 text-muted-foreground">
               <p>Current status: <strong className="text-foreground">{finding.triage_status.replace("_", " ")}</strong></p>
-              <p>False-positive suppression is intentionally hidden in this redesign until the backend can require and retain an auditable reason.</p>
+              {finding.triaged_at ? (
+                <div className="rounded-2xl border border-border bg-background/80 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Last triage</p>
+                  <p className="mt-2 text-foreground">{formatDateTime(finding.triaged_at)}</p>
+                  {finding.triage_reason ? <p className="mt-2 whitespace-pre-wrap">{finding.triage_reason}</p> : null}
+                </div>
+              ) : null}
+
+              {!finding.not_tested ? (
+                <div className="space-y-3 border-t border-border pt-4">
+                  <div>
+                    <label htmlFor="false-positive-reason" className="font-medium text-foreground">False-positive reason</label>
+                    <p className="mt-1 text-xs">Explain why this result is not applicable or not exploitable. The reason is required and stored with the report.</p>
+                  </div>
+                  <Textarea
+                    id="false-positive-reason"
+                    value={triageReason}
+                    onChange={(event) => setTriageReason(event.target.value)}
+                    maxLength={1000}
+                    rows={5}
+                    placeholder="Example: This credential pattern is generated test data and cannot authenticate against any environment."
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="text-xs">{triageReason.length} / 1000</span>
+                    <Button
+                      variant="outline"
+                      disabled={triaging || triageReason.trim().length < 3}
+                      onClick={() => void updateStatus("false_positive", triageReason.trim())}
+                    >
+                      <Flag className="size-4" />
+                      {finding.triage_status === "false_positive" ? "Update report" : "Report false positive"}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </SectionCard>
         </div>

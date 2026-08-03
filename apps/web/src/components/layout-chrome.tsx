@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { AuthenticatedAppShell } from "@/components/authenticated-app-shell";
 import { PublicNavbar } from "@/components/public-navbar";
 
-const APP_ROUTE_PREFIXES = ["/dashboard", "/scans", "/settings", "/integrations"];
+const APP_ROUTE_PREFIXES = ["/dashboard", "/scans", "/settings", "/integrations", "/usage"];
 
 export function LayoutChrome({
   children,

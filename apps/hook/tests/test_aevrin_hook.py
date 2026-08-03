@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import sys
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -79,6 +80,40 @@ def test_write_with_malformed_json_is_ignored():
 
 def test_other_tool_names_are_ignored():
     assert aevrin_hook.extract_target("Read", {"file_path": "/x/.mcp.json"}) is None
+
+
+def test_cache_lookup_posts_target_in_json_body(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return b'{"decision":"allow_unscanned"}'
+
+    def fake_urlopen(request: urllib.request.Request, timeout: int):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(aevrin_hook, "API_KEY", "fake-key")
+    monkeypatch.setattr(aevrin_hook.urllib.request, "urlopen", fake_urlopen)
+
+    result = aevrin_hook.check_cache("config_paste", '{"env":{"TOKEN":"secret"}}')
+
+    request = captured["request"]
+    assert isinstance(request, urllib.request.Request)
+    assert request.full_url.endswith("/hook/cache")
+    assert request.method == "POST"
+    assert json.loads(request.data) == {
+        "target_type": "config_paste",
+        "target": '{"env":{"TOKEN":"secret"}}',
+    }
+    assert result == {"decision": "allow_unscanned"}
 
 
 def test_allow_exits_zero_with_permission_decision(capsys):

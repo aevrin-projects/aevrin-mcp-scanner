@@ -122,8 +122,18 @@ async def poll_device_token(
         # hitting this branch.
         return DeviceTokenResponse(status="expired_token")
 
-    # approved — mint the key exactly once, then burn the device_code so a
-    # replayed poll can never mint a second key for the same approval.
+    # Atomically claim the approval before minting. Concurrent UPDATEs
+    # re-check the `status=approved` predicate after the row lock is released,
+    # so only one poll receives a representation and proceeds.
+    claimed = await db.update(
+        "device_codes",
+        {"device_code": body.device_code, "status": "approved"},
+        {"status": "expired"},
+    )
+    if not claimed:
+        return DeviceTokenResponse(status="expired_token")
+
+    # approved — mint the key exactly once after consuming the device code.
     plaintext, key_hash = generate_api_key(settings.api_key_pepper)
     kind = "device_cli" if row["client_kind"] == "cli" else "device_hook"
     await db.insert(
@@ -135,7 +145,6 @@ async def poll_device_token(
             "kind": kind,
         },
     )
-    await db.update("device_codes", {"device_code": body.device_code}, {"status": "expired"})
     return DeviceTokenResponse(status="approved", api_key=plaintext)
 
 
@@ -166,7 +175,13 @@ async def approve_device_code(
     if row["status"] != "pending":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Code already used")
 
-    await db.update("device_codes", {"user_code": user_code}, {"status": "approved", "user_id": user.id})
+    approved = await db.update(
+        "device_codes",
+        {"user_code": user_code, "status": "pending"},
+        {"status": "approved", "user_id": user.id},
+    )
+    if not approved:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Code already used")
     await get_or_create_account(db, user.id)  # ensures a row exists before the flag update below
     await _record_abuse_signals_and_maybe_flag(
         db, settings, user_id=user.id, fingerprint=body.fingerprint,

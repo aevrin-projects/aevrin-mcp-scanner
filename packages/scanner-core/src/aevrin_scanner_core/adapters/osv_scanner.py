@@ -24,8 +24,8 @@ class OsvScannerAdapter(ScannerAdapter):
 
     def build_spec(self, target_dir: str) -> DockerRunSpec:
         return DockerRunSpec(
-            image="ghcr.io/google/osv-scanner:latest",
-            args=["scan", "source", "--format", "json", "/src"],
+            image="ghcr.io/google/osv-scanner:v2.4.0",
+            args=["scan", "source", "--recursive", "--format", "json", "/src"],
             mounts={target_dir: ("/src", True)},
             network_enabled=True,  # queries the OSV API
             timeout_s=180,
@@ -35,7 +35,7 @@ class OsvScannerAdapter(ScannerAdapter):
     def build_local_command(self, target_dir: str) -> LocalCommandSpec:
         return LocalCommandSpec(
             binary="osv-scanner",
-            args=["scan", "source", "--format", "json", "."],
+            args=["scan", "source", "--recursive", "--format", "json", "."],
             timeout_s=180,
             # Matches build_spec's ok_exit_codes exactly — a repo with no
             # manifest files exits non-zero here too (observed exit 128);

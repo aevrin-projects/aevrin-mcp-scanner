@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 const STATUS_CLASSES: Record<ScanStatus, string> = {
   queued: "border-border text-muted-foreground",
-  running: "border-brand/40 bg-brand/10 text-brand",
+  running: "border-brand/40 bg-brand/10 text-brand-text",
   completed: "border-brand/40 bg-brand/10 text-foreground",
   failed: "border-severity-critical/40 bg-severity-critical/10 text-severity-critical",
   incomplete: "border-severity-high/40 bg-severity-high/10 text-severity-high",

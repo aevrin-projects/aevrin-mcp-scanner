@@ -117,7 +117,7 @@ export function EmptyState({
     <div className="rounded-2xl border border-dashed border-border bg-card/40 p-8 text-left">
       <div className="flex max-w-2xl flex-col gap-4">
         <div className="flex size-11 items-center justify-center rounded-full border border-border bg-background/80">
-          <Icon className="size-5 text-brand" />
+          <Icon className="size-5 text-brand-text" />
         </div>
         <div className="space-y-2">
           <h2 className="text-xl font-semibold tracking-tight">{title}</h2>

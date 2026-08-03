@@ -1,7 +1,8 @@
 """MCP-Shield adapter. Heuristic mode only — never pass --claude-api-key
 (explicit master-spec requirement: no LLM judge in the detection engine).
 
-Invocation confirmed live against aevrin/mcp-shield:local (npm mcp-shield@1.0.4):
+Invocation uses the official Node image plus pinned npm mcp-shield@1.0.4, so
+CLI users do not need an unpublished Aevrin-local container image:
 - `--path` must point at a config *file*, not a directory (EISDIR otherwise).
 - The config is the standard `{"mcpServers": {name: {command, args} | {url}}}`
   shape. mcp-shield actually spawns/connects to each server over the live MCP
@@ -61,8 +62,8 @@ class McpShieldAdapter(ScannerAdapter):
         # target_dir must be a directory containing exactly `mcp.json`, the
         # generated config pointing at the server(s) to inspect.
         return DockerRunSpec(
-            image="aevrin/mcp-shield:local",
-            args=["--path", self.config_path_in_container],
+            image="node:22-alpine",
+            args=["npx", "-y", "mcp-shield@1.0.4", "--path", self.config_path_in_container],
             mounts={target_dir: ("/scan", True)},
             network_enabled=True,  # connects to live/remote MCP servers
             timeout_s=90,

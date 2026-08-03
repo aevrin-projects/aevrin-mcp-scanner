@@ -12,7 +12,7 @@ export function SiteFooter() {
               <span className="text-lg tracking-[0.14em] uppercase">Aevrin</span>
             </div>
             <p className="mt-3 max-w-xs text-sm text-muted-foreground">
-              MCP security scanning — know what a server can do before it touches your machine.
+              Review MCP server code, dependencies, configuration, and declared tools before installation.
             </p>
           </div>
 

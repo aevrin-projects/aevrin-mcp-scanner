@@ -5,7 +5,7 @@ CLI, and the hook. Callers supply an `on_stage` callback for side effects
 back a fully-populated Scan.
 
 GitHub-repo targets get the full tool set. Live-server and pasted-config
-targets only get manifest-level checks (mcp-shield/mcp-scan/manifest rules)
+targets only get manifest-level checks (mcp-shield/SDK inspection/manifest rules)
 per Section 6 — cloning/static-analysis/secrets/dependency stages are marked
 SKIPPED, not silently absent.
 """
@@ -15,7 +15,9 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import subprocess
+
+# This module invokes Git with structured argv and shell=False.
+import subprocess  # nosec B404
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -26,8 +28,6 @@ from uuid import UUID, uuid4
 from .adapters import (
     BanditAdapter,
     GitleaksAdapter,
-    McpContextProtectorAdapter,
-    McpScanAdapter,
     McpShieldAdapter,
     OsvScannerAdapter,
     ScorecardAdapter,
@@ -41,10 +41,21 @@ from .manifest_rules import (
     check_audit_logging_presence,
     check_weak_auth,
 )
-from .models import Finding, Scan, ScanStage, ScanStatus, StageName, StageStatus, TargetType
+from .models import (
+    Finding,
+    Scan,
+    ScanStage,
+    ScanStatus,
+    StageName,
+    StageStatus,
+    TargetType,
+    ToolName,
+)
+from .network_safety import public_https_url_error
 from .not_tested import not_tested_placeholder
-from .rug_pull import PinnedSignature, diff_signatures, hash_signature
-from .runner import ToolExecutionError
+from .remote_mcp import inspect_remote_signatures
+from .rug_pull import PinnedSignature, diff_signatures
+from .runner import ToolExecutionError, sanitized_subprocess_env
 from .scoring import compute_score
 
 OnStage = Callable[[ScanStage], None]
@@ -253,12 +264,14 @@ def _run_clone_stage(
     if config.github_token and github_url.startswith("https://github.com/"):
         clone_url = github_url.replace("https://github.com/", f"https://x-access-token:{config.github_token}@github.com/")
     try:
-        subprocess.run(
+        # Fixed Git executable and structured argv; clone_url is one argument.
+        subprocess.run(  # nosec B603 B607
             ["git", "clone", "--depth", str(config.clone_depth), clone_url, repo_dir],
             capture_output=True,
             text=True,
             timeout=120,
             check=True,
+            env=sanitized_subprocess_env(),
         )
         if clone_url != github_url:
             # git writes the clone URL verbatim into .git/config — if it
@@ -269,9 +282,14 @@ def _run_clone_stage(
             # users as a "critical finding" on their own scan results.
             # Strip it immediately — the token was only ever needed for the
             # clone transport itself, not for anything scanned afterward.
-            subprocess.run(
+            # Fixed Git executable and structured argv.
+            subprocess.run(  # nosec B603 B607
                 ["git", "-C", repo_dir, "remote", "set-url", "origin", github_url],
-                capture_output=True, text=True, timeout=10, check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+                env=sanitized_subprocess_env(),
             )
         _mark(stage, StageStatus.DONE, on_stage)
         return repo_dir
@@ -381,11 +399,57 @@ def _run_tool_description_stage(
 
     mcp_entries = _discover_mcp_entries(target_type, target, repo_dir)
     if not mcp_entries:
-        tool_errors.append("no MCP server entrypoint discovered — tool description checks skipped")
-        _finish_stage(stage, tool_errors, on_stage, errors)
+        # This is an applicability limitation, not a scanner crash. Source
+        # repositories commonly contain an MCP SDK without committing a
+        # runnable client configuration, and executing arbitrary project code
+        # merely to enumerate tools would violate the scanner's safety model.
+        _mark(
+            stage,
+            StageStatus.SKIPPED,
+            on_stage,
+            error=(
+                "No safe MCP server entrypoint was discovered. Runtime tool-description "
+                "checks were not applicable to this source scan."
+            ),
+        )
         return
 
+    # Tool-description scanners connect to remote servers and some upstream
+    # tools will execute stdio commands from the configuration. Never execute
+    # those untrusted commands in the API/CLI scanner context, and never let a
+    # submitted URL reach loopback, metadata, or private networks.
+    safe_remote_entries: dict[str, dict[str, Any]] = {}
+    limitations: list[str] = []
+    for name, entry in mcp_entries.items():
+        if not isinstance(entry, dict):
+            limitations.append(f"{name}: invalid MCP entry")
+            continue
+        url = entry.get("url")
+        if not isinstance(url, str):
+            limitations.append(f"{name}: stdio command not executed for safety")
+            continue
+        url_error = public_https_url_error(url)
+        if url_error:
+            limitations.append(f"{name}: {url_error}")
+            continue
+        safe_remote_entries[name] = entry
+
+    if not safe_remote_entries:
+        _mark(
+            stage,
+            StageStatus.SKIPPED,
+            on_stage,
+            error=(
+                "Runtime tool-description checks were not run because no safe public HTTPS "
+                "MCP endpoint was available. Aevrin never executes submitted stdio commands. "
+                + "; ".join(limitations)
+            ),
+        )
+        return
+    mcp_entries = safe_remote_entries
+
     config_dir = tempfile.mkdtemp(prefix="aevrin-mcpcfg-")
+    mcp_shield_succeeded = False
     try:
         with open(f"{config_dir}/mcp.json", "w") as f:
             f.write(build_mcp_config(mcp_entries))
@@ -394,24 +458,20 @@ def _run_tool_description_stage(
         emit(findings)
         if error:
             tool_errors.append(error)
+        mcp_shield_succeeded = error is None
 
         signatures: list[PinnedSignature] = []
         try:
-            for result in McpScanAdapter().inspect_signatures(config_dir):
-                if result.signature is not None:
-                    signatures.append(PinnedSignature(result.server_name, hash_signature(result.signature)))
-        except ToolExecutionError as exc:
-            tool_errors.append(f"mcp-scan: {exc}")
-            try:
-                for result in McpContextProtectorAdapter().inspect_signatures(config_dir):
-                    if result.signature is not None:
-                        signatures.append(PinnedSignature(result.server_name, hash_signature(result.signature)))
-            except ToolExecutionError as exc2:
-                tool_errors.append(f"mcp-context-protector (fallback): {exc2}")
+            signatures = [
+                PinnedSignature(name, signature)
+                for name, signature in inspect_remote_signatures(mcp_entries)
+            ]
+        except Exception as exc:  # noqa: BLE001 - remote protocol errors are isolated
+            tool_errors.append(f"MCP signature inspection: {type(exc).__name__}: {exc}")
 
         config.computed_signatures = [(s.server_name, s.signature_hash) for s in signatures]
         previous = [PinnedSignature(name, h) for name, h in config.previous_signatures.items()]
-        emit(diff_signatures(scan_id, McpScanAdapter.tool, previous, signatures))
+        emit(diff_signatures(scan_id, ToolName.MCP_SCAN, previous, signatures))
 
         for entry in mcp_entries.values():
             transport = TransportInfo(
@@ -426,7 +486,19 @@ def _run_tool_description_stage(
     finally:
         shutil.rmtree(config_dir, ignore_errors=True)
 
-    _finish_stage(stage, tool_errors, on_stage, errors)
+    if limitations:
+        tool_errors.extend(limitations)
+    if tool_errors:
+        errors.extend(tool_errors)
+    # Signature pinning can be unavailable while MCP-Shield still provided
+    # real description coverage. Only fail the stage when the primary runtime
+    # description check itself did not run.
+    _mark(
+        stage,
+        StageStatus.DONE if mcp_shield_succeeded else StageStatus.FAILED,
+        on_stage,
+        error="; ".join(tool_errors) or None,
+    )
 
 
 def _discover_mcp_entries(

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import platform
-import subprocess
+
+# This module executes one fixed OS command; no argv comes from user input.
+import subprocess  # nosec B404
 
 
 def _read_linux_machine_id() -> str | None:
@@ -25,8 +27,9 @@ def _read_linux_machine_id() -> str | None:
 
 def _read_macos_platform_uuid() -> str | None:
     try:
-        out = subprocess.run(
-            ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
+        # Fixed absolute executable and argv, with shell=False.
+        out = subprocess.run(  # nosec B603
+            ["/usr/sbin/ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
             capture_output=True, text=True, timeout=5, check=True,
         ).stdout
     except (OSError, subprocess.SubprocessError):

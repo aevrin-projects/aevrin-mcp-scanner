@@ -14,7 +14,9 @@ Aevrin MCP Security Scanner CLI. Wraps the same open-source scanner binaries and
 pip install aevrin
 ```
 
-Requires Docker (each scanner runs in its own disposable container — see the main repo README for why).
+Requires Docker using Linux containers (each scanner runs in its own disposable container). On
+Docker Desktop, assign at least 4 GB of memory and permit bind mounts from the system temporary
+directory. Scanner images are version-pinned and pulled automatically when missing.
 
 ## Usage
 
@@ -26,7 +28,7 @@ aevrin scan ./my-mcp-server --fail-on high
 aevrin scan ./my-mcp-server --no-upload   # skip saving to your dashboard (e.g. in CI)
 ```
 
-Target type is auto-detected: a `github.com` URL scans the full pipeline (static analysis, secrets, dependencies, tool-description checks); any other `http(s)://` URL is treated as a live MCP server (manifest-level checks only); anything that exists on disk is scanned as a local path (full pipeline, no cloning).
+Target type is auto-detected: a `github.com` URL scans the full pipeline (static analysis, secrets, dependencies, tool-description checks); another public `https://` URL is treated as a live MCP server (runtime description checks only); anything that exists on disk is scanned as a local path (full pipeline, no cloning). Private, loopback, metadata, credential-bearing, and plain-HTTP live targets are rejected. Aevrin never executes submitted stdio MCP commands.
 
 ### Flags
 
@@ -42,7 +44,8 @@ Target type is auto-detected: a `github.com` URL scans the full pipeline (static
 |---|---|
 | `0` | Clean — no findings at or above the `--fail-on` threshold. |
 | `1` | Findings at or above the `--fail-on` threshold were found. |
-| `2` | Misuse — bad arguments, a target that couldn't be resolved, or every scan stage failed to run. A dashboard-save failure does *not* set this — it's a warning on stderr, not a scan failure. |
+| `2` | Couldn't start — authentication, quota, API, target, or flag error. |
+| `3` | Incomplete — a required scanner category did not execute. This is never treated as a clean pass. |
 
 Results go to stdout; stage progress and diagnostics go to stderr — safe to pipe `--json` output without stage-progress noise mixed in.
 

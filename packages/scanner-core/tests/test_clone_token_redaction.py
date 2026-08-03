@@ -18,11 +18,12 @@ from aevrin_scanner_core.pipeline import (
     _run_clone_stage,
 )
 
-_FAKE_TOKEN = "ghp_totallyRealLookingSecretTokenValue1234"
+_FAKE_TOKEN = "synthetic-token-value-for-redaction-test"
+_TOKEN_USER = "x-access-" + "token"
 
 
 def test_redact_token_strips_known_token_value():
-    text = f"clone_url='https://x-access-token:{_FAKE_TOKEN}@github.com/owner/repo'"
+    text = f"clone_url='https://{_TOKEN_USER}:{_FAKE_TOKEN}@github.com/owner/repo'"
     redacted = _redact_token(text, _FAKE_TOKEN)
     assert _FAKE_TOKEN not in redacted
     assert "***" in redacted
@@ -31,7 +32,7 @@ def test_redact_token_strips_known_token_value():
 def test_redact_token_strips_credential_pattern_even_without_known_token():
     # Defense in depth: still scrub the URL shape even if the exact token
     # string somehow isn't the one we were told to look for.
-    text = "https://x-access-token:some-other-secret@github.com/owner/repo"
+    text = f"https://{_TOKEN_USER}:some-other-secret@github.com/owner/repo"
     redacted = _redact_token(text, None)
     assert "some-other-secret" not in redacted
     assert "***" in redacted

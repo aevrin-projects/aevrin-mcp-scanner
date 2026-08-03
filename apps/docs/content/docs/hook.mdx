@@ -67,9 +67,9 @@ nothing reliable to scan pre-edit.
 
 <Steps>
   <Step>
-    **Check for a cached result first** — one fast `GET /hook/cache` call (a Supabase lookup,
-    not a live scan). This keeps the hook well within its `timeout` budget on every single
-    `Bash`/`Write` call it's matched against.
+    **Check for a cached result first** — one fast `POST /hook/cache` call (a Supabase lookup,
+    not a live scan). The request body keeps pasted configuration out of URL logs, while the
+    short lookup stays within the hook's `timeout` budget.
   </Step>
   <Step>
     **Clean cached scan → allow silently**, with a small confirmatory note
@@ -79,7 +79,7 @@ nothing reliable to scan pre-edit.
     **Cached scan has unresolved critical/high findings → block**, with the score and each
     finding's title, severity, OWASP category, file/line, and remediation in the denial reason —
     plus three explicit options: fix it directly, run `aevrin hook allow <target>` to install
-    anyway, or `aevrin findings triage <id> false_positive` to dispute a specific finding.
+    anyway, or `aevrin findings triage <id> false_positive --reason "..."` to dispute a specific finding.
   </Step>
   <Step>
     **Cached scan's tools couldn't run → block as incomplete**, never silently allowed. Docker

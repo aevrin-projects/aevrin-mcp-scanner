@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -37,7 +38,17 @@ async def triage_finding(
     existing = await db.select("findings", {"id": str(finding_id), "user_id": user.id})
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found")
+    audit_patch: dict[str, str | None]
+    if body.triage_status == "open":
+        audit_patch = {"triage_reason": None, "triaged_at": None}
+    else:
+        audit_patch = {
+            "triage_reason": body.reason,
+            "triaged_at": datetime.now(UTC).isoformat(),
+        }
     rows = await db.update(
-        "findings", {"id": str(finding_id)}, {"triage_status": body.triage_status}
+        "findings",
+        {"id": str(finding_id), "user_id": user.id},
+        {"triage_status": body.triage_status, **audit_patch},
     )
     return FindingOut(**rows[0])

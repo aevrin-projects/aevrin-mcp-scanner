@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from ..config import Settings, get_settings
 from ..db import SupabaseRest
 from ..deps import get_current_user, get_db
+from ..quota import effective_tier, get_or_create_account
 from ..r2_client import presigned_report_url, upload_report
 from ..security import AuthenticatedUser
 
@@ -26,6 +27,13 @@ _TARGET_TYPE_LABELS = {
     "github_repo": "GitHub repository",
     "live_mcp_server": "Live MCP server",
     "config_paste": "Pasted configuration",
+    "local_path": "Local path",
+}
+
+_SOURCE_LABELS = {
+    "dashboard": "Dashboard scan",
+    "cli": "CLI scan",
+    "hook": "Claude Code hook scan",
 }
 
 _STATUS_LABELS = {
@@ -71,6 +79,14 @@ async def export_report(
     db: Annotated[SupabaseRest, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, str]:
+    account = await get_or_create_account(db, user.id)
+    tier = effective_tier(account)
+    tier_rows = await db.select("tier_limits", {"tier": tier}, columns="pdf_export")
+    if not tier_rows or not tier_rows[0]["pdf_export"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Report export is available on paid plans",
+        )
     scan_rows = await db.select("scans", {"id": str(scan_id), "user_id": user.id})
     if not scan_rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
@@ -197,6 +213,15 @@ def _finding_card_html(finding: dict[str, object]) -> str:
         category = str(finding.get("owasp_category", ""))
     triage = str(finding.get("triage_status") or "open")
     triage_badge = "" if triage == "open" else f'<span class="triage-chip">{_esc(triage.replace("_", " "))}</span>'
+    triage_audit = ""
+    if triage != "open" and (finding.get("triage_reason") or finding.get("triaged_at")):
+        triage_audit = f"""
+        <div class="finding-remediation">
+          <span class="finding-remediation-label">Triage record</span>
+          <p>{_esc(finding.get("triage_reason") or "No reason recorded")}</p>
+          <p>{_esc(_format_datetime(_str_or_none(finding.get("triaged_at"))))}</p>
+        </div>
+        """
     return f"""
     <div class="finding-card" style="border-left-color:{color}">
       <div class="finding-head">
@@ -216,6 +241,7 @@ def _finding_card_html(finding: dict[str, object]) -> str:
         <span class="finding-remediation-label">Remediation</span>
         <p>{_esc(finding.get("remediation", ""))}</p>
       </div>
+      {triage_audit}
     </div>
     """
 
@@ -277,6 +303,7 @@ def _render_html(
 
     target = str(scan.get("target", ""))
     target_type_label = _TARGET_TYPE_LABELS.get(str(scan.get("target_type")), str(scan.get("target_type")))
+    source_label = _SOURCE_LABELS.get(str(scan.get("source", "dashboard")), str(scan.get("source", "dashboard")))
     generated_at = datetime.now(UTC).strftime("%b %-d, %Y, %H:%M UTC")
 
     return f"""<!doctype html>
@@ -389,7 +416,7 @@ def _render_html(
 
     <div class="status-chip">{_esc(_STATUS_LABELS.get(status, status))}</div>
     <h1>{_esc(target)}</h1>
-    <p class="target-type">{_esc(target_type_label)}</p>
+    <p class="target-type">{_esc(target_type_label)} &middot; {_esc(source_label)}</p>
 
     <div class="hero">
       {_score_gauge_svg(score if isinstance(score, int) else None)}

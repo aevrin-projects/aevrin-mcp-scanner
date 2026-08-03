@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -40,7 +41,11 @@ async def get_api_key_user(
     if not rows or rows[0].get("revoked_at"):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or revoked API key")
     row = rows[0]
-    await db.update("api_keys", {"id": str(row["id"])}, {"last_used_at": "now()"})
+    await db.update(
+        "api_keys",
+        {"id": str(row["id"]), "user_id": row["user_id"]},
+        {"last_used_at": datetime.now(UTC).isoformat()},
+    )
     return AuthenticatedUser(id=row["user_id"], email=None)
 
 

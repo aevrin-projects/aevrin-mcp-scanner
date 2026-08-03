@@ -31,3 +31,9 @@ def test_help_still_works():
 def test_no_args_shows_help_not_a_crash():
     result = runner.invoke(app, [])
     assert "Usage:" in result.stdout
+
+
+def test_false_positive_triage_requires_reason_before_auth_lookup():
+    result = runner.invoke(app, ["findings", "triage", "finding-id", "false_positive"])
+    assert result.exit_code == 2
+    assert "require --reason" in result.stderr

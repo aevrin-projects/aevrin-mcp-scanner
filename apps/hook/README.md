@@ -13,9 +13,9 @@ Everything else is ignored silently (exits 0, no output) — this hook stays out
 
 ## Decision logic
 
-1. Check for a cached result first — one fast `GET /hook/cache` call (Supabase lookup, not a scan), with a 4-second timeout.
+1. Check for a cached result first — one fast `POST /hook/cache` call (Supabase lookup, not a scan), with a 4-second timeout. Pasted configuration stays in the request body and is represented durably only by a hash label.
 2. Clean cached scan → allow silently, with a small confirmatory note.
-3. Cached scan has unresolved critical/high findings → **block**, with the score and specific findings (title, severity, OWASP category, file/line, remediation) in the denial reason, plus three options: fix it directly, `aevrin hook allow <target>` to install anyway, or `aevrin findings triage <id> false_positive` to dispute a finding.
+3. Cached scan has unresolved critical/high findings → **block**, with the score and specific findings (title, severity, OWASP category, file/line, remediation) in the denial reason, plus three options: fix it directly, `aevrin hook allow <target>` to install anyway, or `aevrin findings triage <id> false_positive --reason "..."` to dispute a finding with an auditable reason.
 3a. An active `aevrin hook allow` override for this exact target → allow, once, without re-blocking.
 3b. Cached scan's tools failed to run (Docker down, missing binary, no network) → **block as incomplete**, never allowed silently — see [Concepts → Incomplete scans](https://docs.mcp.aevrin.net/docs/concepts#incomplete-scans).
 4. No cached result → **allow**, with a visible "not yet scanned" warning. The actual scan runs server-side (`apps/api`'s `/hook/cache` endpoint fires it via `BackgroundTasks`) — this script never runs or waits on a scan itself, only ever makes one short HTTP request.

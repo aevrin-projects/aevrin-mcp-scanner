@@ -89,37 +89,66 @@ async def upload_scan(
     targets) is a documented future improvement, not something this
     upload-and-trust-the-findings model can close on its own."""
     enforce_rate_limit(settings, "cli_upload", user.id, settings.cli_uploads_per_key_per_hour)
-    await check_and_increment_quota(settings, db, user.id, "cli")
-
-    scan_id = uuid4()
-    now = datetime.now(UTC).isoformat()
+    scan_id = body.scan_id or uuid4()
 
     try:
         core_findings = [_to_core_finding(f, scan_id) for f in body.findings]
     except (ValidationError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
-    recomputed_score = compute_score(core_findings)
+    recomputed_score = compute_score(core_findings) if body.status != "failed" else None
     if recomputed_score != body.score:
         logger.warning(
             "cli upload score mismatch for user %s target %s: client sent %s, recomputed %s",
             user.id, body.target, body.score, recomputed_score,
         )
 
-    scan_rows = await db.insert(
-        "scans",
-        {
-            "id": str(scan_id),
-            "user_id": user.id,
-            "target_type": body.target_type,
-            "target": body.target,
-            "status": body.status,
-            "score": recomputed_score,
-            "mcp_detected": body.mcp_detected,
-            "unreliable_stages": body.unreliable_stages,
-            "completed_at": now,
-        },
-    )
+    existing = await db.select("scans", {"id": str(scan_id)})
+    if existing:
+        persisted = existing[0]
+        is_same_upload = (
+            persisted["user_id"] == user.id
+            and persisted.get("source") == "cli"
+            and persisted["target_type"] == body.target_type
+            and persisted["target"] == body.target
+        )
+        if not is_same_upload:
+            # Client-generated IDs make network retries idempotent, but must
+            # never let an upload overwrite a dashboard/hook scan or reuse an
+            # ID for a different target.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Scan ID is already in use",
+            )
+
+    # A retry carries the same client-generated scan ID. Repair/upsert its
+    # related records without consuming a second quota credit or creating a
+    # duplicate history row.
+    if not existing:
+        await check_and_increment_quota(settings, db, user.id, "cli")
+
+    now = datetime.now(UTC)
+    scan_payload = {
+        "user_id": user.id,
+        "target_type": body.target_type,
+        "target": body.target,
+        "status": body.status,
+        "source": "cli",
+        "score": recomputed_score,
+        "mcp_detected": body.mcp_detected,
+        "unreliable_stages": body.unreliable_stages,
+        "created_at": (body.created_at or now).isoformat(),
+        "completed_at": (body.completed_at or now).isoformat(),
+    }
+    if existing:
+        scan_rows = await db.update(
+            "scans",
+            {"id": str(scan_id), "user_id": user.id},
+            scan_payload,
+        )
+    else:
+        scan_rows = await db.insert("scans", {"id": str(scan_id), **scan_payload})
+
     if body.stages:
         await db.insert(
             "scan_stages",
@@ -134,6 +163,7 @@ async def upload_scan(
                 }
                 for s in body.stages
             ],
+            upsert_on="scan_id,name",
         )
     if body.findings:
         await db.insert(
@@ -157,9 +187,11 @@ async def upload_scan(
                     "verified": f.verified,
                     "not_tested": f.not_tested,
                     "raw": f.raw,
+                    **({"created_at": f.created_at.isoformat()} if f.created_at else {}),
                 }
                 for f in body.findings
             ],
+            upsert_on="id",
         )
     await db.insert(
         "hook_cache",
@@ -169,7 +201,7 @@ async def upload_scan(
             "last_scan_id": str(scan_id),
             "last_score": recomputed_score,
             "last_status": body.status,
-            "checked_at": now,
+            "checked_at": (body.completed_at or now).isoformat(),
         },
         upsert_on="user_id,target",
     )

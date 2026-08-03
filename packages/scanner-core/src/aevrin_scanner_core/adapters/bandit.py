@@ -1,10 +1,8 @@
 """Bandit adapter.
 
-No official Docker Hub image exists for Bandit, so we build a minimal one
-(see docker/bandit.Dockerfile, `pip install bandit==1.8.0`, ENTRYPOINT
-["bandit"]) — build it as `aevrin/bandit:local` before running a scan.
-Invocation confirmed live: `bandit -r /src -f json`, exits 1 when findings
-are present (not an error), clean JSON on stdout either way.
+Bandit's signed official GHCR image is used so pip-installed CLI users never
+need to build an Aevrin-local image. `bandit -r /src -f json` exits 1 when
+findings are present (not an execution error).
 """
 
 from __future__ import annotations
@@ -24,7 +22,7 @@ _SEVERITY_MAP = {
     "LOW": Severity.LOW,
 }
 
-BANDIT_IMAGE = "aevrin/bandit:local"
+BANDIT_IMAGE = "ghcr.io/pycqa/bandit/bandit:1.9.4"
 
 # Confirmed live: without this, every `assert` in a pytest test file (fully
 # idiomatic, not a security issue — assert is *how* pytest assertions work)

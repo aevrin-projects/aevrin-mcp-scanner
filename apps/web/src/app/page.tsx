@@ -72,6 +72,10 @@ export default function LandingPage() {
     <div className="bg-background">
       <section className="relative overflow-hidden border-b border-border/80">
         <div className="absolute inset-x-0 top-0 h-[560px] bg-[radial-gradient(circle_at_top_left,rgba(188,230,10,0.18),transparent_42%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.08),transparent_28%)] dark:bg-[radial-gradient(circle_at_top_left,rgba(188,230,10,0.12),transparent_38%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.04),transparent_24%)]" />
+        <div className="security-mesh absolute inset-0 opacity-45" aria-hidden="true" />
+        <div className="security-orb security-orb-one" aria-hidden="true" />
+        <div className="security-orb security-orb-two" aria-hidden="true" />
+        <div className="hero-scan-beam" aria-hidden="true" />
         <div className="relative mx-auto max-w-[1500px] px-6 pb-20 pt-16 lg:px-10 lg:pb-24 lg:pt-20 xl:px-14">
           <div className="grid gap-12 xl:grid-cols-[minmax(0,1.08fr)_minmax(460px,0.92fr)] xl:items-center">
             <div className="space-y-8">
@@ -121,24 +125,25 @@ export default function LandingPage() {
                   <HeroCallout
                     title="Coverage is explicit"
                     body="Complete, partial, failed, skipped, and stale states are called out instead of hidden."
-                    icon={<FileSearch className="size-4 text-brand" />}
+                    icon={<FileSearch className="size-4 text-brand-text" />}
                   />
                   <HeroCallout
                     title="Findings stay operational"
                     body="Evidence, remediation, OWASP MCP mapping, and repeat-scan verification live in one flow."
-                    icon={<ShieldAlert className="size-4 text-brand" />}
+                    icon={<ShieldAlert className="size-4 text-brand-text" />}
                   />
                   <HeroCallout
                     title="Built for real rollout"
                     body="Use the dashboard, CLI, and Claude Code hook together without drifting into separate products."
-                    icon={<GitBranch className="size-4 text-brand" />}
+                    icon={<GitBranch className="size-4 text-brand-text" />}
                   />
                 </div>
               </Reveal>
             </div>
 
             <Reveal delay={140} className="h-full">
-              <div className="rounded-[30px] border border-border/80 bg-card/75 p-4 shadow-2xl shadow-black/15 backdrop-blur-sm sm:p-6">
+              <div className="motion-float-card relative overflow-hidden rounded-[30px] border border-border/80 bg-card/75 p-4 shadow-2xl shadow-black/15 backdrop-blur-sm sm:p-6">
+                <div className="preview-scan-sweep" aria-hidden="true" />
                 <div className="rounded-[26px] border border-border/80 bg-background/92 p-5">
                   <div className="flex flex-col gap-4 border-b border-border/80 pb-5 sm:flex-row sm:items-start sm:justify-between">
                     <div className="space-y-1">
@@ -146,7 +151,7 @@ export default function LandingPage() {
                         Authenticated workflow preview
                       </p>
                       <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-                        Know what a server does before it gets installed.
+                        Review the available evidence before a server gets installed.
                       </h2>
                     </div>
                     <div className="rounded-full border border-brand/30 bg-brand/10 px-3 py-1 text-xs font-medium text-foreground">
@@ -215,7 +220,7 @@ export default function LandingPage() {
 
       <section className="mx-auto max-w-[1500px] px-6 py-20 lg:px-10 xl:px-14">
         <Reveal>
-          <span className="text-xs font-medium tracking-wide text-brand uppercase">Why teams adopt it</span>
+          <span className="text-xs font-medium tracking-wide text-brand-text uppercase">Why teams adopt it</span>
           <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
             The product is designed around decision quality, not empty dashboard filler.
           </h2>
@@ -223,9 +228,9 @@ export default function LandingPage() {
         <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {PILLARS.map((item, index) => (
             <Reveal key={item.title} delay={index * 80}>
-              <div className="h-full rounded-[28px] border border-border/80 bg-card/70 p-6">
+              <div className="interactive-lift h-full rounded-[28px] border border-border/80 bg-card/70 p-6">
                 <div className="flex size-11 items-center justify-center rounded-2xl border border-brand/25 bg-brand/10">
-                  <item.icon className="size-5 text-brand" />
+                  <item.icon className="size-5 text-brand-text" />
                 </div>
                 <h3 className="mt-5 text-xl font-semibold tracking-tight text-foreground">{item.title}</h3>
                 <p className="mt-3 text-sm leading-7 text-muted-foreground">{item.body}</p>
@@ -240,7 +245,7 @@ export default function LandingPage() {
           <div className="grid gap-8 xl:grid-cols-[1.05fr_0.95fr]">
             <Reveal>
               <div className="rounded-[30px] border border-border/80 bg-background/90 p-8">
-                <span className="text-xs font-medium tracking-wide text-brand uppercase">What users need answered</span>
+                <span className="text-xs font-medium tracking-wide text-brand-text uppercase">What users need answered</span>
                 <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
                   The product is organized around the questions security reviews actually produce.
                 </h2>
@@ -248,7 +253,7 @@ export default function LandingPage() {
                   {QUESTIONS.map((question, index) => (
                     <div
                       key={question}
-                      className="flex items-start gap-4 rounded-2xl border border-border/80 bg-card/65 px-4 py-4"
+                      className="interactive-lift flex items-start gap-4 rounded-2xl border border-border/80 bg-card/65 px-4 py-4"
                     >
                       <div className="flex size-8 items-center justify-center rounded-full border border-brand/25 bg-brand/10 text-sm font-medium text-foreground">
                         {index + 1}
@@ -263,10 +268,10 @@ export default function LandingPage() {
             <Reveal delay={120}>
               <div className="grid gap-5">
                 {ROLLOUT.map((item, index) => (
-                  <div key={item.title} className="rounded-[28px] border border-border/80 bg-background/90 p-6">
+                  <div key={item.title} className="interactive-lift rounded-[28px] border border-border/80 bg-background/90 p-6">
                     <div className="flex items-center gap-3">
                       <div className="flex size-11 items-center justify-center rounded-2xl border border-brand/25 bg-brand/10">
-                        <item.icon className="size-5 text-brand" />
+                        <item.icon className="size-5 text-brand-text" />
                       </div>
                       <h3 className="text-lg font-semibold tracking-tight text-foreground">{item.title}</h3>
                     </div>
@@ -303,7 +308,7 @@ function HeroCallout({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="rounded-3xl border border-border/80 bg-card/65 p-5">
+    <div className="interactive-lift rounded-3xl border border-border/80 bg-card/65 p-5">
       <div className="flex items-center gap-3">
         <div className="flex size-9 items-center justify-center rounded-2xl border border-brand/25 bg-brand/10">
           {icon}
@@ -327,7 +332,7 @@ function PreviewCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-[24px] border border-border/80 bg-card/70 p-5">
+    <div className="interactive-lift rounded-[24px] border border-border/80 bg-card/70 p-5">
       <p className="text-[0.7rem] font-medium tracking-[0.18em] text-muted-foreground uppercase">{eyebrow}</p>
       <h3 className="mt-2 text-lg font-semibold tracking-tight text-foreground">{title}</h3>
       <p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p>

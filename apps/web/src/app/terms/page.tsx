@@ -1,4 +1,10 @@
+import type { Metadata } from "next";
 import { SiteFooter } from "@/components/site-footer";
+
+export const metadata: Metadata = {
+  title: "Terms of Service — Aevrin",
+  description: "Terms governing use of the Aevrin MCP security scanning service.",
+};
 
 export default function TermsPage() {
   return (
@@ -6,7 +12,7 @@ export default function TermsPage() {
       <div className="mx-auto max-w-2xl px-6 py-16">
         <h1 className="text-2xl font-semibold tracking-tight">Terms of Service</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Draft — for your own legal review before this is a binding agreement. Last updated: 2026.
+          Last updated: August 3, 2026.
         </p>
 
         <div className="mt-8 flex flex-col gap-6 text-sm leading-relaxed text-muted-foreground">
@@ -40,8 +46,18 @@ export default function TermsPage() {
           <section>
             <h2 className="font-medium text-foreground">Billing</h2>
             <p className="mt-1">
-              Paid plans are billed through Razorpay. You can cancel at any time from your account
-              settings; you retain access through the end of the period you&apos;ve already paid for.
+              Paid plans use Razorpay Standard Checkout and are purchased one cycle at a time.
+              Aevrin does not automatically renew or automatically charge another cycle. Paid
+              access remains active through the displayed paid-until date.
+            </p>
+          </section>
+          <section>
+            <h2 className="font-medium text-foreground">Scan results and limitations</h2>
+            <p className="mt-1">
+              Results reflect only the checks that complete. Partial and failed scans can miss
+              vulnerabilities, and scanner findings may include false positives. You remain
+              responsible for reviewing the evidence and deciding whether to install or operate a
+              target.
             </p>
           </section>
           <section>

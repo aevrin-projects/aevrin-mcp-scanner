@@ -6,7 +6,7 @@ robust as a hook script matched on nearly every Bash/Write tool call — it
 must return well within its settings.json `timeout` budget.
 
 Decision logic (exactly per the master build spec, Section 8):
-1. Check for a cached score first (GET /hook/cache — a fast Supabase lookup,
+1. Check for a cached score first (POST /hook/cache — a fast Supabase lookup,
    not a scan).
 2. Clean cached score -> allow silently.
 3. Cached score shows critical/high -> block, with score + specific
@@ -43,7 +43,18 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-API_URL = os.environ.get("AEVRIN_API_URL", "https://api-production-2617.up.railway.app")
+_DEFAULT_API_URL = "https://api-production-2617.up.railway.app"
+
+
+def _validated_api_url(value: str) -> str:
+    parsed = urllib.parse.urlsplit(value)
+    is_local_dev = parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    if (parsed.scheme != "https" and not is_local_dev) or not parsed.hostname or parsed.username or parsed.password:
+        return _DEFAULT_API_URL
+    return value.rstrip("/")
+
+
+API_URL = _validated_api_url(os.environ.get("AEVRIN_API_URL", _DEFAULT_API_URL))
 
 
 def _load_hook_api_key() -> str | None:
@@ -160,14 +171,19 @@ def _best_effort_stdio_entry(command: str) -> dict[str, Any]:
 def check_cache(target_type: str, target: str) -> dict[str, Any] | None:
     if not API_KEY:
         return None
-    url = f"{API_URL}/hook/cache?" + urllib.parse.urlencode(
-        {"target": target, "target_type": target_type}
+    body = json.dumps({"target": target, "target_type": target_type}).encode()
+    req = urllib.request.Request(
+        f"{API_URL}/hook/cache",
+        data=body,
+        method="POST",
+        headers={"X-API-Key": API_KEY, "Content-Type": "application/json"},
     )
-    req = urllib.request.Request(url, headers={"X-API-Key": API_KEY})
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
-            body: Any = json.loads(resp.read())
-            return body if isinstance(body, dict) else None
+        # The URL is either Aevrin's fixed HTTPS API origin or an explicit
+        # loopback development origin; it never comes from hook input.
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:  # nosemgrep # nosec B310
+            response_body: Any = json.loads(resp.read())
+            return response_body if isinstance(response_body, dict) else None
     except (urllib.error.URLError, TimeoutError, ValueError, OSError):
         return None
 
@@ -202,6 +218,7 @@ def main() -> None:
         return
 
     decision = result.get("decision")
+    override_target = shlex.quote(str(result.get("target_key") or target_value))
     if decision == "allow_override":
         _allow("Aevrin: proceeding — an install-anyway override is active for this target.")
         return
@@ -222,9 +239,10 @@ def main() -> None:
         lines.append("You have three options — ask the person which they want:")
         lines.append("  1. Fix it: edit the flagged files yourself (you have full tool access in this")
         lines.append("     session) using the locations and remediation above, then retry the install.")
-        lines.append(f"  2. Install anyway: run `aevrin hook allow {target_value}`, then retry.")
+        lines.append(f"  2. Install anyway: run `aevrin hook allow {override_target}`, then retry.")
         lines.append("  3. False report: if a specific finding above is wrong, run")
-        lines.append("     `aevrin findings triage <finding id> false_positive`, then retry.")
+        lines.append("     `aevrin findings triage <finding id> false_positive --reason \"why it is wrong\"`,")
+        lines.append("     then retry.")
         _deny("\n".join(lines))
         return
 
@@ -238,11 +256,23 @@ def main() -> None:
             ),
             "",
             "You have two options — ask the person which they want:",
-            f"  1. Install anyway: run `aevrin hook allow {target_value}`, then retry — only",
+            f"  1. Install anyway: run `aevrin hook allow {override_target}`, then retry — only",
             "     if you trust the source independently of this scan.",
-            f"  2. Re-scan: run `aevrin scan {target_value}` on a machine with Docker running",
-            "     and network access, then retry the install.",
         ]
+        if target_type == "config_paste":
+            lines.extend(
+                [
+                    "  2. Re-scan: open the Aevrin dashboard, choose Pasted configuration,",
+                    "     and scan the MCP configuration on a worker with all tools available.",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    f"  2. Re-scan: run `aevrin scan {shlex.quote(target_value)}` on a machine",
+                    "     with Docker running and network access, then retry the install.",
+                ]
+            )
         _deny("\n".join(lines))
         return
 

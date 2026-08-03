@@ -249,7 +249,7 @@ function CodePanel({
           <p className="text-sm font-medium text-foreground">{title}</p>
           {action}
         </div>
-        <pre className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 font-mono text-xs leading-6 text-foreground sm:text-sm">
+        <pre tabIndex={0} aria-label={`${title} commands`} className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 font-mono text-xs leading-6 text-foreground sm:text-sm">
           {value}
         </pre>
       </CardContent>
@@ -275,7 +275,7 @@ function PromptPanel({
             Paste this into an agent if you want the setup executed for you with the current product workflow.
           </p>
         </div>
-        <pre className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 whitespace-pre-wrap font-mono text-xs leading-6 text-foreground sm:text-sm">
+        <pre tabIndex={0} aria-label={`${title} text`} className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 whitespace-pre-wrap font-mono text-xs leading-6 text-foreground sm:text-sm">
           {value}
         </pre>
         <CopyButton value={value} label={label} />

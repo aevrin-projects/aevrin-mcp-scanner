@@ -1,6 +1,6 @@
 """Gitleaks adapter.
 
-Invocation confirmed live against zricethezav/gitleaks:latest — note the
+Invocation uses the pinned official GHCR image — note the
 image's ENTRYPOINT is already the `gitleaks` binary, so args start at the
 subcommand (`git`), not the binary name. Report is written to a file inside
 the mount (gitleaks doesn't reliably support stdout-only JSON alongside its
@@ -34,7 +34,7 @@ class GitleaksAdapter(ScannerAdapter):
 
     def build_spec(self, target_dir: str) -> DockerRunSpec:
         return DockerRunSpec(
-            image="zricethezav/gitleaks:latest",
+            image="ghcr.io/gitleaks/gitleaks:v8.30.1",
             args=[
                 "git",
                 "/src",

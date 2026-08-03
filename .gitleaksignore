@@ -1,0 +1,2 @@
+# Synthetic token used only by the clone-error redaction regression test.
+d8158ac877ace78f9414ffde763b82fbc335ca6d:packages/scanner-core/tests/test_clone_token_redaction.py:github-pat:21

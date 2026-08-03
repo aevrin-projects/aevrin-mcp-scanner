@@ -6,7 +6,7 @@ description: What Aevrin scans, how it scores risk, and where to start.
 Aevrin scans [Model Context Protocol](https://modelcontextprotocol.io) (MCP) servers for
 security risks before you trust them — as a GitHub repository, a local path on your machine, or
 a live server URL. It runs a fixed set of established open-source scanners (Semgrep, Bandit,
-Gitleaks, TruffleHog, OSV-Scanner, Trivy, mcp-shield, mcp-scan) and maps every result onto the
+Gitleaks, TruffleHog, OSV-Scanner, Trivy, mcp-shield, and the official MCP SDK) and maps every result onto the
 [OWASP MCP Top 10](/docs/concepts#owasp-mcp-top-10), so a finding means the same thing
 everywhere it appears: in the CLI, in a Claude Code hook block, and on the dashboard.
 
@@ -22,7 +22,7 @@ everywhere it appears: in the CLI, in a Claude Code hook block, and on the dashb
   </Card>
   <Card title="Dashboard" href="/docs/dashboard">
     Every scan (CLI or hook-triggered) is saved to your account at mcp.aevrin.net, with full
-    findings, stage-by-stage detail, and a PDF export on paid tiers.
+    findings, stage-by-stage detail, and an OWASP MCP-mapped report export on paid tiers.
   </Card>
 </Cards>
 
@@ -47,7 +47,7 @@ A GitHub-repo or local-path scan clones (or reads) the target and runs, in order
    verifying whether a matched credential is actually live.
 3. **Dependencies** — OSV-Scanner + Trivy for known-vulnerable packages, plus OpenSSF Scorecard
    if you've set a `GITHUB_TOKEN`.
-4. **Tool description check** — mcp-shield and mcp-scan inspect the server's declared MCP tools
+4. **Tool description check** — mcp-shield and safe, remote-only MCP SDK inspection inspect the server's declared MCP tools
    for hidden-instruction (tool poisoning) and prompt-injection patterns, and Aevrin's own rules
    check for weak/missing auth and audit logging.
 

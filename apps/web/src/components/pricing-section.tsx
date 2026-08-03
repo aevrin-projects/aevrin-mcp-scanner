@@ -49,14 +49,13 @@ const TIERS: Tier[] = [
       "2 hook auto-scans / month",
       "5 dashboard scans / month",
       "7-day scan history",
-      "Community support",
     ],
   },
   {
     id: "hobby",
     name: "Hobby",
-    monthly: 15,
-    annual: 12,
+    monthly: 1500,
+    annual: 1200,
     cli: "50 / month",
     hook: "20 / month",
     dashboard: "50 / month",
@@ -70,20 +69,19 @@ const TIERS: Tier[] = [
       "20 hook auto-scans / month",
       "50 dashboard scans / month",
       "90-day scan history",
-      "Compliance report export (PDF)",
-      "Email support",
+      "OWASP MCP-mapped report export",
     ],
   },
   {
     id: "team",
     name: "Team",
-    monthly: 59,
-    annual: 49,
+    monthly: 5900,
+    annual: 4900,
     cli: "Unlimited",
     hook: "Unlimited",
     dashboard: "Unlimited",
     retention: "Unlimited",
-    seats: "5 included",
+    seats: "1 account",
     pdfExport: true,
     cta: "Start Team",
     features: [
@@ -91,9 +89,9 @@ const TIERS: Tier[] = [
       "Unlimited hook auto-scans",
       "Unlimited dashboard scans",
       "Unlimited scan history",
-      "Compliance report export (PDF)",
-      "5 seats included, then per-seat",
-      "Priority support",
+      "OWASP MCP-mapped report export",
+      "Single-account workspace",
+      "Team seats and shared roles are not yet included",
     ],
   },
 ];
@@ -105,13 +103,13 @@ const FAQ = [
     a: "That bucket (CLI, hook, or dashboard scans — each counted separately) pauses until it resets on your rolling monthly cycle, or you upgrade. You'll see exactly which bucket and when it resets, in the CLI, the hook, and the dashboard.",
   },
   {
-    q: "Can I downgrade later?",
-    a: "Yes, any time. Your existing scan history isn't deleted immediately — it's kept through a grace period and only trimmed to the new plan's retention window afterward.",
+    q: "Does a paid plan renew automatically?",
+    a: "No. Each Razorpay checkout buys one monthly or annual cycle. The account returns to Free after the paid-until date unless you purchase another cycle.",
   },
-  { q: "Is there a student or nonprofit rate?", a: "Not yet — email us and we'll work something out in the meantime." },
+  { q: "Is there a student or nonprofit rate?", a: "A separate student or nonprofit rate is not currently offered." },
   {
     q: "How are seats counted on Team?",
-    a: "Team includes 5 seats. Additional seats beyond that are billed per-seat.",
+    a: "The current product does not yet provide shared seats, roles, or member management. The Team tier is a higher-limit single-account plan today.",
   },
 ];
 
@@ -130,7 +128,15 @@ function loadRazorpayScript(): Promise<void> {
   });
 }
 
-export function PricingSection() {
+function formatInr(value: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | "h2" }) {
   const router = useRouter();
   const [annual, setAnnual] = useState(true);
   const [loadingTier, setLoadingTier] = useState<TierId | null>(null);
@@ -138,6 +144,7 @@ export function PricingSection() {
   const hobbySavings = (TIERS[1].monthly - TIERS[1].annual) * 12;
   const teamSavings = (TIERS[2].monthly - TIERS[2].annual) * 12;
   const savingsByTier: Record<TierId, number> = { free: 0, hobby: hobbySavings, team: teamSavings };
+  const Heading = headingLevel;
 
   async function handleCta(tier: Tier) {
     if (tier.id === "free") {
@@ -202,10 +209,10 @@ export function PricingSection() {
   return (
     <section id="pricing" className="mx-auto max-w-[1500px] px-6 py-24 lg:px-10 xl:px-14">
       <Reveal className="text-center">
-        <span className="text-xs font-medium tracking-wide text-brand uppercase">Pricing</span>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+        <span className="text-xs font-medium tracking-wide text-brand-text uppercase">Pricing</span>
+        <Heading className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
           Simple per-scan-type limits
-        </h2>
+        </Heading>
         <p className="mt-2 text-muted-foreground">No surprise overages, ever.</p>
         <div className="mt-6 flex items-center justify-center gap-3">
           <span className={annual ? "text-muted-foreground" : ""}>Monthly</span>
@@ -230,18 +237,21 @@ export function PricingSection() {
                   <div className="flex items-center justify-between">
                     <CardTitle>{tier.name}</CardTitle>
                     {tier.popular && (
-                      <Badge className="border-transparent bg-brand text-brand-foreground">Most popular</Badge>
+                      <Badge className="border-transparent bg-brand text-brand-foreground">Individual plan</Badge>
                     )}
                   </div>
                   <div className="flex items-baseline gap-1 pt-2">
-                    <span className="text-3xl font-semibold">${price}</span>
-                    <span className="text-sm text-muted-foreground">/mo</span>
+                    <span className="text-3xl font-semibold">{formatInr(price)}</span>
+                    <span className="text-sm text-muted-foreground">/month</span>
                   </div>
                   {annual && tier.id !== "free" && (
                     <p className="text-xs text-muted-foreground">
-                      Billed annually — save ${savingsByTier[tier.id]}/year
+                      {formatInr(price * 12)} billed today for one year — save {formatInr(savingsByTier[tier.id])}
                     </p>
                   )}
+                  {!annual && tier.id !== "free" ? (
+                    <p className="text-xs text-muted-foreground">{formatInr(price)} billed today for one month</p>
+                  ) : null}
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
                   <ul className="flex flex-col gap-2 text-sm">
@@ -267,7 +277,7 @@ export function PricingSection() {
         })}
       </div>
 
-      <div className="mt-16 overflow-x-auto">
+      <div className="mt-16 overflow-x-auto" tabIndex={0} aria-label="Pricing comparison table">
         <table className="w-full min-w-[560px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-border text-left">
@@ -285,7 +295,7 @@ export function PricingSection() {
               { label: "Hook auto-scans", key: "hook" as const },
               { label: "Dashboard scans", key: "dashboard" as const },
               { label: "Scan history retained", key: "retention" as const },
-              { label: "Seats", key: "seats" as const },
+              { label: "Accounts", key: "seats" as const },
             ].map((row) => (
               <tr key={row.key} className="border-b border-border/50">
                 <td className="py-3 text-muted-foreground">{row.label}</td>
@@ -297,7 +307,7 @@ export function PricingSection() {
               </tr>
             ))}
             <tr>
-              <td className="py-3 text-muted-foreground">Compliance report export (PDF)</td>
+              <td className="py-3 text-muted-foreground">OWASP MCP-mapped report export</td>
               {TIERS.map((t) => (
                 <td key={t.id} className="py-3 text-center">
                   {t.pdfExport ? <Check className="mx-auto size-4" /> : "—"}
@@ -319,6 +329,10 @@ export function PricingSection() {
           ))}
         </Accordion>
       </div>
+
+      <p className="mt-8 text-center text-xs leading-5 text-muted-foreground">
+        Prices are charged in INR through Razorpay. Taxes may apply. Aevrin pauses new scans at the configured limit and does not create automatic overage charges.
+      </p>
     </section>
   );
 }

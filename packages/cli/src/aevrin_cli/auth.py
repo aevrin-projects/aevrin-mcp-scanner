@@ -83,7 +83,7 @@ def device_login(*, client_kind: str, on_prompt: Callable[[str, str], None] | No
         on_prompt(user_code, verification_uri)
     try:
         webbrowser.open(verification_uri)
-    except Exception:  # noqa: BLE001, S110 — headless environments have no browser to open; polling still works
+    except Exception:  # nosec B110  # noqa: BLE001, S110 — headless environments have no browser to open; polling still works
         pass
 
     deadline = time.monotonic() + expires_in

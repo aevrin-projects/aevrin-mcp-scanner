@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 
 from aevrin_scanner_core import TargetType
+from aevrin_scanner_core.network_safety import public_https_url_error
 
 
 class TargetDetectionError(Exception):
@@ -26,6 +27,9 @@ def detect_target(raw: str) -> tuple[TargetType, str]:
         host = target.split("://", 1)[1].split("/", 1)[0]
         if host in ("github.com", "www.github.com"):
             return TargetType.GITHUB_REPO, _normalize_github_url(target)
+        error = public_https_url_error(target, resolve_dns=False)
+        if error:
+            raise TargetDetectionError(f"Unsafe live MCP target: {error}.")
         return TargetType.LIVE_MCP_SERVER, target
 
     if target.startswith("github.com/"):

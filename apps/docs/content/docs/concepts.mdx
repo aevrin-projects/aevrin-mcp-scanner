@@ -57,6 +57,14 @@ than volume alone.
 A scan category (static analysis, secrets, dependencies) is marked **unreliable** when every
 tool in it fails to execute — not when tools run and find nothing, but when nothing ran at all.
 Common causes: Docker isn't running, a scanner binary is missing, or the network is unreachable.
+The CLI pins its scanner images and runs them sequentially with a 2 GB per-tool ceiling; Docker
+Desktop should have at least 4 GB available. On Windows it must be using Linux containers and
+permit bind mounts from the system temporary directory.
+
+Runtime MCP inspection accepts only public HTTPS endpoints. Submitted stdio commands are never
+executed by Aevrin, and private/loopback/link-local/metadata targets are rejected. When no safe
+remote endpoint exists, tool-description coverage is shown as skipped rather than failed or
+silently treated as clean.
 
 If any category is unreliable, the whole scan is flagged `incomplete` and that status follows it
 everywhere:

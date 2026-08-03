@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowRight, Clock3, ScanSearch, TerminalSquare } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type { Finding, Scan, ScanStage } from "@/lib/types";
-import { TARGET_TYPE_LABELS, formatDateTime, formatDuration, summarizeCoverage, summarizeFindings, uniqueTargets, verdictLabel } from "@/lib/presentation";
+import { SCAN_SOURCE_LABELS, TARGET_TYPE_LABELS, formatDateTime, formatDuration, summarizeCoverage, summarizeFindings, uniqueTargets, verdictLabel } from "@/lib/presentation";
 import { PageHeader, MetricCard, SectionCard, EmptyState } from "@/components/product-ui";
 import { StatusBadge } from "@/components/status-badge";
 import { SeverityBadge } from "@/components/severity-badge";
@@ -142,19 +142,19 @@ export default function DashboardPage() {
                 title="Dashboard scan"
                 body="Run a browser-based scan against a repo, live server, or pasted config."
                 href="/scans/new"
-                icon={<ScanSearch className="size-5 text-brand" />}
+                icon={<ScanSearch className="size-5 text-brand-text" />}
               />
               <QuickActionCard
                 title="CLI setup"
                 body="Install the CLI, sign in with device flow, and run your first local scan."
                 href="/integrations"
-                icon={<TerminalSquare className="size-5 text-brand" />}
+                icon={<TerminalSquare className="size-5 text-brand-text" />}
               />
               <QuickActionCard
                 title="Claude Code hook"
                 body="Add pre-install checks so unsafe MCP adds get blocked or warned."
                 href="/integrations"
-                icon={<Clock3 className="size-5 text-brand" />}
+                icon={<Clock3 className="size-5 text-brand-text" />}
               />
             </div>
           </SectionCard>
@@ -171,15 +171,11 @@ export default function DashboardPage() {
         description="Prioritize urgent findings, partial coverage, and the latest scan outcome before you install or approve an MCP server."
         actions={
           <>
-            <Link href="/integrations">
-              <Button variant="outline">CLI and hook setup</Button>
-            </Link>
-            <Link href="/scans/new">
-              <Button>
-                New scan
-                <ArrowRight className="size-4" />
-              </Button>
-            </Link>
+            <Button render={<Link href="/integrations" />} variant="outline">CLI and hook setup</Button>
+            <Button render={<Link href="/scans/new" />}>
+              New scan
+              <ArrowRight className="size-4" />
+            </Button>
           </>
         }
       />
@@ -232,11 +228,9 @@ export default function DashboardPage() {
           title="Needs attention"
           description="Ordered by scan reliability, severity, and recency."
           action={
-            <Link href="/scans/history">
-              <Button variant="outline" size="sm">
-                View history
-              </Button>
-            </Link>
+            <Button render={<Link href="/scans/history" />} variant="outline" size="sm">
+              View history
+            </Button>
           }
         >
           <div className="space-y-3">
@@ -270,13 +264,13 @@ export default function DashboardPage() {
                 title="Run a new dashboard scan"
                 body="Choose GitHub, live server, or pasted config input."
                 href="/scans/new"
-                icon={<ScanSearch className="size-5 text-brand" />}
+                icon={<ScanSearch className="size-5 text-brand-text" />}
               />
               <QuickActionCard
                 title="Set up the CLI"
                 body="Install, sign in, and verify from your terminal."
                 href="/integrations"
-                icon={<TerminalSquare className="size-5 text-brand" />}
+                icon={<TerminalSquare className="size-5 text-brand-text" />}
               />
             </div>
           </SectionCard>
@@ -336,6 +330,7 @@ function AttentionRow({ summary }: { summary: ScanSummary }) {
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={summary.scan.status} />
           <span className="text-sm text-muted-foreground">{TARGET_TYPE_LABELS[summary.scan.target_type]}</span>
+          <span className="text-sm text-muted-foreground">{SCAN_SOURCE_LABELS[summary.scan.source]}</span>
         </div>
         <p className="break-all text-base font-medium text-foreground">{summary.scan.target}</p>
         <p className="text-sm leading-6 text-muted-foreground">
@@ -376,6 +371,7 @@ function RecentScanRow({ summary }: { summary: ScanSummary }) {
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={summary.scan.status} />
           <span className="text-sm text-muted-foreground">{TARGET_TYPE_LABELS[summary.scan.target_type]}</span>
+          <span className="text-sm text-muted-foreground">{SCAN_SOURCE_LABELS[summary.scan.source]}</span>
         </div>
         <div className="break-all text-base font-medium">{summary.scan.target}</div>
       </div>

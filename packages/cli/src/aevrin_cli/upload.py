@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import time
+from typing import Any
+
 import httpx
 from aevrin_scanner_core import Scan
 
@@ -22,17 +25,16 @@ class QuotaExceededError(UploadError):
         )
 
 
-def upload_scan(scan: Scan) -> None:
-    api_key = load_api_key()
-    if not api_key:
-        raise UploadError("Not logged in. Run `aevrin login` first.")
-    api_url = get_api_url()
-
-    body = {
+def _serialize_scan(scan: Scan) -> dict[str, Any]:
+    """Build the durable CLI-to-dashboard contract in one testable place."""
+    return {
+        "scan_id": str(scan.id),
         "target_type": scan.target_type.value,
         "target": scan.target,
-        "score": scan.score if scan.score is not None else 0,
+        "score": scan.score,
         "status": scan.status.value,
+        "created_at": scan.created_at.isoformat(),
+        "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
         "mcp_detected": scan.mcp_detected,
         "unreliable_stages": [s.value for s in scan.unreliable_stages],
         "stages": [
@@ -61,25 +63,47 @@ def upload_scan(scan: Scan) -> None:
                 "remediation": f.remediation,
                 "verified": f.verified,
                 "not_tested": f.not_tested,
+                "created_at": f.created_at.isoformat(),
                 "raw": None,  # don't upload raw tool output — keep the payload small and predictable
             }
             for f in scan.findings
         ],
     }
 
-    try:
-        resp = httpx.post(
-            f"{api_url}/cli/upload",
-            json=body,
-            headers={"X-API-Key": api_key},
-            timeout=30,
-        )
-    except httpx.HTTPError as exc:
-        raise UploadError(f"Could not reach {api_url}: {exc}") from exc
+
+def upload_scan(scan: Scan) -> None:
+    api_key = load_api_key()
+    if not api_key:
+        raise UploadError("Not logged in. Run `aevrin login` first.")
+    api_url = get_api_url()
+    body = _serialize_scan(scan)
+
+    last_error: httpx.HTTPError | None = None
+    resp: httpx.Response | None = None
+    for attempt in range(3):
+        try:
+            resp = httpx.post(
+                f"{api_url}/cli/upload",
+                json=body,
+                headers={"X-API-Key": api_key},
+                timeout=30,
+            )
+        except httpx.HTTPError as exc:
+            last_error = exc
+        else:
+            if resp.status_code < 500:
+                break
+        if attempt < 2:
+            time.sleep(attempt + 1)
+
+    if resp is None:
+        raise UploadError(f"Could not reach {api_url}: {last_error}") from last_error
 
     if resp.status_code == 402:
-        body = resp.json()
-        raise QuotaExceededError(body["bucket"], body["resets_at"], body["upgrade_url"])
+        error_body = resp.json()
+        raise QuotaExceededError(
+            error_body["bucket"], error_body["resets_at"], error_body["upgrade_url"]
+        )
     if resp.status_code >= 400:
         detail = resp.text
         try:

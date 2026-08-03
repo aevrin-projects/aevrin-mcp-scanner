@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -23,6 +24,13 @@ from .config import Settings
 from .defectdojo_client import DefectDojoClient, DefectDojoUnavailable
 
 logger = logging.getLogger("aevrin.scan_service")
+
+# A single source scan can briefly consume multiple gigabytes while Semgrep,
+# Trivy, and the Go-based secret scanners initialize. Railway runs this API in
+# one container, so overlapping BackgroundTasks compete for the same cgroup
+# and make otherwise healthy tools exit immediately. Keep requests queued at
+# the application boundary and run one scan pipeline per API instance.
+_SCAN_SLOT = asyncio.Semaphore(1)
 
 
 class _SyncRest:
@@ -104,12 +112,15 @@ def _run_and_persist(
     target_type: TargetType,
     target: str,
     settings: Settings,
+    stored_target: str | None = None,
 ) -> None:
+    durable_target = stored_target or target
     rest = _SyncRest(settings)
-
-    previous_rows = rest.get("rug_pull_signatures", {"user_id": user_id, "target": target})
-    previous_signatures = {row["server_name"]: row["signature_hash"] for row in previous_rows}
-    config = PipelineConfig(github_token=settings.github_token, previous_signatures=previous_signatures)
+    rest.patch(
+        "scans",
+        {"id": str(scan_id), "user_id": user_id},
+        {"status": "running", "error": None},
+    )
 
     def on_stage(stage: ScanStage) -> None:
         rest.upsert(
@@ -128,18 +139,46 @@ def _run_and_persist(
     def on_findings(findings: list[Finding]) -> None:
         rest.upsert("findings", [_finding_row(f, user_id) for f in findings], on_conflict="id")
 
-    scan = run_pipeline(
-        target_type=target_type,
-        target=target,
-        config=config,
-        on_stage=on_stage,
-        on_findings=on_findings,
-        scan_id=scan_id,
-    )
+    try:
+        previous_rows = rest.get(
+            "rug_pull_signatures", {"user_id": user_id, "target": durable_target}
+        )
+        previous_signatures = {
+            row["server_name"]: row["signature_hash"] for row in previous_rows
+        }
+        config = PipelineConfig(
+            github_token=settings.github_token,
+            previous_signatures=previous_signatures,
+        )
+
+        scan = run_pipeline(
+            target_type=target_type,
+            target=target,
+            config=config,
+            on_stage=on_stage,
+            on_findings=on_findings,
+            scan_id=scan_id,
+        )
+    except Exception:
+        logger.exception("scan_service: scan %s failed before aggregation", scan_id)
+        rest.patch(
+            "scans",
+            {"id": str(scan_id), "user_id": user_id},
+            {
+                "status": "failed",
+                "score": None,
+                "error": (
+                    "The scan worker could not finalize this scan. Retry once; "
+                    "if it repeats, review the failed stage or contact support."
+                ),
+                "completed_at": datetime.now(UTC).isoformat(),
+            },
+        )
+        return
 
     rest.patch(
         "scans",
-        {"id": str(scan.id)},
+        {"id": str(scan.id), "user_id": user_id},
         {
             "status": scan.status.value,
             "score": scan.score,
@@ -155,7 +194,7 @@ def _run_and_persist(
             [
                 {
                     "user_id": user_id,
-                    "target": target,
+                    "target": durable_target,
                     "server_name": name,
                     "signature_hash": sig_hash,
                     "updated_at": scan.completed_at.isoformat() if scan.completed_at else None,
@@ -169,7 +208,7 @@ def _run_and_persist(
         "hook_cache",
         {
             "user_id": user_id,
-            "target": target,
+            "target": durable_target,
             "last_scan_id": str(scan.id),
             "last_score": scan.score,
             "last_status": scan.status.value,
@@ -178,7 +217,7 @@ def _run_and_persist(
         on_conflict="user_id,target",
     )
 
-    _push_to_defectdojo_best_effort(settings, target, scan.id, scan.findings)
+    _push_to_defectdojo_best_effort(settings, durable_target, scan.id, scan.findings)
 
 
 def _push_to_defectdojo_best_effort(settings: Settings, target: str, scan_id: UUID, findings: list[Finding]) -> None:
@@ -212,7 +251,18 @@ async def start_scan(
     target_type: TargetType,
     target: str,
     settings: Settings,
+    stored_target: str | None = None,
 ) -> None:
     """Entry point called from the request handler via BackgroundTasks —
-    runs the blocking pipeline off the event loop."""
-    await asyncio.to_thread(_run_and_persist, scan_id, user_id, target_type, target, settings)
+    waits for bounded worker capacity, then runs the blocking pipeline off the
+    event loop. The database row deliberately remains `queued` while waiting."""
+    async with _SCAN_SLOT:
+        await asyncio.to_thread(
+            _run_and_persist,
+            scan_id,
+            user_id,
+            target_type,
+            target,
+            settings,
+            stored_target,
+        )

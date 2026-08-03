@@ -8,7 +8,7 @@ this target" and, on a cache miss, kicks off a background scan so the
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from aevrin_scanner_core import TargetType
@@ -19,8 +19,9 @@ from ..db import SupabaseRest
 from ..deps import enforce_rate_limit, get_api_key_user, get_db
 from ..quota import QuotaExceeded, check_and_increment_quota
 from ..scan_service import start_scan
-from ..schemas import HookCacheResponse, HookOverrideRequest, HookOverrideResponse
+from ..schemas import HookCacheRequest, HookCacheResponse, HookOverrideRequest, HookOverrideResponse
 from ..security import AuthenticatedUser
+from .scans import _stored_target
 
 router = APIRouter(prefix="/hook", tags=["hook"])
 
@@ -51,11 +52,12 @@ async def check_cache(
     user: Annotated[AuthenticatedUser, Depends(get_api_key_user)],
     db: Annotated[SupabaseRest, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    target_type: str = "github_repo",
+    target_type: Literal["github_repo", "live_mcp_server", "config_paste"] = "github_repo",
 ) -> HookCacheResponse:
     enforce_rate_limit(settings, "hook_check", user.id, settings.scans_per_user_per_hour * 6)
+    durable_target = _stored_target(target_type, target)
 
-    cached = await db.select("hook_cache", {"user_id": user.id, "target": target})
+    cached = await db.select("hook_cache", {"user_id": user.id, "target": durable_target})
     if not cached:
         try:
             await check_and_increment_quota(settings, db, user.id, "hook")
@@ -67,7 +69,10 @@ async def check_cache(
             # errors, but a quota refusal is a deliberate decision, not a
             # failure, so it must not look like one).
             return HookCacheResponse(
-                decision="quota_exceeded", quota_resets_at=exc.resets_at, upgrade_url=exc.upgrade_url
+                decision="quota_exceeded",
+                quota_resets_at=exc.resets_at,
+                upgrade_url=exc.upgrade_url,
+                target_key=durable_target,
             )
 
         scan_id = uuid4()
@@ -77,14 +82,21 @@ async def check_cache(
                 "id": str(scan_id),
                 "user_id": user.id,
                 "target_type": target_type,
-                "target": target,
+                "target": durable_target,
                 "status": "queued",
+                "source": "hook",
             },
         )
         background_tasks.add_task(
-            start_scan, scan_id, user.id, TargetType(target_type), target, settings
+            start_scan,
+            scan_id,
+            user.id,
+            TargetType(target_type),
+            target,
+            settings,
+            durable_target,
         )
-        return HookCacheResponse(decision="allow_unscanned")
+        return HookCacheResponse(decision="allow_unscanned", target_key=durable_target)
 
     row = cached[0]
     findings_summary: list[dict[str, object]] = []
@@ -96,7 +108,9 @@ async def check_cache(
         )
         blocking = [
             f for f in blocking
-            if f["severity"] in _BLOCKING_SEVERITIES and not f["not_tested"] and f["triage_status"] != "false_positive"
+            if f["severity"] in _BLOCKING_SEVERITIES
+            and not f["not_tested"]
+            and f["triage_status"] == "open"
         ]
         if blocking:
             decision = "block"
@@ -123,7 +137,9 @@ async def check_cache(
             decision = "block_incomplete"
 
         if decision in ("block", "block_incomplete"):
-            overrides = await db.select("hook_overrides", {"user_id": user.id, "target": target})
+            overrides = await db.select(
+                "hook_overrides", {"user_id": user.id, "target": durable_target}
+            )
             now_iso = datetime.now(UTC).isoformat()
             if any(o["expires_at"] > now_iso for o in overrides):
                 decision = "allow_override"
@@ -134,4 +150,25 @@ async def check_cache(
         scan_id=row.get("last_scan_id"),
         checked_at=row.get("checked_at"),
         findings_summary=findings_summary,
+        target_key=durable_target,
+    )
+
+
+@router.post("/cache", response_model=HookCacheResponse)
+async def check_cache_post(
+    body: HookCacheRequest,
+    background_tasks: BackgroundTasks,
+    user: Annotated[AuthenticatedUser, Depends(get_api_key_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> HookCacheResponse:
+    """Body-based cache lookup used by current hooks so pasted MCP
+    configuration never appears in a URL, proxy log, or durable target."""
+    return await check_cache(
+        background_tasks,
+        body.target,
+        user,
+        db,
+        settings,
+        body.target_type,
     )

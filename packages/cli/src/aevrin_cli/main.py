@@ -311,10 +311,21 @@ def findings_triage(
     triage_status: Annotated[
         str, typer.Argument(help="New status: open, fixed, or false_positive.")
     ],
+    reason: Annotated[
+        str | None,
+        typer.Option(
+            "--reason",
+            help="Required for false_positive reports; stored with the triage audit record.",
+        ),
+    ] = None,
 ) -> None:
     """Update a finding's triage status — the "false report" action: mark a
     finding you've reviewed and believe is wrong as false_positive so it
     stops blocking installs and is excluded from future risk summaries."""
+    if triage_status == "false_positive" and not (reason and reason.strip()):
+        output.print_error("False-positive reports require --reason with your review evidence.")
+        raise typer.Exit(code=2)
+
     api_key = load_api_key() or load_api_key(HOOK_CREDENTIALS_PATH)
     if not api_key:
         output.print_error("Not logged in. Run `aevrin login` (or `aevrin hook setup`) first.")
@@ -322,7 +333,7 @@ def findings_triage(
     try:
         resp = httpx.patch(
             f"{api_url()}/findings/{finding_id}",
-            json={"triage_status": triage_status},
+            json={"triage_status": triage_status, "reason": reason},
             headers={"X-API-Key": api_key},
             timeout=15,
         )

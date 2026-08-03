@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from aevrin_scanner_core.network_safety import public_https_url_error
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class CreateScanRequest(BaseModel):
@@ -29,12 +30,21 @@ class CreateScanRequest(BaseModel):
             raise ValueError("target too long")
         return v
 
+    @model_validator(mode="after")
+    def _safe_live_target(self) -> CreateScanRequest:
+        if self.target_type == "live_mcp_server":
+            error = public_https_url_error(self.target, resolve_dns=False)
+            if error:
+                raise ValueError(error)
+        return self
+
 
 class ScanOut(BaseModel):
     id: UUID
     target_type: str
     target: str
     status: str
+    source: str = "dashboard"
     score: int | None
     error: str | None = None
     mcp_detected: bool | None = None
@@ -68,11 +78,14 @@ class FindingOut(BaseModel):
     verified: bool | None = None
     not_tested: bool
     triage_status: str
+    triage_reason: str | None = None
+    triaged_at: datetime | None = None
     created_at: datetime
 
 
 class TriageRequest(BaseModel):
     triage_status: str
+    reason: str | None = Field(default=None, max_length=1000)
 
     @field_validator("triage_status")
     @classmethod
@@ -81,6 +94,14 @@ class TriageRequest(BaseModel):
         if v not in allowed:
             raise ValueError(f"triage_status must be one of {sorted(allowed)}")
         return v
+
+    @model_validator(mode="after")
+    def _false_positive_requires_reason(self) -> TriageRequest:
+        if self.reason is not None:
+            self.reason = self.reason.strip() or None
+        if self.triage_status == "false_positive" and not self.reason:
+            raise ValueError("reason is required when reporting a false positive")
+        return self
 
 
 class HookCacheResponse(BaseModel):
@@ -91,10 +112,24 @@ class HookCacheResponse(BaseModel):
     findings_summary: list[dict[str, Any]] = Field(default_factory=list)
     quota_resets_at: datetime | None = None
     upgrade_url: str | None = None
+    target_key: str | None = None
+
+
+class HookCacheRequest(BaseModel):
+    target: str = Field(min_length=1, max_length=8000)
+    target_type: Literal["github_repo", "live_mcp_server", "config_paste"] = "github_repo"
+
+    @model_validator(mode="after")
+    def _safe_live_target(self) -> HookCacheRequest:
+        if self.target_type == "live_mcp_server":
+            error = public_https_url_error(self.target, resolve_dns=False)
+            if error:
+                raise ValueError(error)
+        return self
 
 
 class HookOverrideRequest(BaseModel):
-    target: str
+    target: str = Field(min_length=1, max_length=8000)
 
 
 class HookOverrideResponse(BaseModel):
@@ -135,6 +170,7 @@ class CliUploadFinding(BaseModel):
     verified: bool | None = None
     not_tested: bool = False
     raw: dict[str, Any] | None = None
+    created_at: datetime | None = None
 
 
 class CliUploadStage(BaseModel):
@@ -146,14 +182,25 @@ class CliUploadStage(BaseModel):
 
 
 class CliUploadRequest(BaseModel):
+    scan_id: UUID | None = None
     target_type: str
-    target: str
-    score: int
+    target: str = Field(min_length=1, max_length=8000)
+    score: int | None
     status: str = "completed"
+    created_at: datetime | None = None
+    completed_at: datetime | None = None
     mcp_detected: bool | None = None
     unreliable_stages: list[str] = Field(default_factory=list)
     stages: list[CliUploadStage] = Field(default_factory=list)
     findings: list[CliUploadFinding]
+
+    @field_validator("target_type")
+    @classmethod
+    def _valid_cli_target_type(cls, v: str) -> str:
+        allowed = {"github_repo", "live_mcp_server", "local_path"}
+        if v not in allowed:
+            raise ValueError(f"target_type must be one of {sorted(allowed)}")
+        return v
 
     @field_validator("status")
     @classmethod
@@ -206,10 +253,22 @@ class BucketUsageOut(BaseModel):
     resets_at: datetime
 
 
+class UsageActivityOut(BaseModel):
+    id: UUID
+    source: str
+    target_type: str
+    target: str
+    status: str
+    score: int | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
 class AccountUsageResponse(BaseModel):
     tier: str
     paid_until: datetime | None = None
     buckets: list[BucketUsageOut]
+    activity: list[UsageActivityOut]
 
 
 class CheckoutRequest(BaseModel):

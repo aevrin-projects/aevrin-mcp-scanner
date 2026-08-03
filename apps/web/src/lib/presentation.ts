@@ -4,13 +4,20 @@ export const TARGET_TYPE_LABELS: Record<TargetType, string> = {
   github_repo: "GitHub repository",
   live_mcp_server: "Live MCP server",
   config_paste: "Pasted configuration",
+  local_path: "Local path",
 };
 
-export const TARGET_MODE_LABELS: Record<TargetType, string> = {
+export const TARGET_MODE_LABELS: Record<Exclude<TargetType, "local_path">, string> = {
   github_repo: "GitHub repo",
   live_mcp_server: "Live server",
   config_paste: "Paste config",
 };
+
+export const SCAN_SOURCE_LABELS = {
+  dashboard: "Dashboard scan",
+  cli: "CLI scan",
+  hook: "Hook scan",
+} as const;
 
 export const SCAN_STATUS_LABELS: Record<ScanStatus, string> = {
   queued: "Queued",

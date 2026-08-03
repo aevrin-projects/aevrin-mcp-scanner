@@ -29,7 +29,7 @@ class ScorecardAdapter(ScannerAdapter):
 
     def build_spec(self, target_dir: str) -> DockerRunSpec:
         return DockerRunSpec(
-            image="gcr.io/openssf/scorecard:stable",
+            image="gcr.io/openssf/scorecard:v5.5.0",
             args=[f"--repo=github.com/{self.github_repo}", "--format", "json"],
             mounts={},  # operates against the GitHub API, not the local clone
             network_enabled=True,

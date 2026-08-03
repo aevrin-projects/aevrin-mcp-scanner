@@ -1,8 +1,8 @@
 """Semgrep CE adapter.
 
-Invocation confirmed live: `semgrep scan --config p/security-audit --config
-p/owasp-top-ten --config p/python --json --metrics=off /src` against
-semgrep/semgrep:latest, exit 0, results parsed from stdout JSON.
+Invocation: `semgrep scan --config p/security-audit --config p/owasp-top-ten
+--config p/python --json --metrics=off /src`, with the Docker image pinned to
+the same version as the production subprocess binary.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ class SemgrepAdapter(ScannerAdapter):
 
     def build_spec(self, target_dir: str) -> DockerRunSpec:
         return DockerRunSpec(
-            image="semgrep/semgrep:latest",
+            image="semgrep/semgrep:1.172.0",
             args=[
                 "semgrep",
                 "scan",

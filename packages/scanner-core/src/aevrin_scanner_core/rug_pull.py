@@ -1,6 +1,6 @@
 """Rug-pull (tool drift) detection.
 
-mcp-scan / mcp-context-protector give us a signature per server per scan; the
+The official MCP SDK inspection gives us a signature per server per scan; the
 tools themselves keep their own local pin state, but our containers are
 disposable, so we own persistence: the backend stores the last signature
 hash per (target, server, tool_name) and calls `diff_signatures` on every

@@ -47,7 +47,7 @@ RUN curl -sSL -o osv-scanner \
 
 RUN TRIVY_ARCH=$(if [ "$TARGETARCH" = "arm64" ]; then echo ARM64; else echo 64bit; fi) \
     && curl -sSL -o trivy.tar.gz \
-      "https://github.com/aquasecurity/trivy/releases/download/v0.72.0/trivy_0.72.0_Linux-${TRIVY_ARCH}.tar.gz" \
+      "https://github.com/aquasecurity/trivy/releases/download/v0.73.0/trivy_0.73.0_Linux-${TRIVY_ARCH}.tar.gz" \
     && tar -xzf trivy.tar.gz trivy \
     && install -m 0755 trivy /usr/local/bin/trivy \
     && rm -rf /tmp/install/*
@@ -70,13 +70,16 @@ WORKDIR /repo/apps/api
 
 # --- Python scanners + the app itself, via uv ---
 COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /usr/local/bin/uv
-# setuptools >=81 dropped the bundled pkg_resources module; semgrep's
-# opentelemetry dependency still imports it at load time, so pin below that.
-RUN pip install --no-cache-dir \
-      "setuptools<81" \
-      semgrep==1.85.0 \
-      bandit==1.8.0 \
-      snyk-agent-scan==0.5.15
+ENV UV_TOOL_BIN_DIR=/usr/local/bin
+ENV UV_TOOL_DIR=/opt/uv-tools
+# Keep scanner applications in separate tool environments: current Semgrep
+# declares an older MCP SDK solely for its optional MCP surface. The scanner
+# command has been exercised with the patched SDK and setuptools versions
+# below; keeping them current removes known vulnerabilities from the image.
+RUN uv tool install semgrep==1.172.0 \
+    && uv pip install --python /opt/uv-tools/semgrep/bin/python \
+      mcp==1.28.1 setuptools==83.0.0 \
+    && uv tool install bandit==1.9.4
 
 COPY packages/scanner-core /repo/packages/scanner-core
 COPY apps/api /repo/apps/api
@@ -86,7 +89,14 @@ RUN uv sync --frozen --no-dev
 ENV AEVRIN_EXECUTOR=subprocess
 ENV PATH="/repo/apps/api/.venv/bin:${PATH}"
 
+# The API and every scanner run without root privileges. Scanner workspaces
+# live under /tmp and Semgrep's cache lives in this user's writable home.
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin aevrin
+USER aevrin
+
 EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl --fail --silent "http://127.0.0.1:${PORT:-8000}/health" >/dev/null || exit 1
 # Call the venv's uvicorn directly — `uv run` re-syncs against pyproject.toml
 # (including the dev dependency group) on every container start, which is
 # both slow and pointless when `uv sync --frozen --no-dev` already ran once

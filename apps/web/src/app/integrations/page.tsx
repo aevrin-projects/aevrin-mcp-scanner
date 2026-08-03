@@ -19,12 +19,12 @@ export default function IntegrationsPage() {
         description="Install the CLI, verify sign-in, and configure the Claude Code hook with the exact flows the current product supports."
       />
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="grid min-w-0 gap-6 2xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
         <SectionCard
           title="CLI installation"
           description="Choose the commands that match the developer machine you are setting up."
         >
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid min-w-0 gap-4 md:grid-cols-2 min-[1500px]:grid-cols-3">
             {CLI_INSTALL_COMMANDS.map((item) => (
               <CodePanel
                 key={item.id}
@@ -51,17 +51,17 @@ export default function IntegrationsPage() {
             <InfoCard
               title="Developer machine"
               body="Use device login with aevrin login so no long-lived secret has to live in a local shell profile."
-              icon={<TerminalSquare className="size-5 text-brand" />}
+              icon={<TerminalSquare className="size-5 text-brand-text" />}
             />
             <InfoCard
               title="CI or scheduled automation"
               body="Use an API key only when browser-driven device login is not practical. Generate and store it in your secret manager."
-              icon={<KeyRound className="size-5 text-brand" />}
+              icon={<KeyRound className="size-5 text-brand-text" />}
             />
             <InfoCard
               title="Claude Code hook"
               body="Use the pre-install hook when you want MCP add flows to consult Aevrin before the install completes."
-              icon={<Bot className="size-5 text-brand" />}
+              icon={<Bot className="size-5 text-brand-text" />}
             />
           </div>
         </SectionCard>
@@ -98,13 +98,13 @@ function CodePanel({
   action?: React.ReactNode;
 }) {
   return (
-    <Card className="bg-background/80">
-      <CardContent className="space-y-3 pt-5">
+    <Card className="min-w-0 bg-background/80">
+      <CardContent className="min-w-0 space-y-3 pt-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm font-medium text-foreground">{title}</p>
           {action}
         </div>
-        <pre className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 font-mono text-xs leading-6 text-foreground sm:text-sm">
+        <pre tabIndex={0} aria-label={`${title} commands`} className="max-w-full overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 font-mono text-xs leading-6 text-foreground sm:text-sm">
           {value}
         </pre>
       </CardContent>
@@ -130,7 +130,7 @@ function PromptPanel({
             Paste this into an agent when you want it to do the setup work for you.
           </p>
         </div>
-        <pre className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 whitespace-pre-wrap font-mono text-xs leading-6 text-foreground sm:text-sm">
+        <pre tabIndex={0} aria-label={`${title} text`} className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 whitespace-pre-wrap font-mono text-xs leading-6 text-foreground sm:text-sm">
           {value}
         </pre>
         <CopyButton value={value} label={label} />

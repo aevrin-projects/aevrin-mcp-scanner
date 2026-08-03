@@ -11,6 +11,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Menu,
+  ChartNoAxesCombined,
   ScanSearch,
   TerminalSquare,
   History,
@@ -40,6 +41,7 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/scans/new", label: "New scan", icon: ScanSearch },
   { href: "/scans/history", label: "Scan history", icon: History },
+  { href: "/usage", label: "Usage", icon: ChartNoAxesCombined },
   { href: "/integrations", label: "Integrations", icon: TerminalSquare },
   { href: "/settings/api-keys", label: "API keys", icon: KeyRound },
   { href: "/settings/billing", label: "Billing", icon: CreditCard },
@@ -72,7 +74,7 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
                 : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
             )}
           >
-            <item.icon className={cn("size-4", active ? "text-brand" : "")} />
+            <item.icon className={cn("size-4", active ? "text-brand-text" : "")} />
             <span>{item.label}</span>
           </Link>
         );
@@ -104,7 +106,7 @@ export function AuthenticatedAppShell({
       </a>
 
       <div className="flex min-h-screen w-full">
-        <aside className="hidden w-[296px] border-r border-border/80 bg-card/35 px-5 py-6 xl:w-[320px] lg:flex lg:flex-col lg:gap-8">
+        <aside className="hidden w-[260px] shrink-0 border-r border-border/80 bg-card/35 px-4 py-6 xl:w-[280px] lg:flex lg:flex-col lg:gap-8">
           <div className="flex items-center gap-3 px-3">
             <Image src="/logo.png" alt="" width={24} height={26} priority />
             <div>
@@ -128,7 +130,7 @@ export function AuthenticatedAppShell({
               </p>
               <Link
                 href="/integrations"
-                className="mt-4 inline-flex items-center gap-2 text-sm text-brand hover:text-foreground"
+                className="mt-4 inline-flex items-center gap-2 text-sm text-brand-text hover:text-foreground"
               >
                 <BookOpen className="size-4" />
                 CLI and hook setup
@@ -171,9 +173,9 @@ export function AuthenticatedAppShell({
               </div>
 
               <div className="flex items-center gap-2 sm:gap-3">
-                <Link href="/scans/new" className="hidden sm:inline-flex">
-                  <Button>New scan</Button>
-                </Link>
+                <Button render={<Link href="/scans/new" />} className="hidden sm:inline-flex">
+                  New scan
+                </Button>
                 <ThemeToggle />
                 <DropdownMenu>
                   <DropdownMenuTrigger
@@ -226,7 +228,7 @@ export function AuthenticatedAppShell({
 
           <main
             id="main-content"
-            className="flex-1 px-4 py-6 sm:px-6 lg:px-8 xl:px-12 lg:py-8"
+            className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-7 xl:px-9 lg:py-8"
           >
             <div className="flex w-full flex-col gap-6">{children}</div>
           </main>

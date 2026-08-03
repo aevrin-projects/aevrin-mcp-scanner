@@ -26,19 +26,16 @@ Runs the full scan pipeline against `TARGET` and prints a report.
 
 **What gets checked depends on the target type:**
 
-<Tabs items={['GitHub repo / local path', 'Live server URL', 'Pasted MCP config']}>
+<Tabs items={['GitHub repo / local path', 'Live server URL']}>
   <Tab value="GitHub repo / local path">
     Full pipeline: cloning (repos only), static analysis, secrets, dependencies, then the tool
     description check. See [Introduction](/docs/#what-a-scan-actually-checks).
   </Tab>
   <Tab value="Live server URL">
     Only the tool description check runs — there's no source to clone or scan statically. The
-    URL itself becomes the entrypoint mcp-shield and mcp-scan inspect.
-  </Tab>
-  <Tab value="Pasted MCP config">
-    Same as a live server URL, but for a `{"mcpServers": {...}}` JSON blob instead of a single
-    URL — this is how the Claude Code hook passes a stdio-transport server it can't otherwise
-    represent as a URL.
+    URL itself becomes the entrypoint for MCP-Shield and the patched official MCP SDK. Live
+    targets must use public HTTPS; local, private, metadata, and credential-bearing URLs are
+    rejected to prevent SSRF.
   </Tab>
 </Tabs>
 
@@ -54,6 +51,11 @@ Runs the full scan pipeline against `TARGET` and prints a report.
 ```bash title="Fail a CI job only on unresolved criticals, keep local scan history out of the dashboard"
 aevrin scan . --fail-on critical --no-upload
 ```
+
+The CLI uses version-pinned, disposable Linux containers. Keep Docker Desktop running with at
+least 4 GB assigned, use Linux containers on Windows, and allow its temporary-directory bind
+mounts. Current errors include a redacted scanner stderr excerpt, so an image-pull, mount,
+network, timeout, or memory problem is distinguishable from a vulnerability finding.
 
 ## `login`
 
@@ -115,14 +117,16 @@ block on them once.
 ## `findings triage`
 
 ```bash
-aevrin findings triage FINDING_ID STATUS
+aevrin findings triage FINDING_ID STATUS [--reason TEXT]
 ```
 
 Updates a finding's triage status — the "false report" path. `STATUS` is one of `open`, `fixed`,
-or `false_positive`. Marking a finding `false_positive` excludes it from future hook-blocking
-checks and dashboard risk summaries. `FINDING_ID` comes from a hook block message or a `--json`
-scan's `findings[].id`.
+or `false_positive`. False-positive reports require `--reason`; the reason and triage timestamp
+are retained with the dashboard finding and exported report. Marking a finding `false_positive`
+excludes it from future hook-blocking checks and open-risk summaries. `FINDING_ID` comes from a
+hook block message or a `--json` scan's `findings[].id`.
 
 ```bash title="Dispute a finding the hook just blocked on"
-aevrin findings triage 3fa85f64-5717-4562-b3fc-2c963f66afa6 false_positive
+aevrin findings triage 3fa85f64-5717-4562-b3fc-2c963f66afa6 false_positive \
+  --reason "Generated test fixture; cannot authenticate against any environment"
 ```

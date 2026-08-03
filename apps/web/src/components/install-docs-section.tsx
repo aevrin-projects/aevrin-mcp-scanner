@@ -11,17 +11,18 @@ import {
   CLI_VERIFY_COMMANDS,
 } from "@/lib/onboarding";
 
-export function InstallDocsSection() {
+export function InstallDocsSection({ headingLevel = "h2" }: { headingLevel?: "h1" | "h2" }) {
+  const Heading = headingLevel;
   return (
     <section id="install" className="border-t border-border/80 bg-muted/10">
       <div className="mx-auto max-w-[1500px] px-6 py-24 lg:px-10 xl:px-14">
         <div className="grid gap-8 xl:grid-cols-[1.12fr_0.88fr]">
           <div className="space-y-6">
             <Reveal>
-              <span className="text-xs font-medium tracking-wide text-brand uppercase">Install and verify</span>
-              <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
+              <span className="text-xs font-medium tracking-wide text-brand-text uppercase">Install and verify</span>
+              <Heading className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
                 Set up Aevrin from a real terminal, not a marketing checklist.
-              </h2>
+              </Heading>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
                 Use the exact commands the current product supports. Device login is the default
                 path for developers. API keys are for CI and other non-interactive automation.
@@ -98,7 +99,7 @@ function CodePanel({
           <p className="text-sm font-medium text-foreground">{label}</p>
           {action}
         </div>
-        <pre className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 font-mono text-xs leading-6 text-foreground sm:text-sm">
+        <pre tabIndex={0} aria-label={`${label} code`} className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 font-mono text-xs leading-6 text-foreground sm:text-sm">
           {value}
         </pre>
       </CardContent>
@@ -124,7 +125,7 @@ function PromptPanel({
           <p className="text-base font-medium text-foreground">{title}</p>
           <p className="text-sm leading-6 text-muted-foreground">{description}</p>
         </div>
-        <pre className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 whitespace-pre-wrap font-mono text-xs leading-6 text-foreground sm:text-sm">
+        <pre tabIndex={0} aria-label={`${title} text`} className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 whitespace-pre-wrap font-mono text-xs leading-6 text-foreground sm:text-sm">
           {value}
         </pre>
         <CopyButton value={value} label={label} />

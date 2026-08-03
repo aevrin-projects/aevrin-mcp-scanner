@@ -13,6 +13,7 @@ import {
   formatDuration,
   summarizeCoverage,
   summarizeFindings,
+  SCAN_SOURCE_LABELS,
   TARGET_TYPE_LABELS,
   verdictLabel,
 } from "@/lib/presentation";
@@ -29,8 +30,8 @@ const POLL_INTERVAL_MS = 2000;
 
 const STAGE_ICON: Record<ScanStage["status"], React.ReactNode> = {
   pending: <CircleDashed className="size-4 text-muted-foreground" />,
-  running: <Loader2 className="size-4 animate-spin text-brand" />,
-  done: <CheckCircle2 className="size-4 text-brand" />,
+  running: <Loader2 className="size-4 animate-spin text-brand-text" />,
+  done: <CheckCircle2 className="size-4 text-brand-text" />,
   failed: <XCircle className="size-4 text-severity-critical" />,
   skipped: <MinusCircle className="size-4 text-muted-foreground" />,
 };
@@ -44,6 +45,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [canExport, setCanExport] = useState<boolean | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -76,6 +78,12 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [load]);
+
+  useEffect(() => {
+    api.getSubscription().then((subscription) => {
+      setCanExport(subscription.effective_tier !== "free");
+    }).catch(() => setCanExport(null));
+  }, []);
 
   const query = searchParams.get("q") ?? "";
   const severityFilter = searchParams.get("severity") ?? "all";
@@ -148,10 +156,12 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
         description="Review the target, actual coverage, score, urgent findings, and the limitations that still need separate verification."
         actions={
           <>
-            <Link href={`/scans/new?mode=${scan.target_type}&target=${encodeURIComponent(scan.target)}`}>
-              <Button variant="outline">Rescan target</Button>
-            </Link>
-            {(scan.status === "completed" || scan.status === "incomplete") && (
+            {scan.target_type === "local_path" ? (
+              <Button render={<Link href="/integrations" />} variant="outline">Rescan with CLI</Button>
+            ) : (
+              <Button render={<Link href={`/scans/new?mode=${scan.target_type}&target=${encodeURIComponent(scan.target)}`} />} variant="outline">Rescan target</Button>
+            )}
+            {(scan.status === "completed" || scan.status === "incomplete") && canExport ? (
               <Button
                 variant="outline"
                 disabled={exporting}
@@ -169,7 +179,10 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
               >
                 {exporting ? "Exporting…" : "Export report"}
               </Button>
-            )}
+            ) : null}
+            {(scan.status === "completed" || scan.status === "incomplete") && canExport === false ? (
+              <Button render={<Link href="/pricing" />} variant="outline">Upgrade to export</Button>
+            ) : null}
           </>
         }
       />
@@ -180,6 +193,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={scan.status} />
               <span className="text-sm text-muted-foreground">{TARGET_TYPE_LABELS[scan.target_type]}</span>
+              <span className="text-sm text-muted-foreground">{SCAN_SOURCE_LABELS[scan.source]}</span>
             </div>
             <div className="break-all text-2xl font-semibold tracking-tight">{scan.target}</div>
             <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{resultSummary}</p>
@@ -220,6 +234,16 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
           <AlertTitle>Scan failed</AlertTitle>
           <AlertDescription>
             This scan did not complete. Any results below are not a reliable assessment of this target — rescan before making a decision.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {scan.source === "cli" ? (
+        <Alert>
+          <AlertTriangle className="size-4" />
+          <AlertTitle>Uploaded from the authenticated CLI</AlertTitle>
+          <AlertDescription>
+            Aevrin recomputed the score from the uploaded findings and preserved the CLI stages, timestamps, and evidence. The local findings are client-reported and were not independently re-scanned by the API.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -267,9 +291,11 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                   onChange={(event) => updateFilter("q", event.target.value)}
                   className="pl-9"
                   placeholder="Search title, tool, path, or description"
+                  aria-label="Search findings"
                 />
               </div>
               <select
+                aria-label="Filter findings by severity"
                 className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
                 value={severityFilter}
                 onChange={(event) => updateFilter("severity", event.target.value)}
@@ -282,6 +308,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                 <option value="info">Info</option>
               </select>
               <select
+                aria-label="Filter findings by triage status"
                 className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
                 value={triageFilter}
                 onChange={(event) => updateFilter("triage", event.target.value)}
@@ -376,6 +403,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
           <SectionCard title="Score method" description="The current documented method starts at 100 and subtracts severity-weighted findings.">
             <div className="space-y-3 text-sm leading-6 text-muted-foreground">
               <p>Critical findings subtract 40 points each, high subtract 20, medium subtract 8, and low subtract 3.</p>
+              <p>Later triage changes active-risk counts and hook decisions, but preserves the original scan-time score for auditability and CLI/dashboard consistency.</p>
               <p>The score never guarantees safety. Coverage and failed stages must be read beside it.</p>
             </div>
           </SectionCard>

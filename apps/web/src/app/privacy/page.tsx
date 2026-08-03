@@ -1,4 +1,10 @@
+import type { Metadata } from "next";
 import { SiteFooter } from "@/components/site-footer";
+
+export const metadata: Metadata = {
+  title: "Privacy Policy — Aevrin",
+  description: "How Aevrin handles account, scan, abuse-prevention, and billing data.",
+};
 
 export default function PrivacyPage() {
   return (
@@ -6,7 +12,7 @@ export default function PrivacyPage() {
       <div className="mx-auto max-w-2xl px-6 py-16">
         <h1 className="text-2xl font-semibold tracking-tight">Privacy Policy</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Draft — for your own legal review before this is a binding policy. Last updated: 2026.
+          Last updated: August 3, 2026.
         </p>
 
         <div className="mt-8 flex flex-col gap-6 text-sm leading-relaxed text-muted-foreground">
@@ -41,18 +47,36 @@ export default function PrivacyPage() {
             </p>
           </section>
           <section>
+            <h2 className="font-medium text-foreground">Source handling</h2>
+            <p className="mt-1">
+              Repository contents are cloned into temporary scan-worker storage and are not kept
+              as part of scan history. Pasted configuration is processed by the scan job; durable
+              history stores a fingerprinted label rather than the submitted configuration text.
+              Findings, target identifiers, stages, and report data are retained in your account.
+            </p>
+          </section>
+          <section>
+            <h2 className="font-medium text-foreground">Automated analysis</h2>
+            <p className="mt-1">
+              The current scan pipeline uses the security tools identified in the product
+              methodology. It does not send repositories or findings to an external language model
+              to decide whether a vulnerability exists.
+            </p>
+          </section>
+          <section>
             <h2 className="font-medium text-foreground">Retention</h2>
             <p className="mt-1">
-              Scan history is kept per your plan&apos;s retention window (7/90/unlimited days). If
-              you downgrade, existing history is kept through a grace period rather than deleted
-              immediately.
+              Plan screens show the configured history window. You may delete an individual scan
+              or clear your scan history at any time. Automated retention pruning is not currently
+              presented as a guarantee.
             </p>
           </section>
           <section>
             <h2 className="font-medium text-foreground">Your data</h2>
             <p className="mt-1">
-              You can delete your API keys and scan history from your account at any time. Contact
-              us to request full account deletion.
+              You can revoke API keys and delete individual scans or all scan history from your
+              account. Full account deletion is not currently self-service; this page will be
+              updated with the operator&apos;s request channel before that flow is offered.
             </p>
           </section>
         </div>

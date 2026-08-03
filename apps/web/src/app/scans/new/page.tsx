@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowRight, FolderGit2, Globe, FileJson, ShieldAlert } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import type { Scan, TargetType } from "@/lib/types";
+import type { DashboardTargetType, Scan } from "@/lib/types";
 import { PageHeader, SectionCard } from "@/components/product-ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,11 +16,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TARGET_MODE_LABELS, TARGET_TYPE_LABELS, formatDateTime } from "@/lib/presentation";
+import { SCAN_SOURCE_LABELS, TARGET_MODE_LABELS, TARGET_TYPE_LABELS, formatDateTime } from "@/lib/presentation";
 import { StatusBadge } from "@/components/status-badge";
 
 const MODE_CONTENT: Record<
-  TargetType,
+  DashboardTargetType,
   {
     label: string;
     example: string;
@@ -35,7 +35,7 @@ const MODE_CONTENT: Record<
     example: "https://github.com/owner/repo",
     coverage: "Source, secret, dependency, and MCP manifest checks when the repository contents are discoverable.",
     limitations: "Live runtime prompt-injection testing is still out of scope.",
-    icon: <FolderGit2 className="size-4 text-brand" />,
+    icon: <FolderGit2 className="size-4 text-brand-text" />,
     cta: "Scan repository",
   },
   live_mcp_server: {
@@ -43,7 +43,7 @@ const MODE_CONTENT: Record<
     example: "https://server.example.com/mcp",
     coverage: "Manifest and MCP tool-description checks when source code is not available.",
     limitations: "No repository-level static analysis, dependency, or secret scanning.",
-    icon: <Globe className="size-4 text-brand" />,
+    icon: <Globe className="size-4 text-brand-text" />,
     cta: "Scan live server",
   },
   config_paste: {
@@ -51,10 +51,16 @@ const MODE_CONTENT: Record<
     example: '{\n  "mcpServers": {\n    "my-server": { "command": "node", "args": ["server.js"] }\n  }\n}',
     coverage: "Configuration and tool-definition review before a local install.",
     limitations: "No repository clone or runtime validation unless you rescan the source or live endpoint.",
-    icon: <FileJson className="size-4 text-brand" />,
+    icon: <FileJson className="size-4 text-brand-text" />,
     cta: "Scan configuration",
   },
 };
+
+const DASHBOARD_MODES: DashboardTargetType[] = ["github_repo", "live_mcp_server", "config_paste"];
+
+function isDashboardTargetType(value: string | null): value is DashboardTargetType {
+  return DASHBOARD_MODES.some((mode) => mode === value);
+}
 
 const DEMO_SERVERS = [
   { label: "modelcontextprotocol/servers", target: "https://github.com/modelcontextprotocol/servers" },
@@ -64,10 +70,11 @@ const DEMO_SERVERS = [
 export default function NewScanPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialMode = (searchParams.get("mode") as TargetType | null) ?? "github_repo";
+  const requestedMode = searchParams.get("mode");
+  const initialMode: DashboardTargetType = isDashboardTargetType(requestedMode) ? requestedMode : "github_repo";
   const initialTarget = searchParams.get("target") ?? "";
-  const [mode, setMode] = useState<TargetType>(initialMode);
-  const [values, setValues] = useState<Record<TargetType, string>>({
+  const [mode, setMode] = useState<DashboardTargetType>(initialMode);
+  const [values, setValues] = useState<Record<DashboardTargetType, string>>({
     github_repo: initialMode === "github_repo" ? initialTarget : "",
     live_mcp_server: initialMode === "live_mcp_server" ? initialTarget : "",
     config_paste: initialMode === "config_paste" ? initialTarget : "",
@@ -95,7 +102,7 @@ export default function NewScanPage() {
   const currentValue = values[mode];
   const validationError = useMemo(() => validateTarget(mode, currentValue), [mode, currentValue]);
 
-  async function handleSubmit(targetType: TargetType, target: string) {
+  async function handleSubmit(targetType: DashboardTargetType, target: string) {
     const error = validateTarget(targetType, target);
     if (error) {
       toast.error(error);
@@ -130,16 +137,16 @@ export default function NewScanPage() {
           title="Scan target"
           description="GitHub source scans provide the broadest coverage. Live-server and config-only scans expose fewer signals and say so explicitly."
         >
-          <Tabs value={mode} onValueChange={(value) => setMode(value as TargetType)}>
+          <Tabs value={mode} onValueChange={(value) => setMode(value as DashboardTargetType)}>
             <TabsList className="grid w-full grid-cols-3">
-              {(["github_repo", "live_mcp_server", "config_paste"] as TargetType[]).map((targetType) => (
+              {DASHBOARD_MODES.map((targetType) => (
                 <TabsTrigger key={targetType} value={targetType}>
                   {TARGET_MODE_LABELS[targetType]}
                 </TabsTrigger>
               ))}
             </TabsList>
 
-            {(["github_repo", "live_mcp_server", "config_paste"] as TargetType[]).map((targetType) => {
+            {DASHBOARD_MODES.map((targetType) => {
               const config = MODE_CONTENT[targetType];
               const value = values[targetType];
               const error = targetType === mode ? validationError : null;
@@ -249,11 +256,9 @@ export default function NewScanPage() {
             title="Recent scans"
             description="Resume the last result or review what was scanned most recently."
             action={
-              <Link href="/scans/history">
-                <Button variant="outline" size="sm">
-                  History
-                </Button>
-              </Link>
+              <Button render={<Link href="/scans/history" />} variant="outline" size="sm">
+                History
+              </Button>
             }
           >
             <div className="space-y-3">
@@ -277,6 +282,7 @@ export default function NewScanPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusBadge status={scan.status} />
                       <span className="text-xs text-muted-foreground">{TARGET_TYPE_LABELS[scan.target_type]}</span>
+                      <span className="text-xs text-muted-foreground">{SCAN_SOURCE_LABELS[scan.source]}</span>
                     </div>
                     <div className="break-all text-sm font-medium text-foreground">{scan.target}</div>
                     <div className="text-xs text-muted-foreground">
@@ -293,7 +299,7 @@ export default function NewScanPage() {
   );
 }
 
-function validateTarget(mode: TargetType, value: string) {
+function validateTarget(mode: DashboardTargetType, value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "Enter a target before starting a scan.";
 

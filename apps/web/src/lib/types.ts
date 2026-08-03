@@ -1,4 +1,6 @@
-export type TargetType = "github_repo" | "live_mcp_server" | "config_paste";
+export type TargetType = "github_repo" | "live_mcp_server" | "config_paste" | "local_path";
+export type DashboardTargetType = Exclude<TargetType, "local_path">;
+export type ScanSource = "dashboard" | "cli" | "hook";
 export type ScanStatus = "queued" | "running" | "completed" | "failed" | "incomplete";
 export type StageStatus = "pending" | "running" | "done" | "failed" | "skipped";
 export type StageName =
@@ -47,6 +49,7 @@ export interface Scan {
   target_type: TargetType;
   target: string;
   status: ScanStatus;
+  source: ScanSource;
   score: number | null;
   error: string | null;
   mcp_detected: boolean | null;
@@ -80,6 +83,8 @@ export interface Finding {
   verified: boolean | null;
   not_tested: boolean;
   triage_status: TriageStatus;
+  triage_reason: string | null;
+  triaged_at: string | null;
   created_at: string;
 }
 
@@ -104,6 +109,18 @@ export interface AccountUsage {
   tier: "free" | "hobby" | "team";
   paid_until: string | null;
   buckets: BucketUsage[];
+  activity: UsageActivity[];
+}
+
+export interface UsageActivity {
+  id: string;
+  source: ScanSource;
+  target_type: TargetType;
+  target: string;
+  status: ScanStatus;
+  score: number | null;
+  created_at: string;
+  completed_at: string | null;
 }
 
 export interface Subscription {

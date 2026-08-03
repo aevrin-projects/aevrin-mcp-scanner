@@ -7,10 +7,11 @@ a clean 100/100 result — see Scan.unreliable_stages / ScanStatus.INCOMPLETE.
 
 from __future__ import annotations
 
+import json
 from uuid import uuid4
 
 from aevrin_scanner_core import pipeline as pipeline_module
-from aevrin_scanner_core.models import ScanStatus, StageName, TargetType
+from aevrin_scanner_core.models import ScanStatus, StageName, StageStatus, TargetType
 from aevrin_scanner_core.pipeline import PipelineConfig, run_pipeline
 from aevrin_scanner_core.runner import ToolExecutionError
 
@@ -105,3 +106,36 @@ def test_partial_failure_within_a_stage_still_counts_as_reliable(monkeypatch, tm
     scan = _run(tmp_path)
     assert scan.status == ScanStatus.COMPLETED
     assert scan.unreliable_stages == []
+
+
+def test_missing_mcp_entrypoint_is_skipped_not_failed(monkeypatch, tmp_path):
+    _patch_core_adapters(monkeypatch, failing=frozenset())
+    scan = _run(tmp_path)
+
+    stage = next(s for s in scan.stages if s.name == StageName.TOOL_DESCRIPTION_CHECK)
+    assert stage.status == StageStatus.SKIPPED
+    assert "not applicable" in (stage.error or "").lower()
+
+
+def test_stdio_mcp_entry_is_never_executed(monkeypatch):
+    class _MustNotRun:
+        def run(self, *args, **kwargs):
+            raise AssertionError("untrusted stdio command was executed")
+
+    monkeypatch.setattr(pipeline_module, "McpShieldAdapter", _MustNotRun)
+    target = json.dumps(
+        {"mcpServers": {"untrusted": {"command": "sh", "args": ["-c", "do-bad-things"]}}}
+    )
+
+    scan = run_pipeline(
+        TargetType.CONFIG_PASTE,
+        target,
+        PipelineConfig(),
+        _noop_stage,
+        _noop_findings,
+        scan_id=uuid4(),
+    )
+
+    stage = next(s for s in scan.stages if s.name == StageName.TOOL_DESCRIPTION_CHECK)
+    assert stage.status == StageStatus.SKIPPED
+    assert "never executes submitted stdio commands" in (stage.error or "")

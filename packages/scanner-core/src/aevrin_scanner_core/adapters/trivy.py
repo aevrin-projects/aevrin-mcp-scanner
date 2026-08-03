@@ -32,7 +32,7 @@ class TrivyAdapter(ScannerAdapter):
 
     def build_spec(self, target_dir: str) -> DockerRunSpec:
         return DockerRunSpec(
-            image="aquasec/trivy:latest",
+            image="aquasec/trivy:0.73.0",
             args=["fs", "--format", "json", "--scanners", "vuln,secret,misconfig", "/src"],
             mounts={target_dir: ("/src", True)},
             network_enabled=True,  # pulls the vulnerability DB

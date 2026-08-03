@@ -12,8 +12,8 @@ import { formatDate, formatDateTime } from "@/lib/presentation";
 
 const PLAN_COPY = {
   free: { price: "$0", billing: "No renewal", body: "Five CLI scans, two hook auto-scans, and five dashboard scans each month." },
-  hobby: { price: "$15 / $12", billing: "One cycle at a time", body: "Monthly or annual payments with no automatic renewal." },
-  team: { price: "$59 / $49", billing: "One cycle at a time", body: "Monthly or annual payments with no automatic renewal." },
+  hobby: { price: "₹1,500 / ₹1,200", billing: "One cycle at a time", body: "Monthly / effective annual monthly price, charged in INR with no automatic renewal." },
+  team: { price: "₹5,900 / ₹4,900", billing: "One cycle at a time", body: "Monthly / effective annual monthly price, charged in INR with no automatic renewal." },
 } as const;
 
 export default function BillingPage() {
@@ -79,9 +79,7 @@ export default function BillingPage() {
           title="Plan details"
           description="Only functional product behavior is described here."
           action={
-            <Link href="/pricing">
-              <Button>{expired ? "Renew or change plan" : "View pricing"}</Button>
-            </Link>
+            <Button render={<Link href="/pricing" />}>{expired ? "Renew or change plan" : "View pricing"}</Button>
           }
         >
           {subscription ? (

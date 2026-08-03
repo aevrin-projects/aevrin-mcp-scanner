@@ -36,13 +36,9 @@ from ..security import AuthenticatedUser
 router = APIRouter(prefix="/billing", tags=["billing"])
 logger = logging.getLogger("aevrin.billing")
 
-# Placeholder pricing — mirrors the USD figures shown on the pricing page
-# (pricing-section.tsx: Hobby $15/mo or $12/mo billed annually, Team $59/mo
-# or $49/mo billed annually) multiplied by 100 to get INR rupees, purely so
-# there's a real, testable amount wired up end to end. This is NOT an actual
-# USD->INR conversion — replace with real INR pricing before going live.
-# "annual" is billed as one lump sum (12x the per-month figure), not a
-# discount schedule, since there's no recurring billing to apply it to.
+# INR prices mirrored by the public pricing and account billing screens.
+# "annual" is one lump-sum charge for 12 months; the UI shows both the
+# amount charged today and its effective monthly equivalent.
 _PRICE_PAISE: dict[tuple[str, str], int] = {
     ("hobby", "monthly"): 150_000,
     ("hobby", "annual"): 1_440_000,

@@ -55,16 +55,18 @@ export const api = {
       body: JSON.stringify({ target_type, target }),
     }),
   listScans: () => request<import("@/lib/types").Scan[]>("/scans"),
+  deleteScan: (id: string) => request<void>(`/scans/${id}`, { method: "DELETE" }),
+  clearScanHistory: () => request<void>("/scans", { method: "DELETE" }),
   getScan: (id: string) => request<import("@/lib/types").Scan>(`/scans/${id}`),
   getScanStages: (id: string) =>
     request<import("@/lib/types").ScanStage[]>(`/scans/${id}/stages`),
   getScanFindings: (id: string) =>
     request<import("@/lib/types").Finding[]>(`/scans/${id}/findings`),
   getFinding: (id: string) => request<import("@/lib/types").Finding>(`/findings/${id}`),
-  triageFinding: (id: string, triage_status: string) =>
+  triageFinding: (id: string, triage_status: string, reason?: string) =>
     request<import("@/lib/types").Finding>(`/findings/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ triage_status }),
+      body: JSON.stringify({ triage_status, reason }),
     }),
   exportReport: (id: string) => request<{ url: string }>(`/scans/${id}/export`),
   listApiKeys: () => request<import("@/lib/types").ApiKey[]>("/api-keys"),

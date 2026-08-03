@@ -61,9 +61,14 @@ function GoogleIcon() {
 // stretching edge-to-edge.
 function AuthShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-[calc(100svh-3.5rem)] items-center justify-center bg-background p-4 lg:p-10">
-      <div className="grid w-full max-w-5xl overflow-hidden rounded-xl border border-border lg:h-[600px] lg:grid-cols-2">
-        <div className="hidden flex-col justify-center gap-8 border-r border-border bg-muted/40 p-10 lg:flex">
+    <div className="auth-ambient relative flex min-h-[calc(100svh-3.5rem)] items-center justify-center overflow-hidden bg-background p-4 lg:p-10">
+      <div className="security-mesh absolute inset-0 opacity-35" aria-hidden="true" />
+      <div className="security-orb security-orb-one" aria-hidden="true" />
+      <div className="security-orb security-orb-two" aria-hidden="true" />
+      <h1 className="sr-only">Aevrin account access</h1>
+      <div className="auth-panel-enter relative grid w-full max-w-5xl overflow-hidden rounded-[28px] border border-border/80 bg-background/88 shadow-2xl shadow-black/15 backdrop-blur-xl lg:h-[600px] lg:grid-cols-2">
+        <div className="auth-grid relative hidden flex-col justify-center gap-8 overflow-hidden border-r border-border bg-muted/40 p-10 lg:flex">
+          <div className="auth-scan-line" aria-hidden="true" />
           <Link href="/" className="flex items-center gap-2 font-semibold">
             <Image src="/logo.png" alt="" width={22} height={24} />
             <span>Aevrin</span>
@@ -86,10 +91,17 @@ function AuthShell({ children }: { children: React.ReactNode }) {
                 <span>Every finding is scored and mapped to a fix — not a wall of raw tool output.</span>
               </li>
             </ul>
+            <div className="flex items-center gap-3 rounded-2xl border border-brand/25 bg-background/65 px-4 py-3 text-xs text-muted-foreground backdrop-blur-sm">
+              <span className="relative flex size-2">
+                <span className="absolute inline-flex size-full rounded-full bg-brand opacity-60 motion-safe:animate-ping" />
+                <span className="relative inline-flex size-2 rounded-full bg-brand" />
+              </span>
+              Dashboard, CLI, and hook evidence stay in sync.
+            </div>
           </div>
           <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Aevrin</p>
         </div>
-        <div className="flex items-center justify-center overflow-y-auto p-8">
+        <div className="relative flex items-center justify-center overflow-y-auto bg-background/70 p-6 sm:p-8">
           <div className="w-full max-w-sm py-8">{children}</div>
         </div>
       </div>

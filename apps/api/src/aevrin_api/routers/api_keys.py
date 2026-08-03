@@ -47,5 +47,7 @@ async def revoke_api_key(
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
     await db.update(
-        "api_keys", {"id": str(key_id)}, {"revoked_at": datetime.now(UTC).isoformat()}
+        "api_keys",
+        {"id": str(key_id), "user_id": user.id},
+        {"revoked_at": datetime.now(UTC).isoformat()},
     )

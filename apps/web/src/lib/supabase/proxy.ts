@@ -5,10 +5,15 @@ import { NextResponse, type NextRequest } from "next/server";
 // the normal /login flow with a return path, rather than a bare 404 — see
 // the /device page itself for the post-login redirect back. The rest are
 // the public marketing site (landing, pricing, docs, legal, status) — the
-// actual app now lives under /dashboard, /scans, /settings, all still
-// gated by default since they're not in this list.
+// actual app lives under explicit protected prefixes. Unknown routes pass
+// through to Next's real 404 instead of being disguised as login pages.
 const PUBLIC_PATHS_EXACT = ["/"];
 const PUBLIC_PATH_PREFIXES = ["/login", "/auth", "/device", "/pricing", "/docs", "/terms", "/privacy", "/status", "/error"];
+const PROTECTED_PATH_PREFIXES = ["/dashboard", "/scans", "/settings", "/integrations", "/usage"];
+
+function matchesPath(pathname: string, prefix: string) {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -42,9 +47,10 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   const isPublicPath =
-    PUBLIC_PATHS_EXACT.includes(pathname) || PUBLIC_PATH_PREFIXES.some((path) => pathname.startsWith(path));
+    PUBLIC_PATHS_EXACT.includes(pathname) || PUBLIC_PATH_PREFIXES.some((path) => matchesPath(pathname, path));
+  const isProtectedPath = PROTECTED_PATH_PREFIXES.some((path) => matchesPath(pathname, path));
 
-  if (!user && !isPublicPath) {
+  if (!user && !isPublicPath && isProtectedPath) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

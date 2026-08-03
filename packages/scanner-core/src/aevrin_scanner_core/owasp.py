@@ -12,7 +12,8 @@ from enum import Enum
 
 
 class OwaspMcpCategory(str, Enum):
-    TOKEN_MISMANAGEMENT = "MCP01"
+    # OWASP category identifier, not a password.
+    TOKEN_MISMANAGEMENT = "MCP01"  # nosec B105
     TOOL_POISONING = "MCP02"
     CROSS_ORIGIN_ESCALATION = "MCP03"
     RUG_PULL = "MCP04"

@@ -23,8 +23,11 @@ one broken scanner never takes down the rest of the scan.
 from __future__ import annotations
 
 import os
+import re
 import shlex
-import subprocess
+
+# This module intentionally runs versioned scanner argv without a shell.
+import subprocess  # nosec B404
 from dataclasses import dataclass, field
 
 
@@ -40,7 +43,34 @@ class ToolExecutionError(Exception):
         self.tool = tool
         self.stdout = stdout
         self.stderr = stderr
+        excerpt = _safe_stderr_excerpt(stderr)
+        if excerpt and excerpt not in message:
+            message = f"{message}: {excerpt}"
         super().__init__(f"{tool}: {message}")
+
+
+_SENSITIVE_DIAGNOSTIC_RE = re.compile(
+    r"(?i)\b(token|secret|password|authorization|api[_-]?key)(\s*[:=]\s*|\s+)([^\s,;]+)"
+)
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _safe_stderr_excerpt(stderr: str, limit: int = 600) -> str:
+    """Keep operational errors useful without persisting likely secrets."""
+    cleaned = _ANSI_RE.sub("", stderr).strip()
+    cleaned = _SENSITIVE_DIAGNOSTIC_RE.sub(r"\1\2[REDACTED]", cleaned)
+    cleaned = re.sub(r"://x-access-token:[^@\s]+@", "://x-access-token:[REDACTED]@", cleaned)
+    cleaned = " ".join(cleaned.split())
+    if len(cleaned) > limit:
+        cleaned = cleaned[-limit:]
+        return f"…{cleaned}"
+    return cleaned
+
+
+def _exit_message(returncode: int, ok_exit_codes: tuple[int, ...], stderr: str) -> str:
+    message = f"exited {returncode} (expected one of {ok_exit_codes})"
+    excerpt = _safe_stderr_excerpt(stderr)
+    return f"{message}: {excerpt}" if excerpt else message
 
 
 @dataclass
@@ -51,8 +81,8 @@ class DockerRunSpec:
     mounts: dict[str, tuple[str, bool]] = field(default_factory=dict)
     network_enabled: bool = False
     timeout_s: int = 120
-    mem_limit: str = "768m"
-    cpus: str = "1.0"
+    mem_limit: str = "2g"
+    cpus: str = "2.0"
     workdir: str | None = None
     env: dict[str, str] = field(default_factory=dict)
     # Some tools (semgrep, trivy, osv-scanner...) exit non-zero when findings
@@ -81,11 +111,17 @@ def run_container(tool: str, spec: DockerRunSpec) -> tuple[str, str, int]:
         "no-new-privileges",
         "--cap-drop",
         "ALL",
+        "--pull",
+        "missing",
     ]
     cmd += ["--network", "bridge" if spec.network_enabled else "none"]
     for host_path, (container_path, read_only) in spec.mounts.items():
-        mount_flag = f"{host_path}:{container_path}" + (":ro" if read_only else "")
-        cmd += ["-v", mount_flag]
+        mount_flag = f"type=bind,source={host_path},target={container_path}"
+        if read_only:
+            mount_flag += ",readonly"
+        # --mount handles Windows drive-letter paths and spaces more reliably
+        # than the colon-delimited -v shorthand.
+        cmd += ["--mount", mount_flag]
     if spec.workdir:
         cmd += ["-w", spec.workdir]
     for key, value in spec.env.items():
@@ -93,7 +129,8 @@ def run_container(tool: str, spec: DockerRunSpec) -> tuple[str, str, int]:
     cmd += [spec.image, *spec.args]
 
     try:
-        proc = subprocess.run(
+        # argv comes from trusted, versioned adapters; shell=False.
+        proc = subprocess.run(  # nosec B603
             cmd,
             capture_output=True,
             text=True,
@@ -110,7 +147,7 @@ def run_container(tool: str, spec: DockerRunSpec) -> tuple[str, str, int]:
     if proc.returncode not in spec.ok_exit_codes:
         raise ToolExecutionError(
             tool,
-            f"exited {proc.returncode} (expected one of {spec.ok_exit_codes})",
+            _exit_message(proc.returncode, spec.ok_exit_codes, proc.stderr),
             stdout=proc.stdout,
             stderr=proc.stderr,
         )
@@ -143,14 +180,44 @@ def _resource_limits() -> None:  # pragma: no cover - exercised only on Linux/ma
     resource.setrlimit(resource.RLIMIT_CPU, (300, 300))
 
 
+_SAFE_ENV_KEYS = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "LANG",
+        "LC_ALL",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+        "XDG_CACHE_HOME",
+    }
+)
+
+
+def sanitized_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Do not leak API/database/payment credentials into scanner tools."""
+    safe = {key: value for key, value in os.environ.items() if key in _SAFE_ENV_KEYS}
+    safe.update(extra or {})
+    return safe
+
+
 def run_local_command(tool: str, spec: LocalCommandSpec, target_dir: str) -> tuple[str, str, int]:
     """Runs one scanner as a plain subprocess (Railway / non-Docker mode).
     Returns (stdout, stderr, exit_code); raises ToolExecutionError the same
     way run_container does, so callers don't need to know which mode ran."""
     cmd = [spec.binary, *spec.args]
-    env = {**os.environ, **spec.env}
+    env = sanitized_subprocess_env(spec.env)
     try:
-        proc = subprocess.run(
+        # argv comes from trusted, versioned adapters; shell=False.
+        proc = subprocess.run(  # nosec B603
             cmd,
             cwd=spec.cwd or target_dir,
             capture_output=True,
@@ -170,7 +237,7 @@ def run_local_command(tool: str, spec: LocalCommandSpec, target_dir: str) -> tup
     if proc.returncode not in spec.ok_exit_codes:
         raise ToolExecutionError(
             tool,
-            f"exited {proc.returncode} (expected one of {spec.ok_exit_codes})",
+            _exit_message(proc.returncode, spec.ok_exit_codes, proc.stderr),
             stdout=proc.stdout,
             stderr=proc.stderr,
         )

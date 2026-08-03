@@ -1,7 +1,7 @@
 """Our own rule-lookup heuristics for the three OWASP MCP categories the
 master spec explicitly says are "not a model" — plain presence/schema checks,
 per Section 4 rows 6, 9, and 10. These run in-process (no container), inside
-the `tool_description_check` stage alongside MCP-Shield/mcp-scan.
+the `tool_description_check` stage alongside MCP-Shield and SDK inspection.
 """
 
 from __future__ import annotations
