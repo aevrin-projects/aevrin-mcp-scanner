@@ -36,6 +36,9 @@ export function PublicNavbar({ signedIn }: { signedIn: boolean }) {
           <Link href="/pricing" className="hidden hover:text-foreground md:inline">
             Pricing
           </Link>
+          <Link href="/docs" className="hover:text-foreground">
+            Docs
+          </Link>
           <Link href="/status" className="hidden hover:text-foreground lg:inline">
             Status
           </Link>

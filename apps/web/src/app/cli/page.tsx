@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Braces, Gauge, ShieldCheck, TerminalSquare } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, Braces, Gauge, ShieldCheck, TerminalSquare } from "lucide-react";
 import { InstallDocsSection } from "@/components/install-docs-section";
 import { SiteFooter } from "@/components/site-footer";
 import { buttonVariants } from "@/components/ui/button";
@@ -21,11 +22,15 @@ export default function CliPage() {
             Install, authenticate, and run Aevrin from your terminal.
           </h1>
           <p className="mx-auto mt-5 max-w-3xl text-base leading-8 text-muted-foreground sm:text-lg">
-            Use this focused setup guide for the CLI and Claude Code hook — commands, flags, dashboard workflow,
-            and API contracts are covered below.
+            Use this focused setup guide for the CLI and Claude Code hook. The complete documentation covers every
+            scanner, target, dashboard workflow, usage event, report, API contract, and troubleshooting path.
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <a href="mailto:support@aevrin.net" className={buttonVariants({ size: "lg" })}>
+            <Link href="/docs" className={buttonVariants({ size: "lg" })}>
+              Open complete documentation
+              <ArrowRight className="size-4" />
+            </Link>
+            <a href="mailto:support@aevrin.net" className={buttonVariants({ size: "lg", variant: "outline" })}>
               Contact support
             </a>
           </div>

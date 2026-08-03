@@ -204,6 +204,12 @@ export function AuthenticatedAppShell({
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem>
+                      <Link href="/docs" className="flex w-full items-center gap-2">
+                        <BookOpen className="size-4" />
+                        Docs
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
                       <Link href="/status" className="flex w-full items-center gap-2">
                         <MoonStar className="size-4" />
                         Status

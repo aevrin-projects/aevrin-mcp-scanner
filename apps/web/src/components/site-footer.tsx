@@ -23,6 +23,9 @@ export function SiteFooter() {
             <Link href="/pricing" className="text-muted-foreground hover:text-foreground">
               Pricing
             </Link>
+            <Link href="/docs" className="text-muted-foreground hover:text-foreground">
+              Docs
+            </Link>
             <Link href="/cli" className="text-muted-foreground hover:text-foreground">
               CLI setup
             </Link>

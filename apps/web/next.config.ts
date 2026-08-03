@@ -1,5 +1,8 @@
 import type { NextConfig } from "next";
 import path from "node:path";
+import { createMDX } from "fumadocs-mdx/next";
+
+const withMDX = createMDX();
 
 const scriptPolicy =
   process.env.NODE_ENV === "development"
@@ -46,4 +49,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withMDX(nextConfig);
