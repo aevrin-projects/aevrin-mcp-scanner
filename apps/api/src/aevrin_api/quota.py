@@ -125,20 +125,23 @@ def _redis_key(user_id: str, bucket: Bucket, period_start: datetime) -> str:
 async def check_and_increment_quota(settings: Settings, db: SupabaseRest, user_id: str, bucket: Bucket) -> None:
     account = await get_or_create_account(db, user_id)
     limit = await _tier_limit(db, effective_tier(account), bucket)
-    if limit is None:
-        return  # unlimited (Team)
 
     now = datetime.now(UTC)
     period_start = _period_start(account["signup_anchor_day"], now)
     period_end = _add_month(period_start)
     ttl_seconds = max(int((period_end - now).total_seconds()), 60)
 
+    # Increment unconditionally, even for unlimited (Team) accounts — this
+    # counter is also what GET /account/usage reads for the dashboard's
+    # usage meters, so skipping it here silently pinned the "CLI scans"
+    # count at 0 forever for unlimited accounts, even with real uploads
+    # landing in the scans table.
     redis_key = _redis_key(user_id, bucket, period_start)
     client = get_redis(settings)
     current = client.incr(redis_key)
     if current == 1:
         client.expire(redis_key, ttl_seconds)
-    if current > limit:
+    if limit is not None and current > limit:
         raise QuotaExceeded(bucket, limit, period_end, upgrade_url=f"{settings.web_origin}/pricing")
 
 

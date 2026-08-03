@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import pytest
+
+from aevrin_api.quota import QuotaExceeded, check_and_increment_quota, get_usage
+
+
+class _FakeRedis:
+    """Minimal in-memory stand-in for the redis-py calls quota.py uses."""
+
+    def __init__(self):
+        self._counts: dict[str, int] = {}
+
+    def incr(self, key: str) -> int:
+        self._counts[key] = self._counts.get(key, 0) + 1
+        return self._counts[key]
+
+    def expire(self, key: str, seconds: int) -> None:
+        pass
+
+    def get(self, key: str) -> str | None:
+        value = self._counts.get(key)
+        return str(value) if value is not None else None
+
+
+class _FakeDb:
+    """Stands in for SupabaseRest: one 'accounts' row for the given tier, and
+    a 'tier_limits' row with a limit of 5/month unless the tier is 'team'."""
+
+    def __init__(self, tier: str):
+        self._tier = tier
+
+    async def select(self, table: str, filters: dict[str, str] | None = None, **kwargs: Any):
+        if table == "accounts":
+            paid_until = None
+            if self._tier != "free":
+                paid_until = (datetime.now(UTC) + timedelta(days=3650)).isoformat()
+            return [
+                {
+                    "user_id": "user-1",
+                    "tier": self._tier,
+                    "paid_until": paid_until,
+                    "signup_anchor_day": 1,
+                }
+            ]
+        if table == "tier_limits":
+            tier = (filters or {})["tier"]
+            limit = None if tier == "team" else 5
+            return [
+                {
+                    "tier": tier,
+                    "cli_scans_per_month": limit,
+                    "hook_scans_per_month": limit,
+                    "dashboard_scans_per_month": limit,
+                }
+            ]
+        raise AssertionError(f"unexpected table {table}")
+
+
+@pytest.fixture(autouse=True)
+def _patch_redis(monkeypatch):
+    fake = _FakeRedis()
+    monkeypatch.setattr("aevrin_api.quota.get_redis", lambda settings: fake)
+    return fake
+
+
+async def test_unlimited_tier_still_increments_usage_counter(settings):
+    """Regression test: an unlimited (Team) account's CLI uploads must still
+    be counted, or GET /account/usage permanently shows 0 for that bucket
+    even after real scans land in the scans table (the dashboard's "CLI
+    scans" meter reads this counter, not the scans table)."""
+    db = _FakeDb(tier="team")
+    for _ in range(3):
+        await check_and_increment_quota(settings, db, "user-1", "cli")
+
+    usage = await get_usage(settings, db, "user-1")
+    cli_bucket = next(b for b in usage if b.bucket == "cli")
+    assert cli_bucket.used == 3
+    assert cli_bucket.limit is None
+
+
+async def test_limited_tier_raises_once_exceeded(settings):
+    db = _FakeDb(tier="free")
+    for _ in range(5):
+        await check_and_increment_quota(settings, db, "user-1", "cli")
+    with pytest.raises(QuotaExceeded):
+        await check_and_increment_quota(settings, db, "user-1", "cli")
+
+
+async def test_limited_tier_usage_reflects_increments(settings):
+    db = _FakeDb(tier="free")
+    for _ in range(2):
+        await check_and_increment_quota(settings, db, "user-1", "cli")
+
+    usage = await get_usage(settings, db, "user-1")
+    cli_bucket = next(b for b in usage if b.bucket == "cli")
+    assert cli_bucket.used == 2
+    assert cli_bucket.limit == 5
