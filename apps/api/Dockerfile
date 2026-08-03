@@ -92,6 +92,8 @@ ENV PATH="/repo/apps/api/.venv/bin:${PATH}"
 # The API and every scanner run without root privileges. Scanner workspaces
 # live under /tmp and Semgrep's cache lives in this user's writable home.
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin aevrin
+RUN chown -R aevrin:aevrin /repo/apps/api/.venv /opt/uv-tools \
+    && chmod -R a+rX /repo/apps/api/.venv /opt/uv-tools
 USER aevrin
 
 EXPOSE 8000
