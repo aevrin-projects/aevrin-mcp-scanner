@@ -1,0 +1,128 @@
+---
+title: CLI Reference
+description: Every aevrin command, its flags, and its exit codes.
+---
+
+All commands print human-readable status to stderr and results to stdout, so `aevrin scan ... >
+report.txt` captures just the report. Every command supports `--help`.
+
+## `scan`
+
+```bash
+aevrin scan TARGET [OPTIONS]
+```
+
+Runs the full scan pipeline against `TARGET` and prints a report.
+
+| Argument | Description |
+|---|---|
+| `TARGET` | A GitHub URL, a local directory path, or a live MCP server URL. Required. |
+
+| Option | Default | Description |
+|---|---|---|
+| `--json` | off | Machine-readable JSON output instead of the terminal report. |
+| `--upload` / `--no-upload` | `--upload` | Save the result to your dashboard. On by default when logged in — pass `--no-upload` for a purely local, ephemeral scan (e.g. in CI, where you don't want scan history persisted). |
+| `--fail-on SEVERITY` | `high` | Minimum finding severity that causes a non-zero exit code. One of `critical`, `high`, `medium`, `low`, `info`. |
+
+**What gets checked depends on the target type:**
+
+<Tabs items={['GitHub repo / local path', 'Live server URL', 'Pasted MCP config']}>
+  <Tab value="GitHub repo / local path">
+    Full pipeline: cloning (repos only), static analysis, secrets, dependencies, then the tool
+    description check. See [Introduction](/docs/#what-a-scan-actually-checks).
+  </Tab>
+  <Tab value="Live server URL">
+    Only the tool description check runs — there's no source to clone or scan statically. The
+    URL itself becomes the entrypoint mcp-shield and mcp-scan inspect.
+  </Tab>
+  <Tab value="Pasted MCP config">
+    Same as a live server URL, but for a `{"mcpServers": {...}}` JSON blob instead of a single
+    URL — this is how the Claude Code hook passes a stdio-transport server it can't otherwise
+    represent as a URL.
+  </Tab>
+</Tabs>
+
+**Exit codes:**
+
+| Code | Meaning |
+|---|---|
+| `0` | Scan completed; no findings at or above `--fail-on`. |
+| `1` | Scan completed; at least one finding at or above `--fail-on`. |
+| `2` | Couldn't run at all — not logged in, quota exceeded, unreachable API, or an invalid target/flag. |
+| `3` | Scan ran but is **incomplete** — a required tool category failed to execute (Docker not running, a missing binary, no network). This fires regardless of `--fail-on`: an incomplete scan is never treated as a pass. See [Concepts → Incomplete scans](/docs/concepts#incomplete-scans). |
+
+```bash title="Fail a CI job only on unresolved criticals, keep local scan history out of the dashboard"
+aevrin scan . --fail-on critical --no-upload
+```
+
+## `login`
+
+```bash
+aevrin login
+```
+
+Starts the browser device-code flow and stores an API key at `~/.aevrin/credentials`. Running it
+again while already logged in prints a warning and exits `0` — run `aevrin logout` first to
+switch accounts.
+
+## `logout`
+
+```bash
+aevrin logout
+```
+
+Removes the stored CLI credentials. Doesn't affect the separate hook credentials — see
+[`hook logout`](#hook-logout).
+
+## `version`
+
+```bash
+aevrin version
+```
+
+Prints the installed version. Equivalent to the top-level `aevrin --version` flag.
+
+## `hook setup`
+
+```bash
+aevrin hook setup
+```
+
+Logs in a **separate** credential (`~/.aevrin/hook_credentials`) for the Claude Code hook, then
+prints a `.claude/settings.json` snippet pointing at the hook script bundled inside this exact
+`aevrin` install — nothing else to download or clone. See [Hook](/docs/hook) for the full setup
+walkthrough and why hook and CLI usage are tracked separately.
+
+## `hook logout`
+
+```bash
+aevrin hook logout
+```
+
+Removes the stored hook credentials.
+
+## `hook allow`
+
+```bash
+aevrin hook allow TARGET
+```
+
+Grants a 10-minute override so the hook lets the *next* install of `TARGET` through despite
+unresolved high/critical findings — the "install anyway" path. `TARGET` must match exactly what
+the hook printed in its block message. This doesn't fix or dismiss the findings, it just doesn't
+block on them once.
+
+## `findings triage`
+
+```bash
+aevrin findings triage FINDING_ID STATUS
+```
+
+Updates a finding's triage status — the "false report" path. `STATUS` is one of `open`, `fixed`,
+or `false_positive`. Marking a finding `false_positive` excludes it from future hook-blocking
+checks and dashboard risk summaries. `FINDING_ID` comes from a hook block message or a `--json`
+scan's `findings[].id`.
+
+```bash title="Dispute a finding the hook just blocked on"
+aevrin findings triage 3fa85f64-5717-4562-b3fc-2c963f66afa6 false_positive
+```

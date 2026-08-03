@@ -22,12 +22,13 @@ Any failure — no `AEVRIN_API_KEY` configured, network error, timeout, malforme
 
 ## Install
 
+For real (pip/pipx-installed) users, `bin/aevrin_hook.py` is a symlink into `packages/cli/src/aevrin_cli/hook_script.py` — the same file ships inside the `aevrin` PyPI package, so `aevrin hook setup` logs in and prints a ready-to-paste `.claude/settings.json` snippet pointing at your own installed copy. No repo checkout needed:
+
 ```bash
-./apps/hook/install.sh
-export AEVRIN_API_KEY=...   # from your Aevrin account's API keys page
+aevrin hook setup
 ```
 
-This merges `settings.snippet.json` into `.claude/settings.json` (creates it if missing, merges via `jq` if it already exists).
+For developing this repo itself, `./apps/hook/install.sh` merges `settings.snippet.json` (which points at the symlinked path above) into `.claude/settings.json` instead (creates it if missing, merges via `jq` if it already exists).
 
 ## Why stdlib-only Python
 

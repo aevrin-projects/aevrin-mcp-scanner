@@ -1,0 +1,101 @@
+---
+title: Getting Started
+description: Install the CLI, log in, and run your first scan.
+---
+
+## Install
+
+Aevrin is distributed on PyPI as `aevrin`, and supports **Python 3.10 and newer**.
+[pipx](https://pipx.pypa.io) is recommended — it installs the CLI into its own isolated
+environment so it can't conflict with other Python tooling on your machine.
+
+<Tabs items={['pipx (recommended)', 'pip']}>
+  <Tab value="pipx (recommended)">
+    ```bash
+    python3 -m pip install --user pipx
+    pipx ensurepath
+    pipx install aevrin
+    ```
+
+    Restart your shell if `aevrin` isn't found immediately — `pipx ensurepath` needs a fresh
+    shell to take effect.
+  </Tab>
+  <Tab value="pip">
+    ```bash
+    pip install aevrin
+    ```
+
+    If you see an `externally-managed-environment` error (common on recent Debian/Ubuntu and
+    Homebrew Python), that's your system telling you to use pipx or a virtualenv instead of
+    installing into the system interpreter directly.
+  </Tab>
+</Tabs>
+
+Confirm it installed correctly:
+
+```bash
+aevrin --version
+```
+
+## Log in
+
+```bash
+aevrin login
+```
+
+This opens your browser for a [device-code](https://datatracker.ietf.org/doc/html/rfc8628)
+approval flow — no password is ever typed into the terminal. Once approved, a long-lived API key
+is stored at `~/.aevrin/credentials`.
+
+<Callout type="info" title="Free tier">
+  Every account gets 5 CLI scans, 5 dashboard scans, and 2 hook auto-scans per month, on a
+  rolling window from your signup date — see [Concepts → Quota](/docs/concepts#quota-and-tiers).
+</Callout>
+
+## Run your first scan
+
+```bash
+aevrin scan https://github.com/modelcontextprotocol/servers
+```
+
+`TARGET` can be a GitHub URL, a local directory path, or a live MCP server URL — see
+[CLI Reference → scan](/docs/cli#scan) for the full breakdown of what each target type actually
+checks. The scan runs entirely on your machine (each tool in its own disposable Docker
+container, or as a bundled binary if Docker isn't available) and, once logged in, the result is
+uploaded to your dashboard automatically.
+
+You'll see a stage-by-stage progress trace, then a score, a findings table, and any coverage
+notes:
+
+```
+Target: https://github.com/modelcontextprotocol/servers
+
+Score:  46/100  High risk — several findings need attention
+
+┌──────────┬────────────────────────────────┬─────────────────────────────┬─────────┐
+│ Severity │ Title                          │ OWASP category                │ Tool    │
+├──────────┼────────────────────────────────┼─────────────────────────────┼─────────┤
+│ HIGH     │ ...                            │ Token Mismanagement & ...     │ gitleaks│
+└──────────┴────────────────────────────────┴─────────────────────────────┴─────────┘
+```
+
+## See it on the dashboard
+
+Every scan you run (as long as you're logged in and didn't pass `--no-upload`) shows up at
+[mcp.aevrin.net/dashboard](https://mcp.aevrin.net/dashboard) — same findings, same stage
+breakdown, same score, in the same format whether it came from the CLI, the hook, or the
+dashboard's own "scan a repo" form. See [Dashboard](/docs/dashboard).
+
+## Next steps
+
+<Cards>
+  <Card title="CLI Reference" href="/docs/cli">
+    Every command, every flag, exit codes, and CI usage.
+  </Card>
+  <Card title="Connect the Claude Code hook" href="/docs/hook">
+    Block risky MCP installs automatically, right when Claude tries to add them.
+  </Card>
+  <Card title="How scoring works" href="/docs/concepts#scoring">
+    What moves the score, and why a clean scan and an incomplete one look different.
+  </Card>
+</Cards>

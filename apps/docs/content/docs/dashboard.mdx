@@ -1,0 +1,53 @@
+---
+title: Dashboard
+description: What's on mcp.aevrin.net and how it stays in sync with the CLI and hook.
+---
+
+[mcp.aevrin.net/dashboard](https://mcp.aevrin.net/dashboard) is where every scan lands,
+regardless of where it came from — the CLI, a hook auto-scan, or the dashboard's own "scan a
+repo" form all write to the same `scans` table and render through the same scan-detail page.
+
+## Starting a scan from the dashboard
+
+The dashboard can scan a GitHub repo or a pasted MCP config directly — sign in, paste a target,
+and it runs the identical pipeline the CLI runs, server-side, with live stage-by-stage progress
+while it's running.
+
+## Reading a scan result
+
+Every scan page shows:
+
+- **Score and verdict** — see [Concepts → Scoring](/docs/concepts#scoring).
+- **Per-stage results** — cloning, static analysis, secrets, dependencies, tool description
+  check, each with a status icon. A scan flagged **incomplete** shows a destructive-styled
+  banner naming exactly which categories couldn't run, and the score is explicitly labeled "not
+  a reliable result" instead of a clean verdict.
+- **Findings table** — sortable by severity, each row linking to a detail page with the full
+  description, exact file/line, and remediation.
+- **Coverage notes** — what this scan format doesn't test (currently: MCP08 prompt injection via
+  live tool responses), shown as an explicit note rather than omitted.
+- **A "doesn't look like an MCP server" warning** when the target has no detectable MCP SDK
+  dependency — the findings are still real, but they're general code-security findings, not an
+  MCP-specific risk assessment.
+
+Every result also carries a small note: **self-reported by the scanning client, not
+independently re-verified by Aevrin** — see [Concepts → Self-reported
+results](/docs/concepts#self-reported-results) for exactly what that does and doesn't mean.
+
+## Usage meters
+
+The dashboard's usage card shows CLI, hook, and dashboard scan counts against your plan's
+monthly limit, resetting on a rolling window from your signup date — see [Concepts → Quota &
+tiers](/docs/concepts#quota-and-tiers) for the exact numbers per plan.
+
+## API keys
+
+Settings → API Keys lets you mint additional long-lived keys for automation contexts where
+`aevrin login`'s interactive browser flow isn't practical — CI pipelines, scheduled jobs, and so
+on. These are separate from (and in addition to) the key `aevrin login` and `aevrin hook setup`
+store locally on your own machine.
+
+## Export
+
+Paid tiers (Hobby and Team) can export a scan as a PDF report directly from the scan-detail
+page — see [Concepts → Quota & tiers](/docs/concepts#quota-and-tiers) for which plans include it.

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
@@ -207,7 +209,11 @@ def hook_setup() -> None:
     """Log in for the Claude Code hook (separate from `aevrin login`) and
     print the settings.json snippet to install."""
     if load_api_key(HOOK_CREDENTIALS_PATH):
-        output.stderr_console.print("[yellow]Hook already logged in. Run `aevrin hook logout` first to switch accounts.[/yellow]")
+        output.stderr_console.print(
+            "[yellow]Hook already logged in.[/yellow] Run `aevrin hook logout` first to switch "
+            "accounts. Re-printing the settings.json snippet:"
+        )
+        print_hook_settings_snippet()
         raise typer.Exit(code=0)
 
     def on_prompt(user_code: str, verification_uri: str) -> None:
@@ -223,10 +229,45 @@ def hook_setup() -> None:
 
     save_credentials(api_key, HOOK_CREDENTIALS_PATH)
     output.stderr_console.print("[green]Hook logged in.[/green]")
-    output.stderr_console.print(
-        "Now add the PreToolUse hook to Claude Code — see apps/hook/README.md, "
-        "or run apps/hook/install.sh from this repo, to merge the hook into your settings.json."
+    print_hook_settings_snippet()
+
+
+def print_hook_settings_snippet() -> None:
+    # hook_script.py is stdlib-only on purpose (see its own docstring) — it
+    # needs to start fast on nearly every Bash/Write tool call without
+    # depending on the full Typer app bootstrapping. It ships inside this
+    # package (installed via pip/pipx) specifically so `hook setup` can point
+    # Claude Code straight at the installed copy — no separate repo checkout
+    # needed for real users.
+    from . import hook_script
+
+    script_path = Path(hook_script.__file__).resolve()
+    snippet = json.dumps(
+        {
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "Bash",
+                        "hooks": [
+                            {"type": "command", "command": f"python3 {script_path}", "timeout": 8}
+                        ],
+                    },
+                    {
+                        "matcher": "Write",
+                        "hooks": [
+                            {"type": "command", "command": f"python3 {script_path}", "timeout": 8}
+                        ],
+                    },
+                ]
+            }
+        },
+        indent=2,
     )
+    output.stderr_console.print(
+        "\nAdd this to your project's .claude/settings.json (merge with any existing "
+        "hooks — don't overwrite the file):\n"
+    )
+    print(snippet)
 
 
 @hook_app.command("logout")

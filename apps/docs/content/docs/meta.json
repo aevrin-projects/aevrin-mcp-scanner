@@ -1,0 +1,4 @@
+{
+  "title": "Aevrin Docs",
+  "pages": ["index", "getting-started", "cli", "hook", "dashboard", "api", "concepts"]
+}

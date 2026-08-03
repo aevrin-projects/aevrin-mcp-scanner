@@ -1,0 +1,95 @@
+---
+title: API Reference
+description: The REST API behind the CLI, hook, and dashboard.
+---
+
+Base URL: `https://api-production-2617.up.railway.app`. Every endpoint here is what the CLI, the
+hook, and the dashboard's own frontend actually call — nothing hidden behind a separate
+"internal" API.
+
+## Authentication
+
+Two schemes, depending on the caller:
+
+<Tabs items={['API key (CLI / hook)', 'Bearer JWT (dashboard)']}>
+  <Tab value="API key (CLI / hook)">
+    A long-lived key from `aevrin login` / `aevrin hook setup`, or minted manually from
+    **Settings → API Keys** on the dashboard. Sent as a header:
+
+    ```bash
+    curl -H "X-API-Key: aevrin_xxxxx" https://api-production-2617.up.railway.app/cli/precheck
+    ```
+  </Tab>
+  <Tab value="Bearer JWT (dashboard)">
+    A Supabase session token, sent as a standard bearer token. This is what the web dashboard
+    uses after you sign in — not something you'd typically construct by hand.
+
+    ```bash
+    curl -H "Authorization: Bearer <supabase-access-token>" https://api-production-2617.up.railway.app/scans
+    ```
+  </Tab>
+</Tabs>
+
+A few endpoints (like finding triage) accept **either** — API key or JWT — since both the
+dashboard and `aevrin findings triage` need to call them.
+
+## Scans
+
+| Method & path | Auth | Description |
+|---|---|---|
+| `POST /scans` | JWT | Start a scan (dashboard-initiated). Runs async; poll stages/status. |
+| `GET /scans` | JWT | List your 25 most recent scans, newest first. |
+| `GET /scans/{id}` | JWT | Get one scan's status, score, and reliability info. |
+| `GET /scans/{id}/stages` | JWT | Per-stage status (cloning, static analysis, secrets, dependencies, tool description check, aggregating). |
+| `GET /scans/{id}/findings` | JWT | Full findings list for a scan. |
+| `GET /scans/{id}/export` | JWT | PDF export (Hobby/Team tiers only). |
+
+## CLI upload
+
+| Method & path | Auth | Description |
+|---|---|---|
+| `GET /cli/precheck` | API key | Read-only quota check the CLI calls *before* running a local scan, so a quota-exhausted account fails fast instead of scanning first. |
+| `POST /cli/upload` | API key | Persists a CLI-run scan's result. The score is **recomputed server-side** from the submitted findings — the client-submitted score is never trusted outright. See [Concepts → Self-reported results](/docs/concepts#self-reported-results). |
+
+## Hook
+
+| Method & path | Auth | Description |
+|---|---|---|
+| `GET /hook/cache` | API key | Fast cached-decision lookup the hook calls before every install — never runs a scan synchronously. Triggers a background scan on a cache miss. |
+| `POST /hook/override` | API key | Backs `aevrin hook allow <target>` — grants a 10-minute install-anyway override. |
+
+## Findings
+
+| Method & path | Auth | Description |
+|---|---|---|
+| `GET /findings/{id}` | JWT | One finding's full detail. |
+| `PATCH /findings/{id}` | JWT or API key | Update triage status (`open`, `fixed`, `false_positive`) — backs `aevrin findings triage`. |
+
+## Account
+
+| Method & path | Auth | Description |
+|---|---|---|
+| `GET /account/usage` | JWT | Current-period usage and limits for all three buckets (cli/hook/dashboard). |
+
+## API keys
+
+| Method & path | Auth | Description |
+|---|---|---|
+| `GET /api-keys` | JWT | List your API keys (never returns plaintext after creation). |
+| `POST /api-keys` | JWT | Mint a new API key — plaintext shown exactly once. |
+| `DELETE /api-keys/{id}` | JWT | Revoke a key. |
+
+## Errors
+
+Standard HTTP status codes. `402 Payment Required` specifically means a scan quota is used up
+for the current billing period — the response body always includes `bucket`, `resets_at`, and
+`upgrade_url` so a caller can build a real message instead of a bare refusal.
+
+```json title="402 response shape"
+{
+  "detail": "cli quota exceeded",
+  "bucket": "cli",
+  "resets_at": "2026-09-01T00:00:00Z",
+  "upgrade_url": "https://mcp.aevrin.net/pricing"
+}
+```
