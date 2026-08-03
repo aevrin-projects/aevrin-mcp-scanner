@@ -41,7 +41,13 @@ class DefectDojoClient:
         }
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=15) as client:
+        # 60s, not 15s: DefectDojo now sleeps when idle (cost optimization),
+        # so the first request after a cold start has to survive a full
+        # Django boot, not just a network round trip. This call is already
+        # a fire-and-forget background push (see scan_service.py) — a
+        # slower failure mode here costs nothing user-facing, but a too-short
+        # timeout would silently drop findings on every wake.
+        async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.request(method, f"{self._base_url}{path}", headers=self._headers, **kwargs)
         resp.raise_for_status()
         result: dict[str, Any] = resp.json() if resp.content else {}
