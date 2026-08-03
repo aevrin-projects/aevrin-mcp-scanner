@@ -51,6 +51,13 @@ class ScanStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    # Set when a core tool category (static analysis, secrets, or
+    # dependencies) had zero tools actually execute — e.g. Docker wasn't
+    # running, a binary was missing, or the network was unreachable. An
+    # empty findings list from a category that never ran is indistinguishable
+    # from "nothing found" unless this is tracked explicitly, so a scan in
+    # this state must never be presented as "clean" (see Scan.unreliable_stages).
+    INCOMPLETE = "incomplete"
 
 
 class StageStatus(str, Enum):
@@ -159,6 +166,11 @@ class Scan(BaseModel):
     # relation) produced a full scored report with MCP-labeled OWASP
     # categories and no indication anywhere that this wasn't an MCP server.
     mcp_detected: bool | None = None
+    # Names of stages (static_analysis, secrets, dependencies) where every
+    # tool in that category failed to execute — e.g. Docker down, a binary
+    # missing, network unreachable. Non-empty means the findings/score above
+    # are incomplete, not a clean bill of health for those categories.
+    unreliable_stages: list[StageName] = Field(default_factory=list)
     stages: list[ScanStage] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

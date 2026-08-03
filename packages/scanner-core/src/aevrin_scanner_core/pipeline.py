@@ -86,6 +86,35 @@ def _run_isolated(label: str, fn: Callable[[], list[Finding]]) -> tuple[list[Fin
         return [], f"{label}: unexpected error: {exc}"
 
 
+# Stages whose "zero findings" claim is only meaningful if at least one real
+# tool in the category actually ran. TOOL_DESCRIPTION_CHECK is deliberately
+# excluded — its most common "failure" (no MCP entrypoint discovered) is a
+# legitimate, expected outcome for most repos, not a broken tool.
+_CORE_STAGES = (StageName.STATIC_ANALYSIS, StageName.SECRETS, StageName.DEPENDENCIES)
+
+
+def _run_tool_group(
+    scan_id: UUID,
+    repo_dir: str,
+    tools: tuple[tuple[str, Any], ...],
+    emit: OnFindings,
+) -> tuple[list[str], int]:
+    """Runs each (label, adapter) pair, normalizing and emitting findings.
+    Returns (tool_errors, succeeded_count) — succeeded_count is how many of
+    these tools actually executed, independent of whether they found
+    anything, so callers can tell "ran clean" apart from "never ran"."""
+    tool_errors: list[str] = []
+    succeeded = 0
+    for label, adapter in tools:
+        findings, error = _run_isolated(label, lambda a=adapter: a.run(scan_id, repo_dir))  # type: ignore[misc]
+        emit(_normalize_paths(findings, repo_dir))
+        if error:
+            tool_errors.append(error)
+        else:
+            succeeded += 1
+    return tool_errors, succeeded
+
+
 def run_pipeline(
     target_type: TargetType,
     target: str,
@@ -106,13 +135,18 @@ def run_pipeline(
             on_findings(findings)
 
     workdir = tempfile.mkdtemp(prefix="aevrin-scan-")
+    stage_reliable: dict[StageName, bool] = {}
     try:
         repo_dir = None
         if target_type == TargetType.GITHUB_REPO:
             repo_dir = _run_clone_stage(target, workdir, config, stage_by_name[StageName.CLONING], on_stage, errors)
-            _run_static_analysis_stage(scan_id, repo_dir, stage_by_name[StageName.STATIC_ANALYSIS], on_stage, emit, errors)
-            _run_secrets_stage(scan_id, repo_dir, stage_by_name[StageName.SECRETS], on_stage, emit, errors)
-            _run_dependencies_stage(
+            stage_reliable[StageName.STATIC_ANALYSIS] = _run_static_analysis_stage(
+                scan_id, repo_dir, stage_by_name[StageName.STATIC_ANALYSIS], on_stage, emit, errors
+            )
+            stage_reliable[StageName.SECRETS] = _run_secrets_stage(
+                scan_id, repo_dir, stage_by_name[StageName.SECRETS], on_stage, emit, errors
+            )
+            stage_reliable[StageName.DEPENDENCIES] = _run_dependencies_stage(
                 scan_id, repo_dir, target, config, stage_by_name[StageName.DEPENDENCIES], on_stage, emit, errors
             )
         elif target_type == TargetType.LOCAL_PATH:
@@ -121,9 +155,13 @@ def run_pipeline(
             # (github-repo-only) is skipped inside _run_dependencies_stage.
             repo_dir = target
             _mark(stage_by_name[StageName.CLONING], StageStatus.SKIPPED, on_stage)
-            _run_static_analysis_stage(scan_id, repo_dir, stage_by_name[StageName.STATIC_ANALYSIS], on_stage, emit, errors)
-            _run_secrets_stage(scan_id, repo_dir, stage_by_name[StageName.SECRETS], on_stage, emit, errors)
-            _run_dependencies_stage(
+            stage_reliable[StageName.STATIC_ANALYSIS] = _run_static_analysis_stage(
+                scan_id, repo_dir, stage_by_name[StageName.STATIC_ANALYSIS], on_stage, emit, errors
+            )
+            stage_reliable[StageName.SECRETS] = _run_secrets_stage(
+                scan_id, repo_dir, stage_by_name[StageName.SECRETS], on_stage, emit, errors
+            )
+            stage_reliable[StageName.DEPENDENCIES] = _run_dependencies_stage(
                 scan_id, repo_dir, target, config, stage_by_name[StageName.DEPENDENCIES], on_stage, emit, errors
             )
         else:
@@ -143,7 +181,12 @@ def run_pipeline(
         _mark(stage_by_name[StageName.AGGREGATING], StageStatus.RUNNING, on_stage)
         emit([not_tested_placeholder(scan_id)])
         scan.score = compute_score(scan.findings)
-        scan.status = ScanStatus.FAILED if len(errors) == len(scan.stages) else ScanStatus.COMPLETED
+        # stage_reliable only has entries for stages that were actually
+        # attempted (GITHUB_REPO/LOCAL_PATH targets) — a stage absent from it
+        # (e.g. skipped entirely for a live-server/config-paste target) was
+        # never claimed to have run, so it can't be "unreliable".
+        scan.unreliable_stages = [name for name in _CORE_STAGES if stage_reliable.get(name) is False]
+        scan.status = ScanStatus.INCOMPLETE if scan.unreliable_stages else ScanStatus.COMPLETED
         scan.completed_at = datetime.now(timezone.utc)
         _mark(stage_by_name[StageName.AGGREGATING], StageStatus.DONE, on_stage)
         return scan
@@ -251,28 +294,26 @@ def _normalize_paths(findings: list[Finding], root: str) -> list[Finding]:
 
 def _run_static_analysis_stage(
     scan_id: UUID, repo_dir: str, stage: ScanStage, on_stage: OnStage, emit: OnFindings, errors: list[str]
-) -> None:
+) -> bool:
+    """Returns True iff at least one tool in this category actually ran."""
     _mark(stage, StageStatus.RUNNING, on_stage)
-    tool_errors: list[str] = []
-    for label, adapter in (("semgrep", SemgrepAdapter()), ("bandit", BanditAdapter())):
-        findings, error = _run_isolated(label, lambda a=adapter: a.run(scan_id, repo_dir))  # type: ignore[misc]
-        emit(_normalize_paths(findings, repo_dir))
-        if error:
-            tool_errors.append(error)
+    tool_errors, succeeded = _run_tool_group(
+        scan_id, repo_dir, (("semgrep", SemgrepAdapter()), ("bandit", BanditAdapter())), emit
+    )
     _finish_stage(stage, tool_errors, on_stage, errors)
+    return succeeded > 0
 
 
 def _run_secrets_stage(
     scan_id: UUID, repo_dir: str, stage: ScanStage, on_stage: OnStage, emit: OnFindings, errors: list[str]
-) -> None:
+) -> bool:
+    """Returns True iff at least one tool in this category actually ran."""
     _mark(stage, StageStatus.RUNNING, on_stage)
-    tool_errors: list[str] = []
-    for label, adapter in (("gitleaks", GitleaksAdapter()), ("trufflehog", TruffleHogAdapter())):
-        findings, error = _run_isolated(label, lambda a=adapter: a.run(scan_id, repo_dir))  # type: ignore[misc]
-        emit(_normalize_paths(findings, repo_dir))
-        if error:
-            tool_errors.append(error)
+    tool_errors, succeeded = _run_tool_group(
+        scan_id, repo_dir, (("gitleaks", GitleaksAdapter()), ("trufflehog", TruffleHogAdapter())), emit
+    )
     _finish_stage(stage, tool_errors, on_stage, errors)
+    return succeeded > 0
 
 
 def _run_dependencies_stage(
@@ -284,14 +325,15 @@ def _run_dependencies_stage(
     on_stage: OnStage,
     emit: OnFindings,
     errors: list[str],
-) -> None:
+) -> bool:
+    """Returns True iff at least one tool in this category actually ran.
+    openssf-scorecard is excluded from that check — it's opt-in (requires a
+    GITHUB_TOKEN) and its absence is expected, not a sign osv-scanner/trivy
+    are unreliable."""
     _mark(stage, StageStatus.RUNNING, on_stage)
-    tool_errors: list[str] = []
-    for label, adapter in (("osv-scanner", OsvScannerAdapter()), ("trivy", TrivyAdapter())):
-        findings, error = _run_isolated(label, lambda a=adapter: a.run(scan_id, repo_dir))  # type: ignore[misc]
-        emit(_normalize_paths(findings, repo_dir))
-        if error:
-            tool_errors.append(error)
+    tool_errors, succeeded = _run_tool_group(
+        scan_id, repo_dir, (("osv-scanner", OsvScannerAdapter()), ("trivy", TrivyAdapter())), emit
+    )
 
     if config.github_token and github_url.startswith("https://github.com/"):
         owner_repo = github_url.removeprefix("https://github.com/").removesuffix(".git")
@@ -306,6 +348,7 @@ def _run_dependencies_stage(
         tool_errors.append("openssf-scorecard: skipped, target is not a github.com repo URL")
 
     _finish_stage(stage, tool_errors, on_stage, errors)
+    return succeeded > 0
 
 
 def _run_tool_description_stage(
