@@ -11,14 +11,18 @@ Everything else is ignored silently (exits 0, no output) — this hook stays out
 
 `Edit` (partial-diff) writes to these files are intentionally **not** intercepted for content extraction: `Edit`'s `old_string`/`new_string` are a fragment, not the full resulting file, so there's nothing reliable to scan pre-edit. Full-file `Write` calls and `claude mcp add` commands are the two cases with enough information to act on.
 
-## Decision logic (exactly per the master build spec, Section 8)
+## Decision logic
 
-1. Check for a cached score first — one fast `GET /hook/cache` call (Supabase lookup, not a scan).
-2. Clean cached score → allow silently (well, with a small confirmatory note).
-3. Cached score shows critical/high findings → **block**, with the score and specific findings (title, severity, OWASP category) in the denial reason.
-4. No cached score → **allow**, with a visible "not yet scanned" warning. The actual scan runs server-side (`apps/api`'s `/hook/cache` endpoint fires it via `BackgroundTasks`) — this script never runs or waits on a scan itself, only ever makes one short HTTP request with a 4-second timeout.
+1. Check for a cached result first — one fast `GET /hook/cache` call (Supabase lookup, not a scan), with a 4-second timeout.
+2. Clean cached scan → allow silently, with a small confirmatory note.
+3. Cached scan has unresolved critical/high findings → **block**, with the score and specific findings (title, severity, OWASP category, file/line, remediation) in the denial reason, plus three options: fix it directly, `aevrin hook allow <target>` to install anyway, or `aevrin findings triage <id> false_positive` to dispute a finding.
+3a. An active `aevrin hook allow` override for this exact target → allow, once, without re-blocking.
+3b. Cached scan's tools failed to run (Docker down, missing binary, no network) → **block as incomplete**, never allowed silently — see [Concepts → Incomplete scans](https://docs.mcp.aevrin.net/docs/concepts#incomplete-scans).
+4. No cached result → **allow**, with a visible "not yet scanned" warning. The actual scan runs server-side (`apps/api`'s `/hook/cache` endpoint fires it via `BackgroundTasks`) — this script never runs or waits on a scan itself, only ever makes one short HTTP request.
 
-Any failure — no `AEVRIN_API_KEY` configured, network error, timeout, malformed response — **fails open** (allows silently). A hook that blocks installs whenever Aevrin itself is unreachable is a hook that gets disabled by annoyed developers.
+Any failure — no API key configured, network error, timeout, malformed response — **fails open** (allows silently). A hook that blocks installs whenever Aevrin itself is unreachable is a hook that gets disabled by annoyed developers.
+
+Full walkthrough: [docs.mcp.aevrin.net/docs/hook](https://docs.mcp.aevrin.net/docs/hook).
 
 ## Install
 
