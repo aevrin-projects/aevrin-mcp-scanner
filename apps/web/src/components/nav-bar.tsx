@@ -67,14 +67,6 @@ export function NavBar({ email }: { email?: string | null }) {
               <Link href="/docs" className="hover:text-foreground">
                 Docs
               </Link>
-              <a
-                href="https://github.com/aevrin-projects/aevrin-mcp-scanner"
-                target="_blank"
-                rel="noreferrer"
-                className="hidden hover:text-foreground sm:inline"
-              >
-                GitHub
-              </a>
               <ThemeToggle />
               <Link href="/login" className={buttonVariants({ size: "sm" })}>
                 Get started

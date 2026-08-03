@@ -27,14 +27,6 @@ export function SiteFooter() {
             <Link href="/status" className="text-muted-foreground hover:text-foreground">
               Status
             </Link>
-            <a
-              href="https://github.com/aevrin-projects/aevrin-mcp-scanner"
-              target="_blank"
-              rel="noreferrer"
-              className="text-muted-foreground hover:text-foreground"
-            >
-              GitHub
-            </a>
           </div>
 
           <div className="flex flex-col gap-2 text-sm">
