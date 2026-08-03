@@ -99,8 +99,8 @@ USER aevrin
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD curl --fail --silent "http://127.0.0.1:${PORT:-8000}/health" >/dev/null || exit 1
-# Call the venv's uvicorn directly — `uv run` re-syncs against pyproject.toml
-# (including the dev dependency group) on every container start, which is
-# both slow and pointless when `uv sync --frozen --no-dev` already ran once
-# at build time.
-CMD ["sh", "-c", "uvicorn aevrin_api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Launch through the venv interpreter rather than uvicorn's generated console
+# script. Railway's runtime can reject that launcher as non-executable after
+# its image snapshot step; `python -m uvicorn` reaches the same pinned module
+# without re-syncing dependencies at startup.
+CMD ["sh", "-c", "/repo/apps/api/.venv/bin/python -m uvicorn aevrin_api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
