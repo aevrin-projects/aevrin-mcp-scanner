@@ -1,6 +1,6 @@
 [project]
 name = "aevrin"
-version = "0.1.8"
+version = "0.1.9"
 description = "Aevrin MCP Security Scanner CLI — scan a source repository, local path, or live MCP server."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,7 +20,6 @@ aevrin = "aevrin_cli.main:app"
 [project.urls]
 Homepage = "https://mcp.aevrin.net"
 Documentation = "https://docs.mcp.aevrin.net/docs"
-Support = "mailto:support@aevrin.net"
 
 [dependency-groups]
 dev = [
