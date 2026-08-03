@@ -84,23 +84,26 @@ RUN uv tool install semgrep==1.172.0 \
 COPY packages/scanner-core /repo/packages/scanner-core
 COPY apps/api /repo/apps/api
 
+# Railway mounts the checked-out repository with execution disabled in its
+# runtime sandbox. Keep the application environment in /opt so neither Python
+# nor generated console scripts need to execute from /repo after deployment.
+ENV UV_PROJECT_ENVIRONMENT=/opt/aevrin-venv
 RUN uv sync --frozen --no-dev
 
 ENV AEVRIN_EXECUTOR=subprocess
-ENV PATH="/repo/apps/api/.venv/bin:${PATH}"
+ENV PATH="/opt/aevrin-venv/bin:${PATH}"
 
 # The API and every scanner run without root privileges. Scanner workspaces
 # live under /tmp and Semgrep's cache lives in this user's writable home.
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin aevrin
-RUN chown -R aevrin:aevrin /repo/apps/api/.venv /opt/uv-tools \
-    && chmod -R a+rX /repo/apps/api/.venv /opt/uv-tools
+RUN chown -R aevrin:aevrin /opt/aevrin-venv /opt/uv-tools \
+    && chmod -R a+rX /opt/aevrin-venv /opt/uv-tools
 USER aevrin
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD curl --fail --silent "http://127.0.0.1:${PORT:-8000}/health" >/dev/null || exit 1
-# Launch through the venv interpreter rather than uvicorn's generated console
-# script. Railway's runtime can reject that launcher as non-executable after
-# its image snapshot step; `python -m uvicorn` reaches the same pinned module
-# without re-syncing dependencies at startup.
-CMD ["sh", "-c", "/repo/apps/api/.venv/bin/python -m uvicorn aevrin_api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Launch through the /opt environment's interpreter. `python -m uvicorn`
+# avoids depending on a generated launcher while preserving the pinned app
+# environment and the non-root runtime.
+CMD ["sh", "-c", "/opt/aevrin-venv/bin/python -m uvicorn aevrin_api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
