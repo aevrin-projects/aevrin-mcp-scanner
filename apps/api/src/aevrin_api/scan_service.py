@@ -144,6 +144,7 @@ def _run_and_persist(
             "status": scan.status.value,
             "score": scan.score,
             "mcp_detected": scan.mcp_detected,
+            "unreliable_stages": [s.value for s in scan.unreliable_stages],
             "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
         },
     )
@@ -171,6 +172,7 @@ def _run_and_persist(
             "target": target,
             "last_scan_id": str(scan.id),
             "last_score": scan.score,
+            "last_status": scan.status.value,
             "checked_at": scan.completed_at.isoformat() if scan.completed_at else None,
         },
         on_conflict="user_id,target",

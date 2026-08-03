@@ -16,6 +16,10 @@ Decision logic (exactly per the master build spec, Section 8):
    or `aevrin findings triage <id> false_positive` to dispute a finding.
 3a. An active `aevrin hook allow` override for this exact target -> allow,
     once, without re-blocking.
+3b. Cached scan's tools failed to run (Docker down, missing binary, no
+    network) -> block as "incomplete", never allow_clean — an empty
+    findings list from a scan that never ran isn't the same thing as a
+    clean one.
 4. No cached score -> allow with a visible "not yet scanned" warning. The
    actual background scan is triggered server-side by the /hook/cache call
    itself (FastAPI BackgroundTasks) — this script never runs or waits on a
@@ -221,6 +225,22 @@ def main() -> None:
         lines.append(f"  2. Install anyway: run `aevrin hook allow {target_value}`, then retry.")
         lines.append("  3. False report: if a specific finding above is wrong, run")
         lines.append("     `aevrin findings triage <finding id> false_positive`, then retry.")
+        _deny("\n".join(lines))
+        return
+
+    if decision == "block_incomplete":
+        lines = [
+            "Aevrin: this target's last scan could not be verified — required scanning "
+            "tools failed to run (Docker not running, a missing tool, or no network "
+            "access on the machine that scanned it). An empty findings list here does "
+            "NOT mean this target is clean.",
+            "",
+            "You have two options — ask the person which they want:",
+            f"  1. Install anyway: run `aevrin hook allow {target_value}`, then retry — only",
+            "     if you trust the source independently of this scan.",
+            f"  2. Re-scan: run `aevrin scan {target_value}` on a machine with Docker running",
+            "     and network access, then retry the install.",
+        ]
         _deny("\n".join(lines))
         return
 

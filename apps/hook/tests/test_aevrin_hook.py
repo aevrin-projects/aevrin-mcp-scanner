@@ -104,3 +104,31 @@ def test_no_decision_exits_zero_silently(capsys):
         aevrin_hook._no_decision()
     assert exc_info.value.code == 0
     assert capsys.readouterr().out == ""
+
+
+def test_block_incomplete_denies_install(monkeypatch, capsys):
+    """Regression test: a cached scan whose tools failed to run (Docker
+    down, missing binary, no network) must block, not fall through to a
+    silent allow the way a genuinely clean scan would."""
+    monkeypatch.setattr(aevrin_hook, "API_KEY", "fake-key")
+    monkeypatch.setattr(
+        aevrin_hook, "check_cache", lambda target_type, target: {"decision": "block_incomplete"}
+    )
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        __import__("io").StringIO(
+            json.dumps(
+                {
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "claude mcp add foo https://example.com/mcp"},
+                }
+            )
+        ),
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        aevrin_hook.main()
+    assert exc_info.value.code == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "could not be verified" in output["hookSpecificOutput"]["permissionDecisionReason"]

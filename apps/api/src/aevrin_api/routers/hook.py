@@ -115,7 +115,14 @@ async def check_cache(
                 }
                 for f in blocking
             ]
+        elif row.get("last_status") == "incomplete":
+            # The scan behind this cache entry couldn't actually run its
+            # tools (Docker down, missing binary, no network) — an empty
+            # findings list here does NOT mean clean, so this must not fall
+            # through to allow_clean the way a genuinely clean scan would.
+            decision = "block_incomplete"
 
+        if decision in ("block", "block_incomplete"):
             overrides = await db.select("hook_overrides", {"user_id": user.id, "target": target})
             now_iso = datetime.now(UTC).isoformat()
             if any(o["expires_at"] > now_iso for o in overrides):
