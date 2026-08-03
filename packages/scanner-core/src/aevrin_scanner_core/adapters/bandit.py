@@ -22,7 +22,13 @@ _SEVERITY_MAP = {
     "LOW": Severity.LOW,
 }
 
-BANDIT_IMAGE = "ghcr.io/pycqa/bandit/bandit:1.9.4"
+# PyCQA publishes the signed 1.9.4 container under `latest` but does not
+# publish a `:1.9.4` tag. Pin the verified multi-architecture image digest so
+# CLI scans remain reproducible without depending on the floating tag.
+BANDIT_IMAGE = (
+    "ghcr.io/pycqa/bandit/bandit@"
+    "sha256:3fd754dc770eacef5aeff3ed3e43f821f1c0eb18194fa0061c83b3e03a16b33f"
+)
 
 # Confirmed live: without this, every `assert` in a pytest test file (fully
 # idiomatic, not a security issue — assert is *how* pytest assertions work)
