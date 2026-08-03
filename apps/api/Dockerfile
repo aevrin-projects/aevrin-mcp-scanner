@@ -10,7 +10,7 @@
 # Build context MUST be the repo root (Railway service Root Directory = "."
 # with Dockerfile Path = "apps/api/Dockerfile"), since this needs to COPY
 # the sibling packages/scanner-core package — not apps/api in isolation.
-FROM python:3.12-slim
+FROM python:3.11-slim
 
 # Set automatically by BuildKit to the target platform's arch (amd64/arm64) —
 # don't hardcode one, since Railway's builder architecture isn't guaranteed
@@ -70,6 +70,8 @@ WORKDIR /repo/apps/api
 
 # --- Python scanners + the app itself, via uv ---
 COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /usr/local/bin/uv
+ENV UV_PYTHON=3.11
+ENV UV_PYTHON_DOWNLOADS=never
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 ENV UV_TOOL_DIR=/opt/uv-tools
 # Keep scanner applications in separate tool environments: current Semgrep
@@ -89,8 +91,8 @@ COPY apps/api /repo/apps/api
 # nor generated console scripts need to execute from /repo after deployment.
 ENV UV_PROJECT_ENVIRONMENT=/opt/aevrin-venv
 RUN uv sync --frozen --no-dev \
-    && cp -a /opt/aevrin-venv/lib/python3.12/site-packages/. \
-      /usr/local/lib/python3.12/site-packages/ \
+    && cp -a /opt/aevrin-venv/lib/python3.11/site-packages/. \
+      /usr/local/lib/python3.11/site-packages/ \
     && rm -rf /opt/aevrin-venv
 
 ENV AEVRIN_EXECUTOR=subprocess

@@ -1,3 +1,3 @@
 #!/bin/sh
-PYTHONPATH="/opt/uv-tools/bandit/lib/python3.12/site-packages" \
+PYTHONPATH="/opt/uv-tools/bandit/lib/python3.11/site-packages" \
   exec /usr/local/bin/python -m bandit "$@"
