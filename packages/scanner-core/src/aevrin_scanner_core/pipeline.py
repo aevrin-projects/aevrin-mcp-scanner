@@ -235,6 +235,15 @@ def _detect_mcp_sdk_usage(repo_dir: str, max_depth: int = 3) -> bool:
     return False
 
 
+_CLONE_URL_TOKEN_RE = re.compile(r"://x-access-token:[^@\s]+@")
+
+
+def _redact_token(text: str, token: str | None) -> str:
+    if token:
+        text = text.replace(token, "***")
+    return _CLONE_URL_TOKEN_RE.sub("://x-access-token:***@", text)
+
+
 def _run_clone_stage(
     github_url: str, workdir: str, config: PipelineConfig, stage: ScanStage, on_stage: OnStage, errors: list[str]
 ) -> str:
@@ -267,7 +276,12 @@ def _run_clone_stage(
         _mark(stage, StageStatus.DONE, on_stage)
         return repo_dir
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        msg = f"clone failed: {exc}"
+        # str(exc) on a CalledProcessError/TimeoutExpired includes the full
+        # argv, which is clone_url — carrying our token in plaintext if one
+        # was used. Confirmed live: this shipped that token straight to the
+        # user as a scan-stage error message. Redact before it ever reaches
+        # errors/on_stage (both get persisted and rendered back to the user).
+        msg = f"clone failed: {_redact_token(str(exc), config.github_token)}"
         errors.append(msg)
         _mark(stage, StageStatus.FAILED, on_stage, error=msg)
         raise PipelineError(msg) from exc
