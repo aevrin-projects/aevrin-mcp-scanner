@@ -52,7 +52,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
       setStages(stagesData);
       setLoadError(null);
 
-      if (scanData.status === "completed" || scanData.status === "failed") {
+      if (scanData.status === "completed" || scanData.status === "incomplete" || scanData.status === "failed") {
         const findingsData = await api.getScanFindings(scanId);
         setFindings(findingsData);
         if (intervalRef.current) {
@@ -109,7 +109,9 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
           <p className="text-xs text-muted-foreground">{scan.target_type.replace("_", " ")}</p>
           <h1 className="font-mono text-lg font-medium">{scan.target}</h1>
         </div>
-        {scan.status === "completed" && <ExportButton scanId={scanId} />}
+        {(scan.status === "completed" || scan.status === "incomplete") && (
+          <ExportButton scanId={scanId} />
+        )}
       </div>
 
       {inProgress && <ProgressView stages={stages} />}
@@ -133,7 +135,9 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
         </Alert>
       )}
 
-      {scan.status === "completed" && <ResultsView scan={scan} findings={findings} />}
+      {(scan.status === "completed" || scan.status === "incomplete") && (
+        <ResultsView scan={scan} findings={findings} stages={stages} />
+      )}
     </div>
   );
 }
@@ -170,7 +174,15 @@ function ProgressView({ stages }: { stages: ScanStage[] }) {
   );
 }
 
-function ResultsView({ scan, findings }: { scan: Scan; findings: Finding[] }) {
+function ResultsView({
+  scan,
+  findings,
+  stages,
+}: {
+  scan: Scan;
+  findings: Finding[];
+  stages: ScanStage[];
+}) {
   const router = useRouter();
   const counts = Object.fromEntries(SEVERITY_ORDER.map((s) => [s, 0])) as Record<Severity, number>;
   for (const f of findings) {
@@ -181,6 +193,44 @@ function ResultsView({ scan, findings }: { scan: Scan; findings: Finding[] }) {
 
   return (
     <div className="mt-8 flex flex-col gap-8" data-testid="scan-results">
+      {scan.status === "incomplete" && (
+        <Alert variant="destructive">
+          <AlertTriangle className="size-4" />
+          <AlertTitle>Scan incomplete — not a reliable result</AlertTitle>
+          <AlertDescription>
+            {scan.unreliable_stages.length > 0
+              ? `Required tools could not run for: ${scan.unreliable_stages
+                  .map((s) => STAGE_LABELS[s])
+                  .join(", ")}. `
+              : "Required scanning tools could not run. "}
+            This is usually Docker not running, a missing tool, or no network access on the
+            machine that ran the scan. The score and findings below only reflect checks that
+            actually ran — an empty findings list here does not mean this target is clean.
+          </AlertDescription>
+        </Alert>
+      )}
+      <div className="text-xs text-muted-foreground">
+        Self-reported by the scanning client, not independently re-verified by Aevrin.
+      </div>
+      {stages.length > 0 && (
+        <div>
+          <h2 className="mb-3 text-sm font-medium text-muted-foreground">Scan stages</h2>
+          <ul className="flex flex-wrap gap-x-6 gap-y-2">
+            {STAGE_ORDER.map((name) => {
+              const stage = stages.find((s) => s.name === name);
+              if (!stage) return null;
+              return (
+                <li key={name} className="flex items-center gap-2 text-sm">
+                  {STAGE_ICON[stage.status]}
+                  <span className={stage.status === "skipped" ? "text-muted-foreground" : ""}>
+                    {STAGE_LABELS[name]}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
       {scan.mcp_detected === false && (
         <Alert className="border-severity-medium/50 text-severity-medium [&>svg]:text-severity-medium">
           <AlertTriangle className="size-4" />

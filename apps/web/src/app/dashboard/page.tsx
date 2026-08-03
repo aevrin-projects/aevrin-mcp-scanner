@@ -181,8 +181,16 @@ export default function DashboardPage() {
               <span className="truncate font-mono">{scan.target}</span>
               <div className="flex items-center gap-3">
                 {scan.score !== null && <Badge variant="outline">{scan.score}/100</Badge>}
-                <Badge variant={scan.status === "completed" ? "secondary" : "outline"}>
-                  {scan.status}
+                <Badge
+                  variant={
+                    scan.status === "completed"
+                      ? "secondary"
+                      : scan.status === "failed" || scan.status === "incomplete"
+                        ? "destructive"
+                        : "outline"
+                  }
+                >
+                  {scan.status === "incomplete" ? "incomplete — unreliable" : scan.status}
                 </Badge>
               </div>
             </Link>

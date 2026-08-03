@@ -1,5 +1,5 @@
 export type TargetType = "github_repo" | "live_mcp_server" | "config_paste";
-export type ScanStatus = "queued" | "running" | "completed" | "failed";
+export type ScanStatus = "queued" | "running" | "completed" | "failed" | "incomplete";
 export type StageStatus = "pending" | "running" | "done" | "failed" | "skipped";
 export type StageName =
   | "cloning"
@@ -50,6 +50,7 @@ export interface Scan {
   score: number | null;
   error: string | null;
   mcp_detected: boolean | null;
+  unreliable_stages: StageName[];
   created_at: string;
   completed_at: string | null;
 }
