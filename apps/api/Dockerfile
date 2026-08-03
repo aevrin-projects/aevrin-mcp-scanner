@@ -92,6 +92,16 @@ RUN uv sync --frozen --no-dev
 
 ENV AEVRIN_EXECUTOR=subprocess
 ENV PATH="/opt/aevrin-venv/bin:${PATH}"
+# Railway's runtime blocks direct execution from application image
+# directories, but Python can safely import the locked environment from
+# there. The system interpreter remains executable under /usr/local/bin.
+ENV PYTHONPATH="/opt/aevrin-venv/lib/python3.12/site-packages:/repo/apps/api/src:/repo/packages/scanner-core/src"
+
+# uv's Python-tool launchers point into /opt, so expose small launchers from
+# /usr/local/bin that run the same pinned modules through the system Python.
+# Go and Node scanners are already installed directly under /usr/local.
+RUN install -m 0755 docker-bin/semgrep /usr/local/bin/semgrep \
+    && install -m 0755 docker-bin/bandit /usr/local/bin/bandit
 
 # The API and every scanner run without root privileges. Scanner workspaces
 # live under /tmp and Semgrep's cache lives in this user's writable home.
@@ -103,7 +113,6 @@ USER aevrin
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD curl --fail --silent "http://127.0.0.1:${PORT:-8000}/health" >/dev/null || exit 1
-# Launch through the /opt environment's interpreter. `python -m uvicorn`
-# avoids depending on a generated launcher while preserving the pinned app
-# environment and the non-root runtime.
-CMD ["sh", "-c", "/opt/aevrin-venv/bin/python -m uvicorn aevrin_api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Launch through the executable system interpreter while importing the exact
+# locked environment above. No dependency resolution happens at runtime.
+CMD ["sh", "-c", "/usr/local/bin/python -m uvicorn aevrin_api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
