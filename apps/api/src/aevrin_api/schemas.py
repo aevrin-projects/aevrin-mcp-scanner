@@ -38,6 +38,7 @@ class ScanOut(BaseModel):
     score: int | None
     error: str | None = None
     mcp_detected: bool | None = None
+    unreliable_stages: list[str] = Field(default_factory=list)
     created_at: datetime
     completed_at: datetime | None = None
 
@@ -83,7 +84,7 @@ class TriageRequest(BaseModel):
 
 
 class HookCacheResponse(BaseModel):
-    decision: str  # "allow_clean" | "block" | "allow_override" | "allow_unscanned" | "quota_exceeded"
+    decision: str  # "allow_clean" | "block" | "block_incomplete" | "allow_override" | "allow_unscanned" | "quota_exceeded"
     score: int | None = None
     scan_id: UUID | None = None
     checked_at: datetime | None = None
@@ -136,12 +137,31 @@ class CliUploadFinding(BaseModel):
     raw: dict[str, Any] | None = None
 
 
+class CliUploadStage(BaseModel):
+    name: str
+    status: str
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: str | None = None
+
+
 class CliUploadRequest(BaseModel):
     target_type: str
     target: str
     score: int
+    status: str = "completed"
     mcp_detected: bool | None = None
+    unreliable_stages: list[str] = Field(default_factory=list)
+    stages: list[CliUploadStage] = Field(default_factory=list)
     findings: list[CliUploadFinding]
+
+    @field_validator("status")
+    @classmethod
+    def _valid_status(cls, v: str) -> str:
+        allowed = {"completed", "incomplete", "failed"}
+        if v not in allowed:
+            raise ValueError(f"status must be one of {sorted(allowed)}")
+        return v
 
 
 class DeviceCodeRequest(BaseModel):
