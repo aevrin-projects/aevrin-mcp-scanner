@@ -4,11 +4,11 @@ import { NextResponse, type NextRequest } from "next/server";
 // /device is reachable pre-auth so an unauthenticated visit redirects into
 // the normal /login flow with a return path, rather than a bare 404 — see
 // the /device page itself for the post-login redirect back. The rest are
-// the public marketing site (landing, pricing, docs, legal, status) — the
+// the public marketing site (landing, pricing, legal, status) — the
 // actual app lives under explicit protected prefixes. Unknown routes pass
 // through to Next's real 404 instead of being disguised as login pages.
 const PUBLIC_PATHS_EXACT = ["/"];
-const PUBLIC_PATH_PREFIXES = ["/login", "/auth", "/device", "/pricing", "/docs", "/terms", "/privacy", "/status", "/error"];
+const PUBLIC_PATH_PREFIXES = ["/login", "/auth", "/device", "/pricing", "/terms", "/privacy", "/status", "/error"];
 const PROTECTED_PATH_PREFIXES = ["/dashboard", "/scans", "/settings", "/integrations", "/usage"];
 
 function matchesPath(pathname: string, prefix: string) {

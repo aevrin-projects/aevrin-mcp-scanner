@@ -6,8 +6,6 @@ const scriptPolicy =
     ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com"
     : "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com";
 const apiOrigin = process.env.NEXT_PUBLIC_API_URL ?? "";
-const docsOrigin =
-  process.env.DOCS_ORIGIN ?? "https://docs-production-3a0c.up.railway.app";
 
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -29,26 +27,6 @@ const nextConfig: NextConfig = {
   // explicitly so Turbopack doesn't have to guess between the two.
   turbopack: {
     root: path.join(__dirname),
-  },
-  async rewrites() {
-    return [
-      {
-        source: "/docs-assets/:path*",
-        destination: `${docsOrigin}/:path*`,
-      },
-      {
-        source: "/docs-search",
-        destination: `${docsOrigin}/api/search`,
-      },
-      {
-        source: "/docs/llms.txt",
-        destination: `${docsOrigin}/llms.txt`,
-      },
-      {
-        source: "/docs/:path*",
-        destination: `${docsOrigin}/docs/:path*`,
-      },
-    ];
   },
   async headers() {
     return [

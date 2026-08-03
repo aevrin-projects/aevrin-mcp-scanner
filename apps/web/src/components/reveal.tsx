@@ -28,6 +28,17 @@ export function Reveal({
     if (skipAnimation) return;
     const el = ref.current;
     if (!el) return;
+
+    // Safety net: if the observer never fires (missed intersection edge
+    // case, a stalled main thread on a slow machine, browsers without
+    // IntersectionObserver), never leave real content stuck invisible —
+    // a fade-in effect must never be able to hide the page permanently.
+    const fallback = window.setTimeout(() => setVisible(true), 1500);
+
+    if (typeof IntersectionObserver === "undefined") {
+      return () => window.clearTimeout(fallback);
+    }
+
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -38,7 +49,10 @@ export function Reveal({
       { threshold: 0.1, rootMargin: "0px 0px -40px 0px" },
     );
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(fallback);
+    };
   }, [skipAnimation]);
 
   return (

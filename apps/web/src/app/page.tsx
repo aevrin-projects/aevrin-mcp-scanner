@@ -17,6 +17,7 @@ import { PricingSection } from "@/components/pricing-section";
 import { InstallDocsSection } from "@/components/install-docs-section";
 import { SiteFooter } from "@/components/site-footer";
 import { Reveal } from "@/components/reveal";
+import { createClient } from "@/lib/supabase/server";
 
 const PILLARS = [
   {
@@ -67,7 +68,12 @@ const ROLLOUT = [
   },
 ] as const;
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+  const signedIn = Boolean(data?.claims);
+  const primaryHref = signedIn ? "/dashboard" : "/login";
+
   return (
     <div className="bg-background">
       <section className="relative overflow-hidden border-b border-border/80">
@@ -110,8 +116,8 @@ export default function LandingPage() {
 
               <Reveal delay={250}>
                 <div className="flex flex-col gap-3 sm:flex-row">
-                  <Link href="/login" className={buttonVariants({ size: "lg" })}>
-                    Open the product
+                  <Link href={primaryHref} className={buttonVariants({ size: "lg" })}>
+                    {signedIn ? "Open the dashboard" : "Open the product"}
                     <ArrowRight className="size-4" />
                   </Link>
                   <Link href="#install" className={buttonVariants({ size: "lg", variant: "outline" })}>
@@ -278,7 +284,7 @@ export default function LandingPage() {
                     <p className="mt-4 text-sm leading-7 text-muted-foreground">{item.body}</p>
                     {index === 0 ? (
                       <div className="mt-5">
-                        <Link href="/login" className={buttonVariants({ variant: "outline" })}>
+                        <Link href={primaryHref} className={buttonVariants({ variant: "outline" })}>
                           Open authenticated workspace
                         </Link>
                       </div>
