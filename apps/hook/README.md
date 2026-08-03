@@ -17,12 +17,12 @@ Everything else is ignored silently (exits 0, no output) — this hook stays out
 2. Clean cached scan → allow silently, with a small confirmatory note.
 3. Cached scan has unresolved critical/high findings → **block**, with the score and specific findings (title, severity, OWASP category, file/line, remediation) in the denial reason, plus three options: fix it directly, `aevrin hook allow <target>` to install anyway, or `aevrin findings triage <id> false_positive --reason "..."` to dispute a finding with an auditable reason.
 3a. An active `aevrin hook allow` override for this exact target → allow, once, without re-blocking.
-3b. Cached scan's tools failed to run (Docker down, missing binary, no network) → **block as incomplete**, never allowed silently — see [Concepts → Incomplete scans](https://docs.mcp.aevrin.net/docs/concepts#incomplete-scans).
+3b. Cached scan's tools failed to run (Docker down, missing binary, no network) → **block as incomplete**, never allowed silently — see [Concepts → Incomplete scans](https://mcp.aevrin.net/docs/concepts#incomplete-scans).
 4. No cached result → **allow**, with a visible "not yet scanned" warning. The actual scan runs server-side (`apps/api`'s `/hook/cache` endpoint fires it via `BackgroundTasks`) — this script never runs or waits on a scan itself, only ever makes one short HTTP request.
 
 Any failure — no API key configured, network error, timeout, malformed response — **fails open** (allows silently). A hook that blocks installs whenever Aevrin itself is unreachable is a hook that gets disabled by annoyed developers.
 
-Full walkthrough: [docs.mcp.aevrin.net/docs/hook](https://docs.mcp.aevrin.net/docs/hook).
+Full walkthrough: [mcp.aevrin.net/docs/hook](https://mcp.aevrin.net/docs/hook).
 
 ## Install
 

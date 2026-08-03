@@ -15,6 +15,8 @@ const allRoutes = [
   "/",
   "/pricing",
   "/docs",
+  "/docs/cli",
+  "/cli",
   "/login",
   "/status",
   "/terms",

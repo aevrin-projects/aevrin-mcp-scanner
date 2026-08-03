@@ -26,6 +26,9 @@ export function SiteFooter() {
             <Link href="/docs" className="text-muted-foreground hover:text-foreground">
               Docs
             </Link>
+            <Link href="/cli" className="text-muted-foreground hover:text-foreground">
+              CLI setup
+            </Link>
             <Link href="/status" className="text-muted-foreground hover:text-foreground">
               Status
             </Link>

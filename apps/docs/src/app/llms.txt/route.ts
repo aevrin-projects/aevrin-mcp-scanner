@@ -12,7 +12,7 @@ export async function GET() {
     "",
     "## Docs",
     "",
-    ...pages.map((page) => `- [${page.data.title}](https://docs.mcp.aevrin.net${page.url}): ${page.data.description ?? ""}`),
+    ...pages.map((page) => `- [${page.data.title}](https://mcp.aevrin.net${page.url}): ${page.data.description ?? ""}`),
   ];
 
   return new Response(lines.join("\n"), {
