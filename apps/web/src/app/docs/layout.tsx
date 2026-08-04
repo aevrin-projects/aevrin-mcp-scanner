@@ -8,12 +8,12 @@ import { source } from "@/lib/docs-source";
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
-    <div className="docs-shell dark">
+    <div className="docs-shell">
       <RootProvider theme={{ enabled: false }} search={{ options: { api: "/api/search" } }}>
         <DocsLayout
           tree={source.pageTree}
           {...baseOptions}
-          containerProps={{ style: { "--fd-layout-width": "1600px" } as CSSProperties }}
+          containerProps={{ style: { "--fd-layout-width": "100%" } as CSSProperties }}
         >
           {children}
         </DocsLayout>
