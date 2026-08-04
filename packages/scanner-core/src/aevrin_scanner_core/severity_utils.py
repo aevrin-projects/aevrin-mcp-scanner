@@ -64,3 +64,19 @@ _SECRET_LIKE_ENV = re.compile(r"(key|token|secret|password|credential)", re.IGNO
 
 def looks_like_secret_field(name: str) -> bool:
     return bool(_SECRET_LIKE_ENV.search(name))
+
+
+_SEVERITY_ORDER = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
+
+
+def downweight_one_tier(severity: Severity) -> Severity:
+    """One step softer, floored at LOW. Shared by every signal that argues a
+    finding is less urgent than the tool's own severity label (low Semgrep
+    rule confidence, a confidently-low EPSS score, a dev-only dependency) —
+    never floors past LOW, since scoring.py treats INFO as free and none of
+    these signals alone are strong enough to make a finding disappear
+    entirely.
+    """
+    index = _SEVERITY_ORDER.index(severity)
+    low_index = _SEVERITY_ORDER.index(Severity.LOW)
+    return _SEVERITY_ORDER[min(index + 1, low_index)]

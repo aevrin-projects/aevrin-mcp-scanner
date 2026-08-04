@@ -22,6 +22,8 @@ from aevrin_scanner_core.pipeline import PipelineConfig, run_pipeline
 
 from .config import Settings
 from .defectdojo_client import DefectDojoClient, DefectDojoUnavailable
+from .quota import effective_tier
+from .triage import triage_findings
 
 logger = logging.getLogger("aevrin.scan_service")
 
@@ -82,6 +84,25 @@ class _SyncRest:
         result: list[dict[str, Any]] = resp.json()
         return result
 
+    def delete_ids_not_in(self, table: str, scan_id: str, keep_ids: list[str]) -> None:
+        """Removes rows orphaned by postprocessing (cross-scanner dedup and
+        root-cause grouping can collapse several streamed findings into one
+        — see _resync_postprocessed_findings) — everything for this scan_id
+        NOT in the final surviving id set. A scan with zero surviving
+        findings still needs every earlier row cleared, so this runs even
+        when keep_ids is empty (PostgREST's not.in.() with no values matches
+        everything, same as no filter at all)."""
+        id_list = ",".join(keep_ids) if keep_ids else "00000000-0000-0000-0000-000000000000"
+        try:
+            httpx.delete(
+                f"{self._base_url}/{table}",
+                headers=self._headers,
+                params={"scan_id": f"eq.{scan_id}", "id": f"not.in.({id_list})"},
+                timeout=10,
+            ).raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("scan_service: delete_ids_not_in on %s failed: %s", table, exc)
+
 
 def _finding_row(f: Finding, user_id: str) -> dict[str, Any]:
     return {
@@ -103,6 +124,15 @@ def _finding_row(f: Finding, user_id: str) -> dict[str, Any]:
         "not_tested": f.not_tested,
         "raw": f.raw,
         "triage_status": f.triage_status.value,
+        "excluded_path": f.excluded_path,
+        "confidence": f.confidence,
+        "original_severity": f.original_severity.value if f.original_severity else None,
+        "epss_score": f.epss_score,
+        "in_kev": f.in_kev,
+        "dependency_scope": f.dependency_scope.value if f.dependency_scope else None,
+        "corroborated_by": [t.value for t in f.corroborated_by],
+        "occurrence_count": f.occurrence_count,
+        "additional_locations": [loc.model_dump(mode="json") for loc in f.additional_locations],
     }
 
 
@@ -176,6 +206,8 @@ def _run_and_persist(
         )
         return
 
+    _resync_postprocessed_findings(rest, scan_id, user_id, scan.findings)
+
     rest.patch(
         "scans",
         {"id": str(scan.id), "user_id": user_id},
@@ -218,6 +250,60 @@ def _run_and_persist(
     )
 
     _push_to_defectdojo_best_effort(settings, durable_target, scan.id, scan.findings)
+    _run_triage_best_effort(rest, settings, user_id, scan.findings)
+
+
+def _resync_postprocessed_findings(rest: _SyncRest, scan_id: UUID, user_id: str, findings: list[Finding]) -> None:
+    """`on_findings` streams each stage's *raw* findings to Supabase as they
+    complete, for a live-updating dashboard — but scanner-core's
+    postprocess_findings() (fixture-path exclusion, cross-scanner dedup,
+    root-cause grouping, EPSS/KEV, dependency scope) only runs once, on the
+    complete set, right before run_pipeline() returns. Without this step the
+    stored rows would keep the pre-postprocessing data: wrong severities,
+    none of the new accuracy fields, and — for findings that dedup/grouping
+    merged away — rows for findings that no longer exist in the final
+    result at all. Re-upsert the final list (updates every surviving row in
+    place, same ids), then delete whatever's left over."""
+    if findings:
+        rest.upsert("findings", [_finding_row(f, user_id) for f in findings], on_conflict="id")
+    rest.delete_ids_not_in("findings", str(scan_id), [str(f.id) for f in findings])
+
+
+def _run_triage_best_effort(rest: _SyncRest, settings: Settings, user_id: str, findings: list[Finding]) -> None:
+    """LLM triage (addendum §2) — paid tiers only, and never allowed to
+    affect the deterministic result stored above: this only *adds* llm_*
+    columns onto findings that already exist, after the fact. Isolated the
+    same way DefectDojo is (own try/except, own event loop) so a triage
+    outage can never take down a scan."""
+    accounts = rest.get("accounts", {"user_id": user_id})
+    if not accounts:
+        return
+    account = accounts[0]
+    if effective_tier(account) == "free":
+        return
+
+    async def _triage() -> None:
+        try:
+            results = await triage_findings(settings, account, findings)
+        except Exception:
+            logger.exception("scan_service: triage failed for user %s", user_id)
+            return
+        triaged_at = datetime.now(UTC).isoformat()
+        for result in results:
+            rest.patch(
+                "findings",
+                {"id": result.finding_id, "user_id": user_id},
+                {
+                    "llm_classification": result.classification,
+                    "llm_severity": result.severity,
+                    "llm_reasoning": result.reasoning,
+                    "llm_remediation": result.remediation,
+                    "llm_model": result.model,
+                    "llm_triaged_at": triaged_at,
+                },
+            )
+
+    asyncio.run(_triage())
 
 
 def _push_to_defectdojo_best_effort(settings: Settings, target: str, scan_id: UUID, findings: list[Finding]) -> None:

@@ -20,11 +20,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 
 from ..config import Settings, get_settings
+from ..crypto import ByokUnavailable, encrypt_byok_key
 from ..db import SupabaseRest
 from ..deps import get_current_user, get_db
 from ..quota import effective_tier, get_or_create_account
 from ..razorpay_client import RazorpayClient, RazorpayUnavailable, verify_webhook_signature
 from ..schemas import (
+    ByokKeyRequest,
+    ByokStatusResponse,
     CheckoutRequest,
     CheckoutResponse,
     SubscriptionResponse,
@@ -38,14 +41,33 @@ logger = logging.getLogger("aevrin.billing")
 
 # USD prices mirrored by the public pricing and account billing screens.
 # "annual" is one lump-sum charge for 12 months; the UI shows both the
-# amount charged today and its effective monthly equivalent.
-_PRICE_PAISE: dict[tuple[str, str], int] = {
-    ("hobby", "monthly"): 1_900,
-    ("hobby", "annual"): 18_000,
-    ("team", "monthly"): 7_900,
-    ("team", "annual"): 70_800,
+# amount charged today and its effective monthly equivalent. Team is priced
+# per seat (3-seat minimum enforced in CheckoutRequest) — the amount here is
+# per-seat and gets multiplied by body.seats in create_checkout.
+#
+# NOTE on the Team annual rate: the pricing addendum specifies Hobby
+# ($9 -> $7/mo, ~22% off) and Pro ($29 -> $24/mo, ~17% off) annual discounts
+# explicitly but never states one for Team. $28/seat/mo assumes a ~20%
+# discount consistent with the other two tiers — confirm this figure before
+# treating it as final.
+_PRICE_CENTS: dict[tuple[str, str], int] = {
+    ("hobby", "monthly"): 900,
+    ("hobby", "annual"): 8_400,
+    ("pro", "monthly"): 2_900,
+    ("pro", "annual"): 28_800,
+    ("team", "monthly"): 3_500,
+    ("team", "annual"): 33_600,
 }
+# Flat platform fee, not a token markup (addendum §3) — same $3/mo whichever
+# tier or provider. Charged for the same number of months as the base cycle
+# so an annual checkout pays 12 months of the add-on up front, matching how
+# the base tier price is itself annualized above.
+_BYOK_ADDON_CENTS_PER_MONTH = 300
 _CURRENCY = "USD"
+
+
+def _byok_addon_cents(cycle: str) -> int:
+    return _BYOK_ADDON_CENTS_PER_MONTH * (12 if cycle == "annual" else 1)
 
 
 def _paid_until(existing: str | None, cycle: str) -> datetime:
@@ -70,7 +92,9 @@ async def create_checkout(
     db: Annotated[SupabaseRest, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> CheckoutResponse:
-    amount_paise = _PRICE_PAISE[(body.tier, body.cycle)]
+    amount_paise = _PRICE_CENTS[(body.tier, body.cycle)] * body.seats
+    if body.byok:
+        amount_paise += _byok_addon_cents(body.cycle)
     try:
         client = RazorpayClient(settings)
     except RazorpayUnavailable as exc:
@@ -83,7 +107,13 @@ async def create_checkout(
         amount_paise=amount_paise,
         currency=_CURRENCY,
         receipt=receipt,
-        notes={"aevrin_user_id": user.id, "tier": body.tier, "cycle": body.cycle},
+        notes={
+            "aevrin_user_id": user.id,
+            "tier": body.tier,
+            "cycle": body.cycle,
+            "seats": str(body.seats),
+            "byok": str(body.byok),
+        },
     )
 
     await get_or_create_account(db, user.id)
@@ -93,6 +123,8 @@ async def create_checkout(
             "user_id": user.id,
             "tier": body.tier,
             "cycle": body.cycle,
+            "seats": body.seats,
+            "byok": body.byok,
             "amount_paise": amount_paise,
             "currency": _CURRENCY,
             "razorpay_order_id": order["id"],
@@ -147,9 +179,7 @@ async def verify_payment(
                 "verified_at": datetime.now(UTC).isoformat(),
             },
         )
-        await db.update(
-            "accounts", {"user_id": user.id}, {"tier": payment["tier"], "paid_until": new_paid_until.isoformat()}
-        )
+        await db.update("accounts", {"user_id": user.id}, _account_update_for_payment(payment, new_paid_until))
 
     return VerifyPaymentResponse(status="ok", tier=payment["tier"], paid_until=new_paid_until)
 
@@ -196,11 +226,22 @@ async def razorpay_webhook(
         {"razorpay_order_id": order_id},
         {"status": "paid", "razorpay_payment_id": payment_id, "verified_at": datetime.now(UTC).isoformat()},
     )
-    await db.update(
-        "accounts", {"user_id": payment["user_id"]}, {"tier": payment["tier"], "paid_until": new_paid_until.isoformat()}
-    )
+    await db.update("accounts", {"user_id": payment["user_id"]}, _account_update_for_payment(payment, new_paid_until))
     logger.info("razorpay webhook activated payment: order=%s user=%s", order_id, payment["user_id"])
     return {"status": "ok"}
+
+
+def _account_update_for_payment(payment: dict[str, object], new_paid_until: datetime) -> dict[str, object]:
+    """Shared by /verify and the webhook fallback so a payment activates the
+    account identically regardless of which path actually lands first."""
+    update: dict[str, object] = {
+        "tier": payment["tier"],
+        "paid_until": new_paid_until.isoformat(),
+        "seats": payment.get("seats", 1),
+    }
+    if payment.get("byok"):
+        update["byok_enabled"] = True
+    return update
 
 
 @router.get("/subscription", response_model=SubscriptionResponse)
@@ -212,3 +253,48 @@ async def get_subscription(
     return SubscriptionResponse(
         tier=account["tier"], effective_tier=effective_tier(account), paid_until=account.get("paid_until")
     )
+
+
+@router.get("/byok", response_model=ByokStatusResponse)
+async def get_byok_status(
+    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+) -> ByokStatusResponse:
+    account = await get_or_create_account(db, user.id)
+    return ByokStatusResponse(
+        enabled=bool(account.get("byok_enabled")),
+        provider=account.get("byok_provider"),
+        has_key=bool(account.get("byok_key_encrypted")),
+    )
+
+
+@router.post("/byok", response_model=ByokStatusResponse)
+async def set_byok_key(
+    body: ByokKeyRequest,
+    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ByokStatusResponse:
+    """Same limits, different biller (addendum §3) — this only stores a key
+    for an account that has already bought the add-on; it never changes
+    what the account is allowed to do."""
+    account = await get_or_create_account(db, user.id)
+    if not account.get("byok_enabled"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Buy the BYOK add-on before saving a key.")
+    try:
+        encrypted = encrypt_byok_key(settings, body.api_key)
+    except ByokUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="BYOK key storage isn't configured yet.") from exc
+    await db.update(
+        "accounts", {"user_id": user.id}, {"byok_provider": body.provider, "byok_key_encrypted": encrypted}
+    )
+    return ByokStatusResponse(enabled=True, provider=body.provider, has_key=True)
+
+
+@router.delete("/byok")
+async def clear_byok_key(
+    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+) -> dict[str, str]:
+    await db.update("accounts", {"user_id": user.id}, {"byok_provider": None, "byok_key_encrypted": None})
+    return {"status": "ok"}

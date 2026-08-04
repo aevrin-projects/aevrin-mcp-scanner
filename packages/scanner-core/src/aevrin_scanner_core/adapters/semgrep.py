@@ -14,6 +14,7 @@ from ..models import Finding, Location, Severity, ToolName
 from ..owasp import OwaspMcpCategory
 from ..paths import relative_to_mount
 from ..runner import DockerRunSpec, LocalCommandSpec
+from ..severity_utils import downweight_one_tier
 from .base import ScannerAdapter
 
 _SEVERITY_MAP = {
@@ -77,6 +78,17 @@ class SemgrepAdapter(ScannerAdapter):
             )
             check_id = result.get("check_id", "semgrep-rule")
             message = result.get("extra", {}).get("message", check_id)
+            metadata = result.get("extra", {}).get("metadata", {})
+            # Semgrep's own per-rule confidence (HIGH/MEDIUM/LOW), distinct
+            # from the severity it assigns — a LOW-confidence match is more
+            # likely a false positive, so it's downweighted one tier rather
+            # than trusted at face value. Never upweighted: HIGH confidence
+            # just means the scanner's severity call stands as-is.
+            confidence = metadata.get("confidence")
+            original_severity = None
+            if confidence == "LOW":
+                original_severity = severity
+                severity = downweight_one_tier(severity)
             findings.append(
                 Finding(
                     scan_id=scan_id,
@@ -90,9 +102,11 @@ class SemgrepAdapter(ScannerAdapter):
                         line_start=result.get("start", {}).get("line"),
                         line_end=result.get("end", {}).get("line"),
                     ),
-                    remediation=result.get("extra", {}).get(
-                        "metadata", {}
-                    ).get("fix", "Review and remediate per the Semgrep rule guidance: " + check_id),
+                    remediation=metadata.get(
+                        "fix", "Review and remediate per the Semgrep rule guidance: " + check_id
+                    ),
+                    confidence=confidence,
+                    original_severity=original_severity,
                     raw=result,
                 )
             )

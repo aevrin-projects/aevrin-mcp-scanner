@@ -112,6 +112,17 @@ class TriageStatus(str, Enum):
     FALSE_POSITIVE = "false_positive"
 
 
+class DependencyScope(str, Enum):
+    """Where a vulnerable dependency actually lives, per the owning
+    manifest's own dependency/devDependency split. Set only when a finding's
+    package could be matched against a parsed manifest — most findings have
+    no scope signal available and stay UNKNOWN, not a guessed PRODUCTION."""
+
+    PRODUCTION = "production"
+    DEVELOPMENT = "development"
+    UNKNOWN = "unknown"
+
+
 class Location(BaseModel):
     """Where a finding was found. Exactly one style is populated depending on
     whether this came from source-code analysis or a manifest/config check.
@@ -136,6 +147,44 @@ class Finding(BaseModel):
     remediation: str
     verified: bool | None = None  # e.g. TruffleHog's live credential verification
     not_tested: bool = False  # true only for the synthetic MCP08 placeholder
+    # True when location.file_path falls under a fixtures/tests/examples-style
+    # directory (see fixture_paths.py). Excluded from scoring the same way
+    # not_tested is, but never dropped — still a real finding worth showing.
+    excluded_path: bool = False
+    # Semgrep's per-rule HIGH/MEDIUM/LOW confidence, verbatim from its JSON
+    # metadata. None for every other tool (nothing else in this pipeline
+    # emits a comparable per-finding confidence label).
+    confidence: str | None = None
+    # Set when this finding's severity was lowered from what the tool
+    # itself assigned (low scanner confidence, EPSS predicts negligible
+    # exploitation likelihood, or the dependency is dev-only) — the
+    # original value stays here so the downgrade is auditable, never silent.
+    original_severity: Severity | None = None
+    # FIRST.org Exploit Prediction Scoring System probability (0-1) that this
+    # CVE sees exploitation in the wild in the next 30 days. None means EPSS
+    # had no data for this CVE, the finding isn't CVE-bearing, or the EPSS
+    # fetch failed — never a guessed/defaulted score.
+    epss_score: float | None = None
+    # True when this CVE appears in CISA's Known Exploited Vulnerabilities
+    # catalog — confirmed real-world exploitation, not a prediction. Always
+    # checked, and always wins over any EPSS-driven downweighting.
+    in_kev: bool = False
+    # Dev-only/prod split for dependency findings, from manifest parsing.
+    dependency_scope: DependencyScope | None = None
+    # Other tools (Trivy/OSV-Scanner/Scorecard) that independently reported
+    # this same advisory for this same package — populated by cross-scanner
+    # dedup, which keeps one Finding and folds the rest in here rather than
+    # listing near-duplicates. A non-empty list is a confidence signal, not
+    # noise: multiple independent tools agreeing on the same CVE.
+    corroborated_by: list[ToolName] = Field(default_factory=list)
+    # How many locations this one logical finding was collapsed from (e.g.
+    # the same unpinned Action tag repeated across 44 workflow files). 1 for
+    # everything that wasn't grouped. See grouping.py.
+    occurrence_count: int = 1
+    # The other locations folded into occurrence_count, beyond `location`
+    # itself — so the UI/API can still list every affected file even though
+    # scoring only ever sees this one Finding for the whole group.
+    additional_locations: list[Location] = Field(default_factory=list)
     raw: dict[str, Any] | None = None  # original tool output, for debugging/audit
     triage_status: TriageStatus = TriageStatus.OPEN
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

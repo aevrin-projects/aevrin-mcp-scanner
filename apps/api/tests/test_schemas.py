@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from aevrin_api.routers.scans import _stored_target
-from aevrin_api.schemas import CreateScanRequest, TriageRequest
+from aevrin_api.schemas import ByokKeyRequest, CheckoutRequest, CreateScanRequest, TriageRequest
 
 
 def test_create_scan_request_accepts_valid_target_type():
@@ -58,3 +58,40 @@ def test_pasted_configuration_is_not_used_as_durable_target() -> None:
     assert stored.startswith("Pasted MCP configuration · ")
     assert "secret-value" not in stored
     assert _stored_target("github_repo", "https://github.com/a/b") == "https://github.com/a/b"
+
+
+def test_checkout_request_accepts_pro_tier():
+    req = CheckoutRequest(tier="pro", cycle="monthly")
+    assert req.tier == "pro"
+    assert req.seats == 1
+
+
+def test_checkout_request_rejects_unknown_tier():
+    with pytest.raises(ValidationError):
+        CheckoutRequest(tier="enterprise", cycle="monthly")
+
+
+def test_checkout_request_team_requires_three_seat_minimum():
+    with pytest.raises(ValidationError):
+        CheckoutRequest(tier="team", cycle="monthly", seats=2)
+
+    req = CheckoutRequest(tier="team", cycle="monthly", seats=3)
+    assert req.seats == 3
+
+
+def test_checkout_request_rejects_multiple_seats_on_non_team_tiers():
+    with pytest.raises(ValidationError):
+        CheckoutRequest(tier="hobby", cycle="monthly", seats=2)
+    with pytest.raises(ValidationError):
+        CheckoutRequest(tier="pro", cycle="annual", seats=5)
+
+
+def test_byok_key_request_rejects_unknown_provider():
+    with pytest.raises(ValidationError):
+        ByokKeyRequest(provider="openai", api_key="sk-fakefakefake")
+
+
+def test_byok_key_request_accepts_known_providers():
+    for provider in ("anthropic", "google"):
+        req = ByokKeyRequest(provider=provider, api_key="a-fake-but-long-enough-key")
+        assert req.provider == provider

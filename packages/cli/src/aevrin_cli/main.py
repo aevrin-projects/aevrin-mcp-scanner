@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
@@ -241,22 +242,23 @@ def print_hook_settings_snippet() -> None:
     # needed for real users.
     from . import hook_script
 
-    script_path = Path(hook_script.__file__).resolve()
+    # shlex.quote — an unquoted path breaks the moment it contains a space
+    # (e.g. some pipx/npm install prefixes), since Claude Code runs this
+    # `command` string through a shell: the path silently splits into
+    # multiple bogus arguments and the hook exits before it ever reads
+    # stdin, indistinguishable from the hook just not firing at all.
+    script_command = f"python3 {shlex.quote(str(Path(hook_script.__file__).resolve()))}"
     snippet = json.dumps(
         {
             "hooks": {
                 "PreToolUse": [
                     {
                         "matcher": "Bash",
-                        "hooks": [
-                            {"type": "command", "command": f"python3 {script_path}", "timeout": 8}
-                        ],
+                        "hooks": [{"type": "command", "command": script_command, "timeout": 8}],
                     },
                     {
                         "matcher": "Write",
-                        "hooks": [
-                            {"type": "command", "command": f"python3 {script_path}", "timeout": 8}
-                        ],
+                        "hooks": [{"type": "command", "command": script_command, "timeout": 8}],
                     },
                 ]
             }

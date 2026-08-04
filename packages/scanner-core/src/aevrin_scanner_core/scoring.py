@@ -44,10 +44,18 @@ SEVERITY_DEDUCTION_CAPS: dict[Severity, int | None] = {
 STARTING_SCORE = 100
 
 
+def _scored(finding: Finding) -> bool:
+    """Findings that exist in the report but must never move the score:
+    not_tested (the synthetic MCP08 placeholder) and excluded_path (fixture/
+    test-directory findings — see fixture_paths.py). Both are still real
+    Finding objects, just exempted here rather than dropped."""
+    return not finding.not_tested and not finding.excluded_path
+
+
 def compute_score(findings: list[Finding]) -> int:
     tier_totals: dict[Severity, int] = {s: 0 for s in Severity}
     for finding in findings:
-        if finding.not_tested:
+        if not _scored(finding):
             continue
         tier_totals[finding.severity] += SEVERITY_DEDUCTIONS[finding.severity]
 
@@ -72,7 +80,7 @@ def verdict(score: int) -> str:
 def severity_counts(findings: list[Finding]) -> dict[Severity, int]:
     counts = {s: 0 for s in Severity}
     for finding in findings:
-        if finding.not_tested:
+        if not _scored(finding):
             continue
         counts[finding.severity] += 1
     return counts

@@ -53,6 +53,7 @@ from .models import (
 )
 from .network_safety import public_https_url_error
 from .not_tested import not_tested_placeholder
+from .postprocess import postprocess_findings
 from .remote_mcp import inspect_remote_signatures
 from .rug_pull import PinnedSignature, diff_signatures
 from .runner import ToolExecutionError, sanitized_subprocess_env
@@ -191,6 +192,12 @@ def run_pipeline(
 
         _mark(stage_by_name[StageName.AGGREGATING], StageStatus.RUNNING, on_stage)
         emit([not_tested_placeholder(scan_id)])
+        # Fixture-path exclusion, cross-scanner dedup, root-cause grouping,
+        # dependency dev/prod scope, and EPSS/CISA-KEV enrichment all need
+        # the *complete* finding set (some inherently span tools/stages), so
+        # this only happens once here — after every stage has emitted, right
+        # before compute_score. See postprocess.py.
+        scan.findings = postprocess_findings(scan.findings, repo_dir)
         scan.score = compute_score(scan.findings)
         # stage_reliable only has entries for stages that were actually
         # attempted (GITHUB_REPO/LOCAL_PATH targets) — a stage absent from it

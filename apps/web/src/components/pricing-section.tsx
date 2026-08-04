@@ -13,19 +13,23 @@ import { api, ApiError } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 import { Reveal } from "@/components/reveal";
 
-type TierId = "free" | "hobby" | "team";
+type TierId = "free" | "hobby" | "pro" | "team";
+
+const TEAM_MIN_SEATS = 3;
+const BYOK_ADDON_MONTHLY = 3;
 
 interface Tier {
   id: TierId;
   name: string;
-  monthly: number;
-  annual: number; // per-month price when billed annually
+  monthly: number; // per-seat for team
+  annual: number; // per-month price when billed annually, per-seat for team
   cli: string;
   hook: string;
   dashboard: string;
   retention: string;
   seats: string;
   pdfExport: boolean;
+  aiRemediation: boolean;
   cta: string;
   popular?: boolean;
   features: string[];
@@ -43,55 +47,83 @@ const TIERS: Tier[] = [
     retention: "7 days",
     seats: "1",
     pdfExport: false,
+    aiRemediation: false,
     cta: "Start free",
     features: [
       "5 CLI scans / month",
       "2 hook auto-scans / month",
       "5 dashboard scans / month",
       "7-day scan history",
+      "Every deterministic accuracy fix — no LLM triage",
     ],
   },
   {
     id: "hobby",
     name: "Hobby",
-    monthly: 19,
-    annual: 15,
+    monthly: 9,
+    annual: 7,
     cli: "50 / month",
     hook: "20 / month",
     dashboard: "50 / month",
     retention: "90 days",
     seats: "1",
     pdfExport: true,
+    aiRemediation: false,
     cta: "Start Hobby",
-    popular: true,
     features: [
       "50 CLI scans / month",
       "20 hook auto-scans / month",
       "50 dashboard scans / month",
       "90-day scan history",
+      "LLM triage (Gemini Flash-Lite) — confirmed / false positive / needs review",
       "OWASP MCP-mapped report export",
+    ],
+  },
+  {
+    id: "pro",
+    name: "Pro",
+    monthly: 29,
+    annual: 24,
+    cli: "200 / month",
+    hook: "100 / month",
+    dashboard: "200 / month",
+    retention: "1 year",
+    seats: "1",
+    pdfExport: true,
+    aiRemediation: true,
+    cta: "Start Pro",
+    popular: true,
+    features: [
+      "200 CLI scans / month",
+      "100 hook auto-scans / month",
+      "200 dashboard scans / month",
+      "1-year scan history",
+      "Routed triage — Haiku 4.5 on Critical/High, Flash-Lite on the rest",
+      "AI-drafted remediation suggestions",
+      "Plain-language scan summary",
+      "Upgraded tool-poisoning detection",
     ],
   },
   {
     id: "team",
     name: "Team",
-    monthly: 79,
-    annual: 59,
-    cli: "Unlimited",
-    hook: "Unlimited",
-    dashboard: "Unlimited",
+    monthly: 35,
+    annual: 28,
+    cli: "Usage-based",
+    hook: "Usage-based",
+    dashboard: "Usage-based",
     retention: "Unlimited",
-    seats: "1 account",
+    seats: "3-seat minimum",
     pdfExport: true,
+    aiRemediation: true,
     cta: "Start Team",
     features: [
-      "Unlimited CLI scans",
-      "Unlimited hook auto-scans",
-      "Unlimited dashboard scans",
-      "Unlimited scan history",
-      "OWASP MCP-mapped report export",
-      "Single-account workspace",
-      "Team seats and shared roles are not yet included",
+      "Everything in Pro, usage-based instead of fixed",
+      "Org-wide hook policy console — set the block threshold everyone's hook enforces",
+      "See everything blocked across the team in one place",
+      "SSO and audit log",
+      "3-seat minimum, billed per seat",
+      "Bring your own Anthropic/Google key — Aevrin bills the platform, not the tokens",
     ],
   },
 ];
@@ -108,8 +140,12 @@ const FAQ = [
   },
   { q: "Is there a student or nonprofit rate?", a: "A separate student or nonprofit rate is not currently offered." },
   {
-    q: "How are seats counted on Team?",
-    a: "The current product does not yet provide shared seats, roles, or member management. The Team tier is a higher-limit single-account plan today.",
+    q: "What does bring-your-own-key change?",
+    a: `BYOK is a flat +$${BYOK_ADDON_MONTHLY}/month platform fee, not a token markup — it never changes your scan limits or feature access, only who pays for the model calls. Team includes it at no extra charge.`,
+  },
+  {
+    q: "How does Team's per-seat pricing work?",
+    a: "Team is billed per seat with a 3-seat minimum. Seats are a billing quantity today, not yet a shared multi-user login — every seat purchased raises the account's usage-based limits.",
   },
 ];
 
@@ -140,11 +176,13 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
   const router = useRouter();
   const [annual, setAnnual] = useState(true);
   const [loadingTier, setLoadingTier] = useState<TierId | null>(null);
-
-  const hobbySavings = (TIERS[1].monthly - TIERS[1].annual) * 12;
-  const teamSavings = (TIERS[2].monthly - TIERS[2].annual) * 12;
-  const savingsByTier: Record<TierId, number> = { free: 0, hobby: hobbySavings, team: teamSavings };
+  const [teamSeats, setTeamSeats] = useState(TEAM_MIN_SEATS);
+  const [byok, setByok] = useState<Record<TierId, boolean>>({ free: false, hobby: false, pro: false, team: false });
   const Heading = headingLevel;
+
+  function savingsFor(tier: Tier): number {
+    return (tier.monthly - tier.annual) * 12;
+  }
 
   async function handleCta(tier: Tier) {
     if (tier.id === "free") {
@@ -164,9 +202,11 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
     setLoadingTier(tier.id);
     try {
       const cycle = annual ? "annual" : "monthly";
+      const seats = tier.id === "team" ? teamSeats : 1;
       const { order_id, amount_paise, currency, razorpay_key_id } = await api.createCheckout(
-        tier.id as "hobby" | "team",
+        tier.id as "hobby" | "pro" | "team",
         cycle,
+        { seats, byok: tier.id === "team" ? false : byok[tier.id] },
       );
       await loadRazorpayScript();
       type RazorpaySuccess = { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string };
@@ -178,7 +218,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
         amount: amount_paise,
         currency,
         name: "Aevrin",
-        description: `${tier.name} — ${cycle}`,
+        description: `${tier.name} — ${cycle}${seats > 1 ? ` — ${seats} seats` : ""}`,
         theme: { color: "#000000" },
         handler: async (resp: unknown) => {
           const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = resp as RazorpaySuccess;
@@ -223,9 +263,12 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
         </div>
       </Reveal>
 
-      <div className="mt-10 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-10 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
         {TIERS.map((tier, i) => {
           const price = annual ? tier.annual : tier.monthly;
+          const seats = tier.id === "team" ? teamSeats : 1;
+          const addonMonthly = tier.id !== "free" && tier.id !== "team" && byok[tier.id] ? BYOK_ADDON_MONTHLY : 0;
+          const totalMonthlyEquivalent = price * seats + addonMonthly;
           return (
             <Reveal key={tier.id} delay={i * 80} className="h-full">
               <Card
@@ -237,23 +280,58 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
                   <div className="flex items-center justify-between">
                     <CardTitle>{tier.name}</CardTitle>
                     {tier.popular && (
-                      <Badge className="border-transparent bg-brand text-brand-foreground">Individual plan</Badge>
+                      <Badge className="border-transparent bg-brand text-brand-foreground">Most popular</Badge>
                     )}
                   </div>
                   <div className="flex items-baseline gap-1 pt-2">
-                    <span className="text-3xl font-semibold">{formatUsd(price)}</span>
-                    <span className="text-sm text-muted-foreground">/month</span>
+                    <span className="text-3xl font-semibold">{formatUsd(totalMonthlyEquivalent)}</span>
+                    <span className="text-sm text-muted-foreground">
+                      /month{tier.id === "team" ? ` (${seats} seats)` : ""}
+                    </span>
                   </div>
                   {annual && tier.id !== "free" && (
                     <p className="text-xs text-muted-foreground">
-                      {formatUsd(price * 12)} billed today for one year — save {formatUsd(savingsByTier[tier.id])}
+                      {formatUsd(totalMonthlyEquivalent * 12)} billed today for one year — save{" "}
+                      {formatUsd(savingsFor(tier) * seats)}
                     </p>
                   )}
                   {!annual && tier.id !== "free" ? (
-                    <p className="text-xs text-muted-foreground">{formatUsd(price)} billed today for one month</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatUsd(totalMonthlyEquivalent)} billed today for one month
+                    </p>
                   ) : null}
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
+                  {tier.id === "team" && (
+                    <div className="flex items-center justify-between rounded-lg border border-border/80 px-3 py-2 text-sm">
+                      <label htmlFor="team-seats" className="text-muted-foreground">
+                        Seats (min {TEAM_MIN_SEATS})
+                      </label>
+                      <input
+                        id="team-seats"
+                        type="number"
+                        min={TEAM_MIN_SEATS}
+                        value={teamSeats}
+                        onChange={(e) =>
+                          setTeamSeats(Math.max(TEAM_MIN_SEATS, Number(e.target.value) || TEAM_MIN_SEATS))
+                        }
+                        className="w-16 rounded-md border border-border bg-background px-2 py-1 text-right"
+                      />
+                    </div>
+                  )}
+                  {(tier.id === "hobby" || tier.id === "pro") && (
+                    <div className="flex items-center justify-between rounded-lg border border-border/80 px-3 py-2 text-sm">
+                      <label htmlFor={`byok-${tier.id}`} className="text-muted-foreground">
+                        Bring your own key (+{formatUsd(BYOK_ADDON_MONTHLY)}/mo)
+                      </label>
+                      <Switch
+                        id={`byok-${tier.id}`}
+                        checked={byok[tier.id]}
+                        onCheckedChange={(checked) => setByok((prev) => ({ ...prev, [tier.id]: checked }))}
+                        aria-label={`Bring your own key for ${tier.name}`}
+                      />
+                    </div>
+                  )}
                   <ul className="flex flex-col gap-2 text-sm">
                     {tier.features.map((f) => (
                       <li key={f} className="flex items-start gap-2">
@@ -278,7 +356,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
       </div>
 
       <div className="mt-16 overflow-x-auto" tabIndex={0} aria-label="Pricing comparison table">
-        <table className="w-full min-w-[560px] border-collapse text-sm">
+        <table className="w-full min-w-[680px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-border text-left">
               <th className="py-3 font-medium text-muted-foreground">Feature</th>
@@ -295,7 +373,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
               { label: "Hook auto-scans", key: "hook" as const },
               { label: "Dashboard scans", key: "dashboard" as const },
               { label: "Scan history retained", key: "retention" as const },
-              { label: "Accounts", key: "seats" as const },
+              { label: "Seats", key: "seats" as const },
             ].map((row) => (
               <tr key={row.key} className="border-b border-border/50">
                 <td className="py-3 text-muted-foreground">{row.label}</td>
@@ -306,11 +384,19 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
                 ))}
               </tr>
             ))}
-            <tr>
-              <td className="py-3 text-muted-foreground">OWASP MCP-mapped report export</td>
+            <tr className="border-b border-border/50">
+              <td className="py-3 text-muted-foreground">Compliance PDF export</td>
               {TIERS.map((t) => (
                 <td key={t.id} className="py-3 text-center">
                   {t.pdfExport ? <Check className="mx-auto size-4" /> : "—"}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <td className="py-3 text-muted-foreground">AI remediation suggestions</td>
+              {TIERS.map((t) => (
+                <td key={t.id} className="py-3 text-center">
+                  {t.aiRemediation ? <Check className="mx-auto size-4" /> : "—"}
                 </td>
               ))}
             </tr>
