@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -116,7 +116,7 @@ const TIERS: Tier[] = [
     seats: "3-seat minimum",
     pdfExport: true,
     aiRemediation: true,
-    cta: "Start Team",
+    cta: "Contact us",
     features: [
       "Everything in Pro, usage-based instead of fixed",
       "Org-wide hook policy console — set the block threshold everyone's hook enforces",
@@ -202,11 +202,10 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
     setLoadingTier(tier.id);
     try {
       const cycle = annual ? "annual" : "monthly";
-      const seats = tier.id === "team" ? teamSeats : 1;
       const { order_id, amount_paise, currency, razorpay_key_id } = await api.createCheckout(
-        tier.id as "hobby" | "pro" | "team",
+        tier.id as "hobby" | "pro",
         cycle,
-        { seats, byok: tier.id === "team" ? false : byok[tier.id] },
+        { seats: 1, byok: byok[tier.id] },
       );
       await loadRazorpayScript();
       type RazorpaySuccess = { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string };
@@ -218,7 +217,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
         amount: amount_paise,
         currency,
         name: "Aevrin",
-        description: `${tier.name} — ${cycle}${seats > 1 ? ` — ${seats} seats` : ""}`,
+        description: `${tier.name} — ${cycle}`,
         theme: { color: "#000000" },
         handler: async (resp: unknown) => {
           const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = resp as RazorpaySuccess;
@@ -340,14 +339,20 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
                       </li>
                     ))}
                   </ul>
-                  <Button
-                    className="w-full"
-                    variant={tier.popular ? "default" : "outline"}
-                    disabled={loadingTier === tier.id}
-                    onClick={() => handleCta(tier)}
-                  >
-                    {loadingTier === tier.id ? "Please wait…" : tier.cta}
-                  </Button>
+                  {tier.id === "team" ? (
+                    <a href="mailto:team@aevrin.net" className={buttonVariants({ className: "w-full", variant: "outline" })}>
+                      {tier.cta}
+                    </a>
+                  ) : (
+                    <Button
+                      className="w-full"
+                      variant={tier.popular ? "default" : "outline"}
+                      disabled={loadingTier === tier.id}
+                      onClick={() => handleCta(tier)}
+                    >
+                      {loadingTier === tier.id ? "Please wait…" : tier.cta}
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             </Reveal>
