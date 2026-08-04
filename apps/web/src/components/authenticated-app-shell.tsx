@@ -147,14 +147,14 @@ export function AuthenticatedAppShell({
                   <DialogTrigger render={<Button variant="outline" size="icon-sm" aria-label="Open navigation" />}>
                     <Menu className="size-4" />
                   </DialogTrigger>
-                  <DialogContent className="left-0 top-0 h-full max-w-[320px] translate-x-0 translate-y-0 rounded-none border-r border-border p-0">
-                    <DialogHeader className="border-b border-border px-5 py-4">
+                  <DialogContent className="left-0 top-0 flex h-full max-w-[320px] translate-x-0 translate-y-0 flex-col items-stretch gap-0 rounded-none border-r border-border p-0">
+                    <DialogHeader className="shrink-0 border-b border-border px-5 py-4">
                       <DialogTitle className="flex items-center gap-3">
                         <Image src="/logo.png" alt="" width={22} height={24} />
                         Aevrin
                       </DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-6 px-4 py-5">
+                    <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5">
                       <NavLinks pathname={pathname} onNavigate={() => setMobileOpen(false)} />
                     </div>
                   </DialogContent>

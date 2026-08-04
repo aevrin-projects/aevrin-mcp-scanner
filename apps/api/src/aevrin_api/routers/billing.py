@@ -30,6 +30,7 @@ from ..schemas import (
     ByokStatusResponse,
     CheckoutRequest,
     CheckoutResponse,
+    PaymentOut,
     SubscriptionResponse,
     VerifyPaymentRequest,
     VerifyPaymentResponse,
@@ -321,6 +322,18 @@ async def get_subscription(
     return SubscriptionResponse(
         tier=account["tier"], effective_tier=effective_tier(account), paid_until=account.get("paid_until")
     )
+
+
+@router.get("/payments", response_model=list[PaymentOut])
+async def list_payments(
+    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+) -> list[PaymentOut]:
+    """Billing history — every checkout this account has started, most
+    recent first, including failed/abandoned ones so a person can see why a
+    charge they expected never completed rather than just a gap."""
+    rows = await db.select("payments", {"user_id": user.id}, order="created_at.desc", limit=100)
+    return [PaymentOut(**row) for row in rows]
 
 
 @router.get("/byok", response_model=ByokStatusResponse)

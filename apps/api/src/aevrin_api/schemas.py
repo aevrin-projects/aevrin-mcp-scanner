@@ -352,6 +352,19 @@ class SubscriptionResponse(BaseModel):
     paid_until: datetime | None = None
 
 
+class PaymentOut(BaseModel):
+    id: UUID
+    tier: str
+    cycle: str
+    seats: int = 1
+    byok: bool = False
+    amount_paise: int
+    currency: str
+    status: str
+    created_at: datetime
+    verified_at: datetime | None = None
+
+
 class AccountLookupResponse(BaseModel):
     exists: bool
     providers: list[str]

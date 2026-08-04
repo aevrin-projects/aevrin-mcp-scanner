@@ -15,8 +15,25 @@ function matchesPath(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
+// This is the ONLY place in the app that should ever call getClaims()
+// server-side. Every page previously re-derived auth state itself
+// (layout.tsx, page.tsx, device/page.tsx each ran their own getClaims()),
+// which meant a single page load could trigger 2-3 independent refresh
+// attempts against the same refresh token. Supabase only tolerates reusing
+// a refresh token within a 10-second grace window (see "What is refresh
+// token reuse detection" in Supabase's docs) — outside that window, reuse
+// is treated as theft and the *entire* session is revoked. That's what was
+// causing people to get logged out and have to sign in again repeatedly:
+// confirmed live in the project's auth logs, which showed token_refreshed
+// and token_revoked firing in the same second, followed by "Invalid Refresh
+// Token: Refresh Token Not Found" and a forced /logout. The fix is to
+// resolve identity exactly once here and hand it to every Server Component
+// via a request header — see layout.tsx/page.tsx/device/page.tsx, which now
+// read x-aevrin-user-email/x-aevrin-user-id instead of calling Supabase
+// again.
 export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+  const cookiesToApply: { name: string; value: string; options?: Record<string, unknown> }[] = [];
+  let cacheHeaders: Record<string, string> = {};
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,13 +45,8 @@ export async function updateSession(request: NextRequest) {
         },
         setAll(cookiesToSet, headers) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options),
-          );
-          Object.entries(headers).forEach(([key, value]) =>
-            supabaseResponse.headers.set(key, value),
-          );
+          cookiesToApply.push(...cookiesToSet);
+          cacheHeaders = headers;
         },
       },
     },
@@ -44,6 +56,21 @@ export async function updateSession(request: NextRequest) {
   // Supabase's SSR docs: skipping this call can randomly log users out.
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
+
+  // Per Next.js's documented pattern for forwarding request headers to
+  // Server Components: NextResponse.next({ request: { headers } }) with a
+  // fresh Headers clone — not NextResponse.next({ headers }) (that sets
+  // *response* headers, visible to the browser, not request headers) and
+  // not passing the NextRequest itself (untyped for this purpose, even
+  // though request.cookies mutation below relies on the same object).
+  const requestHeaders = new Headers(request.headers);
+  if (user) {
+    requestHeaders.set("x-aevrin-user-id", String(user.sub ?? ""));
+    requestHeaders.set("x-aevrin-user-email", String(user.email ?? ""));
+  } else {
+    requestHeaders.delete("x-aevrin-user-id");
+    requestHeaders.delete("x-aevrin-user-email");
+  }
 
   const { pathname } = request.nextUrl;
   const isPublicPath =
@@ -56,5 +83,13 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  return supabaseResponse;
+  // Exactly one response, built once, after the header decision above —
+  // carries the refreshed cookies (browser) and the identity header
+  // (downstream Server Components) together, instead of the previous
+  // pattern of rebuilding a response inline inside setAll every time a
+  // cookie changed.
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  cookiesToApply.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+  Object.entries(cacheHeaders).forEach(([key, value]) => response.headers.set(key, value));
+  return response;
 }

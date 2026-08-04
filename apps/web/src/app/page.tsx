@@ -17,7 +17,7 @@ import { PricingSection } from "@/components/pricing-section";
 import { InstallDocsSection } from "@/components/install-docs-section";
 import { SiteFooter } from "@/components/site-footer";
 import { Reveal } from "@/components/reveal";
-import { createClient } from "@/lib/supabase/server";
+import { headers } from "next/headers";
 
 const PILLARS = [
   {
@@ -69,9 +69,8 @@ const ROLLOUT = [
 ] as const;
 
 export default async function LandingPage() {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-  const signedIn = Boolean(data?.claims);
+  const headersList = await headers();
+  const signedIn = Boolean(headersList.get("x-aevrin-user-email"));
   const primaryHref = signedIn ? "/dashboard" : "/login";
 
   return (

@@ -83,6 +83,7 @@ export const api = {
       body: JSON.stringify({ user_code: userCode, fingerprint }),
     }),
   getSubscription: () => request<import("@/lib/types").Subscription>("/billing/subscription"),
+  getPayments: () => request<import("@/lib/types").Payment[]>("/billing/payments"),
   createCheckout: (
     tier: "hobby" | "pro" | "team",
     cycle: "monthly" | "annual",

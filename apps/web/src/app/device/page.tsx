@@ -1,23 +1,25 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { headers } from "next/headers";
 import { DeviceApproveForm } from "./device-approve-form";
 
 // The one flow that must resist disposable-email abuse (addendum §3/§4) —
 // deliberately requires a real session here rather than relying on the
-// global proxy gate, since /device is listed as a public path (it has to be
-// reachable pre-auth so an unauthenticated visit lands in /login with a
-// return path, not a bare 404).
+// global proxy redirect gate, since /device is listed as a public path (it
+// has to be reachable pre-auth so an unauthenticated visit lands in /login
+// with a return path, not a bare 404). The proxy still resolves identity
+// for every request regardless of path (see lib/supabase/proxy.ts), so
+// reading its header here is exactly as trustworthy as calling Supabase
+// again — it just doesn't risk a second, racing refresh-token exchange.
 export default async function DevicePage({
   searchParams,
 }: {
   searchParams: Promise<{ user_code?: string }>;
 }) {
   const { user_code } = await searchParams;
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-  const claims = data?.claims;
+  const headersList = await headers();
+  const email = headersList.get("x-aevrin-user-email");
 
-  if (!claims) {
+  if (!email) {
     const next = `/device${user_code ? `?user_code=${encodeURIComponent(user_code)}` : ""}`;
     redirect(`/login?next=${encodeURIComponent(next)}`);
   }

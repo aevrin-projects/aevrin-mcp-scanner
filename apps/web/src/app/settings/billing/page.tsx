@@ -3,12 +3,39 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { CreditCard, Receipt } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import type { AccountUsage, Subscription } from "@/lib/types";
+import type { AccountUsage, Payment, Subscription } from "@/lib/types";
 import { PageHeader, MetricCard, SectionCard } from "@/components/product-ui";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate, formatDateTime } from "@/lib/presentation";
+
+const PAYMENT_TIER_LABEL: Record<Payment["tier"], string> = {
+  hobby: "Hobby",
+  pro: "Pro",
+  team: "Team",
+  autofix_addon: "+10 auto-fix PRs",
+};
+
+const PAYMENT_STATUS_STYLE: Record<Payment["status"], string> = {
+  paid: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  created: "border-border text-muted-foreground",
+  failed: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
+};
+
+const PAYMENT_STATUS_LABEL: Record<Payment["status"], string> = {
+  paid: "Paid",
+  created: "Not completed",
+  failed: "Failed",
+};
+
+function formatMoney(amountPaise: number, currency: string) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 2 }).format(
+    amountPaise / 100,
+  );
+}
 
 const PLAN_COPY = {
   free: { price: "$0", billing: "No renewal", body: "Five CLI scans, two hook auto-scans, and five dashboard scans each month." },
@@ -25,6 +52,7 @@ const BUCKET_LABEL: Record<string, string> = {
 export default function BillingPage() {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [usage, setUsage] = useState<AccountUsage | null>(null);
+  const [payments, setPayments] = useState<Payment[] | null>(null);
 
   useEffect(() => {
     api
@@ -35,6 +63,10 @@ export default function BillingPage() {
       .getUsage()
       .then(setUsage)
       .catch((err) => toast.error(err instanceof ApiError ? err.message : "Could not load usage info."));
+    api
+      .getPayments()
+      .then(setPayments)
+      .catch((err) => toast.error(err instanceof ApiError ? err.message : "Could not load billing history."));
   }, []);
 
   const plan = subscription ? PLAN_COPY[subscription.tier] : null;
@@ -101,9 +133,17 @@ export default function BillingPage() {
                     : `The current paid period ends on ${formatDate(subscription.paid_until)}. The system does not charge automatically after that date.`
                   : "Free plans have no payment date and no invoice history in the current backend."}
               </p>
-              <p>
-                Invoice history, repayment flows, and seat management are not exposed by the current backend, so they are not shown here.
-              </p>
+              <div className="flex items-start gap-3 rounded-2xl border border-border/80 bg-background/70 p-4">
+                <CreditCard className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                <div>
+                  <p className="font-medium text-foreground">Payment method</p>
+                  <p className="mt-1">
+                    Aevrin doesn&apos;t store a card. Each cycle is a one-time Razorpay Standard Checkout — you pick
+                    the card or method on Razorpay&apos;s own checkout screen every time you pay, and nothing is
+                    charged automatically in between.
+                  </p>
+                </div>
+              </div>
             </div>
           ) : null}
         </SectionCard>
@@ -133,9 +173,73 @@ export default function BillingPage() {
         </SectionCard>
       </div>
 
+      <SectionCard
+        title="Billing history"
+        description="Every checkout this account has started, most recent first — including ones that didn't complete, so a missing charge is never a mystery."
+      >
+        {payments === null ? (
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <Skeleton key={index} className="h-14 rounded-2xl" />
+            ))}
+          </div>
+        ) : payments.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border px-5 py-10 text-center">
+            <Receipt className="size-6 text-muted-foreground" />
+            <p className="text-sm font-medium">No payments yet</p>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Nothing has been charged on this account. Free needs no payment method at all.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto" tabIndex={0} aria-label="Billing history">
+            <table className="w-full min-w-[560px] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs uppercase tracking-[0.08em] text-muted-foreground">
+                  <th className="py-2 pr-4 font-medium">Date</th>
+                  <th className="py-2 pr-4 font-medium">Plan</th>
+                  <th className="py-2 pr-4 font-medium">Cycle</th>
+                  <th className="py-2 pr-4 font-medium">Amount</th>
+                  <th className="py-2 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((payment) => (
+                  <tr key={payment.id} className="border-b border-border/50 last:border-0">
+                    <td className="py-3 pr-4 text-muted-foreground">{formatDate(payment.created_at)}</td>
+                    <td className="py-3 pr-4">
+                      {PAYMENT_TIER_LABEL[payment.tier]}
+                      {payment.seats > 1 ? ` · ${payment.seats} seats` : ""}
+                      {payment.byok ? " · BYOK" : ""}
+                    </td>
+                    <td className="py-3 pr-4 capitalize text-muted-foreground">{payment.cycle}</td>
+                    <td className="py-3 pr-4 font-medium">{formatMoney(payment.amount_paise, payment.currency)}</td>
+                    <td className="py-3">
+                      <Badge variant="outline" className={PAYMENT_STATUS_STYLE[payment.status]}>
+                        {PAYMENT_STATUS_LABEL[payment.status]}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
+
       {subscription && (subscription.effective_tier === "pro" || subscription.effective_tier === "team") ? (
         <AutofixSection />
       ) : null}
+
+      <SectionCard title="Need something else?" description="Refunds, receipts for accounting, or anything billing-related.">
+        <p className="text-sm leading-6 text-muted-foreground">
+          Reach the same team that handles product support — no separate billing queue or phone tree.{" "}
+          <a href="mailto:support@aevrin.net" className="font-medium text-foreground underline underline-offset-2">
+            support@aevrin.net
+          </a>
+          .
+        </p>
+      </SectionCard>
     </div>
   );
 }

@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
-import { createClient } from "@/lib/supabase/server";
 import { LayoutChrome } from "@/components/layout-chrome";
 
 const geistSans = Geist({
@@ -36,9 +36,13 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-  const claims = data?.claims;
+  // Resolved once, in the proxy (see lib/supabase/proxy.ts) — reading the
+  // header here instead of calling Supabase again avoids a second
+  // concurrent refresh-token exchange on every single page load, which was
+  // the actual cause of people getting logged out and having to sign in
+  // repeatedly.
+  const headersList = await headers();
+  const email = headersList.get("x-aevrin-user-email") || undefined;
 
   return (
     <html
@@ -48,7 +52,7 @@ export default async function RootLayout({
     >
       <body className="min-h-full bg-background text-foreground">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <LayoutChrome email={claims?.email as string | undefined}>{children}</LayoutChrome>
+          <LayoutChrome email={email}>{children}</LayoutChrome>
           <Toaster />
         </ThemeProvider>
       </body>
