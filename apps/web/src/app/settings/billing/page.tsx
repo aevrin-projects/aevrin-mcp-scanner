@@ -244,6 +244,13 @@ export default function BillingPage() {
   );
 }
 
+const GITHUB_CALLBACK_MESSAGE: Record<string, { message: string; ok: boolean }> = {
+  connected: { message: "GitHub connected — Fix It can now open pull requests on the repos you granted.", ok: true },
+  cancelled: { message: "GitHub connection cancelled — nothing was granted.", ok: false },
+  invalid_state: { message: "That connection link expired — try connecting again.", ok: false },
+  error: { message: "Could not complete the GitHub connection — try again.", ok: false },
+};
+
 function AutofixSection() {
   const [status, setStatus] = useState<{ connected: boolean; account_login: string | null } | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -254,6 +261,23 @@ function AutofixSection() {
       .getGithubStatus()
       .then(setStatus)
       .catch((err) => toast.error(err instanceof ApiError ? err.message : "Could not load GitHub connection status."));
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get("github");
+    if (!result) return;
+    const outcome = GITHUB_CALLBACK_MESSAGE[result];
+    if (outcome) {
+      if (outcome.ok) {
+        toast.success(outcome.message);
+      } else {
+        toast.error(outcome.message);
+      }
+    }
+    params.delete("github");
+    const query = params.toString();
+    window.history.replaceState({}, "", query ? `?${query}` : window.location.pathname);
   }, []);
 
   async function connectGithub() {

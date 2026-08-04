@@ -121,7 +121,7 @@ async def github_callback(
     """GitHub redirects the person's browser here after they approve (or
     cancel) installing the App — not an authenticated API call, so identity
     comes entirely from `state` (see sign_install_state)."""
-    settings_url = f"{settings.web_origin}/dashboard/settings"
+    settings_url = f"{settings.web_origin}/settings/billing"
     if not installation_id or not state:
         return RedirectResponse(f"{settings_url}?github=cancelled")
     user_id = verify_install_state(settings, state)
