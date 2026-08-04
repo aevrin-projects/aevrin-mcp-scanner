@@ -28,10 +28,11 @@ export default function TermsPage() {
           <section>
             <h2 className="font-medium text-foreground">Accounts and usage limits</h2>
             <p className="mt-1">
-              Each plan (Free, Hobby, Team) includes a fixed number of scans per month across three
-              separate categories — CLI, Claude Code hook, and dashboard — that reset on a rolling
-              monthly cycle from your signup date. We may adjust these limits from time to time;
-              published limits at the time you use the service apply.
+              Each plan (Free, Hobby, Pro, Team) includes a fixed number of scans per month across
+              three separate categories — CLI, Claude Code hook, and dashboard — that reset on a
+              rolling monthly cycle from your signup date. Pro and Team also include a fixed monthly
+              allowance of automated fix pull requests, billed and reset the same way. We may adjust
+              these limits from time to time; published limits at the time you use the service apply.
             </p>
           </section>
           <section>
@@ -52,6 +53,18 @@ export default function TermsPage() {
             </p>
           </section>
           <section>
+            <h2 className="font-medium text-foreground">Refunds</h2>
+            <p className="mt-1">
+              Payments are non-refundable except where required by applicable law, including
+              India&apos;s Consumer Protection Act, 2019 and its e-commerce rules. If you believe a
+              charge was made in error, contact{" "}
+              <a href="mailto:support@aevrin.net" className="underline underline-offset-2">
+                support@aevrin.net
+              </a>{" "}
+              and we&apos;ll review it.
+            </p>
+          </section>
+          <section>
             <h2 className="font-medium text-foreground">Scan results and limitations</h2>
             <p className="mt-1">
               Results reflect only the checks that complete. Partial and failed scans can miss
@@ -66,6 +79,16 @@ export default function TermsPage() {
               Aevrin is a security scanning aid, not a guarantee. A clean scan does not mean an MCP
               server is safe to use — it means the specific checks we ran didn&apos;t find a problem.
               The service is provided as-is, without warranty of any kind.
+            </p>
+          </section>
+          <section>
+            <h2 className="font-medium text-foreground">Limitation of liability</h2>
+            <p className="mt-1">
+              To the maximum extent permitted by law, Aevrin&apos;s total liability arising from or
+              related to the service is limited to the amount you paid us in the 12 months before
+              the claim arose. Aevrin is not liable for indirect, incidental, or consequential
+              damages, including losses from vulnerabilities a scan did not catch. Nothing here
+              limits liability that cannot be limited under applicable law.
             </p>
           </section>
           <section>

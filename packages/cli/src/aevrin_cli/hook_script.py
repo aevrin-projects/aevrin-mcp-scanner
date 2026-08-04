@@ -226,23 +226,43 @@ def main() -> None:
     if decision == "block":
         score = result.get("score")
         findings = result.get("findings_summary", [])
+        autofix_hint = result.get("autofix_hint")
         lines = [f"Aevrin: this MCP server scored {score}/100 with unresolved high/critical findings:"]
         for f in findings[:5]:
             loc = f" — {f['file_path']}" + (f":{f['line_start']}" if f.get("line_start") else "") if f.get("file_path") else ""
-            lines.append(f"  - [{f['severity'].upper()}] {f['title']} ({f['owasp_category']}){loc}")
+            tag = " [auto-fixable]" if f.get("autofix_eligible") else ""
+            lines.append(f"  - [{f['severity'].upper()}] {f['title']} ({f['owasp_category']}){loc}{tag}")
             if f.get("remediation"):
                 lines.append(f"      fix: {f['remediation']}")
             lines.append(f"      finding id: {f['id']}")
         if len(findings) > 5:
             lines.append(f"  ...and {len(findings) - 5} more — see your Aevrin dashboard for the full list.")
+        if autofix_hint:
+            lines.append("")
+            lines.append(f"  {autofix_hint}")
         lines.append("")
-        lines.append("You have three options — ask the person which they want:")
-        lines.append("  1. Fix it: edit the flagged files yourself (you have full tool access in this")
-        lines.append("     session) using the locations and remediation above, then retry the install.")
-        lines.append(f"  2. Install anyway: run `aevrin hook allow {override_target}`, then retry.")
-        lines.append("  3. False report: if a specific finding above is wrong, run")
-        lines.append("     `aevrin findings triage <finding id> false_positive --reason \"why it is wrong\"`,")
-        lines.append("     then retry.")
+
+        options = [
+            [
+                "Fix it: edit the flagged files yourself (you have full tool access in this",
+                "session) using the locations and remediation above, then retry the install.",
+            ],
+            [f"Install anyway: run `aevrin hook allow {override_target}`, then retry."],
+            [
+                "False report: if a specific finding above is wrong, run",
+                "`aevrin findings triage <finding id> false_positive --reason \"why it is wrong\"`,",
+                "then retry.",
+            ],
+        ]
+        # Only offered when the account can actually run it right now — the
+        # Pro/Team hint text is the one that names the command itself.
+        if autofix_hint and "aevrin fix" in autofix_hint:
+            options.append(["Auto-fix it: run `aevrin fix <finding id>` on an auto-fixable finding above, then retry."])
+
+        lines.append(f"You have {len(options)} options — ask the person which they want:")
+        for i, option_lines in enumerate(options, start=1):
+            lines.append(f"  {i}. {option_lines[0]}")
+            lines.extend(f"     {rest}" for rest in option_lines[1:])
         _deny("\n".join(lines))
         return
 

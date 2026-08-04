@@ -12,6 +12,7 @@ const BUCKET_LABELS: Record<UsageBucket, string> = {
   cli: "CLI scans",
   hook: "Hook auto-scans",
   dashboard: "Dashboard scans",
+  auto_fix: "Auto-fix PRs",
 };
 
 // The single most important retention surface in the product (addendum
@@ -46,8 +47,10 @@ export function UsageMeters() {
           </Link>
         )}
       </CardHeader>
-      <CardContent className="grid gap-4 sm:grid-cols-3">
-        {usage.buckets.map((bucket) => {
+      <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {usage.buckets
+          .filter((bucket) => bucket.bucket !== "auto_fix" || bucket.limit !== 0)
+          .map((bucket) => {
           const unlimited = bucket.limit === null;
           const pct = unlimited ? 0 : Math.min(100, (bucket.used / bucket.limit!) * 100);
           return (

@@ -12,9 +12,15 @@ import { formatDate, formatDateTime } from "@/lib/presentation";
 
 const PLAN_COPY = {
   free: { price: "$0", billing: "No renewal", body: "Five CLI scans, two hook auto-scans, and five dashboard scans each month." },
-  hobby: { price: "$19 / $15", billing: "One cycle at a time", body: "Monthly / effective annual monthly price, charged in USD with no automatic renewal." },
-  team: { price: "$79 / $59", billing: "One cycle at a time", body: "Monthly / effective annual monthly price, charged in USD with no automatic renewal." },
+  hobby: { price: "$9 / $7", billing: "One cycle at a time", body: "Monthly / effective annual monthly price, charged in USD with no automatic renewal." },
+  pro: { price: "$34 / $29", billing: "One cycle at a time", body: "Monthly / effective annual monthly price, includes 15 auto-fix PRs/month, charged in USD with no automatic renewal." },
+  team: { price: "$40 / $33 per seat", billing: "One cycle at a time", body: "Monthly / effective annual per-seat price, includes 15 auto-fix PRs/seat/month, charged in USD with no automatic renewal." },
 } as const;
+
+const BUCKET_LABEL: Record<string, string> = {
+  hook: "Hook auto-scans",
+  auto_fix: "Auto-fix PRs",
+};
 
 export default function BillingPage() {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
@@ -105,25 +111,128 @@ export default function BillingPage() {
         <SectionCard title="Usage this period" description="Limits come from the current account and tier configuration.">
           {usage ? (
             <div className="space-y-4">
-              {usage.buckets.map((bucket) => (
-                <div key={bucket.bucket} className="rounded-2xl border border-border bg-background/80 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-medium text-foreground capitalize">
-                      {bucket.bucket === "hook" ? "Hook auto-scans" : `${bucket.bucket} scans`}
-                    </span>
-                    <span className="text-sm text-muted-foreground">
-                      {bucket.limit === null ? "Unlimited" : `${bucket.used} / ${bucket.limit}`}
-                    </span>
+              {usage.buckets
+                .filter((bucket) => bucket.bucket !== "auto_fix" || bucket.limit !== 0)
+                .map((bucket) => (
+                  <div key={bucket.bucket} className="rounded-2xl border border-border bg-background/80 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-medium text-foreground capitalize">
+                        {BUCKET_LABEL[bucket.bucket] ?? `${bucket.bucket} scans`}
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        {bucket.limit === null ? "Unlimited" : `${bucket.used} / ${bucket.limit}`}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      Resets {formatDateTime(bucket.resets_at)}
+                    </p>
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Resets {formatDateTime(bucket.resets_at)}
-                  </p>
-                </div>
-              ))}
+                ))}
             </div>
           ) : null}
         </SectionCard>
       </div>
+
+      {subscription && (subscription.effective_tier === "pro" || subscription.effective_tier === "team") ? (
+        <AutofixSection />
+      ) : null}
     </div>
+  );
+}
+
+function AutofixSection() {
+  const [status, setStatus] = useState<{ connected: boolean; account_login: string | null } | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [buyingAddon, setBuyingAddon] = useState(false);
+
+  useEffect(() => {
+    api
+      .getGithubStatus()
+      .then(setStatus)
+      .catch((err) => toast.error(err instanceof ApiError ? err.message : "Could not load GitHub connection status."));
+  }, []);
+
+  async function connectGithub() {
+    setConnecting(true);
+    try {
+      const { url } = await api.getGithubInstallUrl();
+      window.location.href = url;
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not start GitHub connection.");
+      setConnecting(false);
+    }
+  }
+
+  async function buyAddon() {
+    setBuyingAddon(true);
+    try {
+      const { order_id, amount_paise, currency, razorpay_key_id } = await api.createAutofixAddonCheckout();
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      await new Promise<void>((resolve, reject) => {
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error("Could not load Razorpay checkout."));
+        document.body.appendChild(script);
+      });
+      type RazorpaySuccess = { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string };
+      type RazorpayInstance = { open: () => void; on: (event: string, handler: (resp: unknown) => void) => void };
+      const Razorpay = (window as unknown as { Razorpay: new (opts: object) => RazorpayInstance }).Razorpay;
+      const checkout = new Razorpay({
+        key: razorpay_key_id,
+        order_id,
+        amount: amount_paise,
+        currency,
+        name: "Aevrin",
+        description: "+10 auto-fix PRs",
+        theme: { color: "#000000" },
+        handler: async (resp: unknown) => {
+          const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = resp as RazorpaySuccess;
+          try {
+            await api.verifyPayment(razorpay_order_id, razorpay_payment_id, razorpay_signature);
+            toast.success("+10 auto-fix PRs added to this billing period.");
+          } catch (err) {
+            toast.error(err instanceof ApiError ? err.message : "Payment succeeded but activation failed — contact support.");
+          }
+        },
+      });
+      checkout.on("payment.failed", () => toast.error("Payment failed. You weren't charged — try again."));
+      checkout.open();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not start checkout.");
+    } finally {
+      setBuyingAddon(false);
+    }
+  }
+
+  return (
+    <SectionCard
+      title="Auto-fix (Fix It)"
+      description="Connecting GitHub grants Aevrin access only to repositories you explicitly select during installation, scoped and revocable entirely through GitHub's own settings."
+    >
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-sm text-muted-foreground">
+          {status === null ? (
+            "Checking connection status…"
+          ) : status.connected ? (
+            <span>
+              Connected as <strong className="text-foreground">{status.account_login}</strong>. Fix It can open draft
+              PRs on repositories you granted access to.
+            </span>
+          ) : (
+            "Not connected yet — Fix It will prompt for this the first time you use it on a repository, or connect now."
+          )}
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {!status?.connected && (
+            <Button variant="outline" disabled={connecting} onClick={() => void connectGithub()}>
+              {connecting ? "Redirecting…" : "Connect GitHub"}
+            </Button>
+          )}
+          <Button variant="outline" disabled={buyingAddon} onClick={() => void buyAddon()}>
+            {buyingAddon ? "Please wait…" : "Buy +10 PRs ($4)"}
+          </Button>
+        </div>
+      </div>
+    </SectionCard>
   );
 }

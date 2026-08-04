@@ -14,6 +14,7 @@ from .routers import (
     account,
     api_keys,
     auth_lookup,
+    autofix,
     billing,
     cli,
     device,
@@ -79,6 +80,7 @@ app.include_router(device.router)
 app.include_router(account.router)
 app.include_router(billing.router)
 app.include_router(auth_lookup.router)
+app.include_router(autofix.router)
 
 
 @app.get("/health")

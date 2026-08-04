@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Activity, CalendarClock, ExternalLink, Gauge, InfinityIcon, TerminalSquare } from "lucide-react";
+import { Activity, CalendarClock, ExternalLink, Gauge, InfinityIcon, TerminalSquare, Wrench } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type { AccountUsage, ScanSource, UsageBucket } from "@/lib/types";
 import { PageHeader, MetricCard, SectionCard } from "@/components/product-ui";
@@ -28,6 +28,11 @@ const BUCKETS: Record<UsageBucket, { label: string; description: string; icon: R
     label: "Hook auto-scans",
     description: "Scans requested by the Claude Code pre-install workflow.",
     icon: <Activity className="size-5 text-brand-text" />,
+  },
+  auto_fix: {
+    label: "Auto-fix PRs",
+    description: "Fix It pull requests opened this period, Pro and Team only.",
+    icon: <Wrench className="size-5 text-brand-text" />,
   },
 };
 
@@ -88,7 +93,9 @@ function UsageContent({ usage }: { usage: AccountUsage }) {
 
       <SectionCard title="Scan-credit buckets" description="A scan credit is consumed only from the product surface that initiated the scan.">
         <div className="grid gap-4 xl:grid-cols-3">
-          {usage.buckets.map((bucket) => {
+          {usage.buckets
+            .filter((bucket) => bucket.bucket !== "auto_fix" || bucket.limit !== 0)
+            .map((bucket) => {
             const config = BUCKETS[bucket.bucket];
             const limit = bucket.limit;
             const unlimited = limit === null;

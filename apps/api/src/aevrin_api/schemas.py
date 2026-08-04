@@ -98,6 +98,10 @@ class FindingOut(BaseModel):
     llm_remediation: str | None = None
     llm_model: str | None = None
     llm_triaged_at: datetime | None = None
+    # Auto-fix lifecycle (V5 prompt §7) — Pro/Team only, "none" everywhere else.
+    autofix_status: str = "none"
+    autofix_pr_url: str | None = None
+    autofix_failure_reason: str | None = None
 
 
 class TriageRequest(BaseModel):
@@ -130,6 +134,7 @@ class HookCacheResponse(BaseModel):
     quota_resets_at: datetime | None = None
     upgrade_url: str | None = None
     target_key: str | None = None
+    autofix_hint: str | None = None
 
 
 class HookCacheRequest(BaseModel):
@@ -369,3 +374,19 @@ class ByokKeyRequest(BaseModel):
         if v not in {"anthropic", "google"}:
             raise ValueError("provider must be one of ['anthropic', 'google']")
         return v
+
+
+class GithubStatusResponse(BaseModel):
+    connected: bool
+    account_login: str | None = None
+
+
+class GithubInstallUrlResponse(BaseModel):
+    url: str
+
+
+class AutofixResponse(BaseModel):
+    status: str  # "fixed" | "failed" | "needs_github_connection"
+    pr_url: str | None = None
+    failure_reason: str | None = None
+    install_url: str | None = None

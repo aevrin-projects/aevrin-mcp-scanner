@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 env.txt
+githubapp.txt
 infra/defectdojo/secrets.generated.md
 *.pem
 *.key

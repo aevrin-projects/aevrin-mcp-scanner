@@ -170,7 +170,7 @@ def _format_datetime(value: str | None) -> str:
 def _severity_counts(findings: list[dict[str, object]]) -> dict[str, int]:
     counts = {sev: 0 for sev in _SEVERITY_ORDER}
     for finding in findings:
-        if finding.get("not_tested"):
+        if finding.get("not_tested") or finding.get("excluded_path"):
             continue
         if finding.get("triage_status") not in (None, "open"):
             continue
@@ -213,6 +213,12 @@ def _finding_card_html(finding: dict[str, object]) -> str:
         category = str(finding.get("owasp_category", ""))
     triage = str(finding.get("triage_status") or "open")
     triage_badge = "" if triage == "open" else f'<span class="triage-chip">{_esc(triage.replace("_", " "))}</span>'
+    kev_badge = '<span class="kev-chip">KEV</span>' if finding.get("in_kev") else ""
+    epss_score = finding.get("epss_score")
+    epss_badge = ""
+    if isinstance(epss_score, (int, float)):
+        pct = f"{epss_score * 100:.2f}%" if epss_score < 0.01 else f"{epss_score * 100:.0f}%"
+        epss_badge = f'<span class="epss-chip">EPSS {_esc(pct)}</span>'
     triage_audit = ""
     if triage != "open" and (finding.get("triage_reason") or finding.get("triaged_at")):
         triage_audit = f"""
@@ -227,6 +233,8 @@ def _finding_card_html(finding: dict[str, object]) -> str:
       <div class="finding-head">
         <span class="severity-chip" style="background:{color}">{_esc(severity)}</span>
         <span class="finding-title">{_esc(finding.get("title", "Untitled finding"))}</span>
+        {kev_badge}
+        {epss_badge}
         {triage_badge}
       </div>
       <div class="finding-meta">
@@ -251,7 +259,8 @@ def _render_html(
     findings: list[dict[str, object]],
     stages: list[dict[str, object]],
 ) -> str:
-    real_findings = [f for f in findings if not f.get("not_tested")]
+    real_findings = [f for f in findings if not f.get("not_tested") and not f.get("excluded_path")]
+    excluded_count = sum(1 for f in findings if f.get("excluded_path"))
     active_findings = [f for f in real_findings if f.get("triage_status") in (None, "open")]
     resolved_findings = [f for f in real_findings if f.get("triage_status") not in (None, "open")]
     counts = _severity_counts(findings)
@@ -389,6 +398,14 @@ def _render_html(
     font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--muted);
     border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px;
   }}
+  .kev-chip {{
+    font-size: 10px; font-weight: 700; text-transform: uppercase; color: oklch(0.5 0.2 27);
+    background: oklch(0.94 0.06 27); border: 1px solid oklch(0.75 0.14 27); border-radius: 999px; padding: 2px 8px;
+  }}
+  .epss-chip {{
+    font-size: 10px; font-weight: 600; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px;
+  }}
   .finding-title {{ font-weight: 600; font-size: 14px; }}
   .finding-meta {{ font-size: 12px; color: var(--muted); margin-bottom: 8px; display: flex; gap: 6px; flex-wrap: wrap; }}
   .finding-desc {{ font-size: 13px; margin: 0 0 10px; }}
@@ -446,6 +463,8 @@ def _render_html(
     {findings_html}
 
     {resolved_html}
+
+    {f'<h2 class="section-title">Excluded findings</h2><div class="callout callout-info">{_esc(f"{excluded_count} finding(s) matched a test or fixture path convention (a fixtures/-style directory, or a filename like *.test.ts) and are excluded from the score and the list above — sample code deliberately written to look vulnerable is not a real issue in the shipped server.")}</div>' if excluded_count else ""}
 
     <h2 class="section-title">Coverage limitations</h2>
     <div class="callout callout-info">{_esc(NOT_TESTED_NOTE)}</div>

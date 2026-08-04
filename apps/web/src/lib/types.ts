@@ -86,6 +86,24 @@ export interface Finding {
   triage_reason: string | null;
   triaged_at: string | null;
   created_at: string;
+  excluded_path: boolean;
+  confidence: string | null;
+  original_severity: Severity | null;
+  epss_score: number | null;
+  in_kev: boolean;
+  dependency_scope: string | null;
+  corroborated_by: string[];
+  occurrence_count: number;
+  additional_locations: { file_path: string | null; line_start: number | null; line_end: number | null; manifest_field: string | null }[];
+  llm_classification: string | null;
+  llm_severity: Severity | null;
+  llm_reasoning: string | null;
+  llm_remediation: string | null;
+  llm_model: string | null;
+  llm_triaged_at: string | null;
+  autofix_status: "none" | "in_progress" | "fixed" | "failed";
+  autofix_pr_url: string | null;
+  autofix_failure_reason: string | null;
 }
 
 export interface ApiKey {
@@ -96,7 +114,7 @@ export interface ApiKey {
   revoked_at: string | null;
 }
 
-export type UsageBucket = "cli" | "hook" | "dashboard";
+export type UsageBucket = "cli" | "hook" | "dashboard" | "auto_fix";
 
 export interface BucketUsage {
   bucket: UsageBucket;
@@ -124,7 +142,7 @@ export interface UsageActivity {
 }
 
 export interface Subscription {
-  tier: "free" | "hobby" | "team";
-  effective_tier: "free" | "hobby" | "team";
+  tier: "free" | "hobby" | "pro" | "team";
+  effective_tier: "free" | "hobby" | "pro" | "team";
   paid_until: string | null;
 }

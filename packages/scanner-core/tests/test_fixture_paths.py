@@ -56,6 +56,40 @@ def test_none_path_is_not_a_fixture():
     assert not is_fixture_path(None)
 
 
+# Filename-pattern regression coverage — root-caused live against
+# github.com/Synvoya/codeinspectus.git, where segment-only matching missed
+# every one of these because none of them sit under a directory literally
+# named test/tests/fixtures/etc.
+def test_matches_dot_test_filename_with_no_test_directory():
+    assert is_fixture_path("src/redact.test.ts")
+
+
+def test_matches_dot_spec_filename_with_no_spec_directory():
+    assert is_fixture_path("app/normalize.spec.js")
+
+
+def test_matches_underscore_test_go_filename():
+    assert is_fixture_path("handler_test.go")
+
+
+def test_matches_pytest_convention_filename():
+    assert is_fixture_path("app/test_handler.py")
+
+
+def test_matches_rspec_convention_filename():
+    assert is_fixture_path("app/normalize_spec.rb")
+
+
+def test_does_not_match_evals_directory_as_fixture():
+    # A directory named "evals" is a real production script location in
+    # the reference repo, not a test/fixture convention — must stay real.
+    assert not is_fixture_path("evals/run-evals.ts")
+
+
+def test_does_not_match_e2e_script_filename():
+    assert not is_fixture_path("scripts/redaction-e2e.mjs")
+
+
 def test_mark_excluded_paths_sets_flag_without_removing_finding():
     findings = [_finding("fixtures/vuln.py"), _finding("src/app.py")]
     mark_excluded_paths(findings)

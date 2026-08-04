@@ -24,12 +24,13 @@ from .config import Settings
 from .db import SupabaseRest
 from .redis_client import get_redis
 
-Bucket = Literal["cli", "hook", "dashboard"]
+Bucket = Literal["cli", "hook", "dashboard", "auto_fix"]
 
 _BUCKET_TO_LIMIT_COLUMN: dict[Bucket, str] = {
     "cli": "cli_scans_per_month",
     "hook": "hook_scans_per_month",
     "dashboard": "dashboard_scans_per_month",
+    "auto_fix": "auto_fix_prs_per_month",
 }
 
 
@@ -109,12 +110,19 @@ async def get_or_create_account(db: SupabaseRest, user_id: str) -> dict[str, Any
     return created[0]
 
 
-async def _tier_limit(db: SupabaseRest, tier: str, bucket: Bucket) -> int | None:
+async def _tier_limit(db: SupabaseRest, account: dict[str, Any], bucket: Bucket) -> int | None:
+    tier = effective_tier(account)
     rows = await db.select("tier_limits", {"tier": tier})
     if not rows:
         msg = f"No tier_limits row for tier={tier!r} — seed migration 0003 must have failed to apply"
         raise RuntimeError(msg)
     value: int | None = rows[0][_BUCKET_TO_LIMIT_COLUMN[bucket]]
+    # auto_fix is the one bucket with a per-account top-up on top of the
+    # tier's bundled allowance (see infra/migrations/0016) — a purchased
+    # add-on is cumulative and never resets on its own, so it's added to
+    # the tier limit rather than tracked as a separate counter.
+    if bucket == "auto_fix" and value is not None:
+        value += int(account.get("auto_fix_bonus_prs") or 0)
     return value
 
 
@@ -124,7 +132,7 @@ def _redis_key(user_id: str, bucket: Bucket, period_start: datetime) -> str:
 
 async def check_and_increment_quota(settings: Settings, db: SupabaseRest, user_id: str, bucket: Bucket) -> None:
     account = await get_or_create_account(db, user_id)
-    limit = await _tier_limit(db, effective_tier(account), bucket)
+    limit = await _tier_limit(db, account, bucket)
 
     now = datetime.now(UTC)
     period_start = _period_start(account["signup_anchor_day"], now)
@@ -152,7 +160,7 @@ async def would_exceed_quota(settings: Settings, db: SupabaseRest, user_id: str,
     increment; `check_and_increment_quota` is still the actual gate at
     upload/create time."""
     account = await get_or_create_account(db, user_id)
-    limit = await _tier_limit(db, effective_tier(account), bucket)
+    limit = await _tier_limit(db, account, bucket)
     if limit is None:
         return None
 
@@ -177,8 +185,8 @@ async def get_usage(settings: Settings, db: SupabaseRest, user_id: str) -> list[
     client = get_redis(settings)
 
     results: list[BucketUsage] = []
-    for bucket in ("cli", "hook", "dashboard"):
-        limit = await _tier_limit(db, effective_tier(account), bucket)
+    for bucket in ("cli", "hook", "dashboard", "auto_fix"):
+        limit = await _tier_limit(db, account, bucket)
         raw = client.get(_redis_key(user_id, bucket, period_start))
         used = int(raw) if raw else 0
         results.append(BucketUsage(bucket=bucket, used=used, limit=limit, resets_at=period_end))

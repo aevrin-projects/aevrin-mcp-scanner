@@ -58,9 +58,14 @@ export default function PrivacyPage() {
           <section>
             <h2 className="font-medium text-foreground">Automated analysis</h2>
             <p className="mt-1">
-              The current scan pipeline uses the security tools identified in the product
-              methodology. It does not send repositories or findings to an external language model
-              to decide whether a vulnerability exists.
+              Whether a vulnerability exists is always decided by the deterministic security tools
+              identified in the product methodology, never by a language model. On paid plans, a
+              finding&apos;s title, description, and category (not your source code or repository
+              contents) may be sent to a third-party language model (Anthropic or Google) to help
+              explain and prioritize a result already produced by those tools. This triage step is
+              fail-open: if it doesn&apos;t run or fails, the deterministic result is shown as-is. If
+              you bring your own LLM API key (BYOK), your key is encrypted at rest and used only to
+              call the provider you configured.
             </p>
           </section>
           <section>

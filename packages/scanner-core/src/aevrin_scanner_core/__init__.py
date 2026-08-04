@@ -1,3 +1,4 @@
+from .autofix_eligibility import FIXABLE_TOOLS, is_autofix_eligible
 from .models import (
     STAGE_LABELS,
     STAGE_TOOLS,
@@ -33,6 +34,7 @@ __all__ = [
     "STAGE_LABELS",
     "STAGE_TOOLS",
     "DockerRunSpec",
+    "FIXABLE_TOOLS",
     "Finding",
     "Location",
     "OwaspMcpCategory",
@@ -48,6 +50,7 @@ __all__ = [
     "TriageStatus",
     "category_label",
     "compute_score",
+    "is_autofix_eligible",
     "not_tested_placeholder",
     "run_container",
     "severity_counts",

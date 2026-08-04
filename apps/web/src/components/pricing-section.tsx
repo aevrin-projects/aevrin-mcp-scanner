@@ -28,6 +28,7 @@ interface Tier {
   dashboard: string;
   retention: string;
   seats: string;
+  autoFixPrs: string;
   pdfExport: boolean;
   aiRemediation: boolean;
   cta: string;
@@ -46,6 +47,7 @@ const TIERS: Tier[] = [
     dashboard: "5 / month",
     retention: "7 days",
     seats: "1",
+    autoFixPrs: "—",
     pdfExport: false,
     aiRemediation: false,
     cta: "Start free",
@@ -67,6 +69,7 @@ const TIERS: Tier[] = [
     dashboard: "50 / month",
     retention: "90 days",
     seats: "1",
+    autoFixPrs: "—",
     pdfExport: true,
     aiRemediation: false,
     cta: "Start Hobby",
@@ -82,13 +85,14 @@ const TIERS: Tier[] = [
   {
     id: "pro",
     name: "Pro",
-    monthly: 29,
-    annual: 24,
+    monthly: 34,
+    annual: 29,
     cli: "200 / month",
     hook: "100 / month",
     dashboard: "200 / month",
     retention: "1 year",
     seats: "1",
+    autoFixPrs: "15 / month",
     pdfExport: true,
     aiRemediation: true,
     cta: "Start Pro",
@@ -98,6 +102,7 @@ const TIERS: Tier[] = [
       "100 hook auto-scans / month",
       "200 dashboard scans / month",
       "1-year scan history",
+      "15 auto-fix pull requests / month — Claude Sonnet drafts a fix, re-runs the scanner to confirm it, opens a draft PR",
       "Routed triage — Haiku 4.5 on Critical/High, Flash-Lite on the rest",
       "AI-drafted remediation suggestions",
       "Plain-language scan summary",
@@ -107,18 +112,20 @@ const TIERS: Tier[] = [
   {
     id: "team",
     name: "Team",
-    monthly: 35,
-    annual: 28,
+    monthly: 40,
+    annual: 33,
     cli: "Usage-based",
     hook: "Usage-based",
     dashboard: "Usage-based",
     retention: "Unlimited",
     seats: "3-seat minimum",
+    autoFixPrs: "15 / month / seat",
     pdfExport: true,
     aiRemediation: true,
     cta: "Contact us",
     features: [
       "Everything in Pro, usage-based instead of fixed",
+      "15 auto-fix pull requests / month / seat, pooled across the team",
       "Org-wide hook policy console — set the block threshold everyone's hook enforces",
       "See everything blocked across the team in one place",
       "SSO and audit log",
@@ -146,6 +153,10 @@ const FAQ = [
   {
     q: "How does Team's per-seat pricing work?",
     a: "Team is billed per seat with a 3-seat minimum. Seats are a billing quantity today, not yet a shared multi-user login — every seat purchased raises the account's usage-based limits.",
+  },
+  {
+    q: "What happens when I use all 15 auto-fix PRs in a month?",
+    a: "Fix It pauses until your allowance resets, or you buy +10 more PRs for $4 from your account settings — a one-time, explicit purchase, never an automatic overage charge. The add-on requires an active Pro or Team subscription and is never sold on its own.",
   },
 ];
 
@@ -379,6 +390,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
               { label: "Dashboard scans", key: "dashboard" as const },
               { label: "Scan history retained", key: "retention" as const },
               { label: "Seats", key: "seats" as const },
+              { label: "Auto-fix pull requests", key: "autoFixPrs" as const },
             ].map((row) => (
               <tr key={row.key} className="border-b border-border/50">
                 <td className="py-3 text-muted-foreground">{row.label}</td>

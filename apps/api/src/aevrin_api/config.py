@@ -33,8 +33,24 @@ class Settings(BaseSettings):
     r2_bucket: str = "aevrin-report"
     r2_s3_endpoint: str
 
-    # GitHub (Scorecard + OSV rate limits + private clone)
+    # GitHub (Scorecard + OSV rate limits + private clone) — a plain PAT,
+    # distinct from the GitHub App identity below.
     github_token: str | None = None
+
+    # GitHub App ("Connect GitHub for Auto-Fix", V5 prompt §6/§9) — JWT-based
+    # installation-token auth for opening real draft PRs, architecturally
+    # separate from both github_token above (a PAT) and Supabase's GitHub
+    # OAuth identity provider (Sign in with GitHub, configured directly in
+    # the Supabase dashboard, not here). None means the auto-fix PR flow is
+    # disabled — Fix It shows "not configured yet" rather than erroring.
+    github_app_id: str | None = None
+    github_app_private_key: str | None = None
+    github_app_client_id: str | None = None
+    github_app_client_secret: str | None = None
+    github_app_webhook_secret: str | None = None
+    # The App's public slug (from its github.com/apps/<slug> URL) — needed to
+    # build the "Connect GitHub for Auto-Fix" install link. Not a secret.
+    github_app_slug: str | None = None
 
     # DefectDojo
     defectdojo_url: str | None = None

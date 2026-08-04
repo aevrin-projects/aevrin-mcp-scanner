@@ -70,6 +70,27 @@ export async function signInWithGoogle(formData: FormData): Promise<void> {
   redirect(data.url);
 }
 
+// Identity-only — this is "Sign in with GitHub" (who you are), never to be
+// confused with the separate "Connect GitHub for Auto-Fix" flow that grants
+// real repository access through the GitHub App. Supabase's GitHub OAuth
+// provider requests no scopes beyond its own default (read:user, user:email)
+// unless explicitly asked for, so this never touches repositories.
+export async function signInWithGithub(formData: FormData): Promise<void> {
+  const next = safeNext(formData);
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "github",
+    options: {
+      redirectTo: `${siteUrl()}/auth/callback?next=${encodeURIComponent(next)}&provider=github`,
+      skipBrowserRedirect: true,
+    },
+  });
+  if (error || !data.url) {
+    throw new Error(error?.message ?? "Could not start GitHub sign-in.");
+  }
+  redirect(data.url);
+}
+
 export async function signInWithPassword(_prevState: LoginState, formData: FormData): Promise<LoginState> {
   const email = (formData.get("email") as string) ?? "";
   const password = (formData.get("password") as string) ?? "";

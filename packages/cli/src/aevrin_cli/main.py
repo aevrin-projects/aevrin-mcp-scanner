@@ -350,6 +350,51 @@ def findings_triage(
 
 
 @app.command()
+def fix(
+    finding_id: Annotated[str, typer.Argument(help="Finding ID, e.g. from a hook block message or --json scan output.")],
+) -> None:
+    """Generate an automatic fix for one finding: Claude Sonnet drafts a
+    patch, the original scanner re-runs against it to confirm the finding
+    actually clears, then a draft pull request is opened — never a merge,
+    and never a PR that wasn't independently re-verified. Pro/Team only."""
+    api_key = load_api_key() or load_api_key(HOOK_CREDENTIALS_PATH)
+    if not api_key:
+        output.print_error("Not logged in. Run `aevrin login` (or `aevrin hook setup`) first.")
+        raise typer.Exit(code=2)
+    output.stderr_console.print("[dim]Generating fix — this can take a minute…[/dim]")
+    try:
+        resp = httpx.post(
+            f"{api_url()}/findings/{finding_id}/fix",
+            headers={"X-API-Key": api_key},
+            timeout=180,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text
+        try:
+            detail = exc.response.json().get("detail", detail)
+        except ValueError:
+            pass
+        output.print_error(f"Could not run Fix It ({exc.response.status_code}): {detail}")
+        raise typer.Exit(code=2) from None
+    except httpx.HTTPError as exc:
+        output.print_error(f"Could not reach {api_url()}: {exc}")
+        raise typer.Exit(code=2) from None
+
+    result = resp.json()
+    if result["status"] == "fixed":
+        output.stderr_console.print(f"[green]Fix It opened a draft pull request:[/green] {result['pr_url']}")
+    elif result["status"] == "needs_github_connection":
+        output.stderr_console.print(
+            f"[yellow]GitHub isn't connected yet.[/yellow] Approve access, then retry: {result['install_url']}"
+        )
+        raise typer.Exit(code=2)
+    else:
+        output.print_error(result.get("failure_reason") or "Could not generate a fix for this finding.")
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def version() -> None:
     """Print the installed aevrin CLI version."""
     from importlib.metadata import version as pkg_version

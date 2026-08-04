@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Flag, RotateCcw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, Flag, RotateCcw, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import type { Finding } from "@/lib/types";
@@ -28,6 +28,8 @@ export function FindingDetailClient({
   const [error, setError] = useState<string | null>(null);
   const [triaging, setTriaging] = useState(false);
   const [triageReason, setTriageReason] = useState("");
+  const [tier, setTier] = useState<"free" | "hobby" | "pro" | "team" | null>(null);
+  const [fixing, setFixing] = useState(false);
 
   useEffect(() => {
     api
@@ -40,7 +42,30 @@ export function FindingDetailClient({
         const message = err instanceof ApiError ? err.message : "Could not load this finding.";
         setError(message);
       });
+    api.getSubscription().then((sub) => setTier(sub.effective_tier)).catch(() => setTier("free"));
   }, [findingId]);
+
+  async function runFixIt() {
+    setFixing(true);
+    try {
+      const result = await api.fixFinding(findingId);
+      if (result.status === "needs_github_connection" && result.install_url) {
+        window.location.href = result.install_url;
+        return;
+      }
+      const refreshed = await api.getFinding(findingId);
+      setFinding(refreshed);
+      if (result.status === "fixed") {
+        toast.success("Fix It opened a draft pull request.");
+      } else {
+        toast.error(result.failure_reason ?? "Could not generate a fix for this finding.");
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not run Fix It.");
+    } finally {
+      setFixing(false);
+    }
+  }
 
   async function updateStatus(status: "open" | "fixed" | "false_positive", reason?: string) {
     setTriaging(true);
@@ -124,13 +149,33 @@ export function FindingDetailClient({
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
               <SeverityBadge severity={finding.severity} />
+              {finding.in_kev ? (
+                <span className="rounded-full border border-red-500/40 bg-red-500/10 px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400">
+                  CISA KEV — confirmed exploited in the wild
+                </span>
+              ) : null}
+              {finding.epss_score !== null ? (
+                <span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">
+                  EPSS {(finding.epss_score * 100).toFixed(finding.epss_score < 0.01 ? 2 : 0)}% exploitation probability (30d)
+                </span>
+              ) : null}
               <span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">
                 {finding.triage_status.replace("_", " ")}
               </span>
               <span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">
                 {OWASP_CATEGORY_LABELS[finding.owasp_category] ?? finding.owasp_category}
               </span>
+              {finding.excluded_path ? (
+                <span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">
+                  Test/fixture path — excluded from score
+                </span>
+              ) : null}
             </div>
+            {finding.original_severity && finding.original_severity !== finding.severity ? (
+              <p className="text-xs text-muted-foreground">
+                Downgraded from {finding.original_severity} based on {finding.in_kev ? "corroboration" : "low exploitation likelihood or scope"} — the tool&apos;s original severity is preserved here for audit.
+              </p>
+            ) : null}
 
             <div className="rounded-2xl border border-border bg-background/80 p-4">
               <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Location</p>
@@ -158,6 +203,49 @@ export function FindingDetailClient({
                 This entry records a coverage limitation rather than an exploitable code finding, so remediation means performing the missing validation outside this static scan.
               </AlertDescription>
             </Alert>
+          ) : null}
+
+          {!finding.not_tested && !finding.excluded_path ? (
+            <SectionCard
+              title="Fix It"
+              description="Generates a patch, re-runs the original scanner to confirm it clears, then opens a draft pull request — never a merge."
+            >
+              {tier !== "pro" && tier !== "team" ? (
+                <div className="space-y-3 text-sm leading-6 text-muted-foreground">
+                  <p>Auto-fix pull requests are available on Pro and Team.</p>
+                  <Link href="/pricing" className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-2">
+                    Upgrade to unlock Fix It
+                  </Link>
+                </div>
+              ) : finding.autofix_status === "fixed" && finding.autofix_pr_url ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">A draft pull request was opened for this finding.</p>
+                  <a
+                    href={finding.autofix_pr_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline underline-offset-2"
+                  >
+                    View pull request <ExternalLink className="size-3.5" />
+                  </a>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {finding.autofix_status === "failed" && finding.autofix_failure_reason ? (
+                    <p className="text-sm leading-6 text-muted-foreground">{finding.autofix_failure_reason}</p>
+                  ) : (
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      Resolves most straightforward, single-file findings automatically. Complex or multi-file findings
+                      may still need manual review.
+                    </p>
+                  )}
+                  <Button variant="outline" disabled={fixing} onClick={() => void runFixIt()}>
+                    <Wrench className="size-4" />
+                    {fixing ? "Generating fix…" : finding.autofix_status === "failed" ? "Try again" : "Fix It"}
+                  </Button>
+                </div>
+              )}
+            </SectionCard>
           ) : null}
 
           <SectionCard title="Status" description="Triage changes are retained with their reason and timestamp.">

@@ -11,16 +11,17 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from aevrin_scanner_core import TargetType
+from aevrin_scanner_core import TargetType, is_autofix_eligible
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
 from ..config import Settings, get_settings
 from ..db import SupabaseRest
 from ..deps import enforce_rate_limit, get_api_key_user, get_db
-from ..quota import QuotaExceeded, check_and_increment_quota
+from ..quota import QuotaExceeded, check_and_increment_quota, effective_tier, get_or_create_account
 from ..scan_service import start_scan
 from ..schemas import HookCacheRequest, HookCacheResponse, HookOverrideRequest, HookOverrideResponse
 from ..security import AuthenticatedUser
+from .autofix import finding_from_row
 from .scans import _stored_target
 
 router = APIRouter(prefix="/hook", tags=["hook"])
@@ -100,6 +101,7 @@ async def check_cache(
 
     row = cached[0]
     findings_summary: list[dict[str, object]] = []
+    autofix_hint: str | None = None
     decision = "allow_clean"
     if row.get("last_scan_id"):
         blocking = await db.select(
@@ -126,9 +128,19 @@ async def check_cache(
                     "file_path": f.get("file_path"),
                     "line_start": f.get("line_start"),
                     "remediation": f.get("remediation"),
+                    "autofix_eligible": is_autofix_eligible(finding_from_row(f))[0],
                 }
                 for f in blocking
             ]
+            # A real conversion moment (V5 prompt §8): tell the person right
+            # where the block happens, not just on the pricing page, when an
+            # auto-fix could clear this without hand-editing anything.
+            if any(f["autofix_eligible"] for f in findings_summary):
+                account = await get_or_create_account(db, user.id)
+                if effective_tier(account) in ("pro", "team"):
+                    autofix_hint = "One or more of these findings can be auto-fixed — run `aevrin fix <finding id>` to generate and open a pull request."
+                else:
+                    autofix_hint = "One or more of these findings can be auto-fixed on Pro/Team — Aevrin drafts a patch, re-verifies it against the scanner, and opens a pull request for you."
         elif row.get("last_status") == "incomplete":
             # The scan behind this cache entry couldn't actually run its
             # tools (Docker down, missing binary, no network) — an empty
@@ -151,6 +163,7 @@ async def check_cache(
         checked_at=row.get("checked_at"),
         findings_summary=findings_summary,
         target_key=durable_target,
+        autofix_hint=autofix_hint,
     )
 
 

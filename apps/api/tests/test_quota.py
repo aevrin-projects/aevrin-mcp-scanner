@@ -30,8 +30,9 @@ class _FakeDb:
     """Stands in for SupabaseRest: one 'accounts' row for the given tier, and
     a 'tier_limits' row with a limit of 5/month unless the tier is 'team'."""
 
-    def __init__(self, tier: str):
+    def __init__(self, tier: str, auto_fix_bonus_prs: int = 0):
         self._tier = tier
+        self._auto_fix_bonus_prs = auto_fix_bonus_prs
 
     async def select(self, table: str, filters: dict[str, str] | None = None, **kwargs: Any):
         if table == "accounts":
@@ -44,6 +45,7 @@ class _FakeDb:
                     "tier": self._tier,
                     "paid_until": paid_until,
                     "signup_anchor_day": 1,
+                    "auto_fix_bonus_prs": self._auto_fix_bonus_prs,
                 }
             ]
         if table == "tier_limits":
@@ -55,6 +57,7 @@ class _FakeDb:
                     "cli_scans_per_month": limit,
                     "hook_scans_per_month": limit,
                     "dashboard_scans_per_month": limit,
+                    "auto_fix_prs_per_month": limit,
                 }
             ]
         raise AssertionError(f"unexpected table {table}")
@@ -99,3 +102,19 @@ async def test_limited_tier_usage_reflects_increments(settings):
     cli_bucket = next(b for b in usage if b.bucket == "cli")
     assert cli_bucket.used == 2
     assert cli_bucket.limit == 5
+
+
+async def test_auto_fix_limit_adds_bonus_prs_to_tier_allowance(settings):
+    """A purchased auto-fix add-on tops up the tier's bundled monthly
+    allowance rather than replacing it — see infra/migrations/0016."""
+    db = _FakeDb(tier="pro", auto_fix_bonus_prs=10)
+    usage = await get_usage(settings, db, "user-1")
+    auto_fix_bucket = next(b for b in usage if b.bucket == "auto_fix")
+    assert auto_fix_bucket.limit == 15  # base tier_limits value from _FakeDb + 10 bonus
+
+
+async def test_auto_fix_limit_with_no_bonus_matches_tier_allowance(settings):
+    db = _FakeDb(tier="pro")
+    usage = await get_usage(settings, db, "user-1")
+    auto_fix_bucket = next(b for b in usage if b.bucket == "auto_fix")
+    assert auto_fix_bucket.limit == 5

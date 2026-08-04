@@ -45,24 +45,28 @@ logger = logging.getLogger("aevrin.billing")
 # per seat (3-seat minimum enforced in CheckoutRequest) — the amount here is
 # per-seat and gets multiplied by body.seats in create_checkout.
 #
-# NOTE on the Team annual rate: the pricing addendum specifies Hobby
-# ($9 -> $7/mo, ~22% off) and Pro ($29 -> $24/mo, ~17% off) annual discounts
-# explicitly but never states one for Team. $28/seat/mo assumes a ~20%
-# discount consistent with the other two tiers — confirm this figure before
-# treating it as final.
+# Pro and Team were raised (V5 prompt §5) to fund the bundled 15 auto-fix
+# PRs/month/seat allowance — Sonnet-generated patches cost real money per
+# fix, unlike the flat-cost deterministic scans the prior prices covered.
 _PRICE_CENTS: dict[tuple[str, str], int] = {
     ("hobby", "monthly"): 900,
     ("hobby", "annual"): 8_400,
-    ("pro", "monthly"): 2_900,
-    ("pro", "annual"): 28_800,
-    ("team", "monthly"): 3_500,
-    ("team", "annual"): 33_600,
+    ("pro", "monthly"): 3_400,
+    ("pro", "annual"): 34_800,
+    ("team", "monthly"): 4_000,
+    ("team", "annual"): 39_600,
 }
 # Flat platform fee, not a token markup (addendum §3) — same $3/mo whichever
 # tier or provider. Charged for the same number of months as the base cycle
 # so an annual checkout pays 12 months of the add-on up front, matching how
 # the base tier price is itself annualized above.
 _BYOK_ADDON_CENTS_PER_MONTH = 300
+# +10 auto-fix PRs, Pro/Team only, never sold standalone (V5 prompt §5) —
+# same "requires an active paid subscription" rule as the BYOK add-on above.
+# Flat one-time price, not seat-multiplied — mirrors how the BYOK add-on
+# above is also charged once per order regardless of body.seats.
+_AUTOFIX_ADDON_CENTS = 400
+_AUTOFIX_ADDON_BONUS_PRS = 10
 _CURRENCY = "USD"
 
 
@@ -137,6 +141,49 @@ async def create_checkout(
     )
 
 
+@router.post("/addon/autofix/checkout", response_model=CheckoutResponse)
+async def create_autofix_addon_checkout(
+    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> CheckoutResponse:
+    account = await get_or_create_account(db, user.id)
+    if effective_tier(account) not in ("pro", "team"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The auto-fix PR add-on requires an active Pro or Team subscription.",
+        )
+    try:
+        client = RazorpayClient(settings)
+    except RazorpayUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing isn't configured yet.") from exc
+
+    receipt = f"aevrin_{uuid.uuid4().hex}"
+    order = await client.create_order(
+        amount_paise=_AUTOFIX_ADDON_CENTS,
+        currency=_CURRENCY,
+        receipt=receipt,
+        notes={"aevrin_user_id": user.id, "tier": "autofix_addon"},
+    )
+    await db.insert(
+        "payments",
+        {
+            "user_id": user.id,
+            "tier": "autofix_addon",
+            "cycle": "monthly",
+            "seats": 1,
+            "byok": False,
+            "amount_paise": _AUTOFIX_ADDON_CENTS,
+            "currency": _CURRENCY,
+            "razorpay_order_id": order["id"],
+            "status": "created",
+        },
+    )
+    return CheckoutResponse(
+        order_id=order["id"], amount_paise=_AUTOFIX_ADDON_CENTS, currency=_CURRENCY, razorpay_key_id=settings.razorpay_key_id or ""
+    )
+
+
 @router.post("/verify", response_model=VerifyPaymentResponse)
 async def verify_payment(
     body: VerifyPaymentRequest,
@@ -166,7 +213,13 @@ async def verify_payment(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment signature mismatch")
 
     account = await get_or_create_account(db, user.id)
-    new_paid_until = _paid_until(account.get("paid_until"), payment["cycle"])
+    is_addon = payment["tier"] == "autofix_addon"
+    # The add-on tops up auto_fix_bonus_prs, not tier/paid_until — it never
+    # extends or changes the subscription itself (V5 prompt §5).
+    existing_paid_until = account.get("paid_until")
+    new_paid_until = (
+        datetime.fromisoformat(existing_paid_until) if is_addon and existing_paid_until else _paid_until(existing_paid_until, payment["cycle"])
+    )
 
     if payment["status"] != "paid":
         await db.update(
@@ -179,7 +232,14 @@ async def verify_payment(
                 "verified_at": datetime.now(UTC).isoformat(),
             },
         )
-        await db.update("accounts", {"user_id": user.id}, _account_update_for_payment(payment, new_paid_until))
+        if is_addon:
+            await db.update(
+                "accounts",
+                {"user_id": user.id},
+                {"auto_fix_bonus_prs": int(account.get("auto_fix_bonus_prs") or 0) + _AUTOFIX_ADDON_BONUS_PRS},
+            )
+        else:
+            await db.update("accounts", {"user_id": user.id}, _account_update_for_payment(payment, new_paid_until))
 
     return VerifyPaymentResponse(status="ok", tier=payment["tier"], paid_until=new_paid_until)
 
@@ -219,15 +279,23 @@ async def razorpay_webhook(
     payment = rows[0]
 
     account = await get_or_create_account(db, payment["user_id"])
-    new_paid_until = _paid_until(account.get("paid_until"), payment["cycle"])
+    is_addon = payment["tier"] == "autofix_addon"
 
     await db.update(
         "payments",
         {"razorpay_order_id": order_id},
         {"status": "paid", "razorpay_payment_id": payment_id, "verified_at": datetime.now(UTC).isoformat()},
     )
-    await db.update("accounts", {"user_id": payment["user_id"]}, _account_update_for_payment(payment, new_paid_until))
-    logger.info("razorpay webhook activated payment: order=%s user=%s", order_id, payment["user_id"])
+    if is_addon:
+        await db.update(
+            "accounts",
+            {"user_id": payment["user_id"]},
+            {"auto_fix_bonus_prs": int(account.get("auto_fix_bonus_prs") or 0) + _AUTOFIX_ADDON_BONUS_PRS},
+        )
+    else:
+        new_paid_until = _paid_until(account.get("paid_until"), payment["cycle"])
+        await db.update("accounts", {"user_id": payment["user_id"]}, _account_update_for_payment(payment, new_paid_until))
+    logger.info("razorpay webhook activated payment: order=%s user=%s tier=%s", order_id, payment["user_id"], payment["tier"])
     return {"status": "ok"}
 
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from aevrin_scanner_core import STAGE_LABELS, Scan, ScanStatus, Severity, category_label, verdict
+from aevrin_scanner_core import STAGE_LABELS, Scan, ScanStatus, Severity, category_label, is_autofix_eligible, verdict
 from rich.console import Console
 from rich.table import Table
 
@@ -62,8 +62,9 @@ def print_terminal_report(scan: Scan) -> None:
     )
     stdout_console.print()
 
-    real_findings = [f for f in scan.findings if not f.not_tested]
+    real_findings = [f for f in scan.findings if not f.not_tested and not f.excluded_path]
     not_tested = [f for f in scan.findings if f.not_tested]
+    excluded = [f for f in scan.findings if f.excluded_path]
 
     if not real_findings and scan.status == ScanStatus.INCOMPLETE:
         stdout_console.print("[yellow]No findings — but the scan didn't fully run, so this is not a clean result.[/yellow]")
@@ -77,13 +78,28 @@ def print_terminal_report(scan: Scan) -> None:
         table.add_column("Tool")
         for f in sorted(real_findings, key=lambda f: list(Severity).index(f.severity)):
             style = _SEVERITY_STYLE[f.severity]
+            label = f.title
+            if f.epss_score is not None or f.in_kev:
+                tags = []
+                if f.in_kev:
+                    tags.append("[bold red]KEV[/bold red]")
+                if f.epss_score is not None:
+                    tags.append(f"EPSS {f.epss_score:.0%}")
+                label = f"{f.title} [dim]({', '.join(tags)})[/dim]"
             table.add_row(
                 f"[{style}]{f.severity.value.upper()}[/{style}]",
-                f.title,
+                label,
                 category_label(f.owasp_category),
                 f.tool.value,
             )
         stdout_console.print(table)
+
+    if excluded:
+        stdout_console.print()
+        stdout_console.print(
+            f"[dim]{len(excluded)} additional finding(s) in test/fixture paths excluded from the score "
+            f"and hidden here — rerun with --json to inspect them.[/dim]"
+        )
 
     for f in not_tested:
         stdout_console.print()
@@ -120,6 +136,24 @@ def print_json_report(scan: Scan) -> None:
                 "remediation": f.remediation,
                 "verified": f.verified,
                 "not_tested": f.not_tested,
+                "excluded_path": f.excluded_path,
+                "confidence": f.confidence,
+                "original_severity": f.original_severity.value if f.original_severity else None,
+                "epss_score": f.epss_score,
+                "in_kev": f.in_kev,
+                "dependency_scope": f.dependency_scope.value if f.dependency_scope else None,
+                "corroborated_by": [t.value for t in f.corroborated_by],
+                "occurrence_count": f.occurrence_count,
+                "autofix_eligible": is_autofix_eligible(f)[0],
+                "additional_locations": [
+                    {
+                        "file_path": loc.file_path,
+                        "line_start": loc.line_start,
+                        "line_end": loc.line_end,
+                        "manifest_field": loc.manifest_field,
+                    }
+                    for loc in f.additional_locations
+                ],
             }
             for f in scan.findings
         ],

@@ -17,6 +17,14 @@ const MESSAGES: Record<string, { title: string; description: string }> = {
     title: "Google sign-in failed",
     description: "Google reported an error completing the request. This is usually temporary.",
   },
+  github_denied: {
+    title: "GitHub sign-in was cancelled",
+    description: "You didn't approve access on GitHub's consent screen, so we couldn't sign you in.",
+  },
+  github_error: {
+    title: "GitHub sign-in failed",
+    description: "GitHub reported an error completing the request. This is usually temporary.",
+  },
   exchange_failed: {
     title: "That sign-in link has expired",
     description: "Sign-in links and codes are single-use and expire quickly — request a new one.",

@@ -100,7 +100,12 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
   }
 
   const activeFindings = useMemo(
-    () => findings.filter((finding) => !finding.not_tested),
+    () => findings.filter((finding) => !finding.not_tested && !finding.excluded_path),
+    [findings],
+  );
+
+  const excludedPathFindings = useMemo(
+    () => findings.filter((finding) => finding.excluded_path),
     [findings],
   );
 
@@ -351,6 +356,16 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                         <div className="space-y-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <SeverityBadge severity={finding.severity} />
+                            {finding.in_kev ? (
+                              <span className="rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
+                                KEV
+                              </span>
+                            ) : null}
+                            {finding.epss_score !== null ? (
+                              <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                                EPSS {(finding.epss_score * 100).toFixed(finding.epss_score < 0.01 ? 2 : 0)}%
+                              </span>
+                            ) : null}
                             <span className="text-sm text-muted-foreground">
                               {OWASP_CATEGORY_LABELS[finding.owasp_category] ?? finding.owasp_category}
                             </span>
@@ -407,6 +422,19 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
               <p>The score never guarantees safety. Coverage and failed stages must be read beside it.</p>
             </div>
           </SectionCard>
+
+          {excludedPathFindings.length > 0 ? (
+            <Alert>
+              <AlertTriangle className="size-4" />
+              <AlertTitle>{excludedPathFindings.length} finding(s) excluded from the score</AlertTitle>
+              <AlertDescription>
+                These matched a test or fixture path convention (a <code>fixtures/</code>-style directory, or a
+                filename like <code>*.test.ts</code>) and are hidden from the results above and excluded from
+                scoring — sample code deliberately written to look vulnerable is not a real issue in the shipped
+                server.
+              </AlertDescription>
+            </Alert>
+          ) : null}
 
           {limitations.map((finding) => (
             <Alert key={finding.id}>
