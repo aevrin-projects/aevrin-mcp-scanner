@@ -34,6 +34,7 @@ logger = logging.getLogger("aevrin.autofix")
 
 _SONNET_MODEL = "claude-sonnet-5"
 _MAX_FILE_CHARS = 60_000  # keeps cost/latency bounded; larger files fail open with an honest message
+_MODEL_TIMEOUT_S = 300.0
 _CLONE_TIMEOUT_S = 60
 _SCAN_TIMEOUT_S = 180
 
@@ -84,14 +85,22 @@ async def generate_patch(
         return None
     if len(file_content) > _MAX_FILE_CHARS:
         return None
-    client = AsyncAnthropic(api_key=settings.anthropic_api_key, timeout=60.0)
+    # Long request, so: stream, and give it real time. A full-file rewrite
+    # emits thousands of tokens and the previous non-streaming 60s ceiling
+    # made that a coin flip — three of four findings in one live run failed
+    # with APITimeoutError and reported "the model is unavailable or the file
+    # is too large", which was true of neither. Streaming keeps the
+    # connection active so a slow generation completes instead of tripping
+    # an idle timeout.
+    client = AsyncAnthropic(api_key=settings.anthropic_api_key, timeout=_MODEL_TIMEOUT_S)
     try:
-        response = await client.messages.create(
+        async with client.messages.stream(
             model=_SONNET_MODEL,
             max_tokens=min(8000, len(file_content) // 2 + 2000),
             output_config={"format": {"type": "json_schema", "schema": _PATCH_SCHEMA}},
             messages=[{"role": "user", "content": _patch_prompt(finding, file_content, retry_feedback=retry_feedback)}],
-        )
+        ) as stream:
+            response = await stream.get_final_message()
         if response.stop_reason == "refusal":
             return None
         for block in response.content:

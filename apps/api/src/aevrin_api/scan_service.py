@@ -249,6 +249,7 @@ def _run_and_persist(
         on_conflict="user_id,target",
     )
 
+    _carry_forward_open_fix_prs(rest, user_id, scan.id, scan.findings)
     _push_to_defectdojo_best_effort(settings, durable_target, scan.id, scan.findings)
     _run_triage_best_effort(rest, settings, user_id, scan.findings)
 
@@ -267,6 +268,55 @@ def _resync_postprocessed_findings(rest: _SyncRest, scan_id: UUID, user_id: str,
     if findings:
         rest.upsert("findings", [_finding_row(f, user_id) for f in findings], on_conflict="id")
     rest.delete_ids_not_in("findings", str(scan_id), [str(f.id) for f in findings])
+
+
+def _carry_forward_open_fix_prs(
+    rest: _SyncRest, user_id: str, scan_id: UUID, findings: list[Finding]
+) -> None:
+    """Re-attach an existing Fix It pull request to a finding that a fresh
+    scan has reported again.
+
+    A Fix It PR is opened as a *draft* against a branch — until someone
+    merges it, the vulnerable code is still on the default branch, so a
+    rescan finding it again is correct and suppressing it would be a lie.
+    What was wrong is that the new finding arrived with no memory of the
+    open PR, so the same issue looked untouched and inviting a second,
+    duplicate fix.
+
+    Matching is (title, file_path), the same equivalence autofix.py uses to
+    decide whether a patch cleared a finding.
+    """
+    if not findings:
+        return
+    try:
+        previous = rest.get("findings", {"user_id": user_id, "autofix_status": "fixed"})
+    except httpx.HTTPError as exc:
+        logger.warning("scan_service: could not read prior fix PRs: %s", exc)
+        return
+
+    by_key = {
+        (str(row.get("title")), row.get("file_path")): row
+        for row in previous
+        if row.get("autofix_pr_url") and str(row.get("scan_id")) != str(scan_id)
+    }
+    if not by_key:
+        return
+
+    for finding in findings:
+        prior = by_key.get((finding.title, finding.location.file_path))
+        if not prior:
+            continue
+        rest.patch(
+            "findings",
+            {"id": str(finding.id), "user_id": user_id},
+            {
+                "autofix_status": "fixed",
+                "autofix_pr_url": prior["autofix_pr_url"],
+                # Deliberately NOT re-stamping autofix_at: no new pull
+                # request was opened, so this must not consume another
+                # auto-fix credit on every rescan.
+            },
+        )
 
 
 def _run_triage_best_effort(rest: _SyncRest, settings: Settings, user_id: str, findings: list[Finding]) -> None:

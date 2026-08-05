@@ -158,12 +158,27 @@ async def _used_from_durable_history(
 ) -> int | None:
     """Counts this period's usage from `scans` when Redis can't answer.
 
-    Returns None for buckets with no durable per-period record — currently
-    only auto_fix, whose PRs are stamped on the finding rather than as a
-    dated row. Callers treat None as "cannot verify, allow through": a paid
-    account briefly getting an extra Fix It is a far better failure than
-    Fix It being unavailable.
+    auto_fix counts opened pull requests via findings.autofix_at, which is
+    stamped in Postgres the moment a PR is opened (migration 0017). Without
+    it a successfully opened PR could go uncounted entirely whenever Redis
+    was unreachable — confirmed live, with the PR real and the usage meter
+    still reading zero.
+
+    Returns None only if the bucket has no durable record at all, which
+    callers treat as "cannot verify, allow through".
     """
+    if bucket == "auto_fix":
+        rows = await db.select(
+            "findings",
+            {
+                "user_id": user_id,
+                "autofix_status": "fixed",
+                "autofix_at": f"gte.{period_start.isoformat()}",
+            },
+            columns="id",
+        )
+        return len(rows)
+
     source = _BUCKET_TO_SCAN_SOURCE.get(bucket)
     if source is None:
         return None

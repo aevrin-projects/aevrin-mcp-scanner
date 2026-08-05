@@ -101,7 +101,7 @@ export interface Finding {
   llm_remediation: string | null;
   llm_model: string | null;
   llm_triaged_at: string | null;
-  autofix_status: "none" | "in_progress" | "fixed" | "failed";
+  autofix_status: "none" | "queued" | "in_progress" | "fixed" | "failed";
   autofix_pr_url: string | null;
   autofix_failure_reason: string | null;
 }

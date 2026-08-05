@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -24,7 +25,7 @@ from aevrin_scanner_core import (
     is_autofix_eligible,
 )
 from aevrin_scanner_core.runner import ToolExecutionError
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 
 from ..autofix import (
@@ -278,11 +279,17 @@ async def github_callback(
 
 
 async def _mark_autofix(db: SupabaseRest, finding_id: UUID, status_value: str, *, pr_url: str | None = None, reason: str | None = None) -> None:
-    await db.update(
-        "findings",
-        {"id": str(finding_id)},
-        {"autofix_status": status_value, "autofix_pr_url": pr_url, "autofix_failure_reason": reason},
-    )
+    patch: dict[str, Any] = {
+        "autofix_status": status_value,
+        "autofix_pr_url": pr_url,
+        "autofix_failure_reason": reason,
+    }
+    # Stamped only on success, and only in Postgres — this is what makes the
+    # auto_fix usage counter recoverable when Redis can't be reached. A PR
+    # that exists must always be countable.
+    if status_value == "fixed":
+        patch["autofix_at"] = datetime.now(UTC).isoformat()
+    await db.update("findings", {"id": str(finding_id)}, patch)
 
 
 @router.post("/findings/{finding_id}/fix", response_model=AutofixResponse)
@@ -465,6 +472,7 @@ async def _run_fix_for_row(
 @router.post("/scans/{scan_id}/fix", response_model=BulkFixResponse)
 async def fix_scan(
     scan_id: UUID,
+    background_tasks: BackgroundTasks,
     user: Annotated[AuthenticatedUser, Depends(get_user_from_jwt_or_api_key)],
     db: Annotated[SupabaseRest, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -515,38 +523,52 @@ async def fix_scan(
     order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     candidates.sort(key=lambda r: order.get(str(r.get("severity")), 9))
 
-    fixed = 0
-    failed = 0
-    pr_urls: list[str] = []
-    quota_stopped = False
-
+    # Mark every candidate queued up front, then run them in the background.
+    #
+    # A single fix takes tens of seconds (a model call, a clone, a scanner
+    # re-run, then GitHub), so a scan with several findings held the request
+    # open for minutes with nothing to show for it. The client polls the
+    # findings it already renders and watches autofix_status move
+    # queued -> in_progress -> fixed/failed per finding, which is real
+    # progress rather than a spinner.
     for row in candidates:
-        if await would_exceed_quota(settings, db, user.id, "auto_fix"):
-            quota_stopped = True
-            break
-        try:
-            result = await _run_fix_for_row(row, user, db, settings)
-        except HTTPException:
-            # A per-finding precondition (not a repo scan, no GitHub access)
-            # applies to the whole scan, so stop rather than repeat it for
-            # every remaining finding.
-            failed += 1
-            break
-        if result.status == "fixed" and result.pr_url:
-            fixed += 1
-            pr_urls.append(result.pr_url)
-        else:
-            failed += 1
+        await _mark_autofix(db, UUID(str(row["id"])), "queued")
 
-    attempted = fixed + failed
-    parts = [f"{fixed} fixed"]
-    if failed:
-        parts.append(f"{failed} couldn't be fixed automatically")
-    if skipped:
-        parts.append(f"{skipped} not auto-fixable")
-    if quota_stopped:
-        parts.append("stopped at your monthly auto-fix limit")
+    background_tasks.add_task(_run_bulk_fix, candidates, user, db, settings)
+
     return BulkFixResponse(
-        attempted=attempted, fixed=fixed, failed=failed, skipped=skipped, pr_urls=pr_urls,
-        message=", ".join(parts) + ".",
+        attempted=len(candidates), fixed=0, failed=0, skipped=skipped, pr_urls=[],
+        message=(
+            f"Fixing {len(candidates)} finding{'s' if len(candidates) != 1 else ''} in the background"
+            + (f"; {skipped} can't be fixed automatically" if skipped else "")
+            + ". Progress appears on each finding below."
+        ),
     )
+
+
+async def _run_bulk_fix(
+    candidates: list[dict[str, Any]],
+    user: AuthenticatedUser,
+    db: SupabaseRest,
+    settings: Settings,
+) -> None:
+    """Sequential on purpose: each fix clones a repo and runs a scanner, and
+    running several of those at once on one API container is how you turn a
+    fix run into an outage for everyone else."""
+    for row in candidates:
+        finding_id = UUID(str(row["id"]))
+        if await would_exceed_quota(settings, db, user.id, "auto_fix"):
+            await _mark_autofix(
+                db, finding_id, "failed",
+                reason="Stopped at your monthly auto-fix limit. Buy +10 more from billing, or wait for the reset.",
+            )
+            continue
+        try:
+            await _run_fix_for_row(row, user, db, settings)
+        except HTTPException as exc:
+            await _mark_autofix(db, finding_id, "failed", reason=str(exc.detail))
+        except Exception:
+            logger.exception("bulk fix: unexpected failure on finding %s", finding_id)
+            await _mark_autofix(
+                db, finding_id, "failed", reason="An unexpected error stopped this fix. Try it on its own."
+            )

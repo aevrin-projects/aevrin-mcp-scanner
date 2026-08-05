@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, MinusCircle, Search, Wrench, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, GitPullRequest, Loader2, MinusCircle, Search, Wrench, XCircle } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type { Finding, Scan, ScanStage, Severity } from "@/lib/types";
 import { OWASP_CATEGORY_LABELS, STAGE_LABELS, STAGE_ORDER } from "@/lib/types";
@@ -46,7 +46,6 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [fixingAll, setFixingAll] = useState(false);
-  const [fixingId, setFixingId] = useState<string | null>(null);
   const [canExport, setCanExport] = useState<boolean | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -371,18 +370,11 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                   const params = new URLSearchParams(searchParams.toString());
                   const returnTo = params.toString() ? `${pathname}?${params.toString()}` : pathname;
 
-                  // A per-row Fix It can't live inside the row button — nesting
-                  // buttons is invalid and breaks keyboard semantics — so the
-                  // row is a container with the navigation button and the fix
-                  // action as siblings.
+                  // The row shows fix *state* but never offers the action —
+                  // starting a fix belongs on the finding's own page, and the
+                  // whole-scan button covers the bulk case. A third entry
+                  // point here only made the list noisy.
                   const alreadyFixed = finding.autofix_status === "fixed" && finding.autofix_pr_url;
-                  // Mirrors is_autofix_eligible server-side: a patch needs a
-                  // single concrete file to rewrite. Dependency CVEs and
-                  // manifest-only findings genuinely can't be patched this
-                  // way, so offering the action there would only ever fail.
-                  const fixable =
-                    !finding.not_tested && !finding.excluded_path && Boolean(finding.file_path);
-
                   return (
                     <div
                       key={finding.id}
@@ -434,36 +426,16 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                           rel="noopener noreferrer"
                           className={buttonVariants({ variant: "outline", size: "sm", className: "mt-4 mr-4 shrink-0" })}
                         >
+                          <GitPullRequest className="size-3.5" />
                           View PR
                         </a>
-                      ) : fixable ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="mt-4 mr-4 shrink-0"
-                          disabled={fixingId === finding.id}
-                          onClick={async () => {
-                            setFixingId(finding.id);
-                            try {
-                              const result = await api.fixFinding(finding.id);
-                              if (result.status === "fixed" && result.pr_url) {
-                                toast.success("Fix It opened a draft pull request.");
-                                void load();
-                              } else if (result.status === "needs_github_connection") {
-                                toast.error("Connect GitHub to let Fix It open pull requests.");
-                              } else {
-                                toast.error(result.failure_reason ?? "Could not fix this finding automatically.");
-                              }
-                            } catch (err) {
-                              toast.error(err instanceof ApiError ? err.message : "Could not run Fix It.");
-                            } finally {
-                              setFixingId(null);
-                            }
-                          }}
-                        >
-                          <Wrench className="size-3.5" />
-                          {fixingId === finding.id ? "Fixing…" : "Fix It"}
-                        </Button>
+                      ) : finding.autofix_status === "queued" || finding.autofix_status === "in_progress" ? (
+                        <span className="mt-5 mr-4 flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <Loader2 className="size-3 animate-spin" />
+                          {finding.autofix_status === "queued" ? "Queued" : "Fixing…"}
+                        </span>
+                      ) : finding.autofix_status === "failed" ? (
+                        <span className="mt-5 mr-4 shrink-0 text-[11px] text-severity-high">Fix failed</span>
                       ) : null}
                     </div>
                   );
