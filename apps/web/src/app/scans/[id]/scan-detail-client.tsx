@@ -143,8 +143,8 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
   if (!scan) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-24 rounded-3xl" />
-        <Skeleton className="h-80 rounded-3xl" />
+        <Skeleton className="h-24 rounded-xl" />
+        <Skeleton className="h-80 rounded-xl" />
       </div>
     );
   }
@@ -162,9 +162,9 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
         actions={
           <>
             {scan.target_type === "local_path" ? (
-              <Button render={<Link href="/integrations" />} variant="outline">Rescan with CLI</Button>
+              <Button nativeButton={false} render={<Link href="/integrations" />} variant="outline">Rescan with CLI</Button>
             ) : (
-              <Button render={<Link href={`/scans/new?mode=${scan.target_type}&target=${encodeURIComponent(scan.target)}`} />} variant="outline">Rescan target</Button>
+              <Button nativeButton={false} render={<Link href={`/scans/new?mode=${scan.target_type}&target=${encodeURIComponent(scan.target)}`} />} variant="outline">Rescan target</Button>
             )}
             {(scan.status === "completed" || scan.status === "incomplete") && canExport ? (
               <Button
@@ -186,7 +186,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
               </Button>
             ) : null}
             {(scan.status === "completed" || scan.status === "incomplete") && canExport === false ? (
-              <Button render={<Link href="/pricing" />} variant="outline">Upgrade to export</Button>
+              <Button nativeButton={false} render={<Link href="/pricing" />} variant="outline">Upgrade to export</Button>
             ) : null}
           </>
         }
@@ -211,7 +211,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-border bg-background/70 p-5">
+          <div className="rounded-xl border border-border bg-background/70 p-5">
             <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Active findings</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
               <CountRow severity="critical" count={counts.critical} />
@@ -269,7 +269,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
               };
 
               return (
-                <div key={stage.name} className="flex items-center justify-between rounded-2xl border border-border bg-background/70 px-4 py-3 text-sm">
+                <div key={stage.name} className="flex items-center justify-between rounded-xl border border-border bg-background/70 px-4 py-3 text-sm">
                   <div className="flex items-center gap-3">
                     {STAGE_ICON[stage.status]}
                     <span>{STAGE_LABELS[stage.name]}</span>
@@ -282,7 +282,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
         </SectionCard>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_360px]">
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_360px]">
         <SectionCard
           title="Findings"
           description="Search and filter the active findings for this scan. Limitation notices remain separate from actual findings."
@@ -350,7 +350,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                           `/scans/${scan.id}/findings/${finding.id}?returnTo=${encodeURIComponent(returnTo)}`,
                         )
                       }
-                      className="w-full rounded-2xl border border-border bg-background/80 p-4 text-left transition-colors hover:bg-muted/30"
+                      className="w-full rounded-xl border border-border bg-background/80 p-4 text-left transition-colors hover:bg-muted/30"
                     >
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="space-y-2">
@@ -398,7 +398,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                 const stage = stages.find((entry) => entry.name === name);
                 if (!stage) return null;
                 return (
-                  <div key={stage.name} className="rounded-2xl border border-border bg-background/80 p-4">
+                  <div key={stage.name} className="rounded-xl border border-border bg-background/80 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
                         {STAGE_ICON[stage.status]}
@@ -451,7 +451,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
 
 function MetaBlock({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-border bg-background/70 p-4">
+    <div className="rounded-xl border border-border bg-background/70 p-4">
       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
       <p className="mt-2 text-sm font-medium text-foreground">{value}</p>
     </div>
@@ -460,7 +460,7 @@ function MetaBlock({ label, value }: { label: string; value: string }) {
 
 function CountRow({ severity, count }: { severity: Severity; count: number }) {
   return (
-    <div className="flex items-center justify-between rounded-2xl border border-border bg-background/80 px-3 py-2.5">
+    <div className="flex items-center justify-between rounded-xl border border-border bg-background/80 px-3 py-2.5">
       <SeverityBadge severity={severity} />
       <span className="text-lg font-semibold">{count}</span>
     </div>

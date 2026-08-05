@@ -22,7 +22,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatDate, formatDateTime } from "@/lib/presentation";
-import { AGENT_HOOK_PROMPT, AGENT_INSTALL_PROMPT, API_KEY_ENV_COMMANDS } from "@/lib/onboarding";
+import { API_KEY_ENV_COMMANDS } from "@/lib/onboarding";
+import { HOOK_PROMPT_CARD, INSTALL_PROMPT_CARD, PromptCard } from "@/components/prompt-card";
 
 export default function ApiKeysPage() {
   const [keys, setKeys] = useState<ApiKey[] | null>(null);
@@ -87,7 +88,7 @@ export default function ApiKeysPage() {
           <AlertTitle>Copy this secret now</AlertTitle>
           <AlertDescription className="space-y-4">
             <p>This key is shown once only. It will not be available again after you leave this page.</p>
-            <div className="rounded-2xl border border-border bg-background/80 p-4">
+            <div className="rounded-xl border border-border bg-background/80 p-4">
               <code className="block break-all font-mono text-sm">{justCreated}</code>
               <div className="mt-3 flex flex-wrap gap-3">
                 <CopyButton value={justCreated} label="Copy secret" />
@@ -100,7 +101,7 @@ export default function ApiKeysPage() {
         </Alert>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_360px]">
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.15fr)_360px]">
         <SectionCard
           title="Create key"
           description="Keys currently support a name, creation time, last-used time when available, and revocation. Scope, expiry, and masked prefix are not yet enforced by the backend, so they are not simulated here."
@@ -147,17 +148,9 @@ export default function ApiKeysPage() {
         title="Agent-ready setup prompts"
         description="These prompts are for Claude Code or another agent when you want it to perform the install or hook setup on your behalf."
       >
-        <div className="grid gap-4 xl:grid-cols-2">
-          <PromptPanel
-            title="Install prompt"
-            value={AGENT_INSTALL_PROMPT}
-            label="Copy install prompt"
-          />
-          <PromptPanel
-            title="Hook prompt"
-            value={AGENT_HOOK_PROMPT}
-            label="Copy hook prompt"
-          />
+        <div className="grid items-start gap-4 xl:grid-cols-2">
+          <PromptCard preset={INSTALL_PROMPT_CARD} />
+          <PromptCard preset={HOOK_PROMPT_CARD} />
         </div>
       </SectionCard>
 
@@ -167,7 +160,7 @@ export default function ApiKeysPage() {
       >
         <div className="space-y-3">
           {keys === null ? (
-            Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-24 rounded-2xl" />)
+            Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-24 rounded-xl" />)
           ) : keys.length === 0 ? (
             <Alert>
               <AlertTriangle className="size-4" />
@@ -180,7 +173,7 @@ export default function ApiKeysPage() {
             keys.map((key) => (
               <div
                 key={key.id}
-                className="flex flex-col gap-4 rounded-2xl border border-border bg-background/80 p-4 lg:flex-row lg:items-center lg:justify-between"
+                className="flex flex-col gap-4 rounded-xl border border-border bg-background/80 p-4 lg:flex-row lg:items-center lg:justify-between"
               >
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
@@ -249,36 +242,9 @@ function CodePanel({
           <p className="text-sm font-medium text-foreground">{title}</p>
           {action}
         </div>
-        <pre tabIndex={0} aria-label={`${title} commands`} className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 font-mono text-xs leading-6 text-foreground sm:text-sm">
+        <pre tabIndex={0} aria-label={`${title} commands`} className="overflow-x-auto rounded-xl border border-border bg-background px-4 py-3 font-mono text-xs leading-6 text-foreground sm:text-sm">
           {value}
         </pre>
-      </CardContent>
-    </Card>
-  );
-}
-
-function PromptPanel({
-  title,
-  value,
-  label,
-}: {
-  title: string;
-  value: string;
-  label: string;
-}) {
-  return (
-    <Card className="bg-background/80">
-      <CardContent className="space-y-4 pt-5">
-        <div className="space-y-2">
-          <p className="text-base font-medium text-foreground">{title}</p>
-          <p className="text-sm leading-6 text-muted-foreground">
-            Paste this into an agent if you want the setup executed for you with the current product workflow.
-          </p>
-        </div>
-        <pre tabIndex={0} aria-label={`${title} text`} className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 whitespace-pre-wrap font-mono text-xs leading-6 text-foreground sm:text-sm">
-          {value}
-        </pre>
-        <CopyButton value={value} label={label} />
       </CardContent>
     </Card>
   );

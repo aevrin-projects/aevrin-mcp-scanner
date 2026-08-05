@@ -2,39 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Activity, CalendarClock, ExternalLink, Gauge, InfinityIcon, TerminalSquare, Wrench } from "lucide-react";
+import { CalendarClock, ExternalLink, InfinityIcon } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import type { AccountUsage, ScanSource, UsageBucket } from "@/lib/types";
+import type { AccountUsage, ScanSource } from "@/lib/types";
 import { PageHeader, MetricCard, SectionCard } from "@/components/product-ui";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/status-badge";
-import { formatDateTime, SCAN_SOURCE_LABELS, TARGET_TYPE_LABELS } from "@/lib/presentation";
-
-const BUCKETS: Record<UsageBucket, { label: string; description: string; icon: React.ReactNode }> = {
-  dashboard: {
-    label: "Dashboard scans",
-    description: "Scans started from the authenticated web workspace.",
-    icon: <Gauge className="size-5 text-brand-text" />,
-  },
-  cli: {
-    label: "CLI scans",
-    description: "Authenticated terminal scans counted by the CLI quota bucket.",
-    icon: <TerminalSquare className="size-5 text-brand-text" />,
-  },
-  hook: {
-    label: "Hook auto-scans",
-    description: "Scans requested by the Claude Code pre-install workflow.",
-    icon: <Activity className="size-5 text-brand-text" />,
-  },
-  auto_fix: {
-    label: "Auto-fix PRs",
-    description: "Fix It pull requests opened this period, Pro and Team only.",
-    icon: <Wrench className="size-5 text-brand-text" />,
-  },
-};
+import { USAGE_BUCKETS, usageFillColor } from "@/components/usage-bucket-meta";
+import { Usage3DChart } from "@/components/usage-3d-chart";
+import { formatDate, formatDateTime, SCAN_SOURCE_LABELS, TARGET_TYPE_LABELS } from "@/lib/presentation";
 
 export default function UsagePage() {
   const [usage, setUsage] = useState<AccountUsage | null>(null);
@@ -52,7 +30,7 @@ export default function UsagePage() {
         title="Usage"
         description="Track each scan-credit bucket, its current limit, and the exact reset time for your account."
         actions={
-          <Button render={<Link href="/pricing" />}>Compare plans</Button>
+          <Button nativeButton={false} render={<Link href="/pricing" />}>Compare plans</Button>
         }
       />
 
@@ -65,7 +43,7 @@ export default function UsagePage() {
 
       {!usage && !error ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-40 rounded-3xl" />)}
+          {Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-40 rounded-xl" />)}
         </div>
       ) : null}
 
@@ -85,37 +63,102 @@ function UsageContent({ usage }: { usage: AccountUsage }) {
 
   return (
     <>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <MetricCard label="Current plan" value={usage.tier} detail="Usage is measured separately for dashboard, CLI, and hook scans." tone={usage.tier === "free" ? "default" : "success"} />
-        <MetricCard label="Scans used" value={totalUsed} detail="Combined activity across the three quota buckets in their current periods." />
-        <MetricCard label="Next reset" value={nearestReset ? formatDateTime(nearestReset) : "Unlimited"} detail="Each bucket below retains its exact reset timestamp." tone="success" />
+      {/* Period summary + the 3D consumption chart in one band. The chart
+          answers "how much of each bucket have I burned" — depth separates
+          spent from headroom far better than two shades of a flat bar. */}
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <SectionCard
+          title="Consumption this period"
+          description="Solid blocks are credits spent. The outlined block above each is the headroom left before that bucket pauses."
+        >
+          <Usage3DChart
+            bars={usage.buckets
+              .filter((bucket) => bucket.bucket !== "auto_fix" || bucket.limit !== 0)
+              .map((bucket) => ({ bucket: bucket.bucket, used: bucket.used, limit: bucket.limit }))}
+          />
+        </SectionCard>
+
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+          <MetricCard
+            label="Current plan"
+            value={usage.tier.charAt(0).toUpperCase() + usage.tier.slice(1)}
+            detail="Usage is measured separately for dashboard, CLI, and hook scans."
+            tone={usage.tier === "free" ? "default" : "success"}
+          />
+          <MetricCard
+            label="Scans used"
+            value={totalUsed}
+            detail="Combined activity across every quota bucket in its current period."
+          />
+          <MetricCard
+            label="Next reset"
+            value={nearestReset ? formatDate(nearestReset) : "No limit"}
+            detail="Each bucket below retains its exact reset timestamp."
+          />
+        </div>
       </div>
 
       <SectionCard title="Scan-credit buckets" description="A scan credit is consumed only from the product surface that initiated the scan.">
         <div className="grid gap-4 xl:grid-cols-3">
           {usage.buckets
             .filter((bucket) => bucket.bucket !== "auto_fix" || bucket.limit !== 0)
-            .map((bucket) => {
-            const config = BUCKETS[bucket.bucket];
-            const limit = bucket.limit;
-            const unlimited = limit === null;
-            const percent = limit === null ? 0 : Math.min(100, (bucket.used / limit) * 100);
-            return (
-              <article key={bucket.bucket} className="min-w-0 rounded-2xl border border-border bg-background/80 p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-brand/25 bg-brand/10">{config.icon}</div>
-                  {unlimited ? <InfinityIcon className="size-5 text-brand-text" aria-label="Unlimited" /> : <span className="text-sm text-muted-foreground">{bucket.used} / {bucket.limit}</span>}
-                </div>
-                <h2 className="mt-4 text-base font-medium">{config.label}</h2>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{config.description}</p>
-                {!unlimited ? <Progress value={percent} className="mt-4" /> : null}
-                <div className="mt-4 flex items-start gap-2 text-xs leading-5 text-muted-foreground">
-                  <CalendarClock className="mt-0.5 size-4 shrink-0" />
-                  <span>{unlimited ? "No monthly limit" : `Resets ${formatDateTime(bucket.resets_at)}`}</span>
-                </div>
-              </article>
-            );
-          })}
+            .map((bucket, index) => {
+              const config = USAGE_BUCKETS[bucket.bucket];
+              const Icon = config.icon;
+              const limit = bucket.limit;
+              const unlimited = limit === null;
+              const ratio = unlimited ? 0 : bucket.used / limit;
+              const percent = unlimited ? 0 : Math.min(100, ratio * 100);
+              const fill = usageFillColor(bucket.bucket, ratio);
+
+              return (
+                <article
+                  key={bucket.bucket}
+                  className="panel-rise-item min-w-0 rounded-xl border border-border bg-background/80 p-5 transition-colors hover:border-border/60"
+                  style={{ "--i": index } as React.CSSProperties}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div
+                      className="flex size-10 shrink-0 items-center justify-center rounded-xl border"
+                      style={{
+                        borderColor: `color-mix(in oklab, ${config.color} 30%, transparent)`,
+                        background: `color-mix(in oklab, ${config.color} 12%, transparent)`,
+                      }}
+                    >
+                      <Icon className="size-5" style={{ color: config.color }} />
+                    </div>
+                    {unlimited ? (
+                      <InfinityIcon className="size-5 text-muted-foreground" aria-label="No monthly limit" />
+                    ) : (
+                      <span className="text-sm tabular-nums text-muted-foreground">
+                        <span className="text-base font-medium text-foreground">{bucket.used}</span> / {bucket.limit}
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="mt-4 text-base font-medium">{config.label}</h2>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{config.description}</p>
+                  {unlimited ? null : (
+                    <div
+                      role="progressbar"
+                      aria-valuenow={Math.round(percent)}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`${config.label} used`}
+                      className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                    >
+                      <div
+                        className="bar-grow-x h-full rounded-full"
+                        style={{ width: `${percent}%`, background: fill, "--i": index } as React.CSSProperties}
+                      />
+                    </div>
+                  )}
+                  <div className="mt-4 flex items-start gap-2 text-xs leading-5 text-muted-foreground">
+                    <CalendarClock className="mt-0.5 size-4 shrink-0" />
+                    <span>{unlimited ? "No monthly limit" : `Resets ${formatDateTime(bucket.resets_at)}`}</span>
+                  </div>
+                </article>
+              );
+            })}
         </div>
       </SectionCard>
 
@@ -139,7 +182,7 @@ function UsageContent({ usage }: { usage: AccountUsage }) {
         </div>
 
         {visibleActivity.length ? (
-          <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border">
+          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
             {visibleActivity.map((item) => (
               <article key={item.id} className="grid min-w-0 gap-3 bg-background/80 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
                 <div className="min-w-0">
@@ -156,7 +199,12 @@ function UsageContent({ usage }: { usage: AccountUsage }) {
                     <p className="text-xs text-muted-foreground">Score</p>
                     <p className="font-mono text-lg font-medium">{item.score ?? "—"}</p>
                   </div>
-                  <Button variant="outline" size="sm" render={<Link href={`/scans/${item.id}`} aria-label={`Open report for ${item.target}`} />}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    nativeButton={false}
+                    render={<Link href={`/scans/${item.id}`} aria-label={`Open report for ${item.target}`} />}
+                  >
                     Report <ExternalLink className="size-3.5" />
                   </Button>
                 </div>
@@ -164,7 +212,7 @@ function UsageContent({ usage }: { usage: AccountUsage }) {
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-border px-5 py-10 text-center">
+          <div className="rounded-xl border border-dashed border-border px-5 py-10 text-center">
             <p className="text-sm font-medium">No usage in this source yet</p>
             <p className="mt-2 text-sm text-muted-foreground">Run a scan from this surface and it will appear here with its report.</p>
           </div>

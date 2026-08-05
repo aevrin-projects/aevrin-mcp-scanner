@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BookOpen,
   ChevronDown,
@@ -36,6 +36,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -58,7 +59,7 @@ function accountMonogram(email: string) {
 
 function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
   return (
-    <nav className="flex flex-col gap-1">
+    <nav className="flex flex-col gap-0.5">
       {NAV_ITEMS.map((item) => {
         const active = isActivePath(pathname, item.href);
 
@@ -67,14 +68,15 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
             key={item.href}
             href={item.href}
             onClick={onNavigate}
+            aria-current={active ? "page" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors",
+              "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors",
               active
-                ? "bg-brand/12 text-foreground ring-1 ring-brand/20"
-                : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+                ? "bg-muted font-medium text-foreground"
+                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
             )}
           >
-            <item.icon className={cn("size-4", active ? "text-brand-text" : "")} />
+            <item.icon className="size-4 shrink-0" />
             <span>{item.label}</span>
           </Link>
         );
@@ -94,7 +96,25 @@ export function AuthenticatedAppShell({
 }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [tier, setTier] = useState<string | null>(null);
   const monogram = accountMonogram(email);
+
+  // Best-effort: the plan badge is contextual, so a failed lookup just hides
+  // it rather than surfacing an error on every authenticated page.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getSubscription()
+      .then((subscription) => {
+        if (!cancelled) setTier(subscription.effective_tier);
+      })
+      .catch(() => {
+        if (!cancelled) setTier(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
@@ -106,36 +126,37 @@ export function AuthenticatedAppShell({
       </a>
 
       <div className="flex min-h-screen w-full">
-        <aside className="hidden w-[260px] shrink-0 border-r border-border/80 bg-card/35 px-4 py-6 xl:w-[280px] lg:flex lg:flex-col lg:gap-8">
-          <div className="flex items-center gap-3 px-3">
-            <Image src="/logo.png" alt="" width={24} height={26} priority />
-            <div>
-              <div className="text-lg font-semibold tracking-[0.12em] text-foreground uppercase">Aevrin</div>
-              <div className="text-xs text-muted-foreground">MCP Security Scanner</div>
-            </div>
-          </div>
+        <aside className="hidden w-[248px] shrink-0 flex-col gap-5 border-r border-border bg-sidebar px-3 py-4 lg:flex">
+          {/* Account/plan header — mirrors the workspace switcher position in
+              a standard product sidebar, showing the identity you're acting
+              as and the plan that governs limits, both real values. */}
+          <Link
+            href="/settings/billing"
+            className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-2.5 py-2 transition-colors hover:bg-muted/50"
+          >
+            <Image src="/logo.png" alt="" width={18} height={20} priority />
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">{email}</span>
+            {tier ? (
+              <span className="shrink-0 rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground capitalize">
+                {tier}
+              </span>
+            ) : null}
+          </Link>
 
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <p className="px-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                Workspace
-              </p>
-              <NavLinks pathname={pathname} />
-            </div>
+          <NavLinks pathname={pathname} />
 
-            <div className="rounded-2xl border border-border/80 bg-background/70 p-4">
-              <p className="text-sm font-medium text-foreground">Security workflow</p>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Start a scan, review incomplete coverage honestly, and verify fixes with a repeat scan.
-              </p>
-              <Link
-                href="/integrations"
-                className="mt-4 inline-flex items-center gap-2 text-sm text-brand-text hover:text-foreground"
-              >
-                <BookOpen className="size-4" />
-                CLI and hook setup
-              </Link>
-            </div>
+          <div className="mt-auto rounded-lg border border-border bg-card p-3">
+            <p className="text-[13px] font-medium text-foreground">CLI and hook setup</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Scan from your terminal, or block unsafe MCP installs before they land.
+            </p>
+            <Link
+              href="/integrations"
+              className="mt-2.5 inline-flex items-center gap-1.5 text-xs text-brand-text hover:text-foreground"
+            >
+              <BookOpen className="size-3.5" />
+              Set up
+            </Link>
           </div>
         </aside>
 
@@ -173,7 +194,7 @@ export function AuthenticatedAppShell({
               </div>
 
               <div className="flex items-center gap-2 sm:gap-3">
-                <Button render={<Link href="/scans/new" />} className="hidden sm:inline-flex">
+                <Button nativeButton={false} render={<Link href="/scans/new" />} className="hidden sm:inline-flex">
                   New scan
                 </Button>
                 <ThemeToggle />

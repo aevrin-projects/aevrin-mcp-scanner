@@ -127,7 +127,7 @@ export default function NewScanPage() {
         description="Choose the target type, review what coverage that mode can actually provide, and start one scan with clear quota and error handling."
       />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_360px]">
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_360px]">
         <SectionCard
           title="Scan target"
           description="GitHub source scans provide the broadest coverage. Live-server and config-only scans expose fewer signals and say so explicitly."
@@ -180,7 +180,7 @@ export default function NewScanPage() {
                         ) : null}
                       </div>
 
-                      <div className="flex flex-col gap-3 rounded-2xl border border-border bg-background/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex flex-col gap-3 rounded-xl border border-border bg-background/70 p-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="space-y-1">
                           <p className="text-sm font-medium text-foreground">{config.cta}</p>
                           <p className="text-sm text-muted-foreground">
@@ -204,7 +204,7 @@ export default function NewScanPage() {
                           What this mode covers
                         </div>
                         <p className="text-sm leading-6 text-muted-foreground">{config.coverage}</p>
-                        <div className="rounded-2xl border border-severity-medium/25 bg-severity-medium/10 p-4">
+                        <div className="rounded-xl border border-severity-medium/25 bg-severity-medium/10 p-4">
                           <p className="flex items-center gap-2 text-sm font-medium text-foreground">
                             <ShieldAlert className="size-4 text-severity-medium" />
                             Limitations
@@ -227,14 +227,14 @@ export default function NewScanPage() {
             title="Recent scans"
             description="Resume the last result or review what was scanned most recently."
             action={
-              <Button render={<Link href="/scans/history" />} variant="outline" size="sm">
+              <Button nativeButton={false} render={<Link href="/scans/history" />} variant="outline" size="sm">
                 History
               </Button>
             }
           >
             <div className="space-y-3">
               {recentScans === null ? (
-                Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-20 rounded-2xl" />)
+                Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-20 rounded-xl" />)
               ) : recentScans.length === 0 ? (
                 <Alert>
                   <ShieldAlert className="size-4" />
@@ -248,7 +248,7 @@ export default function NewScanPage() {
                   <Link
                     key={scan.id}
                     href={`/scans/${scan.id}`}
-                    className="flex flex-col gap-2 rounded-2xl border border-border bg-background/80 p-4 transition-colors hover:bg-muted/30"
+                    className="flex flex-col gap-2 rounded-xl border border-border bg-background/80 p-4 transition-colors hover:bg-muted/30"
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusBadge status={scan.status} />

@@ -2,9 +2,8 @@
 
 import { Suspense, useActionState, useState, type ChangeEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import Image from "next/image";
 import Link from "next/link";
-import { FileWarning, ShieldCheck, Terminal } from "lucide-react";
+import Image from "next/image";
 import {
   signInWithGoogle,
   signInWithGithub,
@@ -23,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { AuthPreviewVisual } from "@/components/auth-preview-visual";
 
 const idleState: LoginState = { status: "idle" };
 const idleResetState: ResetState = { status: "idle" };
@@ -73,49 +73,44 @@ function GitHubIcon() {
 // longer verification and reset states.
 function AuthShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="auth-ambient relative flex min-h-[calc(100svh-4.5rem)] items-center justify-center overflow-hidden bg-background p-3 sm:p-5 lg:p-6">
+    <div className="auth-ambient relative grid min-h-svh w-full overflow-hidden bg-background lg:grid-cols-[0.92fr_1.08fr]">
       <div className="security-mesh absolute inset-0 opacity-35" aria-hidden="true" />
       <div className="security-orb security-orb-one" aria-hidden="true" />
       <div className="security-orb security-orb-two" aria-hidden="true" />
       <h1 className="sr-only">Aevrin account access</h1>
-      <div className="auth-panel-enter relative grid min-h-[calc(100svh-6rem)] w-full max-w-[1480px] overflow-hidden rounded-[28px] border border-border/80 bg-background/88 shadow-2xl shadow-black/15 backdrop-blur-xl lg:min-h-[calc(100svh-7.5rem)] lg:max-h-[900px] lg:grid-cols-[1.05fr_0.95fr]">
-        <div className="auth-grid relative hidden flex-col justify-center gap-10 overflow-hidden border-r border-border bg-muted/40 p-12 lg:flex xl:p-16">
-          <div className="auth-scan-line" aria-hidden="true" />
-          <Link href="/" className="flex items-center gap-2 font-semibold">
-            <Image src="/logo.png" alt="" width={22} height={24} />
-            <span>Aevrin</span>
-          </Link>
-          <div className="flex max-w-xl flex-col gap-7">
-            <h2 className="text-3xl font-semibold tracking-tight text-balance xl:text-4xl">
-              Know what your MCP servers can actually do before you install them.
-            </h2>
-            <ul className="flex flex-col gap-4 text-sm text-muted-foreground">
-              <li className="flex items-start gap-3">
-                <ShieldCheck className="mt-0.5 size-4 shrink-0 text-foreground" />
-                <span>Static analysis against the OWASP MCP Top 10 — nothing runs against production traffic.</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Terminal className="mt-0.5 size-4 shrink-0 text-foreground" />
-                <span>Scan from the CLI, a Claude Code hook, or paste a repository URL straight into the dashboard.</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <FileWarning className="mt-0.5 size-4 shrink-0 text-foreground" />
-                <span>Every finding is scored and mapped to a fix — not a wall of raw tool output.</span>
-              </li>
-            </ul>
-            <div className="flex items-center gap-3 rounded-2xl border border-brand/25 bg-background/65 px-4 py-3 text-xs text-muted-foreground backdrop-blur-sm">
-              <span className="relative flex size-2">
-                <span className="absolute inline-flex size-full rounded-full bg-brand opacity-60 motion-safe:animate-ping" />
-                <span className="relative inline-flex size-2 rounded-full bg-brand" />
-              </span>
-              Dashboard, CLI, and hook evidence stay in sync.
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Aevrin</p>
+
+      {/* Full-bleed split. No card, no page padding, no max width — the two
+          columns run edge to edge and the whole thing is exactly one viewport
+          tall at every size. Form first in DOM and visual order: it's the
+          only thing anyone came here to do, so it gets the first tab stop. */}
+      <div className="relative z-10 flex min-h-svh flex-col overflow-y-auto px-5 py-6 sm:px-8 lg:px-12">
+        <Link href="/" className="inline-flex w-fit items-center gap-2.5 text-sm font-semibold tracking-[0.14em] uppercase">
+          <Image src="/logo.png" alt="" width={22} height={24} priority />
+          Aevrin
+        </Link>
+
+        <div className="flex flex-1 items-center justify-center py-8">
+          <div className="w-full max-w-md">{children}</div>
         </div>
-        <div className="relative flex items-start justify-center overflow-y-auto bg-background/70 p-5 sm:items-center sm:p-8 lg:p-10">
-          <div className="w-full max-w-md py-5 sm:py-8">{children}</div>
+
+        <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Aevrin</p>
+      </div>
+
+      {/* Product panel. `overflow-hidden` is what lets the device frame inside
+          bleed off the right edge instead of forcing a horizontal scrollbar. */}
+      <div className="auth-grid relative hidden min-h-svh flex-col justify-center gap-10 overflow-hidden border-l border-border bg-muted/40 py-12 pl-12 lg:flex xl:pl-16">
+        <div className="auth-scan-line" aria-hidden="true" />
+        <div className="flex max-w-lg flex-col gap-3 pr-12">
+          <h2 className="text-2xl font-semibold tracking-tight text-balance xl:text-3xl">
+            Every finding comes with evidence and a fix.
+          </h2>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            A score you can act on, the exact file and line, and a pull request that&apos;s re-verified by the
+            scanner before it&apos;s opened.
+          </p>
         </div>
+
+        <AuthPreviewVisual />
       </div>
     </div>
   );

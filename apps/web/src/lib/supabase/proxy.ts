@@ -9,7 +9,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // through to Next's real 404 instead of being disguised as login pages.
 const PUBLIC_PATHS_EXACT = ["/"];
 const PUBLIC_PATH_PREFIXES = ["/login", "/auth", "/device", "/pricing", "/docs", "/terms", "/privacy", "/status", "/error"];
-const PROTECTED_PATH_PREFIXES = ["/dashboard", "/scans", "/settings", "/integrations", "/usage"];
+const PROTECTED_PATH_PREFIXES = ["/dashboard", "/onboarding", "/scans", "/settings", "/integrations", "/usage"];
 
 function matchesPath(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
@@ -80,6 +80,18 @@ export async function updateSession(request: NextRequest) {
   if (!user && !isPublicPath && isProtectedPath) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
+  // A signed-in person landing on the marketing root or the login page is
+  // almost always trying to get back into the product — send them there
+  // instead of making them re-navigate (and re-authenticate) by hand. The
+  // rest of the marketing site (/pricing, /docs, /terms…) stays reachable
+  // while signed in, since those are genuinely still useful.
+  if (user && (pathname === "/" || pathname === "/login")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    url.search = "";
     return NextResponse.redirect(url);
   }
 

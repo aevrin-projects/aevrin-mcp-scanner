@@ -120,11 +120,12 @@ Quota resets on a **rolling monthly window from your signup date**, not the cale
 is tracked independently across three buckets — CLI, hook, and dashboard scans each have their
 own limit:
 
-| Tier | CLI scans/mo | Hook scans/mo | Dashboard scans/mo | History retention | PDF export |
-|---|---|---|---|---|---|
-| Free | 5 | 2 | 5 | 7 days | No |
-| Hobby | 50 | 20 | 50 | 90 days | Yes |
-| Team | Unlimited | Unlimited | Unlimited | Unlimited | Yes |
+| Tier | CLI scans/mo | Hook scans/mo | Dashboard scans/mo | History retention | PDF export | Auto-fix PRs/mo |
+|---|---|---|---|---|---|---|
+| Free | 5 | 2 | 5 | 7 days | No | — |
+| Hobby | 50 | 20 | 50 | 90 days | Yes | — |
+| Pro | 200 | 100 | 200 | 1 year | Yes | 15 |
+| Team | Usage-based | Usage-based | Usage-based | Unlimited | Yes | 15 per seat |
 
 Exceeding a bucket's limit returns a two-part message everywhere it can happen (CLI, hook,
 dashboard): what happened, when it resets, and where to upgrade — never a bare refusal.

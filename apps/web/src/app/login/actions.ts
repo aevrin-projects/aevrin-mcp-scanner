@@ -47,7 +47,7 @@ function safeNext(formData: FormData): string {
   if (typeof next === "string" && next.startsWith("/") && !next.startsWith("//") && next !== "/") {
     return next;
   }
-  return "/dashboard";
+  return "/onboarding";
 }
 
 export async function signInWithGoogle(formData: FormData): Promise<void> {
@@ -290,5 +290,5 @@ export async function verifyPasswordResetCode(_prevState: ResetState, formData: 
     return { status: "code-sent", email, message: updateError.message };
   }
 
-  redirect("/dashboard");
+  redirect("/onboarding");
 }

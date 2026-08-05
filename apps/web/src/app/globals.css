@@ -61,43 +61,51 @@
 
 :root {
   --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --foreground: oklch(0.2891 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.2891 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.47 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.2891 0 0);
+  /* Primary button/action color follows the reference system's own rule:
+     the accent is used for CTAs (not just links/focus rings), so the
+     default Button variant carries it everywhere rather than mixing a
+     separate neutral "primary" black with the accent blue. */
+  --primary: oklch(0.7857 0.1153 246.66);
+  --primary-foreground: oklch(0.2891 0 0);
+  --secondary: oklch(0.9551 0 0);
+  --secondary-foreground: oklch(0.2891 0 0);
+  --muted: oklch(0.9551 0 0);
+  --muted-foreground: oklch(0.7137 0.0192 261.32);
+  --accent: oklch(0.9551 0 0);
+  --accent-foreground: oklch(0.2891 0 0);
+  --destructive: oklch(0.7345 0.1626 25.78);
+  --border: oklch(0.82 0.008 261.32);
+  --input: oklch(0.82 0.008 261.32);
+  --ring: oklch(0.7857 0.1153 246.66);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
+  --radius: 0.5rem;
   --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.2891 0 0);
+  --sidebar-primary: oklch(0.2891 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-accent: oklch(0.9551 0 0);
+  --sidebar-accent-foreground: oklch(0.2891 0 0);
+  --sidebar-border: oklch(0.82 0.008 261.32);
+  --sidebar-ring: oklch(0.7857 0.1153 246.66);
 
-  /* Brand accent — matches aevrin.net's mark (#bce60a). A darker text
-     token preserves contrast on light backgrounds. */
-  --brand: oklch(0.864 0.208 122.07);
-  --brand-text: oklch(0.4 0.12 122.07);
-  --brand-foreground: oklch(0.145 0 0);
+  /* Brand accent — a cool sky blue (matches the reference design system's
+     accent, #79c0ff), replacing the earlier lime mark. --brand is the
+     light/background value (buttons, focus rings, badges); --brand-text is
+     darkened along the same hue for use as on-white text/link color —
+     #79c0ff itself sits below 4.5:1 contrast on white, so text uses this
+     darker sibling while large/interactive surfaces use the lighter one. */
+  --brand: oklch(0.7857 0.1153 246.66);
+  --brand-text: oklch(0.55 0.15 246.66);
+  --brand-foreground: oklch(0.2891 0 0);
 
   /* Severity hues always appear beside a visible severity label or other
      text; color is supplemental, never the only conveyed signal. */
@@ -112,41 +120,46 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  /* Pure-black canvas with hairline separators — the app's primary theme.
+     Depth comes from 1px borders and a barely-lifted card surface, not from
+     shadows or blur, so dense security tables stay legible. */
+  --background: oklch(0 0 0);
+  --foreground: oklch(0.9939 0.0029 264.54);
+  --card: oklch(0.1448 0 0);
+  --card-foreground: oklch(0.9939 0.0029 264.54);
+  --popover: oklch(0.1448 0 0);
+  --popover-foreground: oklch(0.9939 0.0029 264.54);
+  /* Primary CTA is white-on-black — the accent blue is reserved for links,
+     focus rings, and active nav so the one true action always reads first. */
+  --primary: oklch(1 0 0);
+  --primary-foreground: oklch(0 0 0);
+  --secondary: oklch(0.1776 0 0);
+  --secondary-foreground: oklch(0.9939 0.0029 264.54);
+  --muted: oklch(0.1776 0 0);
+  --muted-foreground: oklch(0.7166 0.0037 219.55);
+  --accent: oklch(0.2178 0 0);
+  --accent-foreground: oklch(0.9939 0.0029 264.54);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --border: oklch(0.2178 0 0);
+  --input: oklch(0.2686 0 0);
+  --ring: oklch(0.7857 0.1153 246.66);
+  --chart-1: oklch(0.7729 0.1535 163.22);
+  --chart-2: oklch(0.7345 0.1626 25.78);
+  --chart-3: oklch(0.7857 0.1153 246.66);
+  --chart-4: oklch(0.8606 0.1731 91.94);
+  --chart-5: oklch(0.6268 0 0);
+  --sidebar: oklch(0.0645 0 0);
+  --sidebar-foreground: oklch(0.7166 0.0037 219.55);
+  --sidebar-primary: oklch(0.2178 0 0);
+  --sidebar-primary-foreground: oklch(0.9939 0.0029 264.54);
+  --sidebar-accent: oklch(0.1776 0 0);
+  --sidebar-accent-foreground: oklch(0.9939 0.0029 264.54);
+  --sidebar-border: oklch(0.2178 0 0);
+  --sidebar-ring: oklch(0.7857 0.1153 246.66);
 
-  --brand: oklch(0.82 0.2 122.07);
-  --brand-text: oklch(0.82 0.2 122.07);
-  --brand-foreground: oklch(0.145 0 0);
+  --brand: oklch(0.7857 0.1153 246.66);
+  --brand-text: oklch(0.7857 0.1153 246.66);
+  --brand-foreground: oklch(0 0 0);
 
   --severity-critical: oklch(0.6 0.22 27);
   --severity-critical-foreground: oklch(0.985 0 0);
@@ -304,4 +317,141 @@
     transform: none;
     transition: none;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Hero scan visual — a radar sweep over a faint code field, with ecosystem
+   badges around the perimeter and a finding surfacing inside the cone. All
+   motion is transform/opacity only so it stays off the layout path, and the
+   whole thing is decorative (aria-hidden) — nothing here carries meaning that
+   isn't also stated in text.
+--------------------------------------------------------------------------- */
+
+@keyframes hero-sweep {
+  0%   { transform: rotate(-32deg); }
+  50%  { transform: rotate(32deg); }
+  100% { transform: rotate(-32deg); }
+}
+
+@keyframes hero-ring-pulse {
+  0%   { transform: scale(0.82); opacity: 0; }
+  30%  { opacity: 0.55; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+@keyframes hero-badge-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+@keyframes hero-finding-in {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.hero-scan-cone {
+  /* Cone widening downward from the hub, pivoting at its apex. */
+  transform-origin: 50% 0%;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in oklab, var(--brand) 42%, transparent) 0%,
+    color-mix(in oklab, var(--brand) 14%, transparent) 45%,
+    transparent 85%
+  );
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  animation: hero-sweep 7s ease-in-out infinite;
+}
+
+.hero-ring {
+  border: 1px solid color-mix(in oklab, var(--brand) 22%, transparent);
+  border-radius: 9999px;
+  animation: hero-ring-pulse 4.5s ease-out infinite;
+}
+
+.hero-badge {
+  animation: hero-badge-float 5s ease-in-out infinite;
+}
+
+.hero-finding {
+  animation: hero-finding-in 0.7s cubic-bezier(0.4, 0, 0.2, 1) 0.5s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-scan-cone,
+  .hero-ring,
+  .hero-badge,
+  .hero-finding {
+    animation: none !important;
+  }
+  /* Without the sweep the cone should still read as a beam, not a wedge
+     frozen mid-rotation. */
+  .hero-scan-cone { transform: rotate(0deg); }
+  .hero-ring { opacity: 0.35; transform: scale(1); }
+}
+
+/* --- Dashboard motion -----------------------------------------------------
+   Product-surface motion is deliberately quieter than the marketing hero:
+   short, one-shot, on mount only. Nothing loops, because a dashboard is a
+   place people read, and a looping animation in peripheral vision is a
+   permanent distraction. Every rule here degrades to a static end state
+   under prefers-reduced-motion. */
+
+@keyframes panel-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes bar-grow-x {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes bar-grow-y {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes gauge-sweep {
+  from { stroke-dashoffset: var(--gauge-circumference); }
+  to { stroke-dashoffset: var(--gauge-offset); }
+}
+
+/* Applied to a grid/stack; children stagger by index via --i. */
+.panel-rise > * {
+  animation: panel-rise 0.45s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+.panel-rise-item {
+  animation: panel-rise 0.45s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+.bar-grow-x {
+  transform-origin: left center;
+  animation: bar-grow-x 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+.bar-grow-y {
+  transform-origin: bottom center;
+  animation: bar-grow-y 0.55s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 35ms);
+}
+
+.gauge-sweep {
+  animation: gauge-sweep 0.9s cubic-bezier(0.4, 0, 0.2, 1) 0.1s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-rise > *,
+  .panel-rise-item,
+  .bar-grow-x,
+  .bar-grow-y,
+  .gauge-sweep {
+    animation: none !important;
+  }
+  /* The gauge is drawn with a dash offset, so with the animation off it needs
+     its final offset applied directly or the arc renders empty. */
+  .gauge-sweep { stroke-dashoffset: var(--gauge-offset); }
 }

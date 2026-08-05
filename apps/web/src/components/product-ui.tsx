@@ -35,11 +35,15 @@ export function PageHeader({
 export function MetricCard({
   label,
   value,
+  suffix,
   detail,
   tone = "default",
 }: {
   label: string;
   value: React.ReactNode;
+  /** Small trailing qualifier on the value line — "/100", "4 critical". Keeps
+   *  the headline number dominant while the qualifier stays readable. */
+  suffix?: React.ReactNode;
   detail?: React.ReactNode;
   tone?: "default" | "critical" | "high" | "success";
 }) {
@@ -53,15 +57,16 @@ export function MetricCard({
           : "border-border";
 
   return (
-    <Card className={cn("bg-card/80", toneClass)}>
-      <CardHeader className="pb-3">
-        <CardDescription className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-          {label}
-        </CardDescription>
+    <Card className={cn("gap-0 rounded-xl bg-card py-4", toneClass)}>
+      <CardHeader className="gap-0 px-4 pb-2">
+        <CardDescription className="text-xs font-medium text-muted-foreground">{label}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-2">
-        <div className="text-3xl font-semibold tracking-tight text-foreground">{value}</div>
-        {detail ? <p className="text-sm leading-6 text-muted-foreground">{detail}</p> : null}
+      <CardContent className="space-y-1 px-4">
+        <div className="flex items-baseline gap-2">
+          <span className="text-2xl font-semibold tracking-tight text-foreground tabular-nums">{value}</span>
+          {suffix ? <span className="text-xs text-muted-foreground">{suffix}</span> : null}
+        </div>
+        {detail ? <p className="text-xs leading-5 text-muted-foreground">{detail}</p> : null}
       </CardContent>
     </Card>
   );
@@ -114,7 +119,7 @@ export function EmptyState({
   const Icon = icon === "attention" ? AlertTriangle : ShieldCheck;
 
   return (
-    <div className="rounded-2xl border border-dashed border-border bg-card/40 p-8 text-left">
+    <div className="rounded-xl border border-dashed border-border bg-card/40 p-8 text-left">
       <div className="flex max-w-2xl flex-col gap-4">
         <div className="flex size-11 items-center justify-center rounded-full border border-border bg-background/80">
           <Icon className="size-5 text-brand-text" />

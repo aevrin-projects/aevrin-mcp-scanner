@@ -5,7 +5,7 @@ import { buttonVariants } from "@/components/ui/button";
 export default function NotFound() {
   return (
     <section className="mx-auto flex min-h-[70vh] max-w-3xl items-center px-6 py-24 text-center">
-      <div className="w-full rounded-3xl border border-border bg-card/70 p-8 sm:p-12">
+      <div className="w-full rounded-xl border border-border bg-card/70 p-8 sm:p-12">
         <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-border bg-background">
           <SearchX className="size-5 text-brand-text" />
         </div>

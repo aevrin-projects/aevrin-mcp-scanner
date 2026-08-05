@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
     const { error } = await supabase.auth.verifyOtp({ type, token_hash });
     if (!error) {
-      return NextResponse.redirect(new URL("/dashboard", siteUrl()));
+      return NextResponse.redirect(new URL("/onboarding", siteUrl()));
     }
     return NextResponse.redirect(new URL("/error?reason=exchange_failed", siteUrl()));
   }

@@ -9,7 +9,7 @@ import type { Finding } from "@/lib/types";
 import { OWASP_CATEGORY_LABELS } from "@/lib/types";
 import { PageHeader, SectionCard } from "@/components/product-ui";
 import { SeverityBadge } from "@/components/severity-badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,6 +30,10 @@ export function FindingDetailClient({
   const [triageReason, setTriageReason] = useState("");
   const [tier, setTier] = useState<"free" | "hobby" | "pro" | "team" | null>(null);
   const [fixing, setFixing] = useState(false);
+
+  // Fix It is Pro/Team only. Derived once here so the header action and the
+  // upgrade prompt below can never disagree about eligibility.
+  const canUseFixIt = tier === "pro" || tier === "team";
 
   useEffect(() => {
     api
@@ -94,8 +98,8 @@ export function FindingDetailClient({
   if (!finding) {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-20 rounded-3xl" />
-        <Skeleton className="h-80 rounded-3xl" />
+        <Skeleton className="h-20 rounded-xl" />
+        <Skeleton className="h-80 rounded-xl" />
       </div>
     );
   }
@@ -126,22 +130,67 @@ export function FindingDetailClient({
         description="Review the recorded severity, category, source, context, remediation, and auditable triage history."
         actions={
           !finding.not_tested ? (
-            finding.triage_status === "open" ? (
-              <Button variant="outline" disabled={triaging} onClick={() => void updateStatus("fixed")}>
-                <CheckCircle2 className="size-4" />
-                Mark as fixed
-              </Button>
-            ) : (
-              <Button variant="outline" disabled={triaging} onClick={() => void updateStatus("open")}>
-                <RotateCcw className="size-4" />
-                Reopen finding
-              </Button>
-            )
+            <>
+              {/* Fix It is the primary action on this page, so it sits in the
+                  primary action slot. It was previously buried in a sidebar
+                  card below triage — effectively undiscoverable. */}
+              {canUseFixIt && !finding.excluded_path ? (
+                finding.autofix_status === "fixed" && finding.autofix_pr_url ? (
+                  <a
+                    href={finding.autofix_pr_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={buttonVariants({ variant: "outline" })}
+                  >
+                    <ExternalLink className="size-4" />
+                    View fix PR
+                  </a>
+                ) : (
+                  <Button disabled={fixing} onClick={() => void runFixIt()}>
+                    <Wrench className="size-4" />
+                    {fixing ? "Generating fix…" : finding.autofix_status === "failed" ? "Retry Fix It" : "Fix It"}
+                  </Button>
+                )
+              ) : null}
+              {finding.triage_status === "open" ? (
+                <Button variant="outline" disabled={triaging} onClick={() => void updateStatus("fixed")}>
+                  <CheckCircle2 className="size-4" />
+                  Mark as fixed
+                </Button>
+              ) : (
+                <Button variant="outline" disabled={triaging} onClick={() => void updateStatus("open")}>
+                  <RotateCcw className="size-4" />
+                  Reopen finding
+                </Button>
+              )}
+            </>
           ) : null
         }
       />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_360px]">
+      {/* Upgrade path stays visible for non-Pro accounts rather than hidden
+          in a sidebar card — this is the moment the value is obvious. */}
+      {!canUseFixIt && !finding.not_tested && !finding.excluded_path && tier !== null ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">Fix It can resolve this automatically.</span> Aevrin
+            drafts a patch, re-runs {finding.tool} to confirm it clears, then opens a draft pull request.
+          </p>
+          <Link href="/pricing" className={buttonVariants({ size: "sm" })}>
+            Upgrade to Pro
+          </Link>
+        </div>
+      ) : null}
+
+      {finding.autofix_status === "failed" && finding.autofix_failure_reason ? (
+        <Alert>
+          <AlertTriangle className="size-4" />
+          <AlertTitle>Automatic fix didn&apos;t succeed</AlertTitle>
+          <AlertDescription>{finding.autofix_failure_reason}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.3fr)_360px]">
         <SectionCard
           title="Finding context"
           description="Everything shown below comes from the stored finding record for this scan."
@@ -177,7 +226,7 @@ export function FindingDetailClient({
               </p>
             ) : null}
 
-            <div className="rounded-2xl border border-border bg-background/80 p-4">
+            <div className="rounded-xl border border-border bg-background/80 p-4">
               <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Location</p>
               <p className="mt-2 break-all font-mono text-sm text-foreground">{location}</p>
             </div>
@@ -205,54 +254,11 @@ export function FindingDetailClient({
             </Alert>
           ) : null}
 
-          {!finding.not_tested && !finding.excluded_path ? (
-            <SectionCard
-              title="Fix It"
-              description="Generates a patch, re-runs the original scanner to confirm it clears, then opens a draft pull request — never a merge."
-            >
-              {tier !== "pro" && tier !== "team" ? (
-                <div className="space-y-3 text-sm leading-6 text-muted-foreground">
-                  <p>Auto-fix pull requests are available on Pro and Team.</p>
-                  <Link href="/pricing" className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-2">
-                    Upgrade to unlock Fix It
-                  </Link>
-                </div>
-              ) : finding.autofix_status === "fixed" && finding.autofix_pr_url ? (
-                <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground">A draft pull request was opened for this finding.</p>
-                  <a
-                    href={finding.autofix_pr_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline underline-offset-2"
-                  >
-                    View pull request <ExternalLink className="size-3.5" />
-                  </a>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {finding.autofix_status === "failed" && finding.autofix_failure_reason ? (
-                    <p className="text-sm leading-6 text-muted-foreground">{finding.autofix_failure_reason}</p>
-                  ) : (
-                    <p className="text-sm leading-6 text-muted-foreground">
-                      Resolves most straightforward, single-file findings automatically. Complex or multi-file findings
-                      may still need manual review.
-                    </p>
-                  )}
-                  <Button variant="outline" disabled={fixing} onClick={() => void runFixIt()}>
-                    <Wrench className="size-4" />
-                    {fixing ? "Generating fix…" : finding.autofix_status === "failed" ? "Try again" : "Fix It"}
-                  </Button>
-                </div>
-              )}
-            </SectionCard>
-          ) : null}
-
           <SectionCard title="Status" description="Triage changes are retained with their reason and timestamp.">
             <div className="space-y-4 text-sm leading-6 text-muted-foreground">
               <p>Current status: <strong className="text-foreground">{finding.triage_status.replace("_", " ")}</strong></p>
               {finding.triaged_at ? (
-                <div className="rounded-2xl border border-border bg-background/80 p-4">
+                <div className="rounded-xl border border-border bg-background/80 p-4">
                   <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Last triage</p>
                   <p className="mt-2 text-foreground">{formatDateTime(finding.triaged_at)}</p>
                   {finding.triage_reason ? <p className="mt-2 whitespace-pre-wrap">{finding.triage_reason}</p> : null}
@@ -296,7 +302,7 @@ export function FindingDetailClient({
 
 function MetaPanel({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-border bg-background/80 p-4">
+    <div className="rounded-xl border border-border bg-background/80 p-4">
       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
       <p className="mt-2 text-sm font-medium text-foreground">{value}</p>
     </div>
@@ -305,7 +311,7 @@ function MetaPanel({ label, value }: { label: string; value: string }) {
 
 function SectionBody({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-2xl border border-border bg-background/80 p-4">
+    <div className="rounded-xl border border-border bg-background/80 p-4">
       <p className="text-sm font-medium text-foreground">{title}</p>
       <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{body}</p>
     </div>

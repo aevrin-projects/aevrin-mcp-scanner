@@ -5,11 +5,10 @@ import { CopyButton } from "@/components/copy-button";
 import { PageHeader, SectionCard } from "@/components/product-ui";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  AGENT_HOOK_PROMPT,
-  AGENT_INSTALL_PROMPT,
   CLI_INSTALL_COMMANDS,
   CLI_VERIFY_COMMANDS,
 } from "@/lib/onboarding";
+import { HOOK_PROMPT_CARD, INSTALL_PROMPT_CARD, PromptCard } from "@/components/prompt-card";
 
 export default function IntegrationsPage() {
   return (
@@ -71,17 +70,9 @@ export default function IntegrationsPage() {
         title="AI agent prompts"
         description="These are prompts to paste into Claude Code or another agent. They are not shell commands."
       >
-        <div className="grid gap-4 xl:grid-cols-2">
-          <PromptPanel
-            title="Install prompt"
-            value={AGENT_INSTALL_PROMPT}
-            label="Copy install prompt"
-          />
-          <PromptPanel
-            title="Hook prompt"
-            value={AGENT_HOOK_PROMPT}
-            label="Copy hook prompt"
-          />
+        <div className="grid items-start gap-4 xl:grid-cols-2">
+          <PromptCard preset={INSTALL_PROMPT_CARD} />
+          <PromptCard preset={HOOK_PROMPT_CARD} />
         </div>
       </SectionCard>
     </div>
@@ -104,36 +95,9 @@ function CodePanel({
           <p className="text-sm font-medium text-foreground">{title}</p>
           {action}
         </div>
-        <pre tabIndex={0} aria-label={`${title} commands`} className="max-w-full overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 font-mono text-xs leading-6 text-foreground sm:text-sm">
+        <pre tabIndex={0} aria-label={`${title} commands`} className="max-w-full overflow-x-auto rounded-xl border border-border bg-background px-4 py-3 font-mono text-xs leading-6 text-foreground sm:text-sm">
           {value}
         </pre>
-      </CardContent>
-    </Card>
-  );
-}
-
-function PromptPanel({
-  title,
-  value,
-  label,
-}: {
-  title: string;
-  value: string;
-  label: string;
-}) {
-  return (
-    <Card className="bg-background/80">
-      <CardContent className="space-y-4 pt-5">
-        <div className="space-y-2">
-          <p className="text-base font-medium text-foreground">{title}</p>
-          <p className="text-sm leading-6 text-muted-foreground">
-            Paste this into an agent when you want it to do the setup work for you.
-          </p>
-        </div>
-        <pre tabIndex={0} aria-label={`${title} text`} className="overflow-x-auto rounded-2xl border border-border bg-background px-4 py-3 whitespace-pre-wrap font-mono text-xs leading-6 text-foreground sm:text-sm">
-          {value}
-        </pre>
-        <CopyButton value={value} label={label} />
       </CardContent>
     </Card>
   );
@@ -149,9 +113,9 @@ function InfoCard({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-background/80 p-4">
+    <div className="rounded-xl border border-border bg-background/80 p-4">
       <div className="flex items-center gap-3">
-        <div className="flex size-10 items-center justify-center rounded-2xl border border-brand/25 bg-brand/10">
+        <div className="flex size-10 items-center justify-center rounded-xl border border-brand/25 bg-brand/10">
           {icon}
         </div>
         <p className="text-base font-medium text-foreground">{title}</p>
