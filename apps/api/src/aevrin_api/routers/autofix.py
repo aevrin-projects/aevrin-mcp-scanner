@@ -179,13 +179,45 @@ async def github_callback(
     settings: Annotated[Settings, Depends(get_settings)],
     installation_id: Annotated[int | None, Query()] = None,
     state: Annotated[str | None, Query()] = None,
+    code: Annotated[str | None, Query()] = None,
+    setup_action: Annotated[str | None, Query()] = None,
 ) -> RedirectResponse:
     """GitHub redirects the person's browser here after they approve (or
     cancel) installing the App — not an authenticated API call, so identity
-    comes entirely from `state` (see sign_install_state)."""
+    comes entirely from `state` (see sign_install_state).
+
+    GitHub sends four materially different shapes here and this used to
+    collapse three of them into a single misleading "cancelled":
+
+      installation_id + state   a normal install started from our link
+      installation_id, no state installed from GitHub's own App page, so
+                                there is no signed state to attribute it to
+      code, no installation_id  the App was *authorized* but not installed
+      setup_action=request      an org owner still has to approve it
+
+    Someone who genuinely granted access and then saw "cancelled" has no way
+    to tell what went wrong, which is exactly the reported symptom: approve,
+    land back, nothing updated, no explanation.
+    """
     settings_url = f"{settings.web_origin}/settings/billing"
-    if not installation_id or not state:
-        return RedirectResponse(f"{settings_url}?github=cancelled")
+
+    if setup_action == "request":
+        return RedirectResponse(f"{settings_url}?github=approval_pending")
+
+    if not installation_id:
+        # Authorized but nothing installed — the App grants repo access via
+        # an *installation*, and user authorization alone doesn't create one.
+        reason = "authorized_not_installed" if code else "cancelled"
+        return RedirectResponse(f"{settings_url}?github={reason}")
+
+    if not state:
+        # The install is real, we just can't prove whose account it belongs
+        # to from this redirect alone. Deliberately not auto-claimed for the
+        # signed-in browser session: that would let anyone who can reach this
+        # URL bind someone else's org installation to their own account.
+        logger.info("github callback: installation %s arrived without signed state", installation_id)
+        return RedirectResponse(f"{settings_url}?github=needs_relink")
+
     user_id = verify_install_state(settings, state)
     if not user_id:
         return RedirectResponse(f"{settings_url}?github=invalid_state")

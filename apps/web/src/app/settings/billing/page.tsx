@@ -351,10 +351,28 @@ export default function BillingPage() {
   );
 }
 
+// Each of these is a genuinely different outcome. They were previously all
+// reported as "cancelled", which told someone who had just granted access
+// that they hadn't — the exact confusion behind "I approved it and nothing
+// updated".
 const GITHUB_CALLBACK_MESSAGE: Record<string, { message: string; ok: boolean }> = {
   connected: { message: "GitHub connected — Fix It can now open pull requests on the repos you granted.", ok: true },
   cancelled: { message: "GitHub connection cancelled — nothing was granted.", ok: false },
   invalid_state: { message: "That connection link expired — try connecting again.", ok: false },
+  authorized_not_installed: {
+    message:
+      "You authorized Aevrin but didn't finish installing it, so it has no repository access yet. Use Connect GitHub and pick the repositories on the install screen.",
+    ok: false,
+  },
+  needs_relink: {
+    message:
+      "Installed on GitHub, but it arrived without the link that ties it to this Aevrin account. Click Connect GitHub here to finish — it won't ask for access again.",
+    ok: false,
+  },
+  approval_pending: {
+    message: "Requested — an owner of that GitHub organization has to approve the install before it takes effect.",
+    ok: false,
+  },
   error: { message: "Could not complete the GitHub connection — try again.", ok: false },
 };
 
