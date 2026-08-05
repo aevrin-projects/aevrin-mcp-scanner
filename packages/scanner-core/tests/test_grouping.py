@@ -139,3 +139,69 @@ def test_single_occurrence_is_left_untouched():
     result = group_by_root_cause(findings)
     assert result[0].occurrence_count == 1
     assert result[0].additional_locations == []
+
+
+# --- non-dependency findings must survive dependency dedup ------------------
+#
+# `groups` only grows for dependency findings, but `kept` grows for every
+# finding. Treating them as positionally aligned meant `kept[match]` addressed
+# an unrelated finding and the `kept[match] = survivor` write silently
+# destroyed it. Confirmed live on a real scan: a critical bandit
+# `subprocess_popen_with_shell_equals_true` never reached the report because a
+# later dependency dedup had overwritten its slot.
+
+
+def _bandit_finding(title: str, severity: Severity = Severity.CRITICAL) -> Finding:
+    return Finding(
+        scan_id=uuid4(),
+        tool=ToolName.BANDIT,
+        owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
+        severity=severity,
+        title=title,
+        description="shell=True",
+        location=Location(file_path="src/run.py", line_start=4),
+        remediation="Avoid shell=True.",
+        raw={"test_id": "B602"},
+    )
+
+
+def test_static_findings_survive_a_dependency_dedup_that_follows_them():
+    """The static finding is emitted *before* the pair that dedupes, so a
+    stale index would overwrite exactly this one."""
+    bandit = _bandit_finding("subprocess_popen_with_shell_equals_true")
+    result = dedupe_cross_scanner(
+        [bandit, _osv_finding("CVE-2024-1", "requests"), _trivy_finding("CVE-2024-1", "requests")]
+    )
+
+    titles = [f.title for f in result]
+    assert "subprocess_popen_with_shell_equals_true" in titles
+    assert sum(1 for f in result if f.tool == ToolName.BANDIT) == 1
+    # The dependency pair still collapses to one, with the other tool recorded.
+    assert sum(1 for f in result if f.owasp_category == OwaspMcpCategory.SUPPLY_CHAIN) == 1
+
+
+def test_many_interleaved_static_findings_all_survive():
+    findings = [
+        _bandit_finding("b1"),
+        _osv_finding("CVE-2024-1", "requests"),
+        _bandit_finding("b2"),
+        _trivy_finding("CVE-2024-1", "requests"),
+        _bandit_finding("b3"),
+        _osv_finding("CVE-2024-2", "urllib3"),
+        _trivy_finding("CVE-2024-2", "urllib3"),
+    ]
+    result = dedupe_cross_scanner(findings)
+
+    assert sorted(f.title for f in result if f.tool == ToolName.BANDIT) == ["b1", "b2", "b3"]
+    assert sum(1 for f in result if f.owasp_category == OwaspMcpCategory.SUPPLY_CHAIN) == 2
+
+
+def test_a_critical_static_finding_still_drives_the_score():
+    """The user-visible consequence: losing the finding also silently
+    inflated the score."""
+    findings = dedupe_cross_scanner(
+        [_bandit_finding("subprocess_popen_with_shell_equals_true"), _osv_finding("CVE-2024-1", "requests"), _trivy_finding("CVE-2024-1", "requests")]
+    )
+    assert compute_score(findings) < compute_score(
+        dedupe_cross_scanner([_osv_finding("CVE-2024-1", "requests"), _trivy_finding("CVE-2024-1", "requests")])
+    )

@@ -78,30 +78,43 @@ def dedupe_cross_scanner(findings: list[Finding]) -> list[Finding]:
     (by ID or alias) for the same package into one Finding, recording the
     other tool in corroborated_by instead of dropping its finding untraced."""
     kept: list[Finding] = []
-    # index-aligned with a slot in `kept`: (ids seen so far for that slot, package)
-    groups: list[tuple[set[str], str]] = []
+    # (ids seen so far for this group, package, index of its slot in `kept`).
+    #
+    # That third element is load-bearing. This used to assume `groups` was
+    # positionally aligned with `kept`, but only dependency findings append
+    # to `groups` while *every* finding appends to `kept` — so the moment a
+    # single non-dependency finding (bandit, semgrep, a manifest rule) came
+    # through, the two lists drifted apart and `kept[match]` addressed an
+    # unrelated finding. The `kept[match] = survivor` write then silently
+    # overwrote it. Confirmed live: a scan whose scanners produced a
+    # critical bandit `subprocess_popen_with_shell_equals_true` reported it
+    # nowhere, because a later dependency dedup had overwritten that slot.
+    # Storing the real index keeps the mapping correct regardless of what
+    # else is interleaved.
+    groups: list[tuple[set[str], str, int]] = []
     for finding in findings:
         ids, pkg = _advisory_ids_and_package(finding)
         if not ids or pkg is None:
             kept.append(finding)
             continue
         match = next(
-            (i for i, (g_ids, g_pkg) in enumerate(groups) if g_pkg == pkg and g_ids & ids),
+            (i for i, (g_ids, g_pkg, _) in enumerate(groups) if g_pkg == pkg and g_ids & ids),
             None,
         )
         if match is None:
-            groups.append((ids, pkg))
+            groups.append((ids, pkg, len(kept)))
             kept.append(finding)
             continue
-        existing = kept[match]
+        group_ids, group_pkg, kept_index = groups[match]
+        existing = kept[kept_index]
         survivor = _more_complete(existing, finding)
         loser = finding if survivor is existing else existing
         survivor.corroborated_by = sorted(
             ({*survivor.corroborated_by, *loser.corroborated_by, loser.tool} - {survivor.tool}),
             key=lambda t: t.value,
         )
-        kept[match] = survivor
-        groups[match] = (groups[match][0] | ids, pkg)
+        kept[kept_index] = survivor
+        groups[match] = (group_ids | ids, group_pkg, kept_index)
     return kept
 
 
