@@ -145,17 +145,22 @@ export default function ScanHistoryPage() {
   // Most recent target is open on arrival; the rest start closed. A search
   // narrow enough to hit one folder opens it, so filtering never lands you on
   // a screen of collapsed rows.
-  const autoOpen = folders.length === 1 ? folders[0].target : (folders[0]?.target ?? null);
-  const [openTargets, setOpenTargets] = useState<Set<string>>(new Set());
-  const isOpen = (target: string) => openTargets.has(target) || (openTargets.size === 0 && target === autoOpen);
+  const autoOpen = folders[0]?.target ?? null;
+
+  // null means "untouched, use the default", which is NOT the same as an
+  // empty set meaning "the user closed everything". Collapsing that state
+  // into `size === 0` made the auto-opened folder impossible to close: the
+  // toggle removed it, the set went back to empty, and the default
+  // immediately re-opened it — the click looked completely dead.
+  const [openTargets, setOpenTargets] = useState<Set<string> | null>(null);
+  const effectiveOpen = openTargets ?? new Set(autoOpen ? [autoOpen] : []);
+  const isOpen = (target: string) => effectiveOpen.has(target);
 
   function toggleFolder(target: string) {
-    setOpenTargets((current) => {
-      const next = new Set(current.size === 0 && autoOpen ? [autoOpen] : current);
-      if (next.has(target)) next.delete(target);
-      else next.add(target);
-      return next;
-    });
+    const next = new Set(effectiveOpen);
+    if (next.has(target)) next.delete(target);
+    else next.add(target);
+    setOpenTargets(next);
   }
 
   return (

@@ -16,12 +16,19 @@ const THREATS = [
  * a real finding surfacing inside the beam. Entirely aria-hidden — every
  * claim it implies is also stated in the surrounding copy, so a screen reader
  * loses nothing by skipping it.
+ *
+ * `overflow-hidden` is load-bearing, not cosmetic: the rings and the cone
+ * carry fixed pixel sizes (up to 580px) so the beam keeps its proportions,
+ * and unclipped they widened the whole document to 549px at a 320px
+ * viewport — a WCAG 1.4.10 Reflow failure that forced horizontal scrolling
+ * on the landing page. Clipping crops the beam at the container edge, which
+ * is exactly how a spotlight should read anyway.
  */
 export function HeroScanVisual() {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none relative mx-auto mt-6 h-[300px] w-full max-w-4xl select-none sm:h-[330px]"
+      className="pointer-events-none relative mx-auto mt-6 h-[300px] w-full max-w-4xl overflow-hidden select-none sm:h-[330px]"
     >
       {/* Faint code field the beam appears to be reading. */}
       <div className="absolute inset-x-0 top-[26%] bottom-0 overflow-hidden [mask-image:radial-gradient(ellipse_50%_60%_at_50%_35%,black,transparent_75%)]">
@@ -85,7 +92,7 @@ await registry.publish({ name: "mcp-notes", version: "1.4.2" });`}
         <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">
           Command injection via unsanitized shell argument
         </p>
-        <p className="mt-1.5 font-mono text-[10px] text-muted-foreground/70">src/tools/run.ts:88</p>
+        <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">src/tools/run.ts:88</p>
       </div>
     </div>
   );

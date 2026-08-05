@@ -40,6 +40,7 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
   --color-severity-critical: var(--severity-critical);
+  --color-severity-critical-solid: var(--severity-critical-solid);
   --color-severity-critical-foreground: var(--severity-critical-foreground);
   --color-severity-high: var(--severity-high);
   --color-severity-high-foreground: var(--severity-high-foreground);
@@ -75,7 +76,12 @@
   --secondary: oklch(0.9551 0 0);
   --secondary-foreground: oklch(0.2891 0 0);
   --muted: oklch(0.9551 0 0);
-  --muted-foreground: oklch(0.7137 0.0192 261.32);
+  /* 4.5:1 on white is the binding constraint here — the previous value was
+     #9ca3af at 2.5:1, which failed on essentially every secondary line of
+     text in the light theme. Tuned against the docs' #f0f0f0 inline-code
+     background rather than plain white, since that is the tightest surface
+     it has to clear. */
+  --muted-foreground: oklch(0.527 0.016 261.32);
   --accent: oklch(0.9551 0 0);
   --accent-foreground: oklch(0.2891 0 0);
   --destructive: oklch(0.7345 0.1626 25.78);
@@ -109,13 +115,20 @@
 
   /* Severity hues always appear beside a visible severity label or other
      text; color is supplemental, never the only conveyed signal. */
+  /* Two reds, deliberately. One colour cannot serve both roles at AA: white
+     text on red needs the red DARKER than ~0.176 relative luminance, while
+     red text on our near-black surface needs it LIGHTER than ~0.190. That
+     range is empty, so --severity-critical is the text/accent colour and
+     --severity-critical-solid is the fill behind white text. Verified with
+     axe-core in both themes. */
   --severity-critical: oklch(0.55 0.24 27);
+  --severity-critical-solid: oklch(0.505 0.22 27);
   --severity-critical-foreground: oklch(0.985 0 0);
-  --severity-high: oklch(0.65 0.2 41);
+  --severity-high: oklch(0.535 0.19 41);
   --severity-high-foreground: oklch(0.985 0 0);
   --severity-medium: oklch(0.75 0.16 80);
   --severity-medium-foreground: oklch(0.145 0 0);
-  --severity-low: oklch(0.6 0.14 245);
+  --severity-low: oklch(0.52 0.15 245);
   --severity-low-foreground: oklch(0.985 0 0);
 }
 
@@ -161,7 +174,8 @@
   --brand-text: oklch(0.7857 0.1153 246.66);
   --brand-foreground: oklch(0 0 0);
 
-  --severity-critical: oklch(0.6 0.22 27);
+  --severity-critical: oklch(0.645 0.205 27);
+  --severity-critical-solid: oklch(0.505 0.22 27);
   --severity-critical-foreground: oklch(0.985 0 0);
   --severity-high: oklch(0.7 0.19 41);
   --severity-high-foreground: oklch(0.145 0 0);

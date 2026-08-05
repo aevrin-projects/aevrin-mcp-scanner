@@ -29,16 +29,44 @@ export class RateLimitExceededError extends Error {
   }
 }
 
-/** Fixed-window counter — same shape as apps/api's check_fixed_window_rate_limit. */
+/** Fixed-window counter — same shape as apps/api's check_fixed_window_rate_limit.
+ *
+ *  Fails OPEN when Redis itself is unreachable. Every sign-in, sign-up, and
+ *  code-verification path funnels through here, so letting an infrastructure
+ *  error propagate took authentication down completely: confirmed live when
+ *  Upstash hit its request ceiling and every POST /login returned a 500 with
+ *  no message a user could act on.
+ *
+ *  The residual risk is bounded and accepted. This limiter exists to slow
+ *  brute-forcing of the 6-digit email OTP, but it was only ever a second
+ *  layer — Supabase enforces its own limits on the same auth endpoints, and
+ *  those are unaffected by our Redis being down. Trading a strictly weaker
+ *  second layer during an outage for "nobody can log in at all" is not a
+ *  trade worth making.
+ */
 export async function checkRateLimit(key: string, limit: number, windowSeconds: number): Promise<void> {
   const redisKey = `aevrin:otp:${key}`;
-  const redis = getRedis();
-  const current = await redis.incr(redisKey);
-  if (current === 1) {
-    await redis.expire(redisKey, windowSeconds);
+  let current: number;
+  try {
+    const redis = getRedis();
+    current = await redis.incr(redisKey);
+    if (current === 1) {
+      await redis.expire(redisKey, windowSeconds);
+    }
+  } catch (error) {
+    console.warn("[rate-limit] Redis unavailable, allowing auth attempt through", error);
+    return;
   }
+
   if (current > limit) {
-    const ttl = await redis.ttl(redisKey);
-    throw new RateLimitExceededError(ttl > 0 ? ttl : windowSeconds);
+    let ttl = windowSeconds;
+    try {
+      const fresh = await getRedis().ttl(redisKey);
+      if (fresh > 0) ttl = fresh;
+    } catch {
+      // Keep the nominal window — the limit itself already tripped, and a
+      // failed TTL read must not turn a clean 429 into a 500.
+    }
+    throw new RateLimitExceededError(ttl);
   }
 }

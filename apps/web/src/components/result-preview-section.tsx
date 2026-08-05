@@ -56,12 +56,17 @@ export function ResultPreviewSection() {
           </p>
         </Reveal>
 
-        <div className="mt-10 grid items-start gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+        {/* [&>*]:min-w-0 is required, not decorative: a grid item defaults to
+            min-width:auto, so the CLI transcript's long unbreakable lines sized
+            the column to their own width and pushed the whole document to
+            462px at a 320px viewport. Allowing the item to shrink is what lets
+            the pre's own overflow-x-auto actually scroll. */}
+        <div className="mt-10 grid items-start gap-6 [&>*]:min-w-0 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
           {/* Finding card — mirrors the real finding-detail layout. */}
           <Reveal>
             <article className="overflow-hidden rounded-xl border border-border bg-card">
               <div className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-3.5">
-                <span className="rounded-full bg-severity-critical px-2 py-0.5 text-[11px] font-semibold tracking-wide text-severity-critical-foreground uppercase">
+                <span className="rounded-full bg-severity-critical-solid px-2 py-0.5 text-[11px] font-semibold tracking-wide text-severity-critical-foreground uppercase">
                   {SAMPLE_FINDING.severity}
                 </span>
                 <span className="rounded-md border border-border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
