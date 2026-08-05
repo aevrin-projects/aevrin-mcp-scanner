@@ -18,6 +18,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SCAN_SOURCE_LABELS, TARGET_MODE_LABELS, TARGET_TYPE_LABELS, formatDateTime } from "@/lib/presentation";
 import { StatusBadge } from "@/components/status-badge";
+import { GithubRepoPicker } from "@/components/github-repo-picker";
 
 const MODE_CONTENT: Record<
   DashboardTargetType,
@@ -179,6 +180,22 @@ export default function NewScanPage() {
                           </p>
                         ) : null}
                       </div>
+
+                      {/* Pasting a URL still works — this is the shortcut for
+                          your own repositories, and it doubles as the honest
+                          answer to "which repos can Fix It actually touch",
+                          since both read the same installation grant. */}
+                      {targetType === "github_repo" ? (
+                        <div className="space-y-2 border-t border-border pt-4">
+                          <p className="text-sm font-medium text-foreground">Or pick one of your repositories</p>
+                          <GithubRepoPicker
+                            selected={values.github_repo}
+                            onSelect={(repo) =>
+                              setValues((current) => ({ ...current, github_repo: repo.html_url }))
+                            }
+                          />
+                        </div>
+                      ) : null}
 
                       <div className="flex flex-col gap-3 rounded-xl border border-border bg-background/70 p-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="space-y-1">

@@ -52,7 +52,13 @@ from ..quota import (
     get_or_create_account,
     would_exceed_quota,
 )
-from ..schemas import AutofixResponse, GithubInstallUrlResponse, GithubStatusResponse
+from ..schemas import (
+    AutofixResponse,
+    GithubInstallUrlResponse,
+    GithubRepoOut,
+    GithubReposResponse,
+    GithubStatusResponse,
+)
 from ..security import AuthenticatedUser
 
 router = APIRouter(tags=["autofix"])
@@ -101,6 +107,60 @@ async def github_status(
 def _install_url(settings: Settings, user_id: str) -> str:
     state = sign_install_state(settings, user_id)
     return f"https://github.com/apps/{settings.github_app_slug}/installations/new?state={state}"
+
+
+@router.get("/github/repos", response_model=GithubReposResponse)
+async def github_repos(
+    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> GithubReposResponse:
+    """Repositories this person's installation can reach, for the scan
+    picker and for deciding where Fix It can actually work.
+
+    Scoped to the installation, so it reflects exactly what they granted at
+    install time — a few hand-picked repos or all of them — rather than
+    every repo their GitHub account can see.
+    """
+    rows = await db.select("github_installations", {"user_id": user.id}, order="created_at.desc", limit=1)
+    if not rows:
+        return GithubReposResponse(connected=False, repos=[])
+
+    try:
+        client = GithubAppClient(settings)
+    except GithubAppUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="GitHub integration isn't configured yet."
+        ) from None
+
+    try:
+        token = (await client.create_installation_token(int(rows[0]["installation_id"]))).token
+        repos = await client.list_installation_repos(token)
+    except GithubAppError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Could not reach GitHub: {exc}") from exc
+
+    # MCP detection is a label, never a gate — see looks_like_mcp_repo. It
+    # costs a few API calls per repo, so it only runs for a first page worth
+    # of repos; the rest render unlabelled rather than making someone wait.
+    labelled: list[GithubRepoOut] = []
+    for index, repo in enumerate(repos):
+        full_name = str(repo.get("full_name", ""))
+        owner_login = str(repo.get("owner", {}).get("login", ""))
+        name = str(repo.get("name", ""))
+        is_mcp: bool | None = None
+        if index < 30 and owner_login and name:
+            is_mcp = await client.looks_like_mcp_repo(owner_login, name, token)
+        labelled.append(
+            GithubRepoOut(
+                full_name=full_name,
+                html_url=str(repo.get("html_url", "")),
+                private=bool(repo.get("private")),
+                default_branch=str(repo.get("default_branch") or "main"),
+                pushed_at=repo.get("pushed_at"),
+                looks_like_mcp=is_mcp,
+            )
+        )
+    return GithubReposResponse(connected=True, account_login=rows[0]["account_login"], repos=labelled)
 
 
 @router.get("/github/install-url", response_model=GithubInstallUrlResponse)

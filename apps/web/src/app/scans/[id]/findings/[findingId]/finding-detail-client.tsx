@@ -30,10 +30,60 @@ export function FindingDetailClient({
   const [triageReason, setTriageReason] = useState("");
   const [tier, setTier] = useState<"free" | "hobby" | "pro" | "team" | null>(null);
   const [fixing, setFixing] = useState(false);
+  const [scanTargetType, setScanTargetType] = useState<string | null>(null);
+  const [repoAccess, setRepoAccess] = useState<"loading" | "granted" | "not_granted" | "disconnected">("loading");
+  const [fixBlocker, setFixBlocker] = useState<{ title: string; body: string; href: string; cta: string } | null>(null);
 
-  // Fix It is Pro/Team only. Derived once here so the header action and the
-  // upgrade prompt below can never disagree about eligibility.
-  const canUseFixIt = tier === "pro" || tier === "team";
+  // Fix It needs three things to be true:
+  //   1. a Pro/Team plan,
+  //   2. a finding from a GitHub *repository* scan — there is nothing to
+  //      open a PR against for a live-server or pasted-config scan,
+  //   3. that repository inside the GitHub App installation grant.
+  //
+  // The button is shown regardless and explains which one is missing when
+  // clicked. Hiding it from accounts that can't use it yet makes the
+  // feature undiscoverable to exactly the people who'd upgrade for it, and
+  // silently absent UI reads as a bug rather than as a plan boundary.
+  const isPaid = tier === "pro" || tier === "team";
+  const isRepoScan = scanTargetType === "github_repo";
+  const canUseFixIt = isPaid && isRepoScan && repoAccess === "granted";
+
+  /** Null when Fix It is genuinely runnable; otherwise why it isn't yet. */
+  function fixItBlocker(): { title: string; body: string; href: string; cta: string } | null {
+    if (!isPaid) {
+      return {
+        title: "Fix It is on Pro and Team",
+        body: "Aevrin drafts a patch, re-runs the scanner that raised this finding to confirm it clears, then opens a draft pull request.",
+        href: "/pricing",
+        cta: "See plans",
+      };
+    }
+    if (!isRepoScan) {
+      return {
+        title: "Fix It needs a repository scan",
+        body: `This finding came from a ${scanTargetType === "live_mcp_server" ? "live server" : "pasted config"} scan, so there is no source to open a pull request against. Scan the server's repository to use Fix It.`,
+        href: "/scans/new",
+        cta: "Scan a repository",
+      };
+    }
+    if (repoAccess === "disconnected") {
+      return {
+        title: "Connect GitHub to use Fix It",
+        body: "Aevrin needs write access to open a draft pull request on this repository.",
+        href: "/settings/billing",
+        cta: "Connect GitHub",
+      };
+    }
+    if (repoAccess === "not_granted") {
+      return {
+        title: "This repository isn't in your GitHub grant",
+        body: "Fix It can only open pull requests on repositories you granted Aevrin access to. You can add this one from GitHub at any time.",
+        href: "/settings/billing",
+        cta: "Manage access",
+      };
+    }
+    return null;
+  }
 
   useEffect(() => {
     api
@@ -48,6 +98,46 @@ export function FindingDetailClient({
       });
     api.getSubscription().then((sub) => setTier(sub.effective_tier)).catch(() => setTier("free"));
   }, [findingId]);
+
+  // Resolve the scan's target, then whether that repo is inside the grant.
+  useEffect(() => {
+    if (!finding) return;
+    let cancelled = false;
+    api
+      .getScan(String(finding.scan_id))
+      .then(async (scan) => {
+        if (cancelled) return;
+        setScanTargetType(scan.target_type);
+        if (scan.target_type !== "github_repo") {
+          setRepoAccess("not_granted");
+          return;
+        }
+        try {
+          const { connected, repos } = await api.getGithubRepos();
+          if (cancelled) return;
+          if (!connected) {
+            setRepoAccess("disconnected");
+            return;
+          }
+          // Compare on owner/name so a trailing .git or slash can't cause a
+          // false "not granted".
+          const normalize = (value: string) =>
+            value.replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/i, "").replace(/\/$/, "").toLowerCase();
+          const target = normalize(scan.target);
+          setRepoAccess(
+            repos.some((repo) => repo.full_name.toLowerCase() === target) ? "granted" : "not_granted",
+          );
+        } catch {
+          if (!cancelled) setRepoAccess("disconnected");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setRepoAccess("not_granted");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [finding]);
 
   async function runFixIt() {
     setFixing(true);
@@ -134,7 +224,7 @@ export function FindingDetailClient({
               {/* Fix It is the primary action on this page, so it sits in the
                   primary action slot. It was previously buried in a sidebar
                   card below triage — effectively undiscoverable. */}
-              {canUseFixIt && !finding.excluded_path ? (
+              {!finding.excluded_path ? (
                 finding.autofix_status === "fixed" && finding.autofix_pr_url ? (
                   <a
                     href={finding.autofix_pr_url}
@@ -146,7 +236,18 @@ export function FindingDetailClient({
                     View fix PR
                   </a>
                 ) : (
-                  <Button disabled={fixing} onClick={() => void runFixIt()}>
+                  <Button
+                    disabled={fixing || repoAccess === "loading"}
+                    variant={canUseFixIt ? "default" : "outline"}
+                    onClick={() => {
+                      const blocker = fixItBlocker();
+                      if (blocker) {
+                        setFixBlocker(blocker);
+                        return;
+                      }
+                      void runFixIt();
+                    }}
+                  >
                     <Wrench className="size-4" />
                     {fixing ? "Generating fix…" : finding.autofix_status === "failed" ? "Retry Fix It" : "Fix It"}
                   </Button>
@@ -168,17 +269,24 @@ export function FindingDetailClient({
         }
       />
 
-      {/* Upgrade path stays visible for non-Pro accounts rather than hidden
-          in a sidebar card — this is the moment the value is obvious. */}
-      {!canUseFixIt && !finding.not_tested && !finding.excluded_path && tier !== null ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Fix It can resolve this automatically.</span> Aevrin
-            drafts a patch, re-runs {finding.tool} to confirm it clears, then opens a draft pull request.
-          </p>
-          <Link href="/pricing" className={buttonVariants({ size: "sm" })}>
-            Upgrade to Pro
-          </Link>
+      {/* Shown only after someone actually asks for Fix It, so the page
+          isn't permanently carrying an upsell banner — but the answer is
+          specific about which precondition is missing, and links straight
+          to fixing it. */}
+      {fixBlocker ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/30 bg-brand/[0.06] px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground">{fixBlocker.title}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{fixBlocker.body}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setFixBlocker(null)}>
+              Dismiss
+            </Button>
+            <Link href={fixBlocker.href} className={buttonVariants({ size: "sm" })}>
+              {fixBlocker.cta}
+            </Link>
+          </div>
         </div>
       ) : null}
 

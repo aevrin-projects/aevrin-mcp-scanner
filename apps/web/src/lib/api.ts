@@ -108,6 +108,7 @@ export const api = {
     ),
   getGithubStatus: () => request<{ connected: boolean; account_login: string | null }>("/github/status"),
   getGithubInstallUrl: () => request<{ url: string }>("/github/install-url"),
+  getGithubRepos: () => request<import("@/lib/types").GithubReposResponse>("/github/repos"),
   fixFinding: (findingId: string) =>
     request<{ status: string; pr_url: string | null; failure_reason: string | null; install_url: string | null }>(
       `/findings/${findingId}/fix`,

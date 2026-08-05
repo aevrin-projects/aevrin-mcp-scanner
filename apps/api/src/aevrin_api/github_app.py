@@ -143,6 +143,56 @@ class GithubAppClient:
         body = resp.json()
         return InstallationToken(token=body["token"], expires_at=body["expires_at"])
 
+    async def list_installation_repos(self, token: str, *, max_repos: int = 300) -> list[dict[str, Any]]:
+        """Every repository this installation can actually reach.
+
+        Which repos that covers is the person's choice at install time — they
+        may have granted the App a handful or all of them — so this is the
+        only honest source for "which repos can Aevrin work with". Paginated
+        because "all repositories" on a large org is not a small list; capped
+        so one enormous account can't stall the request.
+        """
+        repos: list[dict[str, Any]] = []
+        page = 1
+        while len(repos) < max_repos:
+            resp = await self._installation_request(
+                "GET", f"/installation/repositories?per_page=100&page={page}", token
+            )
+            if resp.status_code >= 400:
+                raise GithubAppError(f"list installation repos failed: {resp.status_code} {resp.text}")
+            body = resp.json()
+            batch = body.get("repositories", [])
+            repos.extend(batch)
+            if len(batch) < 100:
+                break
+            page += 1
+        return repos[:max_repos]
+
+    async def looks_like_mcp_repo(self, owner: str, repo: str, token: str) -> bool | None:
+        """Cheap heuristic for labelling a repo in the picker.
+
+        Deliberately *not* authoritative and never used to block a scan: it
+        checks only for a committed MCP client config or an MCP SDK
+        dependency, so a server that ships neither reads as "not MCP" while
+        being perfectly scannable. None means the check itself couldn't run
+        (rate limit, permissions) — the caller shows no label rather than
+        claiming a negative it didn't establish.
+        """
+        try:
+            for path in (".mcp/config.json", "mcp.json", "claude_desktop_config.json"):
+                if await self.get_file(owner, repo, path, token) is not None:
+                    return True
+            for manifest in ("package.json", "pyproject.toml", "requirements.txt"):
+                found = await self.get_file(owner, repo, manifest, token)
+                if found is None:
+                    continue
+                content = found[0].lower()
+                if "modelcontextprotocol" in content or "mcp-server" in content or "fastmcp" in content:
+                    return True
+            return False
+        except GithubAppError:
+            return None
+
     async def get_installation(self, installation_id: int) -> dict[str, Any]:
         resp = await self._app_request("GET", f"/app/installations/{installation_id}")
         if resp.status_code >= 400:
