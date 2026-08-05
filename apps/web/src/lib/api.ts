@@ -108,7 +108,13 @@ export const api = {
     ),
   getGithubStatus: () => request<{ connected: boolean; account_login: string | null }>("/github/status"),
   getGithubInstallUrl: () => request<{ url: string }>("/github/install-url"),
-  getGithubRepos: () => request<import("@/lib/types").GithubReposResponse>("/github/repos"),
+  // labels=false skips the per-repo MCP heuristic. The picker wants the
+  // labels; the Fix It access check only needs the names, and shouldn't wait
+  // on ~180 GitHub calls to decide whether to enable a button.
+  getGithubRepos: (labels = true) =>
+    request<import("@/lib/types").GithubReposResponse>(`/github/repos?labels=${labels}`),
+  fixScan: (scanId: string) =>
+    request<import("@/lib/types").BulkFixResponse>(`/scans/${scanId}/fix`, { method: "POST" }),
   fixFinding: (findingId: string) =>
     request<{ status: string; pr_url: string | null; failure_reason: string | null; install_url: string | null }>(
       `/findings/${findingId}/fix`,

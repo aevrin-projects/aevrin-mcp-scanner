@@ -48,8 +48,13 @@ export function FindingDetailClient({
   const isRepoScan = scanTargetType === "github_repo";
   const canUseFixIt = isPaid && isRepoScan && repoAccess === "granted";
 
-  /** Null when Fix It is genuinely runnable; otherwise why it isn't yet. */
+  /** Null when Fix It is genuinely runnable; otherwise why it isn't yet.
+   *  While the access probe is still in flight we return null and let the
+   *  request proceed — the API performs the same three checks server-side
+   *  and answers authoritatively, so an unresolved probe must never be the
+   *  reason someone can't press the button. */
   function fixItBlocker(): { title: string; body: string; href: string; cta: string } | null {
+    if (repoAccess === "loading") return null;
     if (!isPaid) {
       return {
         title: "Fix It is on Pro and Team",
@@ -113,7 +118,7 @@ export function FindingDetailClient({
           return;
         }
         try {
-          const { connected, repos } = await api.getGithubRepos();
+          const { connected, repos } = await api.getGithubRepos(false);
           if (cancelled) return;
           if (!connected) {
             setRepoAccess("disconnected");
@@ -237,7 +242,7 @@ export function FindingDetailClient({
                   </a>
                 ) : (
                   <Button
-                    disabled={fixing || repoAccess === "loading"}
+                    disabled={fixing}
                     variant={canUseFixIt ? "default" : "outline"}
                     onClick={() => {
                       const blocker = fixItBlocker();

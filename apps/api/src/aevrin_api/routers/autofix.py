@@ -10,8 +10,9 @@ POST /findings/{id}/fix endpoint below.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from aevrin_scanner_core import (
@@ -54,6 +55,7 @@ from ..quota import (
 )
 from ..schemas import (
     AutofixResponse,
+    BulkFixResponse,
     GithubInstallUrlResponse,
     GithubRepoOut,
     GithubReposResponse,
@@ -114,6 +116,7 @@ async def github_repos(
     user: Annotated[AuthenticatedUser, Depends(get_current_user)],
     db: Annotated[SupabaseRest, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    labels: Annotated[bool, Query()] = True,
 ) -> GithubReposResponse:
     """Repositories this person's installation can reach, for the scan
     picker and for deciding where Fix It can actually work.
@@ -139,28 +142,49 @@ async def github_repos(
     except GithubAppError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Could not reach GitHub: {exc}") from exc
 
-    # MCP detection is a label, never a gate — see looks_like_mcp_repo. It
-    # costs a few API calls per repo, so it only runs for a first page worth
-    # of repos; the rest render unlabelled rather than making someone wait.
-    labelled: list[GithubRepoOut] = []
-    for index, repo in enumerate(repos):
-        full_name = str(repo.get("full_name", ""))
-        owner_login = str(repo.get("owner", {}).get("login", ""))
-        name = str(repo.get("name", ""))
-        is_mcp: bool | None = None
-        if index < 30 and owner_login and name:
-            is_mcp = await client.looks_like_mcp_repo(owner_login, name, token)
-        labelled.append(
-            GithubRepoOut(
-                full_name=full_name,
-                html_url=str(repo.get("html_url", "")),
-                private=bool(repo.get("private")),
-                default_branch=str(repo.get("default_branch") or "main"),
-                pushed_at=repo.get("pushed_at"),
-                looks_like_mcp=is_mcp,
-            )
+    out = [
+        GithubRepoOut(
+            full_name=str(repo.get("full_name", "")),
+            html_url=str(repo.get("html_url", "")),
+            private=bool(repo.get("private")),
+            default_branch=str(repo.get("default_branch") or "main"),
+            pushed_at=repo.get("pushed_at"),
+            looks_like_mcp=None,
         )
-    return GithubReposResponse(connected=True, account_login=rows[0]["account_login"], repos=labelled)
+        for repo in repos
+    ]
+
+    # MCP detection is a label, never a gate — see looks_like_mcp_repo.
+    #
+    # It costs up to six GitHub calls per repository, and running that
+    # sequentially over 30 repos made this endpoint take tens of seconds.
+    # This route is also what the finding page consults to decide whether
+    # Fix It can run, so a slow answer here showed up as a Fix It button
+    # greyed out on a paid, connected account — a label nobody asked for
+    # blocking the feature people pay for.
+    #
+    # Now: bounded concurrency, a hard overall time budget, and unlabelled
+    # (None) results if the budget runs out. Never fails the request.
+    if labels:
+        semaphore = asyncio.Semaphore(6)
+
+        async def label(index: int, repo: dict[str, Any]) -> None:
+            owner_login = str(repo.get("owner", {}).get("login", ""))
+            name = str(repo.get("name", ""))
+            if not owner_login or not name:
+                return
+            async with semaphore:
+                out[index].looks_like_mcp = await client.looks_like_mcp_repo(owner_login, name, token)
+
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*(label(i, r) for i, r in enumerate(repos[:30])), return_exceptions=True),
+                timeout=8.0,
+            )
+        except TimeoutError:
+            logger.info("github repos: MCP labelling exceeded its budget, returning unlabelled")
+
+    return GithubReposResponse(connected=True, account_login=rows[0]["account_login"], repos=out)
 
 
 @router.get("/github/install-url", response_model=GithubInstallUrlResponse)
@@ -294,6 +318,26 @@ async def fix_finding(
             ),
         )
 
+    return await _run_fix_for_row(row, user, db, settings)
+
+
+async def _run_fix_for_row(
+    row: dict[str, Any],
+    user: AuthenticatedUser,
+    db: SupabaseRest,
+    settings: Settings,
+) -> AutofixResponse:
+    """The actual fix pipeline for one finding, shared by the single-finding
+    endpoint and the whole-scan one so their safety checks cannot drift.
+
+    Raises HTTPException only for conditions that apply to the whole
+    repository (not a GitHub repo scan, App not installed, GitHub
+    unreachable); per-finding failures come back as a `failed` response so a
+    bulk run can carry on with the rest.
+    """
+    finding_id = UUID(str(row["id"]))
+    finding = finding_from_row(row)
+
     scan_rows = await db.select("scans", {"id": str(row["scan_id"])})
     if not scan_rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="The scan this finding belongs to no longer exists.")
@@ -416,3 +460,93 @@ async def fix_finding(
         # happens under concurrent Fix It calls landing right at the limit.
         pass
     return AutofixResponse(status="fixed", pr_url=pr_url)
+
+
+@router.post("/scans/{scan_id}/fix", response_model=BulkFixResponse)
+async def fix_scan(
+    scan_id: UUID,
+    user: Annotated[AuthenticatedUser, Depends(get_user_from_jwt_or_api_key)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> BulkFixResponse:
+    """Fix every eligible open finding in one scan, in one action.
+
+    Runs the same per-finding pipeline (generate -> apply to a throwaway
+    clone -> re-run the originating scanner -> only then open a draft PR),
+    so nothing here weakens the guarantee that a PR is never opened against
+    an unverified fix. One PR per finding rather than one combined branch:
+    each is independently reviewable and independently revertable, and a
+    single bad patch can't hold up the rest.
+
+    Findings that aren't auto-fixable (a dependency CVE, a finding with no
+    file path, an already-fixed one) are counted as skipped rather than
+    failed — they were never candidates, and reporting them as failures
+    would make a healthy run look broken.
+    """
+    account = await get_or_create_account(db, user.id)
+    if effective_tier(account) not in ("pro", "team"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Fix It is available on Pro and Team plans.")
+
+    scan_rows = await db.select("scans", {"id": str(scan_id), "user_id": user.id})
+    if not scan_rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+
+    rows = await db.select("findings", {"scan_id": str(scan_id), "user_id": user.id})
+    candidates: list[dict[str, Any]] = []
+    skipped = 0
+    for row in rows:
+        if row.get("autofix_status") == "fixed" or row.get("triage_status") != "open":
+            skipped += 1
+            continue
+        fixable, _reason = is_autofix_eligible(finding_from_row(row))
+        if not fixable:
+            skipped += 1
+            continue
+        candidates.append(row)
+
+    if not candidates:
+        return BulkFixResponse(
+            attempted=0, fixed=0, failed=0, skipped=skipped, pr_urls=[],
+            message="No findings in this scan can be fixed automatically. Dependency CVEs and findings without a file location need a manual change.",
+        )
+
+    # Highest severity first, so a quota ceiling hit part-way through spends
+    # the remaining allowance on what matters most.
+    order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    candidates.sort(key=lambda r: order.get(str(r.get("severity")), 9))
+
+    fixed = 0
+    failed = 0
+    pr_urls: list[str] = []
+    quota_stopped = False
+
+    for row in candidates:
+        if await would_exceed_quota(settings, db, user.id, "auto_fix"):
+            quota_stopped = True
+            break
+        try:
+            result = await _run_fix_for_row(row, user, db, settings)
+        except HTTPException:
+            # A per-finding precondition (not a repo scan, no GitHub access)
+            # applies to the whole scan, so stop rather than repeat it for
+            # every remaining finding.
+            failed += 1
+            break
+        if result.status == "fixed" and result.pr_url:
+            fixed += 1
+            pr_urls.append(result.pr_url)
+        else:
+            failed += 1
+
+    attempted = fixed + failed
+    parts = [f"{fixed} fixed"]
+    if failed:
+        parts.append(f"{failed} couldn't be fixed automatically")
+    if skipped:
+        parts.append(f"{skipped} not auto-fixable")
+    if quota_stopped:
+        parts.append("stopped at your monthly auto-fix limit")
+    return BulkFixResponse(
+        attempted=attempted, fixed=fixed, failed=failed, skipped=skipped, pr_urls=pr_urls,
+        message=", ".join(parts) + ".",
+    )

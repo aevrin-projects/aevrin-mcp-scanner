@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, MinusCircle, Search, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, MinusCircle, Search, Wrench, XCircle } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type { Finding, Scan, ScanStage, Severity } from "@/lib/types";
 import { OWASP_CATEGORY_LABELS, STAGE_LABELS, STAGE_ORDER } from "@/lib/types";
@@ -20,7 +20,7 @@ import {
 import { PageHeader, SectionCard, EmptyState } from "@/components/product-ui";
 import { StatusBadge } from "@/components/status-badge";
 import { SeverityBadge } from "@/components/severity-badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -45,6 +45,8 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [fixingAll, setFixingAll] = useState(false);
+  const [fixingId, setFixingId] = useState<string | null>(null);
   const [canExport, setCanExport] = useState<boolean | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -161,6 +163,34 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
         description="Review the target, actual coverage, score, urgent findings, and the limitations that still need separate verification."
         actions={
           <>
+            {/* Whole-scan Fix It. Only offered for repository scans, since
+                there is nothing to open a pull request against otherwise —
+                but never hidden on plan grounds: it explains what's needed
+                when pressed, the same as the per-finding button. */}
+            {scan.target_type === "github_repo" && (scan.status === "completed" || scan.status === "incomplete") ? (
+              <Button
+                disabled={fixingAll}
+                onClick={async () => {
+                  setFixingAll(true);
+                  try {
+                    const result = await api.fixScan(scanId);
+                    if (result.fixed > 0) {
+                      toast.success(`Fix It: ${result.message}`);
+                      void load();
+                    } else {
+                      toast.info(`Fix It: ${result.message}`);
+                    }
+                  } catch (err) {
+                    toast.error(err instanceof ApiError ? err.message : "Could not run Fix It for this scan.");
+                  } finally {
+                    setFixingAll(false);
+                  }
+                }}
+              >
+                <Wrench className="size-4" />
+                {fixingAll ? "Fixing all…" : "Fix all"}
+              </Button>
+            ) : null}
             {scan.target_type === "local_path" ? (
               <Button nativeButton={false} render={<Link href="/integrations" />} variant="outline">Rescan with CLI</Button>
             ) : (
@@ -341,16 +371,31 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                   const params = new URLSearchParams(searchParams.toString());
                   const returnTo = params.toString() ? `${pathname}?${params.toString()}` : pathname;
 
+                  // A per-row Fix It can't live inside the row button — nesting
+                  // buttons is invalid and breaks keyboard semantics — so the
+                  // row is a container with the navigation button and the fix
+                  // action as siblings.
+                  const alreadyFixed = finding.autofix_status === "fixed" && finding.autofix_pr_url;
+                  // Mirrors is_autofix_eligible server-side: a patch needs a
+                  // single concrete file to rewrite. Dependency CVEs and
+                  // manifest-only findings genuinely can't be patched this
+                  // way, so offering the action there would only ever fail.
+                  const fixable =
+                    !finding.not_tested && !finding.excluded_path && Boolean(finding.file_path);
+
                   return (
-                    <button
+                    <div
                       key={finding.id}
+                      className="flex items-start gap-2 rounded-xl border border-border bg-background/80 transition-colors hover:bg-muted/30"
+                    >
+                    <button
                       type="button"
                       onClick={() =>
                         router.push(
                           `/scans/${scan.id}/findings/${finding.id}?returnTo=${encodeURIComponent(returnTo)}`,
                         )
                       }
-                      className="w-full rounded-xl border border-border bg-background/80 p-4 text-left transition-colors hover:bg-muted/30"
+                      className="min-w-0 flex-1 rounded-xl p-4 text-left"
                     >
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="space-y-2">
@@ -381,6 +426,46 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                         </div>
                       </div>
                     </button>
+
+                      {alreadyFixed ? (
+                        <a
+                          href={finding.autofix_pr_url ?? "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={buttonVariants({ variant: "outline", size: "sm", className: "mt-4 mr-4 shrink-0" })}
+                        >
+                          View PR
+                        </a>
+                      ) : fixable ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-4 mr-4 shrink-0"
+                          disabled={fixingId === finding.id}
+                          onClick={async () => {
+                            setFixingId(finding.id);
+                            try {
+                              const result = await api.fixFinding(finding.id);
+                              if (result.status === "fixed" && result.pr_url) {
+                                toast.success("Fix It opened a draft pull request.");
+                                void load();
+                              } else if (result.status === "needs_github_connection") {
+                                toast.error("Connect GitHub to let Fix It open pull requests.");
+                              } else {
+                                toast.error(result.failure_reason ?? "Could not fix this finding automatically.");
+                              }
+                            } catch (err) {
+                              toast.error(err instanceof ApiError ? err.message : "Could not run Fix It.");
+                            } finally {
+                              setFixingId(null);
+                            }
+                          }}
+                        >
+                          <Wrench className="size-3.5" />
+                          {fixingId === finding.id ? "Fixing…" : "Fix It"}
+                        </Button>
+                      ) : null}
+                    </div>
                   );
                 })}
               </div>

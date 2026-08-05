@@ -178,3 +178,14 @@ export type GithubReposResponse = {
   account_login: string | null;
   repos: GithubRepo[];
 };
+
+/** Result of fixing every eligible finding in one scan. Counts are per
+ *  finding, and `pr_urls` holds one entry per PR actually opened. */
+export type BulkFixResponse = {
+  attempted: number;
+  fixed: number;
+  failed: number;
+  skipped: number;
+  pr_urls: string[];
+  message: string;
+};

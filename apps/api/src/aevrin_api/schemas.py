@@ -394,6 +394,19 @@ class GithubStatusResponse(BaseModel):
     account_login: str | None = None
 
 
+class BulkFixResponse(BaseModel):
+    """Whole-scan Fix It. `skipped` counts findings that were never
+    candidates (dependency CVEs, no file location, already fixed) — kept
+    separate from `failed` so a healthy run doesn't read as a broken one."""
+
+    attempted: int
+    fixed: int
+    failed: int
+    skipped: int
+    pr_urls: list[str] = []
+    message: str
+
+
 class GithubRepoOut(BaseModel):
     full_name: str
     html_url: str
