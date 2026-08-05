@@ -1,7 +1,7 @@
 # Aevrin Full Product Redesign — Working Plan & Context
 
-**Branch:** `redesign/full-product-ui` (branched from `master` @ `6fbba3d`)
-**Status:** Phase 2 in progress
+**Branch:** merged to `master` and shipped to production.
+**Status:** Phases 1–8 done except performance measurement (see Phase 8).
 **Last updated:** 2026-08-05
 
 This file is the resumable source of truth. If a session ends mid-work, read
@@ -12,8 +12,16 @@ decisions already made, and exactly what is done vs. pending.
 
 ## 0. Hard constraints (do not violate)
 
-- **No production deploys.** No `railway up`, no Railway env var changes.
-- **No `git push`.** No PRs, no merges to `master`.
+> The first three constraints were **lifted by the user** once the redesign
+> was ready to ship; `master` is now deployed to production via
+> `railway up`. They are kept here for provenance. The migration and
+> secret-file rules still stand.
+
+- ~~**No production deploys.**~~ Lifted. Note: Railway's `web`/`api` services
+  are **not GitHub-connected** — `git push` deploys nothing. Deploys happen
+  via `railway up --service <web|api>` run **from the repo root** (the
+  services already set `rootDirectory`, so running it from `apps/web` fails).
+- ~~**No `git push`.**~~ Lifted.
 - **No commits unless the user explicitly asks.** When asked, author as
   `aevrin-projects <underdogs.exe@gmail.com>`, no AI/Claude mentions anywhere
   in the message.
@@ -124,11 +132,11 @@ fake "name your workspace" step that stores nothing):
 | 2 | Fix It buried in sidebar below triage — nobody sees it | ✅ Fixed — now primary action in page header |
 | 3 | Must re-auth constantly; `/` shows landing instead of app when signed in | ✅ Fixed — proxy redirects signed-in users `/` and `/login` → `/dashboard` |
 | 4 | Repeated sign-outs (refresh-token race) | ✅ Fixed earlier — proxy is now the single `getClaims()` caller |
-| 5 | Icons should match the reference set | ⬜ Pending — Phase 4 |
-| 6 | Whole user flow feels unconsidered | 🔄 In progress — Phases 2–3 |
-| 7 | CLI bugs (sync, version) | ⬜ Pending — Phase 6 |
-| 8 | Docs need word-by-word verification | ⬜ Pending — Phase 7 |
-| 9 | Backend: live server, MCP config, PR flow review | ⬜ Pending — Phase 6 |
+| 5 | Icons should match the reference set | ✅ Fixed — Phase 4 |
+| 6 | Whole user flow feels unconsidered | ✅ Fixed — Phases 2–5c |
+| 7 | CLI bugs (sync, version) | ✅ Fixed — Phase 6, version floor + contract test |
+| 8 | Docs need word-by-word verification | ✅ Fixed — Phase 7 |
+| 9 | Backend: live server, MCP config, PR flow review | ✅ Fixed — see §4c |
 
 ---
 
@@ -145,15 +153,15 @@ a phase done until its verification column actually passed.
 - Sidebar: compact nav rows, account/plan header, real tier badge.
 - **Verified:** build clean, 0 console errors, landing + pricing at desktop/mobile.
 
-### ✅ Phase 2 — Onboarding wizard (CODE DONE, VISUAL VERIFY PENDING)
+### ✅ Phase 2 — Onboarding wizard (DONE)
 - [x] `/onboarding` route + guard; all 4 sign-in entry points redirect there.
 - [x] Skip-for-now, derived completion (no migration).
 - [x] True multi-step wizard: progress dots, Back, Skip, path selection
       (3 cards), conditional GitHub step, completion hand-off.
 - [x] GitHub step only appears for the repository path — nobody is asked for
       repo access to check a pasted config.
-- [ ] Verify each step at 3 widths + keyboard nav. **Blocked:** needs a real
-      test account to get past the auth gate.
+- [x] Verified: `/onboarding` passes axe-core in both themes, is keyboard
+      traversable with visible focus, and reflows at 320px.
 
 ### ✅ Phase 2b — Billing add-ons (DONE)
 Dedicated "Add-ons" card, placed directly under the plan summary (was buried
@@ -263,10 +271,41 @@ Checked docs against the live `tier_limits` table, not against memory.
   allowance-decrement-only-on-success rule, ineligible finding types, the
   `autofix_eligible` JSON field, and the GitHub prerequisite.
 
-### ⬜ Phase 8 — Accessibility + performance
-- WCAG 2.2 AA: keyboard-only, visible focus, landmarks, labels, contrast,
-  200% zoom, reduced motion, non-color severity indicators.
-- LCP ≤ 2.5s, INP ≤ 200ms, CLS ≤ 0.1.
+### ✅ Phase 8 — Accessibility (DONE) / ⬜ performance (NOT RUN)
+
+Two committed, rerunnable harnesses — neither needs a browser by hand:
+
+```
+node scripts/a11y-audit.mjs           # axe-core, dark theme
+THEME=light node scripts/a11y-audit.mjs
+node scripts/a11y-manual.mjs          # keyboard, focus, 320px reflow, reduced motion
+```
+
+**axe-core: 0 violations, 16 routes, both themes.** Fixes required to get there:
+- Light-mode `--muted-foreground` was `#9ca3af` — 2.5:1 on white. Retuned
+  against the docs' `#f0f0f0` inline-code background, which is tighter than
+  plain white and therefore the real constraint.
+- `--severity-critical` had to split into two tokens. One red cannot satisfy
+  both roles at AA: white-on-red needs relative luminance ≤ 0.176, red-on-
+  near-black needs ≥ 0.190, and that range is empty. `--severity-critical`
+  is now the text/accent colour; `--severity-critical-solid` is the fill
+  behind white text.
+- Light-mode `--severity-high` / `--severity-low` darkened. On a white
+  canvas, text-on-white and white-on-that-colour need the *same* ratio, so
+  one value fixes both roles there.
+- Tab triggers used `text-foreground/60`, rendering `#808080` (3.94:1).
+
+**Manual checks: all pass.** Keyboard reaches every interactive element with
+a visible indicator; `prefers-reduced-motion` halts all animations; no
+horizontal scroll at 320px after two reflow fixes:
+- The hero's rings/cone carry fixed pixel sizes (to 580px) and widened the
+  document to 549px — now clipped (WCAG 1.4.10).
+- The CLI transcript sized its grid column to its own longest line, because
+  a grid item defaults to `min-width:auto`; that also stopped the `<pre>`'s
+  own `overflow-x-auto` from ever engaging.
+
+⬜ **Performance is NOT measured.** No Lighthouse/CWV run has happened, so
+LCP ≤ 2.5s / INP ≤ 200ms / CLS ≤ 0.1 are unverified targets, not results.
 
 ---
 
@@ -282,6 +321,21 @@ All found by actually clicking through, not by reading code:
 | `capitalize` mangled "CLI scans" → "Cli Scans" | Explicit labels in `BUCKET_LABEL`, dropped the utility class |
 | Add-ons hidden entirely from Free users — undiscoverable | Always rendered; unavailable ones show "Requires Pro" + upgrade path |
 | Usage meters crushed to `CLI s… Hook … Dash…` inside the dashboard's ~360px sidebar column — `lg:grid-cols-4` fires on *viewport* width, ignoring the actual container | Switched to Tailwind container queries (`@container` on the wrapper, `@md:`/`@3xl:` on the inner grid) so the grid only widens when the box genuinely has room |
+
+## 4c. Bugs found by exercising the running product
+
+Every one of these was in code already marked done and passing tests. All
+four were found by driving the real API/CLI, not by reading. Each has a
+regression test **verified to fail against the previous implementation**.
+
+| Bug | Impact | Fix |
+|---|---|---|
+| `dedupe_cross_scanner` treated `groups` as positionally aligned with `kept`, but only dependency findings append to `groups` | **Silent data loss in core detection.** One bandit/semgrep hit desynced them, then `kept[match] = survivor` overwrote an unrelated finding. A real scan of `subprocess.run(…, shell=True)` produced a CRITICAL, streamed it, and dropped it before the report — 46/100 instead of 6/100, green checkmark, no indication anything was lost | Groups carry the real index of their slot |
+| Redis errors escaped the API rate limiter *and* quota counter | **Production outage.** Upstash hit its 500k ceiling; every scan returned 500 | Limiter fails open; quota falls back to counting `scans` rows, so limits are still enforced |
+| Redis errors escaped the **web** OTP limiter (a second place, missed initially) | **Production sign-in completely broken** — every `POST /login` was a 500 | Fails open; Supabase's own auth limits remain as the backstop |
+| Fix It cloned over anonymous HTTPS | Could never work on a private repo — exactly what the App installation grants. Failures also escaped as 500s, pinning the finding at `in_progress` forever | Clone uses the installation token (redacted on error); every failure path reaches a terminal `failed` state |
+| Pasted stdio configs skipped every stage that could produce a finding | A config launching `sh -c "curl …\|sh"` scored **100/100 clean** | Static command inspection runs before the "nothing safe to probe" early returns |
+| First scan-history folder could not be collapsed | Empty set meant both "untouched" and "user closed everything", so the toggle re-opened it. Click read as dead | Open state is null-until-touched |
 
 ## 5. Change log (this branch)
 
@@ -334,13 +388,17 @@ Two things were deliberately **removed** during this pass:
 
 ## 6. Known gaps / honest limitations
 
-- Auth-gated routes are **unverified visually** — no test account exists yet.
-  Everything behind `/login` has been type-checked and build-verified but not
-  seen rendered. This is the single biggest verification hole.
-- No fabricated charts anywhere. Score-over-time and open-vs-fixed trends are
-  *possible* from real data (scan history + `triage_status`) but are not yet
-  built; do not add decorative ones.
-- Anthropic API key has **no credit balance** — Fix It fails closed and
-  Pro/Team routed triage silently falls back to Gemini. Not a code bug.
+- ~~Auth-gated routes unverified~~ — QA account exists and every authed route
+  has been rendered, audited, and clicked through.
+- No fabricated charts anywhere. The dashboard's score gauge, severity trend,
+  and donut are all computed from real scan/finding rows; the usage page's
+  isometric chart from real bucket counts. The only decorative shapes left are
+  in the marketing hero and the auth preview, both `aria-hidden`.
+- `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` are both set in production. LLM
+  triage is **paid-tier only**, so it never runs on the Free QA account —
+  that is the usual reason it looks like "the LLM isn't working".
+- Live prompt-injection testing (MCP08) is still genuinely not implemented.
+  Adding an API key does not enable it: it needs adversarial probing of a
+  *running* server's tool responses. The "not tested" label is accurate.
 - `GITHUB_APP_PRIVATE_KEY` is set in production only; local `.env` may lack
   it, so local Fix It will report "not configured".
