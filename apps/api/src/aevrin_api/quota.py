@@ -16,13 +16,18 @@ rolling boundary instead of a flat 30-day window.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from redis.exceptions import RedisError
+
 from .config import Settings
 from .db import SupabaseRest
 from .redis_client import get_redis
+
+logger = logging.getLogger("aevrin.quota")
 
 Bucket = Literal["cli", "hook", "dashboard", "auto_fix"]
 
@@ -130,6 +135,46 @@ def _redis_key(user_id: str, bucket: Bucket, period_start: datetime) -> str:
     return f"aevrin:quota:{user_id}:{bucket}:{period_start.date().isoformat()}"
 
 
+# Redis holds the live counters, but it is not the only record of what
+# happened: every counted scan also lands a durable row in `scans`, tagged
+# with the surface that created it. That makes Postgres a usable fallback
+# when Redis is unreachable.
+#
+# This matters because the alternative is an outage. Redis being down used
+# to raise straight out of the quota check into an unhandled 500, taking
+# down scan creation, CLI upload, and the Claude Code hook check — every
+# core action in the product. Confirmed live: Upstash's request quota was
+# exhausted and every production scan started returning "Internal server
+# error".
+_BUCKET_TO_SCAN_SOURCE: dict[Bucket, str] = {
+    "cli": "cli",
+    "hook": "hook",
+    "dashboard": "dashboard",
+}
+
+
+async def _used_from_durable_history(
+    db: SupabaseRest, user_id: str, bucket: Bucket, period_start: datetime
+) -> int | None:
+    """Counts this period's usage from `scans` when Redis can't answer.
+
+    Returns None for buckets with no durable per-period record — currently
+    only auto_fix, whose PRs are stamped on the finding rather than as a
+    dated row. Callers treat None as "cannot verify, allow through": a paid
+    account briefly getting an extra Fix It is a far better failure than
+    Fix It being unavailable.
+    """
+    source = _BUCKET_TO_SCAN_SOURCE.get(bucket)
+    if source is None:
+        return None
+    rows = await db.select(
+        "scans",
+        {"user_id": user_id, "source": source, "created_at": f"gte.{period_start.isoformat()}"},
+        columns="id",
+    )
+    return len(rows)
+
+
 async def check_and_increment_quota(settings: Settings, db: SupabaseRest, user_id: str, bucket: Bucket) -> None:
     account = await get_or_create_account(db, user_id)
     limit = await _tier_limit(db, account, bucket)
@@ -145,10 +190,22 @@ async def check_and_increment_quota(settings: Settings, db: SupabaseRest, user_i
     # count at 0 forever for unlimited accounts, even with real uploads
     # landing in the scans table.
     redis_key = _redis_key(user_id, bucket, period_start)
-    client = get_redis(settings)
-    current = client.incr(redis_key)
-    if current == 1:
-        client.expire(redis_key, ttl_seconds)
+    try:
+        client = get_redis(settings)
+        current = client.incr(redis_key)
+        if current == 1:
+            client.expire(redis_key, ttl_seconds)
+    except RedisError:
+        logger.warning(
+            "quota: Redis unavailable, counting %s usage from scan history instead", bucket, exc_info=True
+        )
+        counted = await _used_from_durable_history(db, user_id, bucket, period_start)
+        if counted is None:
+            return
+        # +1 for the request being admitted right now: this runs before the
+        # scan row is inserted, so history holds everything *except* it.
+        current = counted + 1
+
     if limit is not None and current > limit:
         raise QuotaExceeded(bucket, limit, period_end, upgrade_url=f"{settings.web_origin}/pricing")
 
@@ -167,9 +224,16 @@ async def would_exceed_quota(settings: Settings, db: SupabaseRest, user_id: str,
     now = datetime.now(UTC)
     period_start = _period_start(account["signup_anchor_day"], now)
     period_end = _add_month(period_start)
-    client = get_redis(settings)
-    raw = client.get(_redis_key(user_id, bucket, period_start))
-    used = int(raw) if raw else 0
+    try:
+        client = get_redis(settings)
+        raw = client.get(_redis_key(user_id, bucket, period_start))
+        used = int(raw) if raw else 0
+    except RedisError:
+        logger.warning("quota: Redis unavailable during %s precheck", bucket, exc_info=True)
+        counted = await _used_from_durable_history(db, user_id, bucket, period_start)
+        if counted is None:
+            return None
+        used = counted
     if used >= limit:
         return QuotaExceeded(bucket, limit, period_end, upgrade_url=f"{settings.web_origin}/pricing")
     return None
@@ -182,12 +246,28 @@ async def get_usage(settings: Settings, db: SupabaseRest, user_id: str) -> list[
     now = datetime.now(UTC)
     period_start = _period_start(account["signup_anchor_day"], now)
     period_end = _add_month(period_start)
-    client = get_redis(settings)
+
+    client = None
+    try:
+        client = get_redis(settings)
+    except RedisError:
+        logger.warning("quota: Redis unavailable, reading usage from scan history", exc_info=True)
 
     results: list[BucketUsage] = []
     for bucket in ("cli", "hook", "dashboard", "auto_fix"):
         limit = await _tier_limit(db, account, bucket)
-        raw = client.get(_redis_key(user_id, bucket, period_start))
-        used = int(raw) if raw else 0
+        used = 0
+        if client is not None:
+            try:
+                raw = client.get(_redis_key(user_id, bucket, period_start))
+                used = int(raw) if raw else 0
+            except RedisError:
+                logger.warning("quota: Redis read failed for %s meter", bucket, exc_info=True)
+                client = None
+        if client is None:
+            # Meters degrade to the durable count rather than showing a
+            # blanket 0 — a dashboard that claims no usage during an outage
+            # is worse than one that is slightly behind.
+            used = await _used_from_durable_history(db, user_id, bucket, period_start) or 0
         results.append(BucketUsage(bucket=bucket, used=used, limit=limit, resets_at=period_end))
     return results

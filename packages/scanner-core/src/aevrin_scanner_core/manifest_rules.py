@@ -113,6 +113,101 @@ def check_weak_auth(scan_id: UUID, transport: TransportInfo) -> list[Finding]:
     return findings
 
 
+# Row 1 — what a stdio MCP entry actually *executes* on your machine the
+# moment you install it. This is the only signal available for a stdio
+# server: there is no URL to probe and, for a pasted config, no source to
+# scan. Every pattern here is a literal command shape, not a guess about
+# intent.
+_SHELL_INTERPRETERS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "cmd", "cmd.exe", "powershell", "pwsh"})
+
+# Fetch piped straight into an interpreter — the classic remote-code-execution
+# install shape.
+_PIPE_TO_SHELL = re.compile(
+    r"\b(?:curl|wget|iwr|invoke-webrequest)\b[^|;&]*[|]\s*(?:sudo\s+)?(?:sh|bash|zsh|python[23]?|node|perl|ruby)\b",
+    re.IGNORECASE,
+)
+# Decode-then-execute, the usual way an obfuscated payload is smuggled.
+_ENCODED_EXEC = re.compile(
+    r"\b(?:base64\s+(?:-d|--decode)|atob|frombase64string)\b[^|;&]*[|]\s*(?:sh|bash|python[23]?|node)\b"
+    r"|\b(?:eval|exec)\s*\(\s*(?:atob|base64)",
+    re.IGNORECASE,
+)
+
+
+def check_dangerous_launch_command(
+    scan_id: UUID, entries: dict[str, dict[str, object]]
+) -> list[Finding]:
+    """Inspects the command a stdio MCP entry runs on install.
+
+    A pasted config previously produced no findings at all for stdio
+    servers: clone/static/secrets/dependency stages are all skipped for that
+    target type, and the remaining checks need either a URL or declared
+    tools. A config whose server ran `sh -c "curl …|sh"` therefore scored a
+    clean 100/100 — the exact install this product exists to warn about.
+    """
+    findings: list[Finding] = []
+    for name, entry in entries.items():
+        if not isinstance(entry, dict):
+            continue
+        command = str(entry.get("command") or "")
+        raw_args = entry.get("args") or []
+        args = [str(a) for a in raw_args] if isinstance(raw_args, list) else []
+        if not command:
+            continue
+
+        full = " ".join([command, *args])
+        basename = os.path.basename(command).lower()
+
+        if _PIPE_TO_SHELL.search(full) or _ENCODED_EXEC.search(full):
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    tool=ToolName.AEVRIN_MANIFEST_RULES,
+                    owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
+                    severity=Severity.CRITICAL,
+                    title=f"Server '{name}' pipes downloaded content into a shell",
+                    description=(
+                        f"The launch command for '{name}' fetches remote content and executes it "
+                        f"directly: {full[:300]}. Installing this server runs whatever that URL "
+                        "serves, at the moment of install and on every subsequent start, with "
+                        "your user's privileges."
+                    ),
+                    location=Location(manifest_field="command/args", tool_name_in_manifest=name),
+                    remediation=(
+                        "Do not install this server. If you control it, pin an installed package "
+                        "or a checked-in script instead of executing fetched content."
+                    ),
+                    raw={"server": name, "command": command, "args": args},
+                )
+            )
+            continue
+
+        if basename in _SHELL_INTERPRETERS:
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    tool=ToolName.AEVRIN_MANIFEST_RULES,
+                    owasp_category=OwaspMcpCategory.EXCESSIVE_AGENCY,
+                    severity=Severity.HIGH,
+                    title=f"Server '{name}' launches through a shell interpreter",
+                    description=(
+                        f"'{name}' starts via '{command}' rather than running a program directly, "
+                        f"so its full command line is interpreted by a shell: {full[:300]}. That "
+                        "allows shell metacharacters, chained commands, and redirection at "
+                        "startup. This reports the launch shape only — it does not confirm the "
+                        "command is malicious."
+                    ),
+                    location=Location(manifest_field="command/args", tool_name_in_manifest=name),
+                    remediation=(
+                        "Invoke the server binary or package entrypoint directly instead of "
+                        "wrapping it in a shell."
+                    ),
+                    raw={"server": name, "command": command, "args": args},
+                )
+            )
+    return findings
+
+
 def check_audit_logging_presence(scan_id: UUID, repo_dir: str) -> list[Finding]:
     """Informational only, per Section 4 row 10 — presence of *any* logging
     import is a weak positive signal, absence is a weak negative signal.

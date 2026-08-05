@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from redis.exceptions import ResponseError
 
 from aevrin_api.quota import QuotaExceeded, check_and_increment_quota, get_usage
 
@@ -118,3 +119,75 @@ async def test_auto_fix_limit_with_no_bonus_matches_tier_allowance(settings):
     usage = await get_usage(settings, db, "user-1")
     auto_fix_bucket = next(b for b in usage if b.bucket == "auto_fix")
     assert auto_fix_bucket.limit == 5
+
+
+# --- Redis outage falls back to durable history ----------------------------
+#
+# Redis holding the live counters used to mean a Redis outage raised straight
+# out of check_and_increment_quota as an unhandled 500 — taking down scan
+# creation, CLI upload, and the hook check. Confirmed live when Upstash's
+# request quota was exhausted. The `scans` table already records every
+# counted scan with its source, so it can answer instead.
+
+
+class _BrokenRedis:
+    def incr(self, key: str) -> int:
+        raise ResponseError("max requests limit exceeded. Limit: 500000, Usage: 500000")
+
+    def expire(self, key: str, seconds: int) -> None:
+        raise ResponseError("max requests limit exceeded")
+
+    def get(self, key: str) -> str | None:
+        raise ResponseError("max requests limit exceeded")
+
+
+class _DbWithScanHistory(_FakeDb):
+    """_FakeDb plus a `scans` table holding `count` rows for this period."""
+
+    def __init__(self, tier: str, count: int, **kwargs: Any):
+        super().__init__(tier, **kwargs)
+        self._count = count
+        self.last_scan_filters: dict[str, str] | None = None
+
+    async def select(self, table: str, filters: dict[str, str] | None = None, **kwargs: Any):
+        if table == "scans":
+            self.last_scan_filters = filters
+            return [{"id": f"scan-{i}"} for i in range(self._count)]
+        return await super().select(table, filters, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_redis_outage_allows_scan_when_history_is_under_limit(monkeypatch, settings):
+    monkeypatch.setattr("aevrin_api.quota.get_redis", lambda settings: _BrokenRedis())
+    db = _DbWithScanHistory("free", count=2)  # limit is 5
+    await check_and_increment_quota(settings, db, "user-1", "dashboard")
+    assert db.last_scan_filters is not None
+    assert db.last_scan_filters["source"] == "dashboard"
+    assert db.last_scan_filters["created_at"].startswith("gte.")
+
+
+@pytest.mark.asyncio
+async def test_redis_outage_still_enforces_the_limit_from_history(monkeypatch, settings):
+    """Failing over must not become a way to bypass quota entirely."""
+    monkeypatch.setattr("aevrin_api.quota.get_redis", lambda settings: _BrokenRedis())
+    db = _DbWithScanHistory("free", count=5)  # already at the limit of 5
+    with pytest.raises(QuotaExceeded):
+        await check_and_increment_quota(settings, db, "user-1", "dashboard")
+
+
+@pytest.mark.asyncio
+async def test_redis_outage_allows_auto_fix_which_has_no_durable_period_record(monkeypatch, settings):
+    """auto_fix PRs aren't dated rows, so they can't be counted from history.
+    Allowing an extra paid Fix It beats Fix It being unavailable."""
+    monkeypatch.setattr("aevrin_api.quota.get_redis", lambda settings: _BrokenRedis())
+    db = _DbWithScanHistory("pro", count=0)
+    await check_and_increment_quota(settings, db, "user-1", "auto_fix")
+
+
+@pytest.mark.asyncio
+async def test_usage_meters_degrade_to_history_instead_of_showing_zero(monkeypatch, settings):
+    monkeypatch.setattr("aevrin_api.quota.get_redis", lambda settings: _BrokenRedis())
+    db = _DbWithScanHistory("free", count=3)
+    usage = await get_usage(settings, db, "user-1")
+    dashboard = next(b for b in usage if b.bucket == "dashboard")
+    assert dashboard.used == 3

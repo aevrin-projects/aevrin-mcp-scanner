@@ -22,10 +22,12 @@ from aevrin_scanner_core import (
     ToolName,
     is_autofix_eligible,
 )
+from aevrin_scanner_core.runner import ToolExecutionError
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 
 from ..autofix import (
+    CloneError,
     cleanup_clone,
     clone_repo,
     generate_patch,
@@ -228,9 +230,16 @@ async def fix_finding(
         await _mark_autofix(db, finding_id, "failed", reason="Could not generate a fix — the model is unavailable or the file is too large.")
         return AutofixResponse(status="failed", failure_reason="Could not generate a fix for this finding.")
 
+    # Everything below runs against a throwaway clone. Any failure in here
+    # used to escape as an unhandled 500 *after* the finding was already
+    # marked in_progress at line above — leaving it stuck on a spinner
+    # forever with no reason recorded. Every failure path now lands the
+    # finding in a terminal "failed" state with an honest reason.
+    cleared = False
+    failure: str | None = None
     repo_dir = None
     try:
-        repo_dir = clone_repo(f"https://github.com/{owner}/{name}")
+        repo_dir = clone_repo(f"https://github.com/{owner}/{name}.git", token=token)
         write_patched_file(repo_dir, finding.location.file_path, patched)
         cleared = reverify_finding(finding, repo_dir)
         if not cleared:
@@ -241,9 +250,24 @@ async def fix_finding(
                 patched = retry_patched
                 write_patched_file(repo_dir, finding.location.file_path, patched)
                 cleared = reverify_finding(finding, repo_dir)
+    except CloneError as exc:
+        failure = f"Could not clone the repository to verify the fix: {exc}"
+    except ToolExecutionError as exc:
+        # Fail closed: a scanner that couldn't run is not evidence the
+        # finding is gone, and this flow's whole promise is that a PR is
+        # only ever opened against a re-verified fix.
+        logger.warning("autofix: re-verification could not run for finding %s", finding_id, exc_info=True)
+        failure = f"Could not re-run {finding.tool.value} to verify the fix, so no pull request was opened ({exc})."
+    except OSError as exc:
+        logger.warning("autofix: filesystem error verifying finding %s", finding_id, exc_info=True)
+        failure = f"Could not write the patched file while verifying the fix: {exc}"
     finally:
         if repo_dir:
             cleanup_clone(repo_dir)
+
+    if failure:
+        await _mark_autofix(db, finding_id, "failed", reason=failure)
+        return AutofixResponse(status="failed", failure_reason=failure)
 
     if not cleared:
         reason = "An automatic fix couldn't be generated for this finding — it may need manual review."

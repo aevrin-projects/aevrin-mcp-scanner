@@ -13,11 +13,16 @@ directly.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
 
 from .config import Settings
+
+# PostgREST operator prefixes ("gte.", "in.", "not.in.", …). Used to tell a
+# caller-supplied operator apart from a bare value that needs eq..
+_HAS_OPERATOR = re.compile(r"^(not\.)?[a-z]+\.")
 
 
 class SupabaseRestError(Exception):
@@ -78,7 +83,11 @@ class SupabaseRest:
     ) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"select": columns}
         for k, v in (filters or {}).items():
-            params[k] = f"eq.{v}"
+            # A value that already carries a PostgREST operator prefix
+            # ("gte.2026-08-01", "in.(a,b)") is passed through untouched, so
+            # callers can express ranges without every filter needing to be
+            # equality. Bare values keep the previous eq. behaviour.
+            params[k] = v if _HAS_OPERATOR.match(v) else f"eq.{v}"
         if order:
             params["order"] = order
         if limit:

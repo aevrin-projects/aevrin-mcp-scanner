@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request, status
+from redis.exceptions import RedisError
 
 from .config import Settings, get_settings
 from .db import SupabaseRest
 from .redis_client import RateLimitExceeded, check_fixed_window_rate_limit, get_redis
 from .security import AuthenticatedUser, decode_supabase_jwt, hash_api_key
+
+logger = logging.getLogger("aevrin.deps")
 
 
 def get_db(settings: Annotated[Settings, Depends(get_settings)]) -> SupabaseRest:
@@ -80,6 +84,23 @@ def enforce_rate_limit(settings: Settings, bucket: str, identity: str, limit: in
             detail="Rate limit exceeded. Try again later.",
             headers={"Retry-After": str(exc.retry_after_seconds)},
         ) from exc
+    except RedisError:
+        # Fail OPEN, deliberately. This guard sits in front of scan creation,
+        # CLI upload, and the Claude Code hook check — every core action in
+        # the product. Letting a Redis outage raise turned the rate limiter
+        # into a single point of failure that returned 500 for all of them;
+        # confirmed live when Upstash's request quota was exhausted and
+        # every scan, in production, started failing with "Internal server
+        # error".
+        #
+        # Failing open is safe here because this is defense-in-depth, not
+        # the actual abuse control: monthly usage is enforced separately by
+        # check_and_increment_quota against Postgres, which is unaffected by
+        # a Redis outage. Someone can burst harder than intended for the
+        # duration of the outage; they still cannot exceed their plan quota.
+        logger.warning(
+            "rate limiter unavailable, allowing request through (bucket=%s)", bucket, exc_info=True
+        )
 
 
 def client_ip(request: Request) -> str:

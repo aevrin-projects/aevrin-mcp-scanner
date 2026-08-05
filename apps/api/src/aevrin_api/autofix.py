@@ -126,17 +126,51 @@ def reverify_finding(finding: Finding, target_dir: str) -> bool:
     return not any(_findings_equivalent(finding, f) for f in rescanned)
 
 
-def clone_repo(clone_url: str) -> str:
+class CloneError(RuntimeError):
+    """Clone failed. The message is always safe to show a user and to log —
+    see _redact."""
+
+
+def _redact(text: str, token: str | None) -> str:
+    """git echoes the remote URL back in most failure messages, and with a
+    token embedded in that URL an unredacted stderr would write a live
+    GitHub credential straight into the logs (and, via the failure_reason
+    column, into the dashboard). Never let the raw token out."""
+    if not text:
+        return ""
+    cleaned = text.replace(token, "***") if token else text
+    return cleaned.replace("x-access-token:***@", "").strip()
+
+
+def clone_repo(clone_url: str, *, token: str | None = None) -> str:
+    """`token` is a GitHub App installation token. Without it this can only
+    reach public repositories — which silently defeated Fix It on exactly
+    the private repos the App installation exists to grant access to.
+    x-access-token is GitHub's documented username for HTTP-based git auth
+    with an installation token.
+
+    The credential does land in the clone's .git/config, which is why the
+    caller must always cleanup_clone() — nothing here is ever pushed from,
+    so the token's only job is the initial fetch.
+    """
     workdir = tempfile.mkdtemp(prefix="aevrin-autofix-")
     repo_dir = f"{workdir}/repo"
-    subprocess.run(  # nosec B603 B607
-        ["git", "clone", "--depth", "1", clone_url, repo_dir],
-        capture_output=True,
-        text=True,
-        timeout=_CLONE_TIMEOUT_S,
-        check=True,
-        env=sanitized_subprocess_env(),
+    authed_url = (
+        clone_url.replace("https://", f"https://x-access-token:{token}@", 1) if token else clone_url
     )
+    try:
+        subprocess.run(  # nosec B603 B607
+            ["git", "clone", "--depth", "1", authed_url, repo_dir],
+            capture_output=True,
+            text=True,
+            timeout=_CLONE_TIMEOUT_S,
+            check=True,
+            env=sanitized_subprocess_env(),
+        )
+    except subprocess.CalledProcessError as exc:
+        raise CloneError(_redact(exc.stderr or "git clone failed", token)) from None
+    except subprocess.TimeoutExpired:
+        raise CloneError(f"Cloning the repository timed out after {_CLONE_TIMEOUT_S}s.") from None
     return repo_dir
 
 

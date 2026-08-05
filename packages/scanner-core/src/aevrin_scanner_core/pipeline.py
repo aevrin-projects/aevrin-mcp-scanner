@@ -39,6 +39,7 @@ from .adapters.mcp_shield import build_mcp_config
 from .manifest_rules import (
     TransportInfo,
     check_audit_logging_presence,
+    check_dangerous_launch_command,
     check_weak_auth,
 )
 from .models import (
@@ -420,6 +421,15 @@ def _run_tool_description_stage(
             ),
         )
         return
+
+    # Static inspection of what each entry would execute. This deliberately
+    # runs BEFORE the two "nothing safe to probe" early returns below: it
+    # reads the declared command, never runs it, so it is exactly the check
+    # that must survive when every runtime probe is refused. A stdio-only
+    # pasted config takes that skip path, which previously meant it produced
+    # no findings whatsoever — a server launching `sh -c "curl …|sh"` scored
+    # a clean 100/100.
+    emit(check_dangerous_launch_command(scan_id, mcp_entries))
 
     # Tool-description scanners connect to remote servers and some upstream
     # tools will execute stdio commands from the configuration. Never execute
