@@ -271,7 +271,7 @@ Checked docs against the live `tier_limits` table, not against memory.
   allowance-decrement-only-on-success rule, ineligible finding types, the
   `autofix_eligible` JSON field, and the GitHub prerequisite.
 
-### ✅ Phase 8 — Accessibility (DONE) / ⬜ performance (NOT RUN)
+### ✅ Phase 8 — Accessibility + performance (DONE)
 
 Two committed, rerunnable harnesses — neither needs a browser by hand:
 
@@ -279,6 +279,7 @@ Two committed, rerunnable harnesses — neither needs a browser by hand:
 node scripts/a11y-audit.mjs           # axe-core, dark theme
 THEME=light node scripts/a11y-audit.mjs
 node scripts/a11y-manual.mjs          # keyboard, focus, 320px reflow, reduced motion
+node scripts/perf-audit.mjs           # Core Web Vitals against production
 ```
 
 **axe-core: 0 violations, 16 routes, both themes.** Fixes required to get there:
@@ -304,8 +305,21 @@ horizontal scroll at 320px after two reflow fixes:
   a grid item defaults to `min-width:auto`; that also stopped the `<pre>`'s
   own `overflow-x-auto` from ever engaging.
 
-⬜ **Performance is NOT measured.** No Lighthouse/CWV run has happened, so
-LCP ≤ 2.5s / INP ≤ 200ms / CLS ≤ 0.1 are unverified targets, not results.
+**Core Web Vitals: all pass**, measured against the deployed site (a dev
+build's numbers are meaningless — no minification, plus a compile on first
+hit). TBT stands in for INP, which needs field data.
+
+| Route | LCP | CLS | TBT | TTFB |
+|---|---|---|---|---|
+| `/` | 664ms | 0.000 | 0ms | 327ms |
+| `/pricing` | 476ms | 0.000 | 0ms | 190ms |
+| `/cli` | 508ms | 0.000 | 0ms | 270ms |
+| `/docs` | 740ms | 0.000 | 0ms | 318ms |
+| `/login` | 512ms | 0.000 | 0ms | 267ms |
+
+Targets are LCP ≤ 2500ms, CLS ≤ 0.1, TBT ≤ 200ms — LCP lands 3–5× under
+budget and CLS is zero on every route, which is what the fixed-height chart
+containers and the reserved hero space were for.
 
 ---
 
