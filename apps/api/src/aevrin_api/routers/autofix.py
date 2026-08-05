@@ -211,10 +211,22 @@ async def github_callback(
         return RedirectResponse(f"{settings_url}?github={reason}")
 
     if not state:
-        # The install is real, we just can't prove whose account it belongs
-        # to from this redirect alone. Deliberately not auto-claimed for the
-        # signed-in browser session: that would let anyone who can reach this
-        # URL bind someone else's org installation to their own account.
+        # No signed state, which happens in two very different situations.
+        #
+        # With "Redirect on update" enabled on the App, an *existing* install
+        # comes back here every time someone changes which repositories are
+        # granted — and that redirect carries no state, because it didn't
+        # start from our signed link. If we already store this installation,
+        # the binding is established and this is simply an update; telling a
+        # connected user to reconnect would be both wrong and alarming.
+        known = await db.select("github_installations", {"installation_id": str(installation_id)}, limit=1)
+        if known:
+            return RedirectResponse(f"{settings_url}?github=updated")
+
+        # Otherwise it's a first-time install started from GitHub's own App
+        # page. Deliberately not auto-claimed for whoever is signed in in
+        # this browser: that would let anyone reaching this URL bind someone
+        # else's organization installation to their own account.
         logger.info("github callback: installation %s arrived without signed state", installation_id)
         return RedirectResponse(f"{settings_url}?github=needs_relink")
 

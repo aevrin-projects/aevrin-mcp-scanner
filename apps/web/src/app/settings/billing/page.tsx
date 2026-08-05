@@ -369,6 +369,10 @@ const GITHUB_CALLBACK_MESSAGE: Record<string, { message: string; ok: boolean }> 
       "Installed on GitHub, but it arrived without the link that ties it to this Aevrin account. Click Connect GitHub here to finish — it won't ask for access again.",
     ok: false,
   },
+  updated: {
+    message: "GitHub access updated — your repository list here now matches what you granted.",
+    ok: true,
+  },
   approval_pending: {
     message: "Requested — an owner of that GitHub organization has to approve the install before it takes effect.",
     ok: false,
