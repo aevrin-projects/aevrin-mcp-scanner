@@ -153,6 +153,7 @@ export const api = {
     }),
   adminAnalytics: (days: number) =>
     request<Record<string, unknown>>(`/admin/analytics?days=${days}`),
+  adminAccountUsage: () => request<Array<Record<string, unknown>>>("/admin/account-usage"),
   adminAudit: (params: { target?: string; action?: string; limit?: number }) => {
     const search = new URLSearchParams();
     if (params.target) search.set("target", params.target);
