@@ -19,6 +19,7 @@ from .routers import (
     billing,
     cli,
     device,
+    events,
     export,
     findings,
     hook,
@@ -78,6 +79,7 @@ app.include_router(cli.router)
 app.include_router(api_keys.router)
 app.include_router(export.router)
 app.include_router(device.router)
+app.include_router(events.router)
 app.include_router(account.router)
 app.include_router(billing.router)
 app.include_router(auth_lookup.router)
