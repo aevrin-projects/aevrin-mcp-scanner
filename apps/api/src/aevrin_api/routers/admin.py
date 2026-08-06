@@ -35,6 +35,7 @@ from ..admin_auth import (
     write_audit,
 )
 from ..config import Settings, get_settings
+from ..crypto import ByokUnavailable
 from ..db import SupabaseRest
 from ..deps import get_current_user, get_db
 from ..quota import Bucket, get_or_create_account, get_usage
@@ -116,7 +117,18 @@ async def totp_enrol(
             detail="Two-factor authentication is already set up for this account.",
         )
     secret = new_secret()
-    await store_secret(db, settings, user.id, secret)
+    try:
+        await store_secret(db, settings, user.id, secret)
+    except ByokUnavailable as exc:
+        # The TOTP secret is stored encrypted with the same Fernet key the
+        # BYOK path uses. Without it configured this raised straight out as
+        # an opaque 500 — confirmed live on first enrolment. Say what is
+        # actually wrong instead, since only an operator can fix it.
+        logger.error("admin totp: cannot encrypt secret — %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Encryption isn't configured on the API (BYOK_ENCRYPTION_KEY). Set it and try again.",
+        ) from exc
     return TotpEnrolOut(secret=secret, provisioning_uri=provisioning_uri(secret, user.email or "admin"))
 
 
