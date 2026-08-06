@@ -278,19 +278,6 @@ def run_local_command(tool: str, spec: LocalCommandSpec, target_dir: str) -> tup
     except FileNotFoundError as exc:
         raise ToolExecutionError(tool, f"binary '{spec.binary}' not found on host") from exc
 
-    # Not every image publishes a variant for this host (OpenSSF Scorecard is
-    # amd64-only). Retry once without the pin so Docker can fall back to
-    # emulation, which is slow but better than refusing to run at all.
-    if proc.returncode not in spec.ok_exit_codes and host_platform and _is_platform_error(proc.stderr):
-        retry_cmd = [arg for arg in cmd if arg != host_platform]
-        retry_cmd.remove("--platform")
-        try:
-            proc = subprocess.run(  # nosec B603
-                retry_cmd, capture_output=True, text=True, timeout=spec.timeout_s, check=False
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise ToolExecutionError(tool, f"timed out after {spec.timeout_s}s") from exc
-
     if proc.returncode not in spec.ok_exit_codes:
         raise ToolExecutionError(
             tool,

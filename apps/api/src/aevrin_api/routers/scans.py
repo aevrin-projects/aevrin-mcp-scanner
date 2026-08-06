@@ -159,7 +159,28 @@ async def get_scan_findings(
     db: Annotated[SupabaseRest, Depends(get_db)],
 ) -> list[FindingOut]:
     rows = await db.select("findings", {"scan_id": str(scan_id), "user_id": user.id})
+    # Most severe first, then grouped by file. Postgres can't order by this
+    # without a custom type, and the previous insertion order meant whichever
+    # scanner happened to finish first led the list — so a critical could sit
+    # below a dozen lows on the one screen that has to convey urgency.
+    rows.sort(key=_finding_sort_key)
     return [FindingOut(**r) for r in rows]
+
+
+_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+
+
+def _finding_sort_key(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        # A finding excluded from scoring (test fixture, untested category)
+        # is context, not a result, so it sinks below everything real
+        # regardless of the severity the scanner gave it.
+        bool(row.get("not_tested")) or bool(row.get("excluded_path")),
+        _SEVERITY_RANK.get(str(row.get("severity")), 9),
+        str(row.get("file_path") or "\uffff"),  # locationless findings last
+        int(row.get("line_start") or 0),
+        str(row.get("title") or ""),
+    )
 
 
 async def _assert_owns_scan(db: SupabaseRest, scan_id: UUID, user_id: str) -> None:

@@ -103,6 +103,8 @@ export interface Finding {
   llm_remediation: string | null;
   llm_triaged_at: string | null;
   autofix_status: "none" | "queued" | "in_progress" | "fixed" | "failed";
+  /** Which step of an in-flight fix is running. Null once terminal. */
+  autofix_stage: "analysing" | "generating" | "verifying" | "authorizing" | "opening_pr" | null;
   autofix_pr_url: string | null;
   autofix_failure_reason: string | null;
 }

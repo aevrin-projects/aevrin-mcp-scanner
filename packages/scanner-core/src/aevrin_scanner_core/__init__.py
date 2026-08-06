@@ -27,6 +27,7 @@ from .runner import DockerRunSpec, ToolExecutionError, run_container
 from .scoring import compute_score, severity_counts, verdict
 
 __all__ = [
+    "FIXABLE_TOOLS",
     "NOT_TESTED_CATEGORIES",
     "NOT_TESTED_NOTE",
     "OWASP_CATEGORY_FEASIBILITY",
@@ -34,7 +35,6 @@ __all__ = [
     "STAGE_LABELS",
     "STAGE_TOOLS",
     "DockerRunSpec",
-    "FIXABLE_TOOLS",
     "Finding",
     "Location",
     "OwaspMcpCategory",

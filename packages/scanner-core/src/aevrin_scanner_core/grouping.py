@@ -118,6 +118,46 @@ def dedupe_cross_scanner(findings: list[Finding]) -> list[Finding]:
     return kept
 
 
+def _identity_key(finding: Finding) -> tuple[str, ...]:
+    """What makes two findings literally the same report."""
+    location = finding.location
+    return (
+        finding.tool.value,
+        finding.title,
+        location.file_path or "",
+        str(location.line_start or ""),
+        location.manifest_field or "",
+    )
+
+
+def dedupe_exact(findings: list[Finding]) -> list[Finding]:
+    """Drop byte-identical repeat reports of one finding.
+
+    Distinct from group_by_root_cause, which merges *different* findings
+    that share a cause. This removes a single finding reported twice.
+
+    It matters most for secrets, which root-cause grouping deliberately
+    never touches: each credential is independently exploitable, so two
+    different secrets caught by one rule must stay two findings. That
+    reasoning does not extend to the same credential at the same line of the
+    same file, and Gitleaks emits exactly that — observed in production as
+    "Hardcoded secret: private-key" appearing twice at src/redact.test.ts:61
+    in every scan, same rule, same commit, same description.
+
+    Order is preserved, and the first copy wins so any enrichment already
+    attached to it survives.
+    """
+    seen: set[tuple[str, ...]] = set()
+    kept: list[Finding] = []
+    for finding in findings:
+        key = _identity_key(finding)
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(finding)
+    return kept
+
+
 def _root_cause_key(finding: Finding) -> str | None:
     """None means "don't group this one" — most notably every secret
     exposure (TOKEN_MISMANAGEMENT), which stays ungrouped regardless of

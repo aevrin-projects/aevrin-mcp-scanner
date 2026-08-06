@@ -205,3 +205,71 @@ def test_a_critical_static_finding_still_drives_the_score():
     assert compute_score(findings) < compute_score(
         dedupe_cross_scanner([_osv_finding("CVE-2024-1", "requests"), _trivy_finding("CVE-2024-1", "requests")])
     )
+
+
+def test_dedupe_exact_collapses_a_double_reported_secret():
+    """Observed in production: Gitleaks reported the same private key at
+    src/redact.test.ts:61 twice in every scan, same rule and same commit.
+    Root-cause grouping never touches secrets on purpose (two different
+    credentials are two findings), which left this pair uncollapsed."""
+    from aevrin_scanner_core.grouping import dedupe_exact
+
+    scan_id = uuid4()
+    def _secret():
+        return Finding(
+            scan_id=scan_id,
+            tool=ToolName.GITLEAKS,
+            owasp_category=OwaspMcpCategory.TOKEN_MISMANAGEMENT,
+            severity=Severity.HIGH,
+            title="Hardcoded secret: private-key",
+            description="Identified a Private Key.",
+            location=Location(file_path="src/redact.test.ts", line_start=61),
+            remediation="Rotate it.",
+        )
+
+    kept = dedupe_exact([_secret(), _secret()])
+    assert len(kept) == 1
+
+
+def test_dedupe_exact_keeps_two_different_secrets_in_one_file():
+    """Each credential is independently exploitable, so different lines stay
+    separate findings."""
+    from aevrin_scanner_core.grouping import dedupe_exact
+
+    scan_id = uuid4()
+    def _secret(line):
+        return Finding(
+            scan_id=scan_id,
+            tool=ToolName.GITLEAKS,
+            owasp_category=OwaspMcpCategory.TOKEN_MISMANAGEMENT,
+            severity=Severity.HIGH,
+            title="Hardcoded secret: private-key",
+            description="Identified a Private Key.",
+            location=Location(file_path="src/redact.test.ts", line_start=line),
+            remediation="Rotate it.",
+        )
+
+    assert len(dedupe_exact([_secret(61), _secret(94)])) == 2
+
+
+def test_dedupe_exact_preserves_order_and_keeps_the_first_copy():
+    from aevrin_scanner_core.grouping import dedupe_exact
+
+    scan_id = uuid4()
+    def _f(title, verified=None):
+        return Finding(
+            scan_id=scan_id,
+            tool=ToolName.GITLEAKS,
+            owasp_category=OwaspMcpCategory.TOKEN_MISMANAGEMENT,
+            severity=Severity.HIGH,
+            title=title,
+            description="d",
+            location=Location(file_path="a.ts", line_start=1),
+            remediation="r",
+            verified=verified,
+        )
+
+    # The first copy carries enrichment the second lacks; it must survive.
+    kept = dedupe_exact([_f("a", verified=True), _f("a"), _f("b")])
+    assert [f.title for f in kept] == ["a", "b"]
+    assert kept[0].verified is True

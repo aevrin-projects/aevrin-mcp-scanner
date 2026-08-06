@@ -19,13 +19,17 @@ from __future__ import annotations
 from .dependency_scope import apply_dependency_scope
 from .epss import apply_epss, finding_cve_id
 from .fixture_paths import mark_excluded_paths
-from .grouping import dedupe_cross_scanner, group_by_root_cause
+from .grouping import dedupe_cross_scanner, dedupe_exact, group_by_root_cause
 from .kev import apply_kev, fetch_kev_catalog
 from .models import Finding
 
 
 def postprocess_findings(findings: list[Finding], repo_dir: str | None) -> list[Finding]:
     mark_excluded_paths(findings)
+    # Exact repeats first: collapsing them before cross-scanner dedup and
+    # root-cause grouping keeps those two working on distinct findings, and
+    # stops a double-reported issue from inflating occurrence_count.
+    findings = dedupe_exact(findings)
     findings = dedupe_cross_scanner(findings)
     findings = group_by_root_cause(findings)
     apply_dependency_scope(findings, repo_dir)

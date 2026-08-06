@@ -30,6 +30,7 @@ from fastapi.responses import RedirectResponse
 
 from ..autofix import (
     CloneError,
+    PatchFailed,
     cleanup_clone,
     clone_repo,
     generate_patch,
@@ -278,11 +279,25 @@ async def github_callback(
     return RedirectResponse(f"{settings_url}?github=connected")
 
 
+async def _mark_stage(db: SupabaseRest, finding_id: UUID, stage: str) -> None:
+    """Record which step of the fix is running, for the progress dialog.
+
+    Best-effort on purpose: this is presentation state, and failing a fix
+    because a progress update didn't land would be backwards.
+    """
+    try:
+        await db.update("findings", {"id": str(finding_id)}, {"autofix_stage": stage})
+    except Exception:  # never let a progress write break a fix
+        logger.debug("autofix: could not record stage %s for %s", stage, finding_id, exc_info=True)
+
+
 async def _mark_autofix(db: SupabaseRest, finding_id: UUID, status_value: str, *, pr_url: str | None = None, reason: str | None = None) -> None:
     patch: dict[str, Any] = {
         "autofix_status": status_value,
         "autofix_pr_url": pr_url,
         "autofix_failure_reason": reason,
+        # Every status this sets is terminal or idle, so no step is running.
+        "autofix_stage": None,
     }
     # Stamped only on success, and only in Postgres — this is what makes the
     # auto_fix usage counter recoverable when Redis can't be reached. A PR
@@ -360,6 +375,7 @@ async def _run_fix_for_row(
     except GithubAppUnavailable:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Auto-fix isn't configured yet.") from None
 
+    await _mark_stage(db, finding_id, "authorizing")
     try:
         installation_id = await client.get_repo_installation_id(owner, name)
     except GithubAppError as exc:
@@ -379,11 +395,16 @@ async def _run_fix_for_row(
     file_content, file_sha = file_result
 
     await _mark_autofix(db, finding_id, "in_progress")
+    await _mark_stage(db, finding_id, "analysing")
 
-    patched = await generate_patch(settings, finding, file_content)
-    if patched is None:
-        await _mark_autofix(db, finding_id, "failed", reason="Could not generate a fix — the model is unavailable or the file is too large.")
-        return AutofixResponse(status="failed", failure_reason="Could not generate a fix for this finding.")
+    await _mark_stage(db, finding_id, "generating")
+    try:
+        patched = await generate_patch(settings, finding, file_content)
+    except PatchFailed as exc:
+        # The reason comes from the failure itself rather than being guessed
+        # here, so what the user reads matches what actually happened.
+        await _mark_autofix(db, finding_id, "failed", reason=str(exc))
+        return AutofixResponse(status="failed", failure_reason=str(exc))
 
     # Everything below runs against a throwaway clone. Any failure in here
     # used to escape as an unhandled 500 *after* the finding was already
@@ -394,15 +415,21 @@ async def _run_fix_for_row(
     failure: str | None = None
     repo_dir = None
     try:
+        await _mark_stage(db, finding_id, "verifying")
         repo_dir = clone_repo(f"https://github.com/{owner}/{name}.git", token=token)
         write_patched_file(repo_dir, finding.location.file_path, patched)
         cleared = reverify_finding(finding, repo_dir)
         if not cleared:
-            retry_patched = await generate_patch(
-                settings, finding, file_content, retry_feedback=f"{finding.tool.value} still reported this finding after the first patch."
-            )
-            if retry_patched is not None:
-                patched = retry_patched
+            try:
+                patched = await generate_patch(
+                    settings, finding, file_content,
+                    retry_feedback=f"{finding.tool.value} still reported this finding after the first patch.",
+                )
+            except PatchFailed:
+                # The first patch stands as the best attempt; it just didn't
+                # clear, which the `not cleared` branch below reports.
+                logger.info("autofix: retry could not be drafted for finding %s", finding_id, exc_info=True)
+            else:
                 write_patched_file(repo_dir, finding.location.file_path, patched)
                 cleared = reverify_finding(finding, repo_dir)
     except CloneError as exc:
@@ -425,10 +452,17 @@ async def _run_fix_for_row(
         return AutofixResponse(status="failed", failure_reason=failure)
 
     if not cleared:
-        reason = "An automatic fix couldn't be generated for this finding — it may need manual review."
+        # A patch *was* drafted; it just didn't hold up. Saying it "couldn't
+        # be generated" described the wrong step and sent people looking in
+        # the wrong place.
+        reason = (
+            f"A fix was drafted, but {finding.tool.value} still reported this finding afterwards, "
+            "so no pull request was opened. It needs a manual fix."
+        )
         await _mark_autofix(db, finding_id, "failed", reason=reason)
         return AutofixResponse(status="failed", failure_reason=reason)
 
+    await _mark_stage(db, finding_id, "opening_pr")
     try:
         base_branch, base_sha = await client.get_default_branch_head_sha(owner, name, token)
         fix_branch = f"aevrin-fix-{str(finding_id)[:8]}"
