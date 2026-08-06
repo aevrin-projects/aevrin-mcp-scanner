@@ -211,3 +211,60 @@ async def test_usage_meters_degrade_to_history_instead_of_showing_zero(monkeypat
     assert dashboard.used == 3
     # The auto-fix meter reads its own durable source, not the scan count.
     assert next(b for b in usage if b.bucket == "auto_fix").used == 1
+
+
+# --- admin quota overrides -------------------------------------------------
+#
+# An override has to bind at _tier_limit so it reaches every caller, not just
+# the surface an admin was looking at. NULL means unlimited, matching the
+# tier_limits convention — which is why "no override" and "override to
+# unlimited" cannot both be None.
+
+
+class _DbWithOverride(_FakeDb):
+    def __init__(self, tier: str, override: dict[str, Any] | None, **kwargs: Any):
+        super().__init__(tier, **kwargs)
+        self._override = override
+
+    async def select(self, table: str, filters: dict[str, str] | None = None, **kwargs: Any):
+        if table == "account_quota_overrides":
+            return [self._override] if self._override else []
+        return await super().select(table, filters, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_override_replaces_the_plan_limit(settings):
+    """Free's cli limit is 5; an override of 2 must bind instead."""
+    db = _DbWithOverride("free", {"limit_value": 2, "expires_at": None})
+    for _ in range(2):
+        await check_and_increment_quota(settings, db, "user-1", "cli")
+    with pytest.raises(QuotaExceeded) as excinfo:
+        await check_and_increment_quota(settings, db, "user-1", "cli")
+    assert excinfo.value.limit == 2
+
+
+@pytest.mark.asyncio
+async def test_null_override_means_unlimited(settings):
+    db = _DbWithOverride("free", {"limit_value": None, "expires_at": None})
+    for _ in range(20):  # far past the plan's 5
+        await check_and_increment_quota(settings, db, "user-1", "cli")
+
+
+@pytest.mark.asyncio
+async def test_expired_override_falls_back_to_the_plan(settings):
+    past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    db = _DbWithOverride("free", {"limit_value": 99, "expires_at": past})
+    for _ in range(5):
+        await check_and_increment_quota(settings, db, "user-1", "cli")
+    with pytest.raises(QuotaExceeded) as excinfo:
+        await check_and_increment_quota(settings, db, "user-1", "cli")
+    assert excinfo.value.limit == 5  # the plan default, not the lapsed 99
+
+
+@pytest.mark.asyncio
+async def test_future_override_still_applies(settings):
+    future = (datetime.now(UTC) + timedelta(days=7)).isoformat()
+    db = _DbWithOverride("free", {"limit_value": 1, "expires_at": future})
+    await check_and_increment_quota(settings, db, "user-1", "cli")
+    with pytest.raises(QuotaExceeded):
+        await check_and_increment_quota(settings, db, "user-1", "cli")

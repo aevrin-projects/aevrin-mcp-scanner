@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     # save a key yet), not an error.
     byok_encryption_key: str | None = None
 
+    # Admin panel. The allowlist is an explicit comma-separated list of
+    # auth.users IDs rather than a role column — see admin_auth.py for why.
+    admin_user_ids: str | None = None
+    admin_session_idle_minutes: int = 30
+
     # CORS
     web_origin: str = "http://localhost:3000"
 

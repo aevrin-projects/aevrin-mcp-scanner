@@ -115,7 +115,42 @@ async def get_or_create_account(db: SupabaseRest, user_id: str) -> dict[str, Any
     return created[0]
 
 
+async def _override_limit(db: SupabaseRest, user_id: str, bucket: Bucket) -> tuple[bool, int | None]:
+    """Admin-set per-account limit, if one is active.
+
+    Returns (has_override, limit). The tuple is necessary because NULL is a
+    meaningful value here — it means unlimited, the same convention
+    tier_limits uses — so "no override" and "override to unlimited" cannot
+    be represented by a bare None.
+
+    Expired overrides are ignored at read time rather than deleted, so the
+    account detail can still show that one existed and when it lapsed.
+    """
+    try:
+        rows = await db.select("account_quota_overrides", {"user_id": user_id, "bucket": bucket}, limit=1)
+    except Exception:
+        logger.warning("quota: override lookup failed for %s/%s", user_id, bucket, exc_info=True)
+        return False, None
+    if not rows:
+        return False, None
+    row = rows[0]
+    expires_at = row.get("expires_at")
+    if expires_at:
+        expiry = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+        if expiry <= datetime.now(UTC):
+            return False, None
+    value = row.get("limit_value")
+    return True, (int(value) if value is not None else None)
+
+
 async def _tier_limit(db: SupabaseRest, account: dict[str, Any], bucket: Bucket) -> int | None:
+    # Consulted before the plan default so an override applies to every
+    # caller — dashboard, CLI and hook alike — rather than only the surface
+    # an admin happened to be looking at when they set it.
+    has_override, override_value = await _override_limit(db, str(account["user_id"]), bucket)
+    if has_override:
+        return override_value
+
     tier = effective_tier(account)
     rows = await db.select("tier_limits", {"tier": tier})
     if not rows:

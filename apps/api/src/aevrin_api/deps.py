@@ -19,14 +19,53 @@ def get_db(settings: Annotated[Settings, Depends(get_settings)]) -> SupabaseRest
     return SupabaseRest(settings)
 
 
+# Message deliberately identical for disabled and blocked: someone whose
+# account was blocked for abuse learns only that access ended, not which
+# signal caught them, which would otherwise be a tuning oracle.
+_ACCOUNT_INACTIVE_DETAIL = (
+    "This account is not active. Contact support@aevrin.net if you think that's wrong."
+)
+
+
+async def assert_account_active(db: SupabaseRest, user_id: str) -> None:
+    """Refuse anything from a disabled or blocked account.
+
+    Before this existed there was no account-status check anywhere in the
+    auth chain — get_current_user only decoded the JWT and get_api_key_user
+    only looked at the *key's* own revoked_at. That meant an admin
+    "disable" could not actually stop a live session or a CLI token; it
+    would at best have taken effect at next login.
+
+    Checked per request rather than at issue time precisely so it takes
+    effect mid-session: a Supabase JWT stays valid for its natural lifetime
+    and cannot be recalled, so the only place to enforce this is here.
+
+    Fails OPEN on a lookup error. Postgres being briefly unreachable must
+    not lock every customer out of the product; a disabled account slipping
+    through for the duration of an outage is the lesser failure, and the
+    admin action that disabled them is durable and re-applies on the next
+    successful lookup.
+    """
+    try:
+        rows = await db.select("accounts", {"user_id": user_id}, columns="status", limit=1)
+    except Exception:
+        logger.warning("account status lookup failed for %s, allowing through", user_id, exc_info=True)
+        return
+    if rows and rows[0].get("status") in ("disabled", "blocked"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_ACCOUNT_INACTIVE_DETAIL)
+
+
 async def get_current_user(
     settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
     authorization: Annotated[str | None, Header()] = None,
 ) -> AuthenticatedUser:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
     token = authorization.split(" ", 1)[1]
-    return decode_supabase_jwt(token, settings)
+    user = decode_supabase_jwt(token, settings)
+    await assert_account_active(db, user.id)
+    return user
 
 
 async def get_api_key_user(
@@ -45,6 +84,10 @@ async def get_api_key_user(
     if not rows or rows[0].get("revoked_at"):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or revoked API key")
     row = rows[0]
+    # Same reasoning as the JWT path: a CLI/hook key is long-lived, so the
+    # account's own status has to be re-checked on every use for a disable
+    # to stop a token that's already in someone's hands.
+    await assert_account_active(db, str(row["user_id"]))
     await db.update(
         "api_keys",
         {"id": str(row["id"]), "user_id": row["user_id"]},
@@ -64,7 +107,9 @@ async def get_user_from_jwt_or_api_key(
     findings triage` works without a browser session. Tries JWT first since
     that's the more common caller."""
     if authorization and authorization.lower().startswith("bearer "):
-        return decode_supabase_jwt(authorization.split(" ", 1)[1], settings)
+        user = decode_supabase_jwt(authorization.split(" ", 1)[1], settings)
+        await assert_account_active(db, user.id)
+        return user
     if x_api_key:
         return await get_api_key_user(settings, db, x_api_key)
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token or X-API-Key")
