@@ -163,6 +163,9 @@ export const api = {
   },
   adminLoginAttempts: () => request<import("@/lib/types").AdminLoginAttempt[]>("/admin/login-attempts"),
 
+  scanDiff: (scanId: string) => request<import("@/lib/types").ScanDiff>(`/scans/${scanId}/diff`),
+  cancelScanFix: (scanId: string) =>
+    request<{ cancelled: boolean; released: number }>(`/scans/${scanId}/fix/cancel`, { method: "POST" }),
   fixScan: (scanId: string) =>
     request<import("@/lib/types").BulkFixResponse>(`/scans/${scanId}/fix`, { method: "POST" }),
   fixFinding: (findingId: string) =>

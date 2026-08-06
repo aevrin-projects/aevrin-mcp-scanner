@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 from aevrin_scanner_core import TargetType
@@ -58,6 +58,23 @@ async def create_scan(
         stored_target,
     )
     return ScanOut(**rows[0])
+
+
+@router.get("/{scan_id}/diff")
+async def scan_diff(
+    scan_id: UUID,
+    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+) -> dict[str, Any]:
+    """What changed since the previous scan of the same target.
+
+    Exists because a working fix read as a failure. A repository reported
+    the same secret title in three files; Fix It resolved one and the
+    rescan correctly stopped reporting it, but the two untouched ones carry
+    an identical title, so the result looked unchanged. This answers "did my
+    fix work" directly instead of leaving it to be inferred from a list.
+    """
+    return await db.rpc("scan_diff", {"p_scan_id": str(scan_id), "p_user_id": user.id})
 
 
 @router.get("", response_model=list[ScanOut])

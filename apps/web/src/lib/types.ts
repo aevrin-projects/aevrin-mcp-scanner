@@ -272,3 +272,14 @@ export type AdminLoginAttempt = {
   ip_address: string | null;
   created_at: string;
 };
+
+/** What changed between this scan and the previous scan of the same target.
+ *  Matching is (title, file_path, tool), the same triple Fix It uses to
+ *  decide whether a patch cleared a finding, so the two always agree. */
+export type ScanDiffEntry = { title: string; file_path: string | null; tool: string };
+export type ScanDiff = {
+  previous_scan_id: string | null;
+  resolved: ScanDiffEntry[];
+  introduced: ScanDiffEntry[];
+  unchanged_count: number;
+};

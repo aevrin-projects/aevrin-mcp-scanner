@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, CircleDashed, GitPullRequest, Loader2, MinusCircle, Search, Wrench, XCircle } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import type { Finding, Scan, ScanStage, Severity } from "@/lib/types";
+import type { Finding, Scan, ScanDiff, ScanStage, Severity } from "@/lib/types";
 import { OWASP_CATEGORY_LABELS, STAGE_LABELS, STAGE_ORDER } from "@/lib/types";
 import {
   formatDateTime,
@@ -19,6 +19,7 @@ import {
 } from "@/lib/presentation";
 import { PageHeader, SectionCard, EmptyState } from "@/components/product-ui";
 import { StatusBadge } from "@/components/status-badge";
+import { FixProgressDialog } from "@/components/fix-progress-dialog";
 import { SeverityBadge } from "@/components/severity-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -46,6 +47,9 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [fixingAll, setFixingAll] = useState(false);
+  const [cancellingFix, setCancellingFix] = useState(false);
+  const [fixDialogOpen, setFixDialogOpen] = useState(false);
+  const [diff, setDiff] = useState<ScanDiff | null>(null);
   const [canExport, setCanExport] = useState<boolean | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -131,6 +135,42 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
     });
   }, [activeFindings, query, severityFilter, triageFilter]);
 
+  const fixInFlight = findings.some(
+    (f) => f.autofix_status === "queued" || f.autofix_status === "in_progress",
+  );
+
+  useEffect(() => {
+    if (!fixInFlight) return;
+    const id = window.setInterval(() => {
+      void api.getScanFindings(scanId).then(setFindings).catch(() => {});
+    }, 3000);
+    return () => window.clearInterval(id);
+  }, [fixInFlight, scanId]);
+
+  // "Did my fix actually work?" is the question a rescan has to answer, and
+  // it cannot be answered from a findings list alone when two findings share
+  // a title in different files.
+  useEffect(() => {
+    if (!scan || (scan.status !== "completed" && scan.status !== "incomplete")) return;
+    const id = window.setTimeout(() => {
+      void api.scanDiff(scanId).then(setDiff).catch(() => setDiff(null));
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [scan, scanId]);
+
+  async function cancelFixRun() {
+    setCancellingFix(true);
+    try {
+      const result = await api.cancelScanFix(scanId);
+      toast.info(`Fix run cancelled. ${result.released} queued finding(s) released.`);
+      void api.getScanFindings(scanId).then(setFindings).catch(() => {});
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not cancel the fix run.");
+    } finally {
+      setCancellingFix(false);
+    }
+  }
+
   if (loadError && !scan) {
     return (
       <Alert variant="destructive">
@@ -157,6 +197,15 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
 
   return (
     <div className="space-y-6">
+      {fixDialogOpen ? (
+        <FixProgressDialog
+          findings={findings}
+          cancelling={cancellingFix}
+          onCancel={() => void cancelFixRun()}
+          onClose={() => setFixDialogOpen(false)}
+        />
+      ) : null}
+
       <PageHeader
         title="Scan result"
         description="Review the target, actual coverage, score, urgent findings, and the limitations that still need separate verification."
@@ -173,8 +222,8 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                   setFixingAll(true);
                   try {
                     const result = await api.fixScan(scanId);
-                    if (result.fixed > 0) {
-                      toast.success(`Fix It: ${result.message}`);
+                    if (result.attempted > 0) {
+                      setFixDialogOpen(true);
                       void load();
                     } else {
                       toast.info(`Fix It: ${result.message}`);
@@ -311,6 +360,53 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
         </SectionCard>
       ) : null}
 
+      {/* The answer to "did my fix work". Without this, a rescan that
+          resolved one of three same-titled findings looked identical to one
+          that resolved nothing. */}
+      {diff && diff.previous_scan_id && (diff.resolved.length > 0 || diff.introduced.length > 0) ? (
+        <section className="rounded-xl border border-border bg-card p-4">
+          <h2 className="text-sm font-medium">Since your last scan of this target</h2>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            {diff.resolved.length > 0 ? (
+              <div>
+                <p className="flex items-center gap-1.5 text-[13px] text-chart-1">
+                  <CheckCircle2 className="size-3.5" />
+                  {diff.resolved.length} resolved
+                </p>
+                <ul className="mt-1.5 space-y-1">
+                  {diff.resolved.slice(0, 5).map((d, i) => (
+                    <li key={i} className="text-[12px] text-muted-foreground">
+                      <span className="line-through">{d.title}</span>
+                      {d.file_path ? <span className="ml-1.5 font-mono">{d.file_path}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {diff.introduced.length > 0 ? (
+              <div>
+                <p className="flex items-center gap-1.5 text-[13px] text-severity-high">
+                  <AlertTriangle className="size-3.5" />
+                  {diff.introduced.length} new
+                </p>
+                <ul className="mt-1.5 space-y-1">
+                  {diff.introduced.slice(0, 5).map((d, i) => (
+                    <li key={i} className="text-[12px] text-muted-foreground">
+                      {d.title}
+                      {d.file_path ? <span className="ml-1.5 font-mono">{d.file_path}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            {diff.unchanged_count} finding{diff.unchanged_count === 1 ? "" : "s"} unchanged. A finding is matched
+            on title, file, and scanner, so the same issue in a different file counts separately.
+          </p>
+        </section>
+      ) : null}
+
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_360px]">
         <SectionCard
           title="Findings"
@@ -408,6 +504,12 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                             </span>
                           </div>
                           <p className="text-base font-medium">{finding.title}</p>
+                          {finding.file_path ? (
+                            <p className="font-mono text-[12px] text-brand-text">
+                              {finding.file_path}
+                              {finding.line_start ? `:${finding.line_start}` : ""}
+                            </p>
+                          ) : null}
                           <p className="text-sm leading-6 text-muted-foreground line-clamp-2">
                             {finding.description}
                           </p>
