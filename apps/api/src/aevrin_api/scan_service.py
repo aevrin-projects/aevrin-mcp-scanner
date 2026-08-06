@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -22,6 +23,7 @@ from aevrin_scanner_core.pipeline import PipelineConfig, run_pipeline
 
 from .config import Settings
 from .defectdojo_client import DefectDojoClient, DefectDojoUnavailable
+from .github_app import GithubAppClient, GithubAppError
 from .triage import triage_findings
 
 logger = logging.getLogger("aevrin.scan_service")
@@ -248,7 +250,7 @@ def _run_and_persist(
         on_conflict="user_id,target",
     )
 
-    _carry_forward_open_fix_prs(rest, user_id, scan.id, scan.findings)
+    _carry_forward_open_fix_prs(rest, settings, user_id, scan.id, scan.findings)
     _push_to_defectdojo_best_effort(settings, durable_target, scan.id, scan.findings)
     _run_triage_best_effort(rest, settings, user_id, scan.findings, scan.id)
 
@@ -270,17 +272,27 @@ def _resync_postprocessed_findings(rest: _SyncRest, scan_id: UUID, user_id: str,
 
 
 def _carry_forward_open_fix_prs(
-    rest: _SyncRest, user_id: str, scan_id: UUID, findings: list[Finding]
+    rest: _SyncRest, settings: Settings, user_id: str, scan_id: UUID, findings: list[Finding]
 ) -> None:
-    """Re-attach an existing Fix It pull request to a finding that a fresh
+    """Re-attach a *still-open* Fix It pull request to a finding that a fresh
     scan has reported again.
 
-    A Fix It PR is opened as a *draft* against a branch — until someone
-    merges it, the vulnerable code is still on the default branch, so a
-    rescan finding it again is correct and suppressing it would be a lie.
-    What was wrong is that the new finding arrived with no memory of the
-    open PR, so the same issue looked untouched and inviting a second,
-    duplicate fix.
+    A Fix It PR is opened as a draft against a branch. Until someone merges
+    it, the vulnerable code is still on the default branch, so a rescan
+    finding it again is correct and suppressing it would be a lie. What was
+    wrong is that the new finding arrived with no memory of the open PR, so
+    the same issue looked untouched and invited a second, duplicate fix.
+
+    The pull request's state is what makes this safe, and it is checked
+    rather than assumed. If the PR was merged or closed and the finding is
+    *still here*, the fix did not work, and carrying "fixed" forward would
+    paint a live vulnerability green and link it to a merged PR as evidence
+    — the worst thing a security tool can do. Only an open PR is carried
+    forward; anything else leaves the finding open, which is the truth.
+
+    When GitHub cannot be reached the state is unknown, and unknown resolves
+    to leaving the finding open. An unlabeled real finding costs a duplicate
+    fix attempt; a wrongly-labeled one costs a missed vulnerability.
 
     Matching is (title, file_path), the same equivalence autofix.py uses to
     decide whether a patch cleared a finding.
@@ -305,6 +317,8 @@ def _carry_forward_open_fix_prs(
         prior = by_key.get((finding.title, finding.location.file_path))
         if not prior:
             continue
+        if not _fix_pr_still_open(settings, str(prior["autofix_pr_url"])):
+            continue
         rest.patch(
             "findings",
             {"id": str(finding.id), "user_id": user_id},
@@ -316,6 +330,34 @@ def _carry_forward_open_fix_prs(
                 # auto-fix credit on every rescan.
             },
         )
+
+
+_PR_URL_RE = re.compile(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)")
+
+
+def _fix_pr_still_open(settings: Settings, pr_url: str) -> bool:
+    """False whenever the PR is merged, closed, or its state cannot be
+    established. See _carry_forward_open_fix_prs for why unknown must resolve
+    to False rather than True."""
+    match = _PR_URL_RE.search(pr_url)
+    if not match:
+        return False
+    owner, repo, number = match.group(1), match.group(2), int(match.group(3))
+
+    async def _check() -> bool:
+        try:
+            client = GithubAppClient(settings)
+            installation_id = await client.get_repo_installation_id(owner, repo)
+            if installation_id is None:
+                return False
+            token = await client.create_installation_token(installation_id)
+            state = await client.pull_request_is_open(owner, repo, token.token, number=number)
+            return state is True
+        except (GithubAppError, httpx.HTTPError):
+            logger.warning("scan_service: could not read PR state for %s", pr_url, exc_info=True)
+            return False
+
+    return asyncio.run(_check())
 
 
 def _run_triage_best_effort(

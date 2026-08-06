@@ -271,3 +271,15 @@ class GithubAppClient:
             raise GithubAppError(f"open PR failed: {resp.status_code} {resp.text}")
         html_url: str = resp.json()["html_url"]
         return html_url
+
+    async def pull_request_is_open(self, owner: str, repo: str, token: str, *, number: int) -> bool | None:
+        """Whether a pull request is still awaiting a decision.
+
+        None means "could not determine" (deleted PR, revoked installation,
+        GitHub unreachable). Callers must treat None as "don't know" and fall
+        back to the safe reading rather than assuming either answer.
+        """
+        resp = await self._installation_request("GET", f"/repos/{owner}/{repo}/pulls/{number}", token)
+        if resp.status_code >= 400:
+            return None
+        return bool(resp.json().get("state") == "open")

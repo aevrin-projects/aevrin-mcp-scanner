@@ -549,15 +549,27 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                     </button>
 
                       {alreadyFixed ? (
-                        <a
-                          href={finding.autofix_pr_url ?? "#"}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={buttonVariants({ variant: "outline", size: "sm", className: "mt-4 mr-4 shrink-0" })}
-                        >
-                          <GitPullRequest className="size-3.5" />
-                          View PR
-                        </a>
+                        <div className="mt-4 mr-4 flex shrink-0 flex-col items-end gap-1">
+                          {/* Named explicitly rather than implied by the
+                              presence of a PR link. This label only ever
+                              appears while the pull request is still open —
+                              a merged PR whose finding came back is left
+                              open on purpose, because the fix did not
+                              work. */}
+                          <span className="flex items-center gap-1.5 text-[11px] font-medium text-chart-1">
+                            <CheckCircle2 className="size-3" />
+                            Fix ready for review
+                          </span>
+                          <a
+                            href={finding.autofix_pr_url ?? "#"}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={buttonVariants({ variant: "outline", size: "sm" })}
+                          >
+                            <GitPullRequest className="size-3.5" />
+                            View PR
+                          </a>
+                        </div>
                       ) : finding.autofix_status === "queued" || finding.autofix_status === "in_progress" ? (
                         <span className="mt-5 mr-4 flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
                           <Loader2 className="size-3 animate-spin" />
