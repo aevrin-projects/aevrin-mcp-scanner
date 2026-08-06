@@ -59,10 +59,10 @@ export default function PrivacyPage() {
             <h2 className="font-medium text-foreground">Automated analysis</h2>
             <p className="mt-1">
               Whether a vulnerability exists is always decided by the deterministic security tools
-              identified in the product methodology, never by a language model. On paid plans, a
+              identified in the product methodology, never by a language model. On every plan, a
               finding&apos;s title, description, and category (not your source code or repository
-              contents) may be sent to a third-party language model (Anthropic or Google) to help
-              explain and prioritize a result already produced by those tools. This triage step is
+              contents) may be sent to a third-party language model provider to help
+              explain and prioritize a result already produced by those tools. This review step is
               fail-open: if it doesn&apos;t run or fails, the deterministic result is shown as-is. If
               you bring your own LLM API key (BYOK), your key is encrypted at rest and used only to
               call the provider you configured.

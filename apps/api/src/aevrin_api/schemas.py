@@ -94,12 +94,15 @@ class FindingOut(BaseModel):
     corroborated_by: list[str] = Field(default_factory=list)
     occurrence_count: int = 1
     additional_locations: list[dict[str, Any]] = Field(default_factory=list)
-    # LLM triage layer (addendum §2) — paid tiers only, None when not run.
+    # AI review layer (addendum §2) — runs on every tier, None when not run.
+    # `llm_model` is stored on the row for auditability (knowing which model
+    # produced a verdict matters when investigating a bad one) but is
+    # deliberately not exposed here: which vendor sits behind the review is
+    # an implementation detail, not part of the product's contract.
     llm_classification: str | None = None
     llm_severity: str | None = None
     llm_reasoning: str | None = None
     llm_remediation: str | None = None
-    llm_model: str | None = None
     llm_triaged_at: datetime | None = None
     # Auto-fix lifecycle (V5 prompt §7) — Pro/Team only, "none" everywhere else.
     autofix_status: str = "none"

@@ -353,7 +353,7 @@ def findings_triage(
 def fix(
     finding_id: Annotated[str, typer.Argument(help="Finding ID, e.g. from a hook block message or --json scan output.")],
 ) -> None:
-    """Generate an automatic fix for one finding: Claude Sonnet drafts a
+    """Generate an automatic fix for one finding: a language model drafts a
     patch, the original scanner re-runs against it to confirm the finding
     actually clears, then a draft pull request is opened — never a merge,
     and never a PR that wasn't independently re-verified. Pro/Team only."""

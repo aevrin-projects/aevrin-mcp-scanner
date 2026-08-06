@@ -462,9 +462,13 @@ function AiReview({ finding }: { finding: Finding }) {
         </p>
       ) : null}
 
+      {/* The model identifier is stored on the finding for auditability but
+          deliberately not rendered — which vendor is behind this is an
+          implementation detail, and naming it invites users to weigh the
+          verdict by brand rather than by the reasoning shown above. */}
       <p className="mt-3 text-xs text-muted-foreground">
-        {finding.llm_model} · A second opinion on the scanner result, not a replacement for it. The
-        score above is computed from the scanner&apos;s severity, never from this.
+        A second opinion on the scanner result, not a replacement for it. The score above is
+        computed from the scanner&apos;s severity, never from this.
       </p>
     </div>
   );

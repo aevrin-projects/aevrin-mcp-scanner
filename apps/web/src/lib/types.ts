@@ -101,7 +101,6 @@ export interface Finding {
   llm_severity: Severity | null;
   llm_reasoning: string | null;
   llm_remediation: string | null;
-  llm_model: string | null;
   llm_triaged_at: string | null;
   autofix_status: "none" | "queued" | "in_progress" | "fixed" | "failed";
   autofix_pr_url: string | null;

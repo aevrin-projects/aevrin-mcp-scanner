@@ -601,7 +601,7 @@ function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
           price="$3"
           unit="/ month"
           body="Pay Aevrin a flat platform fee and your model provider directly for tokens."
-          bullets={["Supply an Anthropic or Google key", "Scan limits and features stay identical", "Revoke or rotate the key at any time"]}
+          bullets={["Supply your own model provider key", "Scan limits and features stay identical", "Revoke or rotate the key at any time"]}
           accent="var(--chart-3)"
           Icon={KeyRound}
           state={byok?.enabled ? { label: byok.has_key ? "Active" : "Key needed", tone: "ok" } : undefined}

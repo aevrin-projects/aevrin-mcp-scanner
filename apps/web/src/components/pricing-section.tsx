@@ -31,6 +31,7 @@ interface Tier {
   autoFixPrs: string;
   pdfExport: boolean;
   aiRemediation: boolean;
+  aiReviewPerScan: string;
   cta: string;
   popular?: boolean;
   features: string[];
@@ -49,14 +50,15 @@ const TIERS: Tier[] = [
     seats: "1",
     autoFixPrs: "—",
     pdfExport: false,
-    aiRemediation: false,
+    aiRemediation: true,
+    aiReviewPerScan: "40 findings / scan",
     cta: "Start free",
     features: [
       "5 CLI scans / month",
       "2 hook auto-scans / month",
       "5 dashboard scans / month",
       "7-day scan history",
-      "Every deterministic accuracy fix — no LLM triage",
+      "AI review on findings — confirmed, false positive, or needs review",
     ],
   },
   {
@@ -71,14 +73,15 @@ const TIERS: Tier[] = [
     seats: "1",
     autoFixPrs: "—",
     pdfExport: true,
-    aiRemediation: false,
+    aiRemediation: true,
+    aiReviewPerScan: "200 findings / scan",
     cta: "Start Hobby",
     features: [
       "50 CLI scans / month",
       "20 hook auto-scans / month",
       "50 dashboard scans / month",
       "90-day scan history",
-      "LLM triage (Gemini Flash-Lite) — confirmed / false positive / needs review",
+      "AI review on a stronger model, with a higher per-scan limit",
       "OWASP MCP-mapped report export",
     ],
   },
@@ -95,6 +98,7 @@ const TIERS: Tier[] = [
     autoFixPrs: "15 / month",
     pdfExport: true,
     aiRemediation: true,
+    aiReviewPerScan: "200 findings / scan",
     cta: "Start Pro",
     popular: true,
     features: [
@@ -102,8 +106,7 @@ const TIERS: Tier[] = [
       "100 hook auto-scans / month",
       "200 dashboard scans / month",
       "1-year scan history",
-      "15 auto-fix pull requests / month — Claude Sonnet drafts a fix, re-runs the scanner to confirm it, opens a draft PR",
-      "Routed triage — Haiku 4.5 on Critical/High, Flash-Lite on the rest",
+      "15 auto-fix pull requests / month — drafts a fix, re-runs the scanner to confirm it, opens a draft PR",
       "AI-drafted remediation suggestions",
       "Plain-language scan summary",
       "Upgraded tool-poisoning detection",
@@ -122,6 +125,7 @@ const TIERS: Tier[] = [
     autoFixPrs: "15 / month / seat",
     pdfExport: true,
     aiRemediation: true,
+    aiReviewPerScan: "200 findings / scan",
     cta: "Contact us",
     features: [
       "Everything in Pro, usage-based instead of fixed",
@@ -130,7 +134,7 @@ const TIERS: Tier[] = [
       "See everything blocked across the team in one place",
       "SSO and audit log",
       "3-seat minimum, billed per seat",
-      "Bring your own Anthropic/Google key — Aevrin bills the platform, not the tokens",
+      "Bring your own model provider key — Aevrin bills the platform, not the tokens",
     ],
   },
 ];
@@ -414,6 +418,14 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
               {TIERS.map((t) => (
                 <td key={t.id} className="py-3 text-center">
                   {t.aiRemediation ? <Check className="mx-auto size-4" /> : "—"}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <td className="py-3 text-muted-foreground">AI review per scan</td>
+              {TIERS.map((t) => (
+                <td key={t.id} className="py-3 text-center">
+                  {t.aiReviewPerScan}
                 </td>
               ))}
             </tr>
