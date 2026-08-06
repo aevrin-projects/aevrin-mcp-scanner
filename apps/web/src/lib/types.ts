@@ -54,6 +54,8 @@ export interface Scan {
   error: string | null;
   mcp_detected: boolean | null;
   unreliable_stages: StageName[];
+  /** Set when AI review covered only part of the findings (per-scan cap). */
+  triage_note: string | null;
   created_at: string;
   completed_at: string | null;
 }

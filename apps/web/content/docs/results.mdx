@@ -27,6 +27,32 @@ Each finding includes severity, source scanner, OWASP MCP category, title, expla
 remediation, triage status, and verification metadata where available. Open the detail page for
 the complete evidence rather than deciding from the list-row title alone.
 
+## AI review
+
+Every finding that survives deterministic filtering also gets a second opinion from a language
+model, on every plan. The review reads the finding, its location, and the signals already
+computed for it (EPSS probability, CISA KEV listing, dependency scope, cross-scanner
+corroboration, live credential verification), then returns one of three verdicts: **confirmed**,
+**likely false positive**, or **needs review**, with a stated reason.
+
+Two things it deliberately does not do:
+
+- **It never changes your score.** The score is computed from the scanner's severity. A model
+  suggesting a different severity is shown next to the finding as commentary, never applied.
+- **It never removes a finding.** A finding the model calls a likely false positive stays in the
+  report, labeled. You decide, with the reasoning in front of you.
+
+Findings marked as test or fixture paths, and the MCP08 coverage placeholder, are skipped: they
+are already excluded from scoring, so there is nothing for a second opinion to add.
+
+On very large scans the review is capped so a single monorepo cannot consume an unbounded
+budget. When that happens the scan says so explicitly, and the cap spends its budget on the
+highest-severity findings first. Every finding is still reported in full either way; only the
+commentary is limited.
+
+If the review is unavailable for any reason, scans complete normally with the scanner results
+intact. It is additive, never a dependency.
+
 ## Comparing scans
 
 Repeat the same target type after remediation. A local-path scan and remote repository scan may

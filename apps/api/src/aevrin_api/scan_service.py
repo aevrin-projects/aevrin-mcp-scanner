@@ -22,7 +22,6 @@ from aevrin_scanner_core.pipeline import PipelineConfig, run_pipeline
 
 from .config import Settings
 from .defectdojo_client import DefectDojoClient, DefectDojoUnavailable
-from .quota import effective_tier
 from .triage import triage_findings
 
 logger = logging.getLogger("aevrin.scan_service")
@@ -251,7 +250,7 @@ def _run_and_persist(
 
     _carry_forward_open_fix_prs(rest, user_id, scan.id, scan.findings)
     _push_to_defectdojo_best_effort(settings, durable_target, scan.id, scan.findings)
-    _run_triage_best_effort(rest, settings, user_id, scan.findings)
+    _run_triage_best_effort(rest, settings, user_id, scan.findings, scan.id)
 
 
 def _resync_postprocessed_findings(rest: _SyncRest, scan_id: UUID, user_id: str, findings: list[Finding]) -> None:
@@ -319,8 +318,10 @@ def _carry_forward_open_fix_prs(
         )
 
 
-def _run_triage_best_effort(rest: _SyncRest, settings: Settings, user_id: str, findings: list[Finding]) -> None:
-    """LLM triage (addendum §2) — paid tiers only, and never allowed to
+def _run_triage_best_effort(
+    rest: _SyncRest, settings: Settings, user_id: str, findings: list[Finding], scan_id_for_triage: UUID | None = None
+) -> None:
+    """LLM triage (addendum §2) — runs on every tier now, and never allowed to
     affect the deterministic result stored above: this only *adds* llm_*
     columns onto findings that already exist, after the fact. Isolated the
     same way DefectDojo is (own try/except, own event loop) so a triage
@@ -329,15 +330,15 @@ def _run_triage_best_effort(rest: _SyncRest, settings: Settings, user_id: str, f
     if not accounts:
         return
     account = accounts[0]
-    if effective_tier(account) == "free":
-        return
 
     async def _triage() -> None:
         try:
-            results = await triage_findings(settings, account, findings)
+            results, note = await triage_findings(settings, account, findings)
         except Exception:
             logger.exception("scan_service: triage failed for user %s", user_id)
             return
+        if note:
+            rest.patch("scans", {"id": str(scan_id_for_triage)}, {"triage_note": note})
         triaged_at = datetime.now(UTC).isoformat()
         for result in results:
             rest.patch(

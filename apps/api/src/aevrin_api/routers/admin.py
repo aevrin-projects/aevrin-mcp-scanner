@@ -16,7 +16,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from ..admin_auth import (
@@ -481,7 +481,7 @@ async def grant_addon(
         # they are a higher ceiling, which is exactly what a quota override
         # is. Implemented on top of the plan's current limit so "grant 25
         # more" means 25 more than they have now, not a flat 25.
-        from ..quota import _tier_limit  # noqa: PLC0415
+        from ..quota import _tier_limit
 
         base = await _tier_limit(db, account, body.bucket)
         if base is None:
@@ -524,8 +524,8 @@ class ResetUsageIn(BaseModel):
 async def reset_usage(user_id: str, body: ResetUsageIn, admin: AdminDep, db: DbDep, settings: SettingsDep) -> dict[str, Any]:
     """Zero a bucket's counter — the support gesture after a bug eats
     someone's quota."""
-    from ..quota import _period_start, _redis_key  # noqa: PLC0415
-    from ..redis_client import get_redis  # noqa: PLC0415
+    from ..quota import _period_start, _redis_key
+    from ..redis_client import get_redis
 
     account = await get_or_create_account(db, user_id)
     period_start = _period_start(account["signup_anchor_day"], datetime.now(UTC))
@@ -562,7 +562,7 @@ async def send_password_reset(user_id: str, body: PasswordResetIn, admin: AdminD
             detail="This account signs in with Google or GitHub and has no password to reset.",
         )
 
-    import httpx  # noqa: PLC0415
+    import httpx
 
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(

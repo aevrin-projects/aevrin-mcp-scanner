@@ -23,30 +23,34 @@ import tempfile
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
 from aevrin_scanner_core import Finding
 from aevrin_scanner_core.adapters import ADAPTER_BY_TOOL
 from aevrin_scanner_core.runner import sanitized_subprocess_env
-from anthropic import AsyncAnthropic
 
 from .config import Settings
+from .deepseek import PRO_MODEL, DeepSeekError, parse_json_object, stream_json
 
 logger = logging.getLogger("aevrin.autofix")
 
-_SONNET_MODEL = "claude-sonnet-5"
 _MAX_FILE_CHARS = 60_000  # keeps cost/latency bounded; larger files fail open with an honest message
 _MODEL_TIMEOUT_S = 300.0
 _CLONE_TIMEOUT_S = 60
 _SCAN_TIMEOUT_S = 180
 
-_PATCH_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "patched_content": {"type": "string"},
-        "explanation": {"type": "string"},
-    },
-    "required": ["patched_content", "explanation"],
-    "additionalProperties": False,
-}
+# Fix It always uses the strong model regardless of plan. A patch is opened
+# as a pull request against someone's repository, so a cheaper model saving
+# fractions of a cent is not a trade worth making on the one output that
+# writes to a user's code.
+_PATCH_SYSTEM_PROMPT = """You are fixing one specific static-analysis finding in a Model Context Protocol (MCP) server codebase.
+
+Make the smallest change that actually resolves the finding. Do not refactor unrelated code, do not restyle or reformat lines you are not fixing, and do not add comments explaining the fix.
+
+Reply with a single json object:
+- "patched_content": the complete corrected file, every line of it, as one string. Never a diff, never a snippet, never an elision like "... rest unchanged".
+- "explanation": one sentence on what you changed and why it resolves the finding.
+
+If the finding cannot be fixed by editing this file alone, return the file unchanged and say so in "explanation" rather than inventing a change."""
 
 
 def _patch_prompt(finding: Finding, file_content: str, *, retry_feedback: str | None) -> str:
@@ -57,9 +61,7 @@ def _patch_prompt(finding: Finding, file_content: str, *, retry_feedback: str | 
         if retry_feedback
         else ""
     )
-    return f"""You are fixing one specific static-analysis finding in an MCP (Model Context Protocol) server codebase. Make the smallest change that actually resolves it — do not refactor unrelated code, do not change formatting elsewhere in the file, do not add comments explaining the fix.
-
-Finding: {finding.title}
+    return f"""Finding: {finding.title}
 Tool: {finding.tool.value}
 Severity: {finding.severity.value}
 OWASP MCP category: {finding.owasp_category.value}
@@ -68,8 +70,6 @@ Line: {location.line_start or "unknown"}
 Description: {finding.description}
 Existing remediation guidance: {finding.remediation}
 {retry_block}
-
-Full current file content follows. Return the complete corrected file content — every line, not a diff or a snippet — with only the necessary change(s) applied.
 
 --- {location.file_path} ---
 {file_content}
@@ -81,39 +81,42 @@ async def generate_patch(
 ) -> str | None:
     """None means generation failed or refused — caller treats that as a
     failed fix attempt, same as a patch that didn't clear re-verification."""
-    if not settings.anthropic_api_key:
+    if not settings.deepseek_api_key:
         return None
     if len(file_content) > _MAX_FILE_CHARS:
         return None
-    # Long request, so: stream, and give it real time. A full-file rewrite
-    # emits thousands of tokens and the previous non-streaming 60s ceiling
-    # made that a coin flip — three of four findings in one live run failed
-    # with APITimeoutError and reported "the model is unavailable or the file
-    # is too large", which was true of neither. Streaming keeps the
-    # connection active so a slow generation completes instead of tripping
-    # an idle timeout.
-    client = AsyncAnthropic(api_key=settings.anthropic_api_key, timeout=_MODEL_TIMEOUT_S)
+
     try:
-        async with client.messages.stream(
-            model=_SONNET_MODEL,
-            max_tokens=min(8000, len(file_content) // 2 + 2000),
-            output_config={"format": {"type": "json_schema", "schema": _PATCH_SCHEMA}},
-            messages=[{"role": "user", "content": _patch_prompt(finding, file_content, retry_feedback=retry_feedback)}],
-        ) as stream:
-            response = await stream.get_final_message()
-        if response.stop_reason == "refusal":
-            return None
-        for block in response.content:
-            if block.type == "text":
-                parsed = json.loads(block.text)
-                content: str = parsed["patched_content"]
-                return content
-        return None
-    except Exception:
+        result = await stream_json(
+            api_key=settings.deepseek_api_key,
+            model=PRO_MODEL,
+            system_prompt=_PATCH_SYSTEM_PROMPT,
+            user_prompt=_patch_prompt(finding, file_content, retry_feedback=retry_feedback),
+            # The reply restates the whole file, so the budget has to cover
+            # the input file plus reasoning, which is billed as completion
+            # tokens on this model and is not small.
+            max_tokens=min(32_000, len(file_content) // 2 + 8_000),
+            timeout_s=_MODEL_TIMEOUT_S,
+        )
+    except (DeepSeekError, httpx.HTTPError):
         logger.warning("autofix: patch generation failed for finding %s", finding.id, exc_info=True)
         return None
-    finally:
-        await client.close()
+
+    if result.truncated:
+        # A truncated rewrite is a half-written file. Opening a PR with that
+        # would be worse than not fixing at all.
+        logger.warning("autofix: patch for finding %s hit the token ceiling, discarding", finding.id)
+        return None
+
+    try:
+        content = parse_json_object(result.content)["patched_content"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        logger.warning("autofix: unusable patch response for finding %s", finding.id, exc_info=True)
+        return None
+
+    if not isinstance(content, str) or not content.strip():
+        return None
+    return content
 
 
 def _findings_equivalent(a: Finding, b: Finding) -> bool:

@@ -17,25 +17,35 @@ never be the reason a real vulnerability goes missing from a report.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from aevrin_scanner_core import Finding, Severity
-from anthropic import AsyncAnthropic
+from aevrin_scanner_core import Finding
 
 from .config import Settings
-from .crypto import decrypt_byok_key
+from .deepseek import FLASH_MODEL, PRO_MODEL, DeepSeekError, complete_json, parse_json_object
 
 logger = logging.getLogger("aevrin.triage")
 
-_HAIKU_MODEL = "claude-haiku-4-5"
-_GEMINI_MODEL = "gemini-flash-lite-latest"
-_GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{_GEMINI_MODEL}:generateContent"
-_TRIAGE_TIMEOUT_S = 20.0
-_HIGH_SEVERITIES = (Severity.CRITICAL, Severity.HIGH)
+_TRIAGE_TIMEOUT_S = 30.0
+# Reasoning tokens are billed as completion tokens and dominate the budget:
+# measured 1199 completion tokens for a triage that emits ~120 tokens of
+# visible JSON. At 700 the JSON truncated mid-string.
+_TRIAGE_MAX_TOKENS = 2000
+
+# Findings are independent, so they go out in parallel. Bounded because an
+# unbounded gather on a 167-finding monorepo scan would open 167 sockets and
+# invite a rate limit; 8 turns a ~5 minute serial run into well under one.
+_TRIAGE_CONCURRENCY = 8
+
+# Caps exist because cost tracks findings-per-scan, not user count.
+_TRIAGE_CAP_FREE = 40
+_TRIAGE_CAP_PAID = 200
+_SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 _RESPONSE_SCHEMA = {
     "type": "object",
@@ -63,11 +73,34 @@ class TriageResult:
 def routing_for_tier(tier: str) -> str | None:
     """Which model mix a tier gets triaged with; None means no triage at
     all (Free) — addendum §2 model-routing table."""
-    if tier == "hobby":
-        return "flash_lite_only"
-    if tier in ("pro", "team"):
-        return "routed"
-    return None
+    if tier in ("hobby", "pro", "team"):
+        return "pro"
+    # Free accounts now get triage too, on the cheap model. Previously they
+    # got none at all, which meant the deterministic scanner output was the
+    # entire free experience.
+    return "flash"
+
+
+_SYSTEM_PROMPT = """You are a security triage assistant reviewing findings from static scanners on Model Context Protocol (MCP) server code.
+
+For each finding, decide whether the scanner is right.
+
+Reply with a single json object containing:
+- "classification": one of "confirmed", "likely_false_positive", "needs_review".
+- "severity": one of "critical", "high", "medium", "low", "info". Adjust the scanner's severity only when the context genuinely warrants it.
+- "reasoning": one sentence explaining the classification. Be concrete about the evidence, not generic.
+- "remediation": optional. Include it only if you can give a fix direction more specific than the guidance already provided; otherwise omit the key entirely.
+
+Rules:
+- A test fixture, example, or clearly non-routable placeholder credential is usually "likely_false_positive".
+- A real credential, an injectable command path, or a reachable traversal is "confirmed".
+- When the surrounding context is not visible enough to be sure, say "needs_review" rather than guessing.
+- Never invent file contents you were not shown.
+- Only lower the scanner's severity for a specific, stated reason: the code path is unreachable, the pattern is a documented false-positive shape for that exact rule, or the credential is clearly a placeholder. Never raise severity beyond what a KEV listing or explicit critical evidence in the description justifies on its own.
+- A finding with a verified live credential, or one listed in CISA KEV, must never be "likely_false_positive".
+- Vague uncertainty is "needs_review", never a dismissal.
+
+Findings reaching you have already passed deterministic filtering: they are not test or fixture code and are not excluded from scoring. Your job is the judgment a static rule cannot make."""
 
 
 def _prompt(finding: Finding) -> str:
@@ -88,7 +121,7 @@ def _prompt(finding: Finding) -> str:
 
     location = finding.location.file_path or finding.location.manifest_field or "unknown location"
 
-    return f"""You are a security triage assistant reviewing one finding from an automated MCP (Model Context Protocol) server security scan. The finding below already passed deterministic filtering — it is not test/fixture code and is not already excluded from scoring. Your job is to add judgment a static rule can't: is this actually a real, actionable risk here.
+    return f"""Triage this json finding.
 
 Finding: {finding.title}
 Severity (as scored by the deterministic scanner): {finding.severity.value}
@@ -99,114 +132,95 @@ Existing remediation guidance: {finding.remediation}
 
 Deterministic signals already computed for this finding:
 {signal_block}
-
-Rules:
-- Only lower severity from what the deterministic scanner assigned if you have a specific, stated reason (e.g. the code path is unreachable, the pattern is a documented false-positive shape for this exact rule, the credential is clearly a placeholder/example value). Never raise severity past what a KEV listing or explicit critical evidence in the description would justify on its own.
-- "likely_false_positive" requires a specific, stated reason — vague uncertainty is "needs_review", not a dismissal.
-- A finding with a verified live credential, or listed in CISA KEV, must never be classified "likely_false_positive".
-- "remediation" is optional — include it only if you can give a fix direction more specific than the existing guidance above; otherwise omit it.
 """
 
 
-async def _call_haiku(client: AsyncAnthropic, finding: Finding) -> dict[str, Any] | None:
-    response = await client.messages.create(
-        model=_HAIKU_MODEL,
-        max_tokens=500,
-        output_config={"format": {"type": "json_schema", "schema": _RESPONSE_SCHEMA}},
-        messages=[{"role": "user", "content": _prompt(finding)}],
-    )
-    if response.stop_reason == "refusal":
-        return None
-    for block in response.content:
-        if block.type == "text":
-            result: dict[str, Any] = json.loads(block.text)
-            return result
-    return None
-
-
-async def _call_gemini(http: httpx.AsyncClient, api_key: str, finding: Finding) -> dict[str, Any] | None:
-    body = {
-        "contents": [{"parts": [{"text": _prompt(finding)}]}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseSchema": _RESPONSE_SCHEMA,
-            "maxOutputTokens": 500,
-        },
-    }
-    resp = await http.post(_GEMINI_URL, params={"key": api_key}, json=body, timeout=_TRIAGE_TIMEOUT_S)
-    resp.raise_for_status()
-    payload = resp.json()
-    candidates = payload.get("candidates") or []
-    if not candidates:
-        return None
-    parts = candidates[0].get("content", {}).get("parts") or []
-    if not parts:
-        return None
-    result: dict[str, Any] = json.loads(parts[0]["text"])
-    return result
-
-
-async def triage_findings(settings: Settings, account: dict[str, Any], findings: list[Finding]) -> list[TriageResult]:
+async def triage_findings(
+    settings: Settings, account: dict[str, Any], findings: list[Finding]
+) -> tuple[list[TriageResult], str | None]:
+    """Returns (results, note). `note` is a user-facing sentence when triage
+    was capped, so a partially-triaged scan says so instead of quietly
+    looking fully reviewed."""
     routing = routing_for_tier(str(account.get("tier", "free")))
-    if routing is None:
-        return []
-
-    anthropic_key = settings.anthropic_api_key
-    gemini_key = settings.gemini_api_key
-    if account.get("byok_enabled") and account.get("byok_key_encrypted"):
-        byok_plaintext = decrypt_byok_key(settings, account["byok_key_encrypted"])
-        if byok_plaintext:
-            if account.get("byok_provider") == "anthropic":
-                anthropic_key = byok_plaintext
-            elif account.get("byok_provider") == "google":
-                gemini_key = byok_plaintext
+    api_key = settings.deepseek_api_key
+    if not api_key:
+        logger.info("triage: no DeepSeek key configured, skipping")
+        return [], None
 
     candidates = [f for f in findings if not f.excluded_path and not f.not_tested]
     if not candidates:
-        return []
+        return [], None
 
-    results: list[TriageResult] = []
-    async with httpx.AsyncClient() as http:
-        anthropic_client = AsyncAnthropic(api_key=anthropic_key, timeout=_TRIAGE_TIMEOUT_S) if anthropic_key else None
+    model = PRO_MODEL if routing == "pro" else FLASH_MODEL
+    cap = _TRIAGE_CAP_PAID if routing == "pro" else _TRIAGE_CAP_FREE
+
+    note: str | None = None
+    if len(candidates) > cap:
+        # Cost scales with findings per scan, not accounts: one monorepo
+        # scan in this database produced 167 triageable findings, so an
+        # uncapped free tier is one large repository away from a surprising
+        # bill. Highest severity first, so the cap spends the budget on what
+        # matters rather than on whatever the scanner happened to emit first.
+        candidates = sorted(candidates, key=lambda f: _SEVERITY_ORDER.get(f.severity.value, 9))[:cap]
+        note = (
+            f"AI review covered the {cap} highest-severity findings of {len(findings)}. "
+            "Every finding is still fully reported by the scanners; only the AI second opinion is capped"
+            + (" on the Free plan." if routing != "pro" else ".")
+        )
+
+    sem = asyncio.Semaphore(_TRIAGE_CONCURRENCY)
+    stats = {"hit": 0, "total": 0, "truncated": 0}
+
+    async def triage_one(finding: Finding) -> TriageResult | None:
+        async with sem:
+            try:
+                result = await complete_json(
+                    api_key=api_key,
+                    model=model,
+                    system_prompt=_SYSTEM_PROMPT,
+                    user_prompt=_prompt(finding),
+                    max_tokens=_TRIAGE_MAX_TOKENS,
+                    timeout_s=_TRIAGE_TIMEOUT_S,
+                )
+            except (DeepSeekError, httpx.HTTPError):
+                # Fail open, per finding. A triage outage must never be the
+                # reason a real vulnerability goes missing from a report: the
+                # deterministic scanner result stands on its own.
+                logger.warning("triage: call failed for finding %s", finding.id, exc_info=True)
+                return None
+
+        stats["total"] += result.prompt_tokens
+        stats["hit"] += result.cache_hit_tokens
+        if result.truncated:
+            stats["truncated"] += 1
+
         try:
-            for finding in candidates:
-                use_haiku = routing == "routed" and finding.severity in _HIGH_SEVERITIES and anthropic_client is not None
-                model_used = _HAIKU_MODEL if use_haiku else _GEMINI_MODEL
-                try:
-                    if use_haiku:
-                        assert anthropic_client is not None
-                        raw = await _call_haiku(anthropic_client, finding)
-                    elif gemini_key:
-                        raw = await _call_gemini(http, gemini_key, finding)
-                    else:
-                        continue  # no usable key for this call shape — fail open, silently
-                except Exception:
-                    logger.warning(
-                        "triage: call failed for finding %s (model=%s), keeping deterministic result",
-                        finding.id,
-                        model_used,
-                        exc_info=True,
-                    )
-                    continue
+            raw = parse_json_object(result.content)
+            return TriageResult(
+                finding_id=str(finding.id),
+                classification=raw["classification"],
+                severity=raw["severity"],
+                reasoning=raw["reasoning"],
+                remediation=raw.get("remediation"),
+                model=model,
+            )
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            logger.warning(
+                "triage: unusable response for finding %s (truncated=%s)", finding.id, result.truncated
+            )
+            return None
 
-                if raw is None:
-                    continue
-                try:
-                    results.append(
-                        TriageResult(
-                            finding_id=str(finding.id),
-                            classification=raw["classification"],
-                            severity=raw["severity"],
-                            reasoning=raw["reasoning"],
-                            remediation=raw.get("remediation"),
-                            model=model_used,
-                        )
-                    )
-                except (KeyError, TypeError):
-                    logger.warning("triage: malformed response for finding %s, keeping deterministic result", finding.id)
-                    continue
-        finally:
-            if anthropic_client is not None:
-                await anthropic_client.close()
+    # The first call alone, so it populates the prompt cache that the rest
+    # then hit. Firing all of them at once would have every request in the
+    # opening batch miss.
+    first = await triage_one(candidates[0])
+    rest = await asyncio.gather(*(triage_one(f) for f in candidates[1:]))
+    results = [r for r in (first, *rest) if r is not None]
 
-    return results
+    if stats["total"]:
+        logger.info(
+            "triage: %s/%s findings on %s, cache hit rate %.0f%%, %s truncated",
+            len(results), len(candidates), model,
+            100 * stats["hit"] / stats["total"], stats["truncated"],
+        )
+    return results, note

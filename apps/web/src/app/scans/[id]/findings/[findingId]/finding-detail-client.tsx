@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, Flag, RotateCcw, Wrench } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, Flag, RotateCcw, Sparkles, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import type { Finding } from "@/lib/types";
@@ -353,6 +353,7 @@ export function FindingDetailClient({
 
             <SectionBody title="Why it matters" body={finding.description} />
             <SectionBody title="Remediation" body={finding.remediation} />
+            <AiReview finding={finding} />
           </div>
         </SectionCard>
 
@@ -409,6 +410,62 @@ export function FindingDetailClient({
           </SectionCard>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The AI second opinion on a scanner result.
+ *
+ * Deliberately rendered *below* the scanner's own description and
+ * remediation, never in place of them. The deterministic result is what the
+ * score is computed from; this is commentary on it. Presenting the two as
+ * equals, or letting this one appear first, would imply the model can
+ * overrule a scanner, which it cannot.
+ */
+const AI_CLASSIFICATION: Record<string, { label: string; className: string }> = {
+  confirmed: { label: "Confirmed", className: "text-severity-high" },
+  likely_false_positive: { label: "Likely false positive", className: "text-chart-1" },
+  needs_review: { label: "Needs review", className: "text-muted-foreground" },
+};
+
+function AiReview({ finding }: { finding: Finding }) {
+  if (!finding.llm_classification || !finding.llm_reasoning) return null;
+  const verdict = AI_CLASSIFICATION[finding.llm_classification] ?? {
+    label: finding.llm_classification.replace(/_/g, " "),
+    className: "text-muted-foreground",
+  };
+
+  return (
+    <div className="rounded-xl border border-brand/30 bg-brand/[0.04] p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Sparkles className="size-4 text-brand-text" />
+        <p className="text-sm font-medium text-foreground">AI review</p>
+        <span className={`text-sm font-medium ${verdict.className}`}>{verdict.label}</span>
+        {/* Only shown when the model disagrees with the scanner. An identical
+            severity repeated back adds nothing and reads as noise. */}
+        {finding.llm_severity && finding.llm_severity !== finding.severity ? (
+          <span className="text-xs text-muted-foreground">
+            suggests {finding.llm_severity} rather than {finding.severity}
+          </span>
+        ) : null}
+      </div>
+
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+        {finding.llm_reasoning}
+      </p>
+
+      {finding.llm_remediation ? (
+        <p className="mt-3 whitespace-pre-wrap border-t border-brand/20 pt-3 text-sm leading-6 text-muted-foreground">
+          <span className="font-medium text-foreground">Suggested fix: </span>
+          {finding.llm_remediation}
+        </p>
+      ) : null}
+
+      <p className="mt-3 text-xs text-muted-foreground">
+        {finding.llm_model} · A second opinion on the scanner result, not a replacement for it. The
+        score above is computed from the scanner&apos;s severity, never from this.
+      </p>
     </div>
   );
 }

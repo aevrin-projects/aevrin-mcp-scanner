@@ -5,12 +5,11 @@ from unittest import mock
 from uuid import uuid4
 
 import pytest
-
-from aevrin_api import autofix as autofix_mod
-
 from aevrin_scanner_core import FIXABLE_TOOLS, is_autofix_eligible
 from aevrin_scanner_core.models import Finding, Location, Severity, ToolName
 from aevrin_scanner_core.owasp import OwaspMcpCategory
+
+from aevrin_api import autofix as autofix_mod
 
 
 def _finding(**overrides: object) -> Finding:
@@ -133,3 +132,118 @@ def test_clone_timeout_raises_clone_error_not_a_raw_timeout():
     with mock.patch.object(autofix_mod.subprocess, "run", fake_run):
         with pytest.raises(autofix_mod.CloneError):
             autofix_mod.clone_repo("https://github.com/owner/repo.git", token="t")
+
+
+# --- patch generation -------------------------------------------------------
+#
+# The model call is stubbed at the deepseek client boundary rather than over
+# HTTP, because what matters here is what generate_patch does with each shape
+# of response, not the wire format (deepseek.py's own tests cover that).
+
+
+def _settings_with_key():
+    from aevrin_api.config import Settings
+
+    return Settings(
+        supabase_url="http://localhost",
+        supabase_service_role_key="k",
+        upstash_redis_rest_url="http://localhost",
+        upstash_redis_rest_token="t",
+        deepseek_api_key="test-key",
+    )
+
+
+class _Result:
+    def __init__(self, content: str, truncated: bool = False):
+        self.content = content
+        self.truncated = truncated
+        self.prompt_tokens = 100
+        self.completion_tokens = 100
+        self.cache_hit_tokens = 0
+
+
+@pytest.mark.asyncio
+async def test_generate_patch_returns_the_rewritten_file():
+    async def fake_stream(**kwargs):
+        assert kwargs["model"] == "deepseek-v4-pro"
+        return _Result('{"patched_content": "fixed source\\n", "explanation": "used execFile"}')
+
+    with mock.patch.object(autofix_mod, "stream_json", fake_stream):
+        out = await autofix_mod.generate_patch(_settings_with_key(), _finding(), "bad source\n")
+    assert out == "fixed source\n"
+
+
+@pytest.mark.asyncio
+async def test_generate_patch_always_uses_the_strong_model():
+    """Fix It writes to a user's repository, so plan tier must not downgrade
+    the model the way it does for triage."""
+    seen: dict = {}
+
+    async def fake_stream(**kwargs):
+        seen.update(kwargs)
+        return _Result('{"patched_content": "x", "explanation": "y"}')
+
+    with mock.patch.object(autofix_mod, "stream_json", fake_stream):
+        await autofix_mod.generate_patch(_settings_with_key(), _finding(), "src\n")
+    assert seen["model"] == "deepseek-v4-pro"
+
+
+@pytest.mark.asyncio
+async def test_generate_patch_discards_a_truncated_rewrite():
+    """A patch that ran out of tokens is a half-written file. Opening a pull
+    request with it would be worse than reporting the fix as failed."""
+
+    async def fake_stream(**kwargs):
+        return _Result('{"patched_content": "half a fi', truncated=True)
+
+    with mock.patch.object(autofix_mod, "stream_json", fake_stream):
+        out = await autofix_mod.generate_patch(_settings_with_key(), _finding(), "src\n")
+    assert out is None
+
+
+@pytest.mark.asyncio
+async def test_generate_patch_rejects_an_empty_result():
+    async def fake_stream(**kwargs):
+        return _Result('{"patched_content": "   ", "explanation": "nothing to do"}')
+
+    with mock.patch.object(autofix_mod, "stream_json", fake_stream):
+        out = await autofix_mod.generate_patch(_settings_with_key(), _finding(), "src\n")
+    assert out is None
+
+
+@pytest.mark.asyncio
+async def test_generate_patch_fails_open_on_api_error():
+    async def fake_stream(**kwargs):
+        raise autofix_mod.DeepSeekError("402: insufficient balance")
+
+    with mock.patch.object(autofix_mod, "stream_json", fake_stream):
+        out = await autofix_mod.generate_patch(_settings_with_key(), _finding(), "src\n")
+    assert out is None
+
+
+@pytest.mark.asyncio
+async def test_generate_patch_without_a_key_does_not_call_out():
+    from aevrin_api.config import Settings
+
+    settings = Settings(
+        supabase_url="http://localhost",
+        supabase_service_role_key="k",
+        upstash_redis_rest_url="http://localhost",
+        upstash_redis_rest_token="t",
+    )
+
+    async def explode(**kwargs):
+        raise AssertionError("must not call the model without a key")
+
+    with mock.patch.object(autofix_mod, "stream_json", explode):
+        assert await autofix_mod.generate_patch(settings, _finding(), "src\n") is None
+
+
+@pytest.mark.asyncio
+async def test_generate_patch_skips_files_over_the_size_ceiling():
+    async def explode(**kwargs):
+        raise AssertionError("must not send an oversized file")
+
+    huge = "x" * (autofix_mod._MAX_FILE_CHARS + 1)
+    with mock.patch.object(autofix_mod, "stream_json", explode):
+        assert await autofix_mod.generate_patch(_settings_with_key(), _finding(), huge) is None

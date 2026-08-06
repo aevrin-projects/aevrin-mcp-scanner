@@ -136,7 +136,7 @@ async def _override_limit(db: SupabaseRest, user_id: str, bucket: Bucket) -> tup
     row = rows[0]
     expires_at = row.get("expires_at")
     if expires_at:
-        expiry = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+        expiry = datetime.fromisoformat(str(expires_at))
         if expiry <= datetime.now(UTC):
             return False, None
     value = row.get("limit_value")

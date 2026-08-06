@@ -49,6 +49,9 @@ class ScanOut(BaseModel):
     error: str | None = None
     mcp_detected: bool | None = None
     unreliable_stages: list[str] = Field(default_factory=list)
+    # Set when AI review covered only part of the findings, so a capped scan
+    # never reads as fully reviewed.
+    triage_note: str | None = None
     created_at: datetime
     completed_at: datetime | None = None
 

@@ -63,12 +63,10 @@ class Settings(BaseSettings):
     razorpay_key_secret: str | None = None
     razorpay_webhook_secret: str | None = None
 
-    # LLM triage (paid tiers only — see triage.py). Both None means the
-    # pooled triage path is unconfigured; triage.py fails open (keeps the
-    # deterministic finding as-is) rather than erroring, same as
-    # defectdojo_url above being unset.
-    anthropic_api_key: str | None = None
-    gemini_api_key: str | None = None
+    # Powers both LLM triage (triage.py) and Fix It patch generation
+    # (autofix.py). None means those paths are unconfigured; both fail open,
+    # keeping the deterministic scanner result rather than erroring.
+    deepseek_api_key: str | None = None
 
     # Fernet key (44-char urlsafe-base64, `Fernet.generate_key()`) used to
     # encrypt a BYOK account's own model API key before it's stored in

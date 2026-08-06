@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, CircleDashed, GitPullRequest, Loader2, MinusCircle, Search, Wrench, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, GitPullRequest, Loader2, MinusCircle, Search, Sparkles, Wrench, XCircle } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type { Finding, Scan, ScanDiff, ScanStage, Severity } from "@/lib/types";
 import { OWASP_CATEGORY_LABELS, STAGE_LABELS, STAGE_ORDER } from "@/lib/types";
@@ -311,6 +311,17 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
         </Alert>
       ) : null}
 
+      {/* Distinct from the incomplete banner above: the scanners all ran and
+          every finding is listed, only the AI second opinion was capped.
+          Informational, not destructive — nothing here is unreliable. */}
+      {scan.triage_note ? (
+        <Alert>
+          <Sparkles className="size-4" />
+          <AlertTitle>AI review was capped for this scan</AlertTitle>
+          <AlertDescription>{scan.triage_note}</AlertDescription>
+        </Alert>
+      ) : null}
+
       {scan.status === "failed" ? (
         <Alert variant="destructive">
           <AlertTriangle className="size-4" />
@@ -513,6 +524,22 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                           <p className="text-sm leading-6 text-muted-foreground line-clamp-2">
                             {finding.description}
                           </p>
+                          {/* Only surfaced in the list when the AI disagreed
+                              with the scanner. "AI agrees" on every row would
+                              be noise on the one screen that has to stay
+                              scannable; the full review is on the detail
+                              page either way. */}
+                          {finding.llm_classification === "likely_false_positive" ? (
+                            <p className="flex items-center gap-1.5 text-xs text-chart-1">
+                              <Sparkles className="size-3" />
+                              AI review: likely a false positive
+                            </p>
+                          ) : finding.llm_severity && finding.llm_severity !== finding.severity ? (
+                            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <Sparkles className="size-3" />
+                              AI review suggests {finding.llm_severity}
+                            </p>
+                          ) : null}
                         </div>
                         <div className="space-y-1 text-right text-sm text-muted-foreground">
                           <div>{finding.tool}</div>

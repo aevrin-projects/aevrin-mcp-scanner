@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import pytest
 from aevrin_scanner_core import compute_score
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 from aevrin_api.routers import cli
 from aevrin_api.routers.cli import _to_core_finding
@@ -159,8 +159,8 @@ def test_cli_upload_is_idempotent_and_preserves_full_dashboard_record(monkeypatc
     monkeypatch.setattr(cli, "enforce_rate_limit", lambda *args, **kwargs: None)
     monkeypatch.setattr(cli, "check_and_increment_quota", fake_quota)
 
-    first = asyncio.run(cli.upload_scan(request, user, db, settings))  # type: ignore[arg-type]
-    second = asyncio.run(cli.upload_scan(request, user, db, settings))  # type: ignore[arg-type]
+    first = asyncio.run(cli.upload_scan(request, BackgroundTasks(), user, db, settings))  # type: ignore[arg-type]
+    second = asyncio.run(cli.upload_scan(request, BackgroundTasks(), user, db, settings))  # type: ignore[arg-type]
 
     assert first.id == second.id == scan_id
     assert quota_calls == 1
@@ -205,6 +205,7 @@ def test_cli_upload_cannot_overwrite_an_unrelated_scan(
         asyncio.run(
             cli.upload_scan(
                 request,
+                BackgroundTasks(),
                 AuthenticatedUser("user-1", "developer@example.com"),
                 db,  # type: ignore[arg-type]
                 settings,

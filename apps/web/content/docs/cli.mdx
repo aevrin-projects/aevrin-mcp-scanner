@@ -142,7 +142,7 @@ and Team, and counts against your monthly auto-fix allowance.
 
 The flow is deliberately conservative:
 
-1. Claude Sonnet drafts a patch using the finding and its surrounding file context.
+1. A language model drafts a patch using the finding and its surrounding file context.
 2. The **same scanner that produced the finding** re-runs against the patched code.
 3. If the finding is still present, generation retries once with that failure as added context.
 4. If it still doesn't clear, Aevrin says so plainly rather than opening a pull request.
