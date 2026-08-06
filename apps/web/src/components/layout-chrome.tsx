@@ -13,7 +13,7 @@ const APP_ROUTE_PREFIXES = ["/dashboard", "/scans", "/settings", "/integrations"
 // setup mid-way.
 // Routes that own the whole viewport and supply their own branding — the
 // site header would only add a band of chrome above a full-bleed layout.
-const BARE_ROUTE_PREFIXES = ["/onboarding", "/login"];
+const BARE_ROUTE_PREFIXES = ["/onboarding", "/login", "/admin"];
 
 export function LayoutChrome({
   children,

@@ -9,7 +9,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // through to Next's real 404 instead of being disguised as login pages.
 const PUBLIC_PATHS_EXACT = ["/"];
 const PUBLIC_PATH_PREFIXES = ["/login", "/auth", "/device", "/pricing", "/docs", "/terms", "/privacy", "/status", "/error"];
-const PROTECTED_PATH_PREFIXES = ["/dashboard", "/onboarding", "/scans", "/settings", "/integrations", "/usage"];
+const PROTECTED_PATH_PREFIXES = ["/dashboard", "/onboarding", "/scans", "/settings", "/integrations", "/usage", "/admin"];
 
 function matchesPath(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);

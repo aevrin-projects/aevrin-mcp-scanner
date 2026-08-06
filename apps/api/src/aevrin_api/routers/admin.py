@@ -418,6 +418,91 @@ async def clear_override(user_id: str, bucket: str, admin: AdminDep, db: DbDep) 
     return {"bucket": bucket}
 
 
+class GrantAddonIn(BaseModel):
+    """Comp an add-on the customer would otherwise buy.
+
+    Each maps onto state the product already reads, so a granted add-on is
+    indistinguishable from a purchased one at the point of use — no parallel
+    "was this comped" branch anywhere in the product code.
+    """
+
+    addon: Literal["auto_fix_prs", "byok", "scan_credits"]
+    # auto_fix_prs: how many PRs to add (cumulative, never expires — matches
+    # the paid add-on's own behaviour).
+    quantity: int = Field(default=10, ge=1, le=1000)
+    # scan_credits: which bucket to raise, and by how much over the plan.
+    bucket: Literal["cli", "hook", "dashboard"] | None = None
+    expires_at: str | None = None
+    reason: str = Field(min_length=3, max_length=500)
+
+
+@router.post("/users/{user_id}/addons")
+async def grant_addon(
+    user_id: str, body: GrantAddonIn, admin: AdminDep, db: DbDep, settings: SettingsDep
+) -> dict[str, Any]:
+    account = await get_or_create_account(db, user_id)
+    result: dict[str, Any] = {"addon": body.addon}
+
+    if body.addon == "auto_fix_prs":
+        # Additive, matching the paid add-on: purchased PRs stack and don't
+        # expire at period end, and _tier_limit already adds this to the
+        # tier's bundled allowance.
+        current = int(account.get("auto_fix_bonus_prs") or 0)
+        new_total = current + body.quantity
+        await db.update("accounts", {"user_id": user_id}, {"auto_fix_bonus_prs": new_total})
+        result |= {"granted": body.quantity, "total_bonus_prs": new_total}
+
+    elif body.addon == "byok":
+        # Only flips entitlement. The key itself stays the customer's to
+        # supply through their own settings — an admin must never be able to
+        # set or see it.
+        await db.update("accounts", {"user_id": user_id}, {"byok_enabled": True})
+        result |= {"byok_enabled": True, "note": "The customer still supplies their own key."}
+
+    else:  # scan_credits
+        if not body.bucket:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Choose which scan bucket to top up.",
+            )
+        # Extra scan credits are not a separate counter in this product —
+        # they are a higher ceiling, which is exactly what a quota override
+        # is. Implemented on top of the plan's current limit so "grant 25
+        # more" means 25 more than they have now, not a flat 25.
+        from ..quota import _tier_limit  # noqa: PLC0415
+
+        base = await _tier_limit(db, account, body.bucket)
+        if base is None:
+            result |= {"note": "This account is already unlimited on that bucket; nothing to grant."}
+            await write_audit(
+                db, admin, "account.addon_grant", target_user_id=user_id,
+                target_resource=body.addon, reason=body.reason,
+                metadata={"bucket": body.bucket, "noop": True},
+            )
+            return result
+        new_limit = base + body.quantity
+        await db.insert(
+            "account_quota_overrides",
+            {
+                "user_id": user_id,
+                "bucket": body.bucket,
+                "limit_value": new_limit,
+                "expires_at": body.expires_at,
+                "reason": body.reason,
+                "created_by": admin.user_id,
+            },
+            upsert_on="user_id,bucket",
+        )
+        result |= {"bucket": body.bucket, "was": base, "now": new_limit}
+
+    await write_audit(
+        db, admin, "account.addon_grant",
+        target_user_id=user_id, target_resource=body.addon, reason=body.reason,
+        metadata={"quantity": body.quantity, "bucket": body.bucket, "comp": True, **result},
+    )
+    return result
+
+
 class ResetUsageIn(BaseModel):
     bucket: Literal["cli", "hook", "dashboard", "auto_fix"]
     reason: str = Field(min_length=3, max_length=500)

@@ -113,6 +113,53 @@ export const api = {
   // on ~180 GitHub calls to decide whether to enable a button.
   getGithubRepos: (labels = true) =>
     request<import("@/lib/types").GithubReposResponse>(`/github/repos?labels=${labels}`),
+  // --- admin panel -------------------------------------------------------
+  adminSession: () =>
+    request<{ is_admin: boolean; totp_enrolled: boolean; session_fresh: boolean; email: string | null }>(
+      "/admin/session",
+    ),
+  adminTotpEnrol: () =>
+    request<{ secret: string; provisioning_uri: string }>("/admin/totp/enrol", { method: "POST" }),
+  adminTotpVerify: (code: string) =>
+    request<{ ok: boolean }>("/admin/totp/verify", { method: "POST", body: JSON.stringify({ code }) }),
+  adminListUsers: (params: { q?: string; status?: string; page?: number }) => {
+    const search = new URLSearchParams();
+    if (params.q) search.set("q", params.q);
+    if (params.status) search.set("status", params.status);
+    search.set("page", String(params.page ?? 1));
+    return request<import("@/lib/types").AdminUserPage>(`/admin/users?${search.toString()}`);
+  },
+  adminUserDetail: (id: string) => request<import("@/lib/types").AdminUserDetail>(`/admin/users/${id}`),
+  adminSetStatus: (id: string, body: { status: string; reason: string; totp_code: string }) =>
+    request<{ status: string }>(`/admin/users/${id}/status`, { method: "POST", body: JSON.stringify(body) }),
+  adminSetPlan: (id: string, body: { tier: string; reason: string; months: number; totp_code: string }) =>
+    request<{ tier: string }>(`/admin/users/${id}/plan`, { method: "POST", body: JSON.stringify(body) }),
+  adminGrantAddon: (
+    id: string,
+    body: { addon: string; quantity?: number; bucket?: string; expires_at?: string | null; reason: string },
+  ) => request<Record<string, unknown>>(`/admin/users/${id}/addons`, { method: "POST", body: JSON.stringify(body) }),
+  adminSetOverride: (
+    id: string,
+    body: { bucket: string; limit_value?: number | null; unlimited?: boolean; expires_at?: string | null; reason: string },
+  ) => request<Record<string, unknown>>(`/admin/users/${id}/overrides`, { method: "POST", body: JSON.stringify(body) }),
+  adminClearOverride: (id: string, bucket: string) =>
+    request<{ bucket: string }>(`/admin/users/${id}/overrides/${bucket}`, { method: "DELETE" }),
+  adminResetUsage: (id: string, body: { bucket: string; reason: string }) =>
+    request<Record<string, unknown>>(`/admin/users/${id}/reset-usage`, { method: "POST", body: JSON.stringify(body) }),
+  adminPasswordReset: (id: string, reason: string) =>
+    request<{ sent: boolean; email: string }>(`/admin/users/${id}/password-reset`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  adminAudit: (params: { target?: string; action?: string; limit?: number }) => {
+    const search = new URLSearchParams();
+    if (params.target) search.set("target", params.target);
+    if (params.action) search.set("action", params.action);
+    search.set("limit", String(params.limit ?? 100));
+    return request<import("@/lib/types").AdminAuditEntry[]>(`/admin/audit?${search.toString()}`);
+  },
+  adminLoginAttempts: () => request<import("@/lib/types").AdminLoginAttempt[]>("/admin/login-attempts"),
+
   fixScan: (scanId: string) =>
     request<import("@/lib/types").BulkFixResponse>(`/scans/${scanId}/fix`, { method: "POST" }),
   fixFinding: (findingId: string) =>
