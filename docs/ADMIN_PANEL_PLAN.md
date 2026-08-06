@@ -2,7 +2,7 @@
 
 **Source prompt:** `AEVRIN_ADMIN_PANEL_PROMPT.md`
 **Started:** 2026-08-06
-**Status:** A1–A3 done + admin API. Next: admin UI (A4 frontend).
+**Status:** A1–A4 + A6 done and deployed. Next: A5 impersonation, A7 observability, A8 notifications, A9 QA loop.
 
 This file is the resumable source of truth for the admin build. If a session
 ends mid-work, read this before touching code.
@@ -105,8 +105,30 @@ database. TOTP matches all four RFC 6238 vectors. Quota overrides bind at
 ### ⬜ Phase A5 — Impersonation (read-only)
 Banner, audit on entry and exit, auto-expiry, mutations refused.
 
-### ⬜ Phase A6 — Product analytics
-Growth, usage, revenue, quota pressure, abuse flags. Daily rollups.
+### ✅ Phase A6 — Analytics (DONE)
+
+`GET /admin/analytics?days=` returns everything in one round trip via the
+`admin_analytics` SQL function: growth, plan/status distribution, scans by
+surface, CLI and hook adoption, auto-fix, revenue, abuse flags, and traffic.
+
+**Traffic needed a collector** — none of that data existed. Cookie-free by
+construction: `visitor_hash` is a salted hash of IP + user agent + *today's
+date*, so the same person hashes differently tomorrow, visits cannot be
+joined across days, and it cannot be reversed to an IP. No consent banner
+needed, no third-party processor.
+
+Ingest lives on the **API** (`POST /events/pageview`), not a Next route
+handler. The first version was a Next handler and silently no-opped: the
+write needs `SUPABASE_SERVICE_ROLE_KEY` and the web service has none. The fix
+was deliberately *not* to add that key to the public-facing web app — it is a
+superuser credential, and holding it there would turn any SSRF or RCE into
+full database access.
+
+**Installs are reported as not measurable.** npm/PyPI download counts live
+with those registries. Measured instead: authentication (`api_keys`,
+`device_codes.client_kind`) and actual use (`scans.source`).
+
+⬜ Umami still deferred, so §9 step 10 is not-applicable rather than passed.
 
 ### ⬜ Phase A7 — Observability
 Scan inspector, billing webhook health, system health strip, log viewer.
@@ -117,6 +139,22 @@ Scan inspector, billing webhook health, system health strip, log viewer.
 The 11-step checklist from §9, run for real against the deployed environment.
 
 ---
+
+## 2b. Operational notes learned the hard way
+
+- **`BYOK_ENCRYPTION_KEY` was never set in production.** Admin TOTP stores its
+  secret with the same Fernet key, so first enrolment 500'd. Now set. This was
+  also a live customer-facing bug: anyone who bought the BYOK add-on would
+  have hit the identical 500 saving their key, since that is the only other
+  caller of `encrypt_byok_key`.
+- **`railway up` must run from the repo root.** The services set
+  `rootDirectory: apps/web`; running it from inside `apps/web` uploads the
+  wrong tree and the build fails with "apps/web does not exist". Cost two
+  failed deploys.
+- **Verifying admin behaviour needs an allowlisted account.** The QA account
+  was temporarily added to `ADMIN_USER_IDS`, used to prove enrolment
+  (enrol 200 → verify 200 → session fresh), then removed and its `admin_totp`
+  row deleted. Revocation re-verified: `is_admin: false`, `/admin/users` 404.
 
 ## 3. Standing constraints
 
