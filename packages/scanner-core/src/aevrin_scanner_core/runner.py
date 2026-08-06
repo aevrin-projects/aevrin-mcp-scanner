@@ -23,6 +23,7 @@ one broken scanner never takes down the rest of the scan.
 from __future__ import annotations
 
 import os
+import platform
 import re
 import shlex
 
@@ -91,6 +92,25 @@ class DockerRunSpec:
     ok_exit_codes: tuple[int, ...] = (0,)
 
 
+def _host_platform() -> str | None:
+    """Docker platform string for this machine, or None if unremarkable.
+
+    On Apple Silicon, `--pull missing` will happily reuse an amd64 image that
+    was cached earlier, and Docker then runs it under QEMU. Go binaries do
+    not survive that: gitleaks, trufflehog, osv-scanner, trivy and scorecard
+    all die at startup with a `runtime.systemstack_switch` panic and exit 2,
+    which surfaced as five simultaneous "scanner failed" stages with pages of
+    Go stack trace. Naming the platform explicitly makes Docker select (and
+    pull) the matching variant instead of whatever happens to be cached.
+    """
+    machine = platform.machine().lower()
+    if machine in ("arm64", "aarch64"):
+        return "linux/arm64"
+    if machine in ("x86_64", "amd64"):
+        return "linux/amd64"
+    return None
+
+
 def run_container(tool: str, spec: DockerRunSpec) -> tuple[str, str, int]:
     """Runs one scanner container to completion. Returns (stdout, stderr, exit_code).
 
@@ -114,6 +134,9 @@ def run_container(tool: str, spec: DockerRunSpec) -> tuple[str, str, int]:
         "--pull",
         "missing",
     ]
+    host_platform = _host_platform()
+    if host_platform:
+        cmd += ["--platform", host_platform]
     cmd += ["--network", "bridge" if spec.network_enabled else "none"]
     for host_path, (container_path, read_only) in spec.mounts.items():
         mount_flag = f"type=bind,source={host_path},target={container_path}"
@@ -144,6 +167,19 @@ def run_container(tool: str, spec: DockerRunSpec) -> tuple[str, str, int]:
     except FileNotFoundError as exc:
         raise ToolExecutionError(tool, "docker CLI not found on host") from exc
 
+    # Not every image publishes a variant for this host (OpenSSF Scorecard is
+    # amd64-only). Retry once without the pin so Docker can fall back to
+    # emulation, which is slow but better than refusing to run at all.
+    if proc.returncode not in spec.ok_exit_codes and host_platform and _is_platform_error(proc.stderr):
+        retry_cmd = [arg for arg in cmd if arg != host_platform]
+        retry_cmd.remove("--platform")
+        try:
+            proc = subprocess.run(  # nosec B603
+                retry_cmd, capture_output=True, text=True, timeout=spec.timeout_s, check=False
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ToolExecutionError(tool, f"timed out after {spec.timeout_s}s") from exc
+
     if proc.returncode not in spec.ok_exit_codes:
         raise ToolExecutionError(
             tool,
@@ -152,6 +188,14 @@ def run_container(tool: str, spec: DockerRunSpec) -> tuple[str, str, int]:
             stderr=proc.stderr,
         )
     return proc.stdout, proc.stderr, proc.returncode
+
+
+def _is_platform_error(stderr: str) -> bool:
+    lowered = (stderr or "").lower()
+    return any(
+        marker in lowered
+        for marker in ("no matching manifest", "does not match the specified platform", "platform does not exist")
+    )
 
 
 @dataclass
@@ -234,6 +278,19 @@ def run_local_command(tool: str, spec: LocalCommandSpec, target_dir: str) -> tup
     except FileNotFoundError as exc:
         raise ToolExecutionError(tool, f"binary '{spec.binary}' not found on host") from exc
 
+    # Not every image publishes a variant for this host (OpenSSF Scorecard is
+    # amd64-only). Retry once without the pin so Docker can fall back to
+    # emulation, which is slow but better than refusing to run at all.
+    if proc.returncode not in spec.ok_exit_codes and host_platform and _is_platform_error(proc.stderr):
+        retry_cmd = [arg for arg in cmd if arg != host_platform]
+        retry_cmd.remove("--platform")
+        try:
+            proc = subprocess.run(  # nosec B603
+                retry_cmd, capture_output=True, text=True, timeout=spec.timeout_s, check=False
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ToolExecutionError(tool, f"timed out after {spec.timeout_s}s") from exc
+
     if proc.returncode not in spec.ok_exit_codes:
         raise ToolExecutionError(
             tool,
@@ -242,3 +299,11 @@ def run_local_command(tool: str, spec: LocalCommandSpec, target_dir: str) -> tup
             stderr=proc.stderr,
         )
     return proc.stdout, proc.stderr, proc.returncode
+
+
+def _is_platform_error(stderr: str) -> bool:
+    lowered = (stderr or "").lower()
+    return any(
+        marker in lowered
+        for marker in ("no matching manifest", "does not match the specified platform", "platform does not exist")
+    )

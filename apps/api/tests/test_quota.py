@@ -61,13 +61,16 @@ class _FakeDb:
                     "auto_fix_prs_per_month": limit,
                 }
             ]
+        if table in ("scans", "findings", "account_quota_overrides"):
+            return []
         raise AssertionError(f"unexpected table {table}")
 
 
 @pytest.fixture(autouse=True)
 def _patch_redis(monkeypatch):
     fake = _FakeRedis()
-    monkeypatch.setattr("aevrin_api.quota.get_redis", lambda settings: fake)
+    monkeypatch.setattr("aevrin_api.redis_client.get_redis", lambda settings=None: fake)
+    monkeypatch.setattr("aevrin_api.redis_client.get_fallback_redis", lambda settings=None: None)
     return fake
 
 
@@ -164,7 +167,8 @@ class _DbWithScanHistory(_FakeDb):
 
 @pytest.mark.asyncio
 async def test_redis_outage_allows_scan_when_history_is_under_limit(monkeypatch, settings):
-    monkeypatch.setattr("aevrin_api.quota.get_redis", lambda settings: _BrokenRedis())
+    monkeypatch.setattr("aevrin_api.redis_client.get_redis", lambda settings=None: _BrokenRedis())
+    monkeypatch.setattr("aevrin_api.redis_client.get_fallback_redis", lambda settings=None: None)
     db = _DbWithScanHistory("free", count=2)  # limit is 5
     await check_and_increment_quota(settings, db, "user-1", "dashboard")
     assert db.last_scan_filters is not None
@@ -175,7 +179,8 @@ async def test_redis_outage_allows_scan_when_history_is_under_limit(monkeypatch,
 @pytest.mark.asyncio
 async def test_redis_outage_still_enforces_the_limit_from_history(monkeypatch, settings):
     """Failing over must not become a way to bypass quota entirely."""
-    monkeypatch.setattr("aevrin_api.quota.get_redis", lambda settings: _BrokenRedis())
+    monkeypatch.setattr("aevrin_api.redis_client.get_redis", lambda settings=None: _BrokenRedis())
+    monkeypatch.setattr("aevrin_api.redis_client.get_fallback_redis", lambda settings=None: None)
     db = _DbWithScanHistory("free", count=5)  # already at the limit of 5
     with pytest.raises(QuotaExceeded):
         await check_and_increment_quota(settings, db, "user-1", "dashboard")
@@ -186,7 +191,8 @@ async def test_redis_outage_counts_auto_fix_from_opened_pull_requests(monkeypatc
     """A PR that exists must always be countable. findings.autofix_at is
     stamped in Postgres when the PR opens, so the counter survives Redis
     being unreachable — previously a real PR could go entirely uncounted."""
-    monkeypatch.setattr("aevrin_api.quota.get_redis", lambda settings: _BrokenRedis())
+    monkeypatch.setattr("aevrin_api.redis_client.get_redis", lambda settings=None: _BrokenRedis())
+    monkeypatch.setattr("aevrin_api.redis_client.get_fallback_redis", lambda settings=None: None)
     db = _DbWithScanHistory("pro", count=0, autofix_count=2)  # limit is 5
     await check_and_increment_quota(settings, db, "user-1", "auto_fix")
     assert db.last_finding_filters is not None
@@ -196,7 +202,8 @@ async def test_redis_outage_counts_auto_fix_from_opened_pull_requests(monkeypatc
 
 @pytest.mark.asyncio
 async def test_redis_outage_still_enforces_the_auto_fix_limit(monkeypatch, settings):
-    monkeypatch.setattr("aevrin_api.quota.get_redis", lambda settings: _BrokenRedis())
+    monkeypatch.setattr("aevrin_api.redis_client.get_redis", lambda settings=None: _BrokenRedis())
+    monkeypatch.setattr("aevrin_api.redis_client.get_fallback_redis", lambda settings=None: None)
     db = _DbWithScanHistory("pro", count=0, autofix_count=5)  # already at 5
     with pytest.raises(QuotaExceeded):
         await check_and_increment_quota(settings, db, "user-1", "auto_fix")
@@ -204,7 +211,8 @@ async def test_redis_outage_still_enforces_the_auto_fix_limit(monkeypatch, setti
 
 @pytest.mark.asyncio
 async def test_usage_meters_degrade_to_history_instead_of_showing_zero(monkeypatch, settings):
-    monkeypatch.setattr("aevrin_api.quota.get_redis", lambda settings: _BrokenRedis())
+    monkeypatch.setattr("aevrin_api.redis_client.get_redis", lambda settings=None: _BrokenRedis())
+    monkeypatch.setattr("aevrin_api.redis_client.get_fallback_redis", lambda settings=None: None)
     db = _DbWithScanHistory("free", count=3, autofix_count=1)
     usage = await get_usage(settings, db, "user-1")
     dashboard = next(b for b in usage if b.bucket == "dashboard")
@@ -268,3 +276,33 @@ async def test_future_override_still_applies(settings):
     await check_and_increment_quota(settings, db, "user-1", "cli")
     with pytest.raises(QuotaExceeded):
         await check_and_increment_quota(settings, db, "user-1", "cli")
+
+
+# --- quota failover must not reset anyone's allowance ---------------------
+
+
+class _WorkingSpare(_FakeRedis):
+    pass
+
+
+@pytest.mark.asyncio
+async def test_quota_failover_does_not_hand_out_a_fresh_allowance(monkeypatch, settings):
+    """The spare instance has no counter history, so its counter restarts at
+    1. Taken at face value that would reset billing for everyone the moment
+    the primary died. Postgres holds the durable record, so the higher of
+    the two wins."""
+    monkeypatch.setattr("aevrin_api.redis_client.get_redis", lambda settings=None: _BrokenRedis())
+    monkeypatch.setattr("aevrin_api.redis_client.get_fallback_redis", lambda settings=None: _WorkingSpare())
+
+    db = _DbWithScanHistory("free", count=5)  # already at the free limit of 5
+    with pytest.raises(QuotaExceeded):
+        await check_and_increment_quota(settings, db, "user-1", "dashboard")
+
+
+@pytest.mark.asyncio
+async def test_quota_failover_allows_when_history_is_under_the_limit(monkeypatch, settings):
+    monkeypatch.setattr("aevrin_api.redis_client.get_redis", lambda settings=None: _BrokenRedis())
+    monkeypatch.setattr("aevrin_api.redis_client.get_fallback_redis", lambda settings=None: _WorkingSpare())
+
+    db = _DbWithScanHistory("free", count=1)
+    await check_and_increment_quota(settings, db, "user-1", "dashboard")

@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 from redis.exceptions import ConnectionError, ResponseError
 
-from aevrin_api import deps
+from aevrin_api import deps, redis_client
 from aevrin_api.redis_client import RateLimitExceeded, check_fixed_window_rate_limit
 
 
@@ -88,7 +88,8 @@ def _settings():
 
 
 def test_redis_outage_lets_the_request_through_instead_of_500ing(monkeypatch):
-    monkeypatch.setattr(deps, "get_redis", lambda settings: _BrokenRedis())
+    monkeypatch.setattr(redis_client, "get_redis", lambda settings=None: _BrokenRedis())
+    monkeypatch.setattr(redis_client, "get_fallback_redis", lambda settings=None: None)
     # Must not raise at all — the caller proceeds and Postgres quota still applies.
     deps.enforce_rate_limit(_settings(), "scan_create", "user-1", limit=5)
 
@@ -98,17 +99,59 @@ def test_connection_error_also_fails_open(monkeypatch):
         def incr(self, key: str) -> int:
             raise ConnectionError("Error connecting to redis")
 
-    monkeypatch.setattr(deps, "get_redis", lambda settings: _Unreachable())
+    monkeypatch.setattr(redis_client, "get_redis", lambda settings=None: _Unreachable())
+    monkeypatch.setattr(redis_client, "get_fallback_redis", lambda settings=None: None)
     deps.enforce_rate_limit(_settings(), "cli_upload", "user-1", limit=5)
 
 
 def test_real_rate_limit_still_returns_429(monkeypatch):
     """Failing open on infrastructure errors must not weaken the actual limit."""
     shared = _FakeRedis()
-    monkeypatch.setattr(deps, "get_redis", lambda settings: shared)
+    monkeypatch.setattr(redis_client, "get_redis", lambda settings=None: shared)
+    monkeypatch.setattr(redis_client, "get_fallback_redis", lambda settings=None: None)
     for _ in range(3):
         deps.enforce_rate_limit(_settings(), "scan_create", "user-2", limit=3)
 
     with pytest.raises(HTTPException) as excinfo:
         deps.enforce_rate_limit(_settings(), "scan_create", "user-2", limit=3)
     assert excinfo.value.status_code == 429
+
+
+# --- failover to the spare Upstash instance -------------------------------
+#
+# Upstash's free tier caps monthly requests and errors on every command once
+# that ceiling is hit, which took the product down. A second instance takes
+# over rather than the request failing.
+
+
+class _WorkingRedis(_FakeRedis):
+    pass
+
+
+def test_failover_uses_the_spare_instance(monkeypatch):
+    spare = _WorkingRedis()
+    monkeypatch.setattr(redis_client, "get_redis", lambda settings=None: _BrokenRedis())
+    monkeypatch.setattr(redis_client, "get_fallback_redis", lambda settings=None: spare)
+
+    deps.enforce_rate_limit(_settings(), "scan_create", "user-1", limit=5)
+    # The spare actually took the write, not just absorbed the error.
+    assert spare._counts["ratelimit:scan_create:user-1"] == 1
+
+
+def test_failover_still_enforces_the_limit(monkeypatch):
+    """Failing over must not become a way around the limiter."""
+    spare = _WorkingRedis()
+    monkeypatch.setattr(redis_client, "get_redis", lambda settings=None: _BrokenRedis())
+    monkeypatch.setattr(redis_client, "get_fallback_redis", lambda settings=None: spare)
+
+    for _ in range(2):
+        deps.enforce_rate_limit(_settings(), "scan_create", "user-2", limit=2)
+    with pytest.raises(HTTPException) as excinfo:
+        deps.enforce_rate_limit(_settings(), "scan_create", "user-2", limit=2)
+    assert excinfo.value.status_code == 429
+
+
+def test_both_instances_down_still_fails_open(monkeypatch):
+    monkeypatch.setattr(redis_client, "get_redis", lambda settings=None: _BrokenRedis())
+    monkeypatch.setattr(redis_client, "get_fallback_redis", lambda settings=None: _BrokenRedis())
+    deps.enforce_rate_limit(_settings(), "scan_create", "user-3", limit=5)

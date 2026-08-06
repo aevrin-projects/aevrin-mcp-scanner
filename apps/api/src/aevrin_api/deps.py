@@ -9,7 +9,7 @@ from redis.exceptions import RedisError
 
 from .config import Settings, get_settings
 from .db import SupabaseRest
-from .redis_client import RateLimitExceeded, check_fixed_window_rate_limit, get_redis
+from .redis_client import RateLimitExceeded, check_fixed_window_rate_limit, with_redis
 from .security import AuthenticatedUser, decode_supabase_jwt, hash_api_key
 
 logger = logging.getLogger("aevrin.deps")
@@ -122,7 +122,10 @@ def enforce_rate_limit(settings: Settings, bucket: str, identity: str, limit: in
     factory so it doesn't force a second, possibly-conflicting auth
     resolution on top of the route's own auth dependency."""
     try:
-        check_fixed_window_rate_limit(get_redis(settings), f"{bucket}:{identity}", limit)
+        # Falls through to the spare Upstash instance before giving up. A
+        # fresh burst window on failover is harmless here: this limiter only
+        # paces requests, and monthly usage is enforced separately.
+        with_redis(settings, lambda client: check_fixed_window_rate_limit(client, f"{bucket}:{identity}", limit))
     except RateLimitExceeded as exc:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

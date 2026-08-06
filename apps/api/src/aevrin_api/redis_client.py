@@ -1,28 +1,75 @@
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from functools import lru_cache
+from typing import TypeVar
 
 import redis
+from redis.exceptions import RedisError
 
 from .config import Settings, get_settings
 
+logger = logging.getLogger("aevrin.redis")
 
-@lru_cache
-def get_redis(settings: Settings | None = None) -> redis.Redis:
-    settings = settings or get_settings()
+T = TypeVar("T")
+
+
+def _client(url: str, token: str) -> redis.Redis:
     # Upstash's REST URL is https://<host>; the TLS TCP endpoint is the same
     # host on port 6379. redis-py's standard client is simpler to reason
     # about than Upstash's REST API for a fixed-window counter.
-    host = settings.upstash_redis_rest_url.removeprefix("https://").removeprefix("http://")
+    host = url.removeprefix("https://").removeprefix("http://")
     return redis.Redis(
         host=host,
         port=6379,
-        password=settings.upstash_redis_rest_token,
+        password=token,
         ssl=True,
         decode_responses=True,
         socket_timeout=3,
         socket_connect_timeout=3,
     )
+
+
+@lru_cache
+def get_redis(settings: Settings | None = None) -> redis.Redis:
+    settings = settings or get_settings()
+    return _client(settings.upstash_redis_rest_url, settings.upstash_redis_rest_token)
+
+
+@lru_cache
+def get_fallback_redis(settings: Settings | None = None) -> redis.Redis | None:
+    """A second Upstash instance, used only when the primary refuses.
+
+    Upstash's free tier caps monthly *requests*, and hitting that ceiling
+    errors on every command rather than degrading. That took the whole
+    product down once already, so a spare instance is worth the few lines.
+    """
+    settings = settings or get_settings()
+    url = getattr(settings, "upstash_fallback_redis_rest_url", None)
+    token = getattr(settings, "upstash_fallback_redis_rest_token", None)
+    if not url or not token:
+        return None
+    return _client(url, token)
+
+
+def with_redis(settings: Settings, op: Callable[[redis.Redis], T]) -> tuple[T, bool]:
+    """Run `op` against the primary, then the fallback if the primary errors.
+
+    Returns (result, used_fallback). Callers need that flag because the two
+    instances share no state: an instance that has just taken over has no
+    counter history, so a value read from it is a floor, not a total. Quota
+    cross-checks against Postgres when this is True; rate limiting does not
+    need to, since a fresh burst window is harmless.
+    """
+    try:
+        return op(get_redis(settings)), False
+    except RedisError as primary_error:
+        fallback = get_fallback_redis(settings)
+        if fallback is None:
+            raise
+        logger.warning("redis: primary unavailable (%s), using fallback", primary_error)
+        return op(fallback), True
 
 
 class RateLimitExceeded(Exception):

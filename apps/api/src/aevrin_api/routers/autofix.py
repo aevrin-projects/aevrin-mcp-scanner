@@ -469,6 +469,38 @@ async def _run_fix_for_row(
     return AutofixResponse(status="fixed", pr_url=pr_url)
 
 
+@router.post("/scans/{scan_id}/fix/cancel")
+async def cancel_scan_fix(
+    scan_id: UUID,
+    user: Annotated[AuthenticatedUser, Depends(get_user_from_jwt_or_api_key)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+) -> dict[str, Any]:
+    """Stop a whole-scan Fix It run.
+
+    Cancellation is checked *between* findings, never mid-fix. Aborting a fix
+    already in flight would risk a half-applied patch or an orphaned branch on
+    someone's repository, which is worse than waiting a few seconds for the
+    current one to finish. Anything still queued is returned to its untouched
+    state so those rows stop showing a spinner.
+    """
+    rows = await db.select("scans", {"id": str(scan_id), "user_id": user.id}, limit=1)
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+
+    await db.update(
+        "scans", {"id": str(scan_id), "user_id": user.id},
+        {"autofix_cancel_requested_at": datetime.now(UTC).isoformat()},
+    )
+
+    queued = await db.select(
+        "findings", {"scan_id": str(scan_id), "user_id": user.id, "autofix_status": "queued"}, columns="id"
+    )
+    for row in queued:
+        await _mark_autofix(db, UUID(str(row["id"])), "none")
+
+    return {"cancelled": True, "released": len(queued)}
+
+
 @router.post("/scans/{scan_id}/fix", response_model=BulkFixResponse)
 async def fix_scan(
     scan_id: UUID,
@@ -531,6 +563,9 @@ async def fix_scan(
     # findings it already renders and watches autofix_status move
     # queued -> in_progress -> fixed/failed per finding, which is real
     # progress rather than a spinner.
+    # A cancel from a previous run must not immediately stop this one.
+    await db.update("scans", {"id": str(scan_id), "user_id": user.id}, {"autofix_cancel_requested_at": None})
+
     for row in candidates:
         await _mark_autofix(db, UUID(str(row["id"])), "queued")
 
@@ -555,8 +590,20 @@ async def _run_bulk_fix(
     """Sequential on purpose: each fix clones a repo and runs a scanner, and
     running several of those at once on one API container is how you turn a
     fix run into an outage for everyone else."""
+    scan_id = str(candidates[0]["scan_id"]) if candidates else None
+
     for row in candidates:
         finding_id = UUID(str(row["id"]))
+
+        # Checked between findings, so a cancel never interrupts a fix that
+        # is already generating, cloning, or opening a pull request.
+        if scan_id:
+            current = await db.select("scans", {"id": scan_id}, columns="autofix_cancel_requested_at", limit=1)
+            if current and current[0].get("autofix_cancel_requested_at"):
+                logger.info("bulk fix: cancelled before finding %s", finding_id)
+                await _mark_autofix(db, finding_id, "none")
+                continue
+
         if await would_exceed_quota(settings, db, user.id, "auto_fix"):
             await _mark_autofix(
                 db, finding_id, "failed",

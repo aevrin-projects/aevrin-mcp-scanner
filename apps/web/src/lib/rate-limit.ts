@@ -11,16 +11,41 @@
 
 import { Redis } from "@upstash/redis";
 
-let client: Redis | null = null;
+let primary: Redis | null = null;
+let fallback: Redis | null | undefined;
 
 function getRedis(): Redis {
-  if (!client) {
-    client = new Redis({
+  if (!primary) {
+    primary = new Redis({
       url: process.env.UPSTASH_REDIS_REST_URL!,
       token: process.env.UPSTASH_REDIS_REST_TOKEN!,
     });
   }
-  return client;
+  return primary;
+}
+
+/** Spare instance, used only when the primary refuses. Upstash's free tier
+ *  caps monthly requests and errors on every command once that ceiling is
+ *  hit, which is exactly how sign-in broke. `undefined` means "not yet
+ *  resolved"; `null` means "none configured". */
+function getFallbackRedis(): Redis | null {
+  if (fallback === undefined) {
+    const url = process.env.UPSTASH_FALLBACK_REDIS_REST_URL;
+    const token = process.env.UPSTASH_FALLBACK_REDIS_REST_TOKEN;
+    fallback = url && token ? new Redis({ url, token }) : null;
+  }
+  return fallback;
+}
+
+async function withRedis<T>(op: (client: Redis) => Promise<T>): Promise<T> {
+  try {
+    return await op(getRedis());
+  } catch (error) {
+    const spare = getFallbackRedis();
+    if (!spare) throw error;
+    console.warn("[rate-limit] primary Redis unavailable, using fallback", error);
+    return op(spare);
+  }
 }
 
 export class RateLimitExceededError extends Error {
@@ -48,11 +73,11 @@ export async function checkRateLimit(key: string, limit: number, windowSeconds: 
   const redisKey = `aevrin:otp:${key}`;
   let current: number;
   try {
-    const redis = getRedis();
-    current = await redis.incr(redisKey);
-    if (current === 1) {
-      await redis.expire(redisKey, windowSeconds);
-    }
+    current = await withRedis(async (redis) => {
+      const value = await redis.incr(redisKey);
+      if (value === 1) await redis.expire(redisKey, windowSeconds);
+      return value;
+    });
   } catch (error) {
     console.warn("[rate-limit] Redis unavailable, allowing auth attempt through", error);
     return;
@@ -61,7 +86,7 @@ export async function checkRateLimit(key: string, limit: number, windowSeconds: 
   if (current > limit) {
     let ttl = windowSeconds;
     try {
-      const fresh = await getRedis().ttl(redisKey);
+      const fresh = await withRedis((redis) => redis.ttl(redisKey));
       if (fresh > 0) ttl = fresh;
     } catch {
       // Keep the nominal window — the limit itself already tripped, and a

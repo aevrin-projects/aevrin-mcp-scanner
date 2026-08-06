@@ -25,7 +25,7 @@ from redis.exceptions import RedisError
 
 from .config import Settings
 from .db import SupabaseRest
-from .redis_client import get_redis
+from .redis_client import with_redis
 
 logger = logging.getLogger("aevrin.quota")
 
@@ -240,11 +240,23 @@ async def check_and_increment_quota(settings: Settings, db: SupabaseRest, user_i
     # count at 0 forever for unlimited accounts, even with real uploads
     # landing in the scans table.
     redis_key = _redis_key(user_id, bucket, period_start)
-    try:
-        client = get_redis(settings)
-        current = client.incr(redis_key)
-        if current == 1:
+
+    def _incr(client: Any) -> int:
+        value = int(client.incr(redis_key))
+        if value == 1:
             client.expire(redis_key, ttl_seconds)
+        return value
+
+    try:
+        current, used_fallback = with_redis(settings, _incr)
+        if used_fallback:
+            # The spare instance carries no history, so its counter restarts
+            # at 1 and would hand every account a fresh allowance. Postgres
+            # holds the durable record, so take whichever is higher: a
+            # failover must not become a way to reset billing.
+            durable = await _used_from_durable_history(db, user_id, bucket, period_start)
+            if durable is not None:
+                current = max(current, durable + 1)
     except RedisError:
         logger.warning(
             "quota: Redis unavailable, counting %s usage from scan history instead", bucket, exc_info=True
@@ -275,9 +287,12 @@ async def would_exceed_quota(settings: Settings, db: SupabaseRest, user_id: str,
     period_start = _period_start(account["signup_anchor_day"], now)
     period_end = _add_month(period_start)
     try:
-        client = get_redis(settings)
-        raw = client.get(_redis_key(user_id, bucket, period_start))
+        (raw, used_fallback) = with_redis(settings, lambda c: c.get(_redis_key(user_id, bucket, period_start)))
         used = int(raw) if raw else 0
+        if used_fallback:
+            durable = await _used_from_durable_history(db, user_id, bucket, period_start)
+            if durable is not None:
+                used = max(used, durable)
     except RedisError:
         logger.warning("quota: Redis unavailable during %s precheck", bucket, exc_info=True)
         counted = await _used_from_durable_history(db, user_id, bucket, period_start)
@@ -297,24 +312,22 @@ async def get_usage(settings: Settings, db: SupabaseRest, user_id: str) -> list[
     period_start = _period_start(account["signup_anchor_day"], now)
     period_end = _add_month(period_start)
 
-    client = None
-    try:
-        client = get_redis(settings)
-    except RedisError:
-        logger.warning("quota: Redis unavailable, reading usage from scan history", exc_info=True)
-
     results: list[BucketUsage] = []
     for bucket in ("cli", "hook", "dashboard", "auto_fix"):
         limit = await _tier_limit(db, account, bucket)
         used = 0
-        if client is not None:
-            try:
-                raw = client.get(_redis_key(user_id, bucket, period_start))
-                used = int(raw) if raw else 0
-            except RedisError:
-                logger.warning("quota: Redis read failed for %s meter", bucket, exc_info=True)
-                client = None
-        if client is None:
+        reachable = True
+        try:
+            raw, used_fallback = with_redis(settings, lambda c, b=bucket: c.get(_redis_key(user_id, b, period_start)))
+            used = int(raw) if raw else 0
+            if used_fallback:
+                durable = await _used_from_durable_history(db, user_id, bucket, period_start)
+                if durable is not None:
+                    used = max(used, durable)
+        except RedisError:
+            logger.warning("quota: Redis unavailable for %s meter", bucket, exc_info=True)
+            reachable = False
+        if not reachable:
             # Meters degrade to the durable count rather than showing a
             # blanket 0 — a dashboard that claims no usage during an outage
             # is worse than one that is slightly behind.
