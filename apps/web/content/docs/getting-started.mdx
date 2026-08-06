@@ -17,7 +17,7 @@ Python environment inside its own package directory, so it does not modify globa
     pipx install aevrin
     ```
 
-    Restart your shell if `aevrin` isn't found immediately — `pipx ensurepath` needs a fresh
+    Restart your shell if `aevrin` isn't found immediately. `pipx ensurepath` needs a fresh
     shell to take effect.
   </Tab>
   <Tab value="pip">
@@ -52,12 +52,12 @@ aevrin login
 ```
 
 This opens your browser for a [device-code](https://datatracker.ietf.org/doc/html/rfc8628)
-approval flow — no password is ever typed into the terminal. Once approved, a long-lived API key
+approval flow, so no password is ever typed into the terminal. Once approved, a long-lived API key
 is stored at `~/.aevrin/credentials`.
 
 <Callout type="info" title="Free tier">
   Every account gets 5 CLI scans, 5 dashboard scans, and 2 hook auto-scans per month, on a
-  rolling window from your signup date — see [Concepts → Quota](/docs/concepts#quota-and-tiers).
+  rolling window from your signup date. See [Concepts → Quota](/docs/concepts#quota-and-tiers).
 </Callout>
 
 ## Run your first scan
@@ -66,7 +66,7 @@ is stored at `~/.aevrin/credentials`.
 aevrin scan https://github.com/owner/mcp-server
 ```
 
-`TARGET` can be a GitHub URL, a local directory path, or a live MCP server URL — see
+`TARGET` can be a GitHub URL, a local directory path, or a live MCP server URL. See
 [CLI Reference → scan](/docs/cli#scan) for the full breakdown of what each target type actually
 checks. The scan runs entirely on your machine with each tool in its own version-pinned Docker
 container and, once logged in, the result is
@@ -78,20 +78,20 @@ notes:
 ```
 Target: https://github.com/owner/mcp-server
 
-Score:  46/100  High risk — several findings need attention
+Score:  46/100  Significant risk - do not deploy as-is
 
-┌──────────┬────────────────────────────────┬─────────────────────────────┬─────────┐
-│ Severity │ Title                          │ OWASP category                │ Tool    │
-├──────────┼────────────────────────────────┼─────────────────────────────┼─────────┤
-│ HIGH     │ ...                            │ Token Mismanagement & ...     │ gitleaks│
-└──────────┴────────────────────────────────┴─────────────────────────────┴─────────┘
+┌──────────┬────────────────────────────────┬───────────────────────────┬──────────┐
+│ Severity │ Title                          │ OWASP category            │ Tool     │
+├──────────┼────────────────────────────────┼───────────────────────────┼──────────┤
+│ HIGH     │ ...                            │ Token Mismanagement & ... │ gitleaks │
+└──────────┴────────────────────────────────┴───────────────────────────┴──────────┘
 ```
 
 ## See it on the dashboard
 
 Every scan you run (as long as you're logged in and didn't pass `--no-upload`) shows up at
-[mcp.aevrin.net/dashboard](https://mcp.aevrin.net/dashboard) — same findings, same stage
-breakdown, same score, in the same format whether it came from the CLI, the hook, or the
+[mcp.aevrin.net/dashboard](https://mcp.aevrin.net/dashboard) with the same findings, the same stage
+breakdown, and the same score, in the same format whether it came from the CLI, the hook, or the
 dashboard's own "scan a repo" form. See [Dashboard](/docs/dashboard).
 
 ## Next steps

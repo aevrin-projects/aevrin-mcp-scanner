@@ -3,28 +3,28 @@ title: Claude Code Hook
 description: Block risky MCP server installs automatically, before they happen.
 ---
 
-The Aevrin hook is a genuine Claude Code `PreToolUse` hook — a registered command, not an
+The Aevrin hook is a genuine Claude Code `PreToolUse` hook: a registered command, not an
 advisory MCP server Claude can choose to ignore. It intercepts the two ways an MCP server
 actually gets installed and checks each one against Aevrin before Claude proceeds.
 
 ## What it intercepts
 
-- **`Bash` calls matching `claude mcp add ...`** — extracts the URL for HTTP/SSE transport
+- **`Bash` calls matching `claude mcp add ...`.** Extracts the URL for HTTP/SSE transport
   servers, or best-effort reconstructs a single-server config for stdio transport
   (`-- npx ...` / `-- docker run ...`).
-- **`Write` calls to `.mcp.json` or `claude_desktop_config.json`** — parses the full written
+- **`Write` calls to `.mcp.json` or `claude_desktop_config.json`.** Parses the full written
   config for server URLs or stdio commands.
 
-Everything else is ignored silently — exits `0`, no output, stays out of the way of unrelated
-tool calls. Partial-diff `Edit` calls to these files are intentionally **not** intercepted:
-`Edit`'s `old_string`/`new_string` are a fragment, not the full resulting file, so there's
-nothing reliable to scan pre-edit.
+Everything else is ignored silently: it exits `0`, prints nothing, and stays out of the way of
+unrelated tool calls. Partial-diff `Edit` calls to these files are intentionally **not** intercepted:
+`Edit`'s `old_string` and `new_string` are a fragment, not the full resulting file, so there is
+nothing reliable to scan before the edit.
 
 ## Setup
 
 <Steps>
   <Step>
-    Install the CLI if you haven't — see [Getting Started](/docs/getting-started).
+    Install the CLI if you have not already. See [Getting Started](/docs/getting-started).
   </Step>
   <Step>
     Log in the hook (a separate credential from `aevrin login`, so hook and CLI usage stay
@@ -35,11 +35,11 @@ nothing reliable to scan pre-edit.
     ```
 
     This prints a ready-to-paste JSON snippet pointing at the hook script bundled inside your
-    `aevrin` install — the same package you already installed via pip/pipx.
+    `aevrin` install, the same package you already installed via pip or pipx.
   </Step>
   <Step>
     Merge the printed snippet into your project's `.claude/settings.json`. If the file already
-    has a `hooks` key, merge rather than overwrite it — the snippet looks like this:
+    has a `hooks` key, merge rather than overwrite it. The snippet looks like this:
 
     ```json
     {
@@ -59,7 +59,7 @@ nothing reliable to scan pre-edit.
     ```
   </Step>
   <Step>
-    Try it — ask Claude Code to add an MCP server. The hook checks it before the install runs.
+    Try it. Ask Claude Code to add an MCP server. The hook checks it before the install runs.
   </Step>
 </Steps>
 
@@ -67,38 +67,38 @@ nothing reliable to scan pre-edit.
 
 <Steps>
   <Step>
-    **Check for a cached result first** — one fast `POST /hook/cache` call (a Supabase lookup,
+    **Check for a cached result first.** One fast `POST /hook/cache` call (a Supabase lookup,
     not a live scan). The request body keeps pasted configuration out of URL logs, while the
     short lookup stays within the hook's `timeout` budget.
   </Step>
   <Step>
-    **Clean cached scan → allow silently**, with a small confirmatory note
+    **A clean cached scan allows silently**, with a small confirmatory note
     (`Aevrin: clean scan on record (score N/100)`).
   </Step>
   <Step>
     **Cached scan has unresolved critical/high findings → block**, with the score and each
-    finding's title, severity, OWASP category, file/line, and remediation in the denial reason —
+    finding's title, severity, OWASP category, file and line, and remediation in the denial reason,
     plus three explicit options: fix it directly, run `aevrin hook allow <target>` to install
     anyway, or `aevrin findings triage <id> false_positive --reason "..."` to dispute a specific finding.
   </Step>
   <Step>
-    **Cached scan's tools couldn't run → block as incomplete**, never silently allowed. Docker
+    **A cached scan whose tools could not run blocks as incomplete**, never silently allowed. Docker
     down, a missing binary, or no network access on the machine that scanned it means the
-    findings list is empty because nothing ran — not because the target is clean. See
+    findings list is empty because nothing ran, not because the target is clean. See
     [Concepts → Incomplete scans](/docs/concepts#incomplete-scans).
   </Step>
   <Step>
-    **No cached result → allow, with a visible "not yet scanned" warning.** The actual scan
-    starts server-side in the background (the `/hook/cache` endpoint kicks it off via FastAPI
-    `BackgroundTasks`) — the hook script itself never runs or waits on a scan, only ever makes
+    **No cached result allows, with a visible "not yet scanned" warning.** The actual scan
+    starts server-side in the background (the `/hook/cache` endpoint starts it via FastAPI
+    `BackgroundTasks`). The hook script itself never runs or waits on a scan; it only ever makes
     one short HTTP request. The *next* install attempt of the same target will have a cached
     result to check against.
   </Step>
 </Steps>
 
 <Callout type="warn" title="Fails open">
-  Any failure mode — no API key configured, network error, timeout, malformed response — fails
-  **open** (allows silently). A security hook that blocks installs whenever Aevrin itself is
+  Any failure mode, whether that is no API key configured, a network error, a timeout, or a
+  malformed response, fails **open** and allows silently. A security hook that blocks installs whenever Aevrin itself is
   unreachable is a hook that gets disabled by annoyed developers, which defeats the point. This
   is a deliberate tradeoff: the hook is a safety net for the common case, not a hard security
   boundary you should rely on when Aevrin is down.
@@ -106,7 +106,7 @@ nothing reliable to scan pre-edit.
 
 ## Quota
 
-Hook auto-scans are metered separately from CLI and dashboard scans — see
+Hook auto-scans are metered separately from CLI and dashboard scans. See
 [Concepts → Quota](/docs/concepts#quota-and-tiers). Running out mid-month doesn't block
 installs; it allows with a note that the install wasn't checked, the same way an unreachable
 API does.

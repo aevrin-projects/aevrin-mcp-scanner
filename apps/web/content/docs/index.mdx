@@ -4,9 +4,10 @@ description: What Aevrin scans, how it scores risk, and where to start.
 ---
 
 Aevrin scans [Model Context Protocol](https://modelcontextprotocol.io) (MCP) servers for
-security risks before you trust them — as a source repository, a local path on your machine, or
-a live server URL. It runs a fixed set of established open-source scanners (Semgrep, Bandit,
-Gitleaks, TruffleHog, OSV-Scanner, Trivy, mcp-shield, and the official MCP SDK) and maps every result onto the
+security risks before you trust them, whether that is a source repository, a local path on your
+machine, or a live server URL. It runs a fixed set of established open-source scanners (Semgrep, Bandit,
+Gitleaks, TruffleHog, OSV-Scanner, Trivy, OpenSSF Scorecard, mcp-shield, and the official MCP SDK)
+and maps every result onto the
 [OWASP MCP Top 10](/docs/concepts#owasp-mcp-top-10), so a finding means the same thing
 everywhere it appears: in the CLI, in a Claude Code hook block, and on the dashboard.
 
@@ -14,11 +15,11 @@ everywhere it appears: in the CLI, in a Claude Code hook block, and on the dashb
 
 <Cards>
   <Card title="CLI" href="/docs/cli">
-    `aevrin scan <target>` — run every scanner locally and get a full report in your terminal.
+    `aevrin scan <target>` runs every scanner locally and gives you a full report in your terminal.
   </Card>
   <Card title="Claude Code hook" href="/docs/hook">
     Blocks `claude mcp add` and MCP config writes automatically when a server has unresolved
-    high/critical findings — before Claude ever installs it.
+    high or critical findings, before Claude ever installs it.
   </Card>
   <Card title="Dashboard" href="/docs/dashboard">
     Every scan (CLI or hook-triggered) is saved to your account at mcp.aevrin.net, with full
@@ -41,18 +42,18 @@ older Python versions and connecting the Claude Code hook.
 
 A repository or local-path scan clones (or reads) the target and runs, in order:
 
-1. **Static analysis** — Semgrep + Bandit for injection, path traversal, SSRF, and other
+1. **Static analysis.** Semgrep and Bandit for injection, path traversal, SSRF, and other
    code-level risks.
-2. **Secrets** — Gitleaks + TruffleHog for hardcoded credentials, with TruffleHog additionally
+2. **Secrets.** Gitleaks and TruffleHog for hardcoded credentials, with TruffleHog additionally
    verifying whether a matched credential is actually live.
-3. **Dependencies** — OSV-Scanner + Trivy for known-vulnerable packages, plus OpenSSF Scorecard
+3. **Dependencies.** OSV-Scanner and Trivy for known-vulnerable packages, plus OpenSSF Scorecard
    if you've set a `GITHUB_TOKEN`.
-4. **Tool description check** — mcp-shield and safe, remote-only MCP SDK inspection inspect the server's declared MCP tools
+4. **Tool description check.** mcp-shield and safe, remote-only MCP SDK inspection read the server's declared MCP tools
    for hidden-instruction (tool poisoning) and prompt-injection patterns, and Aevrin's own rules
    check for weak/missing auth and audit logging.
 
 A live-server URL or a pasted MCP config skips the code-level stages (nothing to clone) and only
-gets the tool-description check — see [Concepts](/docs/concepts#target-types) for why.
+gets the tool-description check. See [Concepts](/docs/concepts#target-types) for why.
 
 ## Honesty over false confidence
 
@@ -61,10 +62,10 @@ into saying "clean" is worse than no scanner at all:
 
 - **Incomplete scans are never reported as clean.** If Docker isn't running, a scanner binary is
   missing, or the network is unreachable, the affected category is marked unreliable and the
-  scan is flagged `incomplete` everywhere — CLI exit code, hook decision, and dashboard badge.
+  scan is flagged `incomplete` everywhere: CLI exit code, hook decision, and dashboard badge.
   An empty findings list from a category that never ran is not the same thing as a clean one.
 - **Not everything is tested.** Prompt injection via a live tool's *runtime responses* (MCP08)
   requires dynamic, adversarial testing against a running server and is out of scope for static
-  scanning — every report says so explicitly rather than silently omitting it.
+  scanning. Every report says so explicitly rather than silently omitting it.
 
 Read more in [Concepts](/docs/concepts).

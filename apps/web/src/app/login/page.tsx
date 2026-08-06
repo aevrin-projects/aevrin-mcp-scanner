@@ -93,7 +93,6 @@ function AuthShell({ children }: { children: React.ReactNode }) {
           <div className="w-full max-w-md">{children}</div>
         </div>
 
-        <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Aevrin</p>
       </div>
 
       {/* Product panel. `overflow-hidden` is what lets the device frame inside

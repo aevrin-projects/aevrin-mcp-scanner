@@ -4,7 +4,7 @@ description: The REST API behind the CLI, hook, and dashboard.
 ---
 
 Base URL: `https://api-production-2617.up.railway.app`. Every endpoint here is what the CLI, the
-hook, and the dashboard's own frontend actually call — nothing hidden behind a separate
+hook, and the dashboard's own frontend actually call. Nothing is hidden behind a separate
 "internal" API.
 
 ## Authentication
@@ -22,7 +22,7 @@ Two schemes, depending on the caller:
   </Tab>
   <Tab value="Bearer token">
     A Supabase session token, sent as a standard bearer token. This is what the web dashboard
-    uses after you sign in — not something you'd typically construct by hand.
+    uses after you sign in, not something you would typically construct by hand.
 
     ```bash
     curl -H "Authorization: Bearer <supabase-access-token>" https://api-production-2617.up.railway.app/scans
@@ -30,7 +30,7 @@ Two schemes, depending on the caller:
   </Tab>
 </Tabs>
 
-A few endpoints (like finding triage) accept **either** — API key or JWT — since both the
+A few endpoints, such as finding triage, accept **either** an API key or a JWT, since both the
 dashboard and `aevrin findings triage` need to call them.
 
 ## Scans
@@ -51,7 +51,7 @@ dashboard and `aevrin findings triage` need to call them.
 | Method & path | Auth | Description |
 |---|---|---|
 | `GET /cli/precheck` | API key | Read-only quota check the CLI calls *before* running a local scan, so a quota-exhausted account fails fast instead of scanning first. |
-| `POST /cli/upload` | API key | Persists a CLI-run scan's result. The score is **recomputed server-side** from the submitted findings — the client-submitted score is never trusted outright. See [Concepts → Self-reported results](/docs/concepts#self-reported-results). |
+| `POST /cli/upload` | API key | Persists a CLI-run scan's result. The score is **recomputed server-side** from the submitted findings, so the client-submitted score is never trusted outright. See [Concepts → Self-reported results](/docs/concepts#self-reported-results). |
 
 ## Hook
 
@@ -59,7 +59,7 @@ dashboard and `aevrin findings triage` need to call them.
 |---|---|---|
 | `POST /hook/cache` | API key | Body-based cached-decision lookup the current hook calls before every install, keeping pasted configuration out of request URLs. Never runs a scan synchronously; triggers a background scan on a cache miss. |
 | `GET /hook/cache` | API key | Backward-compatible URL-query lookup for older hooks. Current clients use `POST`. |
-| `POST /hook/override` | API key | Backs `aevrin hook allow <target>` — grants a 10-minute install-anyway override. |
+| `POST /hook/override` | API key | Backs `aevrin hook allow <target>` and grants a 10-minute install-anyway override. |
 
 ## Findings
 
@@ -95,13 +95,13 @@ and `aevrin hook setup`; applications should prefer manually created API keys fo
 | Method & path | Auth | Description |
 |---|---|---|
 | `GET /api-keys` | JWT | List your API keys (never returns plaintext after creation). |
-| `POST /api-keys` | JWT | Mint a new API key — plaintext shown exactly once. |
+| `POST /api-keys` | JWT | Mint a new API key. The plaintext is shown exactly once. |
 | `DELETE /api-keys/{id}` | JWT | Revoke a key. |
 
 ## Errors
 
 Standard HTTP status codes. `402 Payment Required` specifically means a scan quota is used up
-for the current billing period — the response body always includes `bucket`, `resets_at`, and
+for the current billing period. The response body always includes `bucket`, `resets_at`, and
 `upgrade_url` so a caller can build a real message instead of a bare refusal.
 
 ```json title="402 response shape"

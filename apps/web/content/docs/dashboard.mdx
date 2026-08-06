@@ -4,12 +4,12 @@ description: What's on mcp.aevrin.net and how it stays in sync with the CLI and 
 ---
 
 [mcp.aevrin.net/dashboard](https://mcp.aevrin.net/dashboard) is where every scan lands,
-regardless of where it came from — the CLI, a hook auto-scan, or the dashboard's own "scan a
+regardless of where it came from. The CLI, a hook auto-scan, and the dashboard's own "scan a
 repo" form all write to the same `scans` table and render through the same scan-detail page.
 
 ## Starting a scan from the dashboard
 
-The dashboard can scan a GitHub repo or a pasted MCP config directly — sign in, paste a target,
+The dashboard can scan a GitHub repo or a pasted MCP config directly. Sign in, paste a target,
 and it runs the identical pipeline the CLI runs, server-side, with live stage-by-stage progress
 while it's running.
 
@@ -17,22 +17,22 @@ while it's running.
 
 Every scan page shows:
 
-- **Score and verdict** — see [Concepts → Scoring](/docs/concepts#scoring).
-- **Per-stage results** — cloning, static analysis, secrets, dependencies, tool description
+- **Score and verdict.** See [Concepts → Scoring](/docs/concepts#scoring).
+- **Per-stage results.** Cloning, static analysis, secrets, dependencies, tool description
   check, each with a status icon. A scan flagged **incomplete** shows a destructive-styled
   banner naming exactly which categories couldn't run, and the score is explicitly labeled "not
   a reliable result" instead of a clean verdict.
-- **Findings list** — searchable and filterable by severity and triage status, with each row
+- **Findings list.** Searchable and filterable by severity and triage status, with each row
   linking to a detail page containing the full description, exact file/line, remediation, and
   auditable false-positive workflow.
-- **Coverage notes** — what this scan format doesn't test (currently: MCP08 prompt injection via
+- **Coverage notes.** What this scan format does not test (currently MCP08, prompt injection via
   live tool responses), shown as an explicit note rather than omitted.
 - **A "doesn't look like an MCP server" warning** when the target has no detectable MCP SDK
-  dependency — the findings are still real, but they're general code-security findings, not an
-  MCP-specific risk assessment.
+  dependency. The findings are still real, but they are general code-security findings rather
+  than an MCP-specific risk assessment.
 
 CLI-originated results carry a visible note: **uploaded by the authenticated CLI; score
-recomputed by the API; findings not independently re-scanned** — see [Concepts → Self-reported
+recomputed by the API; findings not independently re-scanned**. See [Concepts → Self-reported
 results](/docs/concepts#self-reported-results) for exactly what that does and doesn't mean.
 
 ## Usage meters
@@ -58,8 +58,8 @@ printable export. See [Triage and False Positives](/docs/triage).
 ## API keys
 
 Settings → API Keys lets you mint additional long-lived keys for automation contexts where
-`aevrin login`'s interactive browser flow isn't practical — CI pipelines, scheduled jobs, and so
-on. These are separate from (and in addition to) the key `aevrin login` and `aevrin hook setup`
+`aevrin login`'s interactive browser flow is not practical, such as CI pipelines and scheduled
+jobs. These are separate from (and in addition to) the key `aevrin login` and `aevrin hook setup`
 store locally on your own machine.
 
 ## Export

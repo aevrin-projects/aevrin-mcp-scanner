@@ -112,9 +112,7 @@ export function SiteFooter() {
           </div>
         </div>
 
-        <div className="mt-12 border-t border-border pt-6 text-xs text-muted-foreground">
-          © {new Date().getFullYear()} Aevrin. All rights reserved.
-        </div>
+        <div className="mt-12 border-t border-border pt-6" />
       </div>
     </footer>
   );

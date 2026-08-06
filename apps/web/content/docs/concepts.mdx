@@ -5,7 +5,7 @@ description: OWASP MCP Top 10, scoring, incomplete scans, target types, and quot
 
 ## OWASP MCP Top 10
 
-Every finding, from every tool, is mapped onto one of ten categories — so a Semgrep result and a
+Every finding, from every tool, is mapped onto one of ten categories, so a Semgrep result and a
 Gitleaks result read the same way, and the same categories appear identically in the CLI, the
 hook, and the dashboard.
 
@@ -23,8 +23,8 @@ hook, and the dashboard.
 | MCP10 | Weak/Missing Audit Logging |
 
 **MCP08 is never tested by a static scan.** It requires dynamic, adversarial testing against a
-server's actual runtime tool responses — out of scope for this version. Every report includes an
-explicit note saying so, rather than silently omitting it: a documented gap, not a clean result.
+server's actual runtime tool responses, which is out of scope for this version. Every report includes an
+explicit note saying so, rather than silently omitting it. It is a documented gap, not a clean result.
 
 ## Scoring
 
@@ -39,23 +39,23 @@ Every scan starts at **100** and loses points per finding, by severity:
 | Info | 0 | 0 |
 
 The cap matters: without it, a large monorepo with many low-severity findings (routine lint-tier
-issues, multiplied across sub-packages) would floor to 0 — "critical risk, do not use" — for the
-same actual risk profile a single-package repo would score as "moderate." Critical stays
-uncapped on purpose: a scan with several genuinely critical findings (multiple live, verified
-secrets, for example) should still be able to floor the score. That's a different failure mode
-than volume alone.
+issues, multiplied across sub-packages) would floor to 0, reading as "critical risk, do not use",
+for the same actual risk profile that a single-package repo would score as "significant risk".
+Critical stays uncapped on purpose: a scan with several genuinely critical findings (multiple
+live, verified secrets, for example) should still be able to floor the score. That is a
+different failure mode than volume alone.
 
 | Score | Verdict |
 |---|---|
-| 90–100 | Clean — no significant issues found |
-| 70–89 | Minor issues — review recommended |
-| 40–69 | Significant risk — do not deploy as-is |
-| 0–39 | Critical risk — do not use this server |
+| 90–100 | Clean, no significant issues found |
+| 70–89 | Minor issues, review recommended |
+| 40–69 | Significant risk, do not deploy as-is |
+| 0–39 | Critical risk, do not use this server |
 
 ## Incomplete scans
 
 A scan category (static analysis, secrets, dependencies) is marked **unreliable** when every
-tool in it fails to execute — not when tools run and find nothing, but when nothing ran at all.
+tool in it fails to execute. Not when tools run and find nothing, but when nothing ran at all.
 Common causes: Docker isn't running, a scanner binary is missing, or the network is unreachable.
 The CLI pins its scanner images and runs them sequentially with a 2 GB per-tool ceiling; Docker
 Desktop should have at least 4 GB available. On Windows it must be using Linux containers and
@@ -72,7 +72,7 @@ everywhere:
 - The **CLI** prints a red warning above the score and exits with code `3`, regardless of
   `--fail-on`.
 - The **hook** blocks the install with a `block_incomplete` decision instead of silently
-  allowing — an empty findings list from a category that never ran is not evidence of safety.
+  allowing. An empty findings list from a category that never ran is not evidence of safety.
 - The **dashboard** shows a destructive-styled banner naming the specific categories that
   couldn't run, and the verdict reads "not a reliable result" instead of a score-based verdict.
 
@@ -82,17 +82,17 @@ just by breaking its own tools isn't trustworthy. An incomplete result is always
 
 ## Self-reported results
 
-The CLI runs every scanner **on your own machine** and reports the result to Aevrin's backend —
-Aevrin doesn't re-run the scan server-side (that's not feasible for a local filesystem path, and
+The CLI runs every scanner **on your own machine** and reports the result to Aevrin's backend.
+Aevrin does not re-run the scan server-side (that is not feasible for a local filesystem path, and
 would be redundant for a public repo). This has one real security implication worth being
 explicit about: **the score is independently verified, the findings list is not.**
 
 - **Score**: recomputed server-side from the findings you submit, using the exact same formula
-  the CLI used. A hand-crafted upload can't claim a better score than its own findings justify —
+  the CLI used. A hand-crafted upload cannot claim a better score than its own findings justify:
   the client-submitted score is logged but never trusted for storage.
 - **Findings**: not independently re-verified. A valid API key can, in principle, submit
   fabricated or incomplete findings. This is an inherent limitation of any tool that runs
-  locally and reports centrally — the same shape as, for example, a CI badge driven by a
+  locally and reports centrally, the same shape as, for example, a CI badge driven by a
   self-reported test result. It's also why every scan on the dashboard is labeled *"self-reported
   by the scanning client, not independently re-verified by Aevrin"* rather than presented as an
   unconditional guarantee.
@@ -106,26 +106,26 @@ stated scope, not a cryptographic attestation.
 |---|---|---|
 | GitHub repo | A `github.com` URL | Full pipeline: clone, static analysis, secrets, dependencies, tool description check |
 | Local path | A directory on your machine (CLI only) | Same as above, minus cloning |
-| Live server URL | A running MCP server's URL | Tool description check only — nothing to clone or scan statically |
+| Live server URL | A running MCP server's URL | Tool description check only, since there is nothing to clone or scan statically |
 | Pasted config | A `{"mcpServers": {...}}` JSON blob | Same as a live server URL, per declared server |
 
 For repo and local-path targets, Aevrin also checks whether the target actually depends on an
 MCP SDK (`@modelcontextprotocol/sdk`, `fastmcp`, the `mcp` PyPI package, etc.) before treating
-findings as an MCP-specific risk assessment. If it doesn't, the report says so explicitly — the
+findings as an MCP-specific risk assessment. If it does not, the report says so explicitly. The
 findings are still real code-security findings, just not MCP-specific ones.
 
 ## Quota and tiers
 
 Quota resets on a **rolling monthly window from your signup date**, not the calendar month, and
-is tracked independently across three buckets — CLI, hook, and dashboard scans each have their
+is tracked independently across three buckets. CLI, hook, and dashboard scans each have their
 own limit:
 
 | Tier | CLI scans/mo | Hook scans/mo | Dashboard scans/mo | History retention | PDF export | Auto-fix PRs/mo |
 |---|---|---|---|---|---|---|
-| Free | 5 | 2 | 5 | 7 days | No | — |
-| Hobby | 50 | 20 | 50 | 90 days | Yes | — |
+| Free | 5 | 2 | 5 | 7 days | No | None |
+| Hobby | 50 | 20 | 50 | 90 days | Yes | None |
 | Pro | 200 | 100 | 200 | 1 year | Yes | 15 |
 | Team | Usage-based | Usage-based | Usage-based | Unlimited | Yes | 15 per seat |
 
 Exceeding a bucket's limit returns a two-part message everywhere it can happen (CLI, hook,
-dashboard): what happened, when it resets, and where to upgrade — never a bare refusal.
+dashboard): what happened, when it resets, and where to upgrade. Never a bare refusal.
