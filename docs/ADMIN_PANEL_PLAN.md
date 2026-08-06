@@ -2,7 +2,7 @@
 
 **Source prompt:** `AEVRIN_ADMIN_PANEL_PROMPT.md`
 **Started:** 2026-08-06
-**Status:** Phase A1
+**Status:** A1–A3 done + admin API. Next: admin UI (A4 frontend).
 
 This file is the resumable source of truth for the admin build. If a session
 ends mid-work, read this before touching code.
@@ -64,7 +64,7 @@ This shapes the whole build:
 
 ## 2. Phases
 
-### ⬜ Phase A1 — Schema
+### ✅ Phase A1 — Schema (DONE)
 - `admin_audit_log` — append-only; actor, action, target, timestamp, IP,
   reason, metadata. No UPDATE/DELETE grant for the app role.
 - `accounts.status` — `active | disabled | blocked` + `status_reason`,
@@ -77,17 +77,30 @@ This shapes the whole build:
   per page load).
 - Fix the `accounts.tier` CHECK to include `'pro'`.
 
-### ⬜ Phase A2 — Admin auth
+### ✅ Phase A2 — Admin auth (DONE, backend)
 Allowlist by user ID from env, TOTP enrolment + verification, 30-minute idle
 session, sudo re-prompt before destructive actions, failed-attempt logging.
 
-### ⬜ Phase A3 — Account status enforcement
+### ✅ Phase A3 — Account status enforcement (DONE)
 The check that does not exist today. Must cover: web session (proxy), API JWT
 path, API key path (CLI + hook). Evidence required: a disabled account's CLI
 token stops working mid-session, not at next login.
 
-### ⬜ Phase A4 — User management
-Table + detail + disable/block/plan/overrides/reset-usage/password-reset.
+### 🔄 Phase A4 — User management (API DONE, UI PENDING)
+13 endpoints live under `/admin`. UI not started.
+
+**Verified:** the audit log really is append-only — UPDATE and DELETE are both
+refused by trigger even for the service role, tested against the live
+database. TOTP matches all four RFC 6238 vectors. Quota overrides bind at
+`_tier_limit` so they reach every caller.
+
+**Env set on the API service:** `ADMIN_USER_IDS` (both founders),
+`ADMIN_SESSION_IDLE_MINUTES=30`.
+
+**Endpoints:** `GET /admin/session`, `POST /admin/totp/{enrol,verify}`,
+`GET /admin/users`, `GET /admin/users/{id}`,
+`POST /admin/users/{id}/{status,plan,overrides,reset-usage,password-reset}`,
+`DELETE /admin/users/{id}/overrides/{bucket}`, `GET /admin/{audit,login-attempts}`.
 
 ### ⬜ Phase A5 — Impersonation (read-only)
 Banner, audit on entry and exit, auto-expiry, mutations refused.
