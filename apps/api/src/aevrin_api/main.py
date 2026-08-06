@@ -12,6 +12,7 @@ from .db import SupabaseRestError
 from .quota import QuotaExceeded
 from .routers import (
     account,
+    admin,
     api_keys,
     auth_lookup,
     autofix,
@@ -81,6 +82,7 @@ app.include_router(account.router)
 app.include_router(billing.router)
 app.include_router(auth_lookup.router)
 app.include_router(autofix.router)
+app.include_router(admin.router)
 
 
 @app.get("/health")
