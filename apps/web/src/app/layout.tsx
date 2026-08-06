@@ -5,6 +5,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { LayoutChrome } from "@/components/layout-chrome";
+import { PageTracker } from "@/components/page-tracker";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -53,6 +54,7 @@ export default async function RootLayout({
       <body className="min-h-full bg-background text-foreground">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           <LayoutChrome email={email}>{children}</LayoutChrome>
+          <PageTracker />
           <Toaster />
         </ThemeProvider>
       </body>

@@ -572,6 +572,24 @@ async def send_password_reset(user_id: str, body: PasswordResetIn, admin: AdminD
     return {"sent": True, "email": row["email"]}
 
 
+# ---------------------------------------------------------------- analytics
+
+
+@router.get("/analytics")
+async def analytics(
+    admin: AdminDep,
+    db: DbDep,
+    days: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> dict[str, Any]:
+    """Every metric the panel shows, in one round trip.
+
+    Computed from the product's own Postgres rather than a third-party
+    analytics vendor — at this scale the aggregates are indexed and fast,
+    and it keeps customer behaviour inside our own infrastructure.
+    """
+    return await db.rpc("admin_analytics", {"p_days": days})
+
+
 # ---------------------------------------------------------------- audit log
 
 

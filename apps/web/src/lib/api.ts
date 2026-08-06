@@ -151,6 +151,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ reason }),
     }),
+  adminAnalytics: (days: number) =>
+    request<Record<string, unknown>>(`/admin/analytics?days=${days}`),
   adminAudit: (params: { target?: string; action?: string; limit?: number }) => {
     const search = new URLSearchParams();
     if (params.target) search.set("target", params.target);

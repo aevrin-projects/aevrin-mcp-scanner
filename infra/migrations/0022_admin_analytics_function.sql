@@ -1,0 +1,1 @@
+-- See supabase migration 0022_admin_analytics_function for the full body.

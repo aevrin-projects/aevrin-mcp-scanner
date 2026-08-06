@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { notFound } from "next/navigation";
 import { KeyRound, Loader2, ShieldCheck } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -11,8 +12,9 @@ import { Label } from "@/components/ui/label";
  * The login sequence for the admin panel, and the only way into it.
  *
  * Three states, each a hard gate rather than a hint:
- *   not allowlisted  -> a plain not-found. No mention that an admin panel
- *                       exists, matching the API's own 404-not-403 choice.
+ *   not allowlisted  -> the app's real 404 page, indistinguishable from a
+ *                       route that doesn't exist. Matches the API's own
+ *                       404-not-403 choice.
  *   no TOTP enrolled -> enrolment, with no skip path.
  *   session stale    -> re-verify.
  *
@@ -65,12 +67,10 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   }
 
   if (state.status === "denied") {
-    return (
-      <div className="flex min-h-svh flex-col items-center justify-center gap-2 px-6 text-center">
-        <h1 className="text-2xl font-semibold">404</h1>
-        <p className="text-sm text-muted-foreground">This page could not be found.</p>
-      </div>
-    );
+    // The app's real not-found page, not a hand-rolled lookalike — anyone
+    // who isn't allowlisted should be unable to tell this route exists at
+    // all, which a bespoke 404 screen would give away.
+    notFound();
   }
 
   if (state.status === "enrol") return <Enrol onDone={refresh} />;
