@@ -23,6 +23,15 @@ import httpx
 from .config import Settings
 
 
+class RazorpayApiError(Exception):
+    """Razorpay was reached but refused, or could not be reached at all."""
+
+
+class RazorpayAuthError(RazorpayApiError):
+    """Our own API credentials are not accepted. Always an operator problem,
+    never something the paying user can act on."""
+
+
 class RazorpayUnavailable(Exception):
     pass
 
@@ -36,9 +45,26 @@ class RazorpayClient:
         self._auth = (settings.razorpay_key_id, settings.razorpay_key_secret)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=15, auth=self._auth) as client:
-            resp = await client.request(method, f"https://api.razorpay.com/v1{path}", **kwargs)
-        resp.raise_for_status()
+        try:
+            async with httpx.AsyncClient(timeout=15, auth=self._auth) as client:
+                resp = await client.request(method, f"https://api.razorpay.com/v1{path}", **kwargs)
+        except httpx.HTTPError as exc:
+            raise RazorpayApiError(f"could not reach Razorpay: {exc}") from exc
+
+        if resp.status_code in (401, 403):
+            # Razorpay answers a wrong secret, a revoked key and an unknown
+            # key id with the same opaque "Authentication failed", so the
+            # only honest report is that our credentials no longer work.
+            # This reached a user once as a bare 500 "Internal server error"
+            # after the dashboard keys were regenerated, which said nothing
+            # about where the problem was.
+            raise RazorpayAuthError(
+                f"Razorpay rejected our API credentials ({resp.status_code}). "
+                "RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are wrong, revoked, or from a different mode."
+            )
+        if resp.status_code >= 400:
+            raise RazorpayApiError(f"Razorpay returned {resp.status_code}: {resp.text[:300]}")
+
         result: dict[str, Any] = resp.json() if resp.content else {}
         return result
 

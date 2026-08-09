@@ -77,3 +77,79 @@ async def test_list_payments_includes_failed_and_addon_rows():
     tiers = {p.tier for p in result}
     assert "failed" in statuses
     assert "autofix_addon" in tiers
+
+
+# --- Razorpay credential failures -------------------------------------------
+#
+# Razorpay answers a wrong secret, a revoked key and an unknown key id with
+# the same opaque "Authentication failed". This happened in production after
+# the dashboard keys were regenerated: httpx raised, nothing caught it, and
+# the user saw "Internal server error" with no hint that billing credentials
+# were the cause.
+
+import httpx
+import pytest
+import respx
+
+from aevrin_api.razorpay_client import (
+    RazorpayApiError,
+    RazorpayAuthError,
+    RazorpayClient,
+)
+
+_ORDERS = "https://api.razorpay.com/v1/orders"
+
+
+def _client():
+    from aevrin_api.config import Settings
+
+    return RazorpayClient(
+        Settings(
+            supabase_url="http://x",
+            supabase_service_role_key="x",
+            upstash_redis_rest_url="http://x",
+            upstash_redis_rest_token="x",
+            razorpay_key_id="rzp_test_x",
+            razorpay_key_secret="s",
+        )
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", [401, 403])
+async def test_rejected_credentials_raise_auth_error_not_a_raw_httpx_error(code):
+    with respx.mock:
+        respx.post(_ORDERS).mock(
+            return_value=httpx.Response(code, json={"error": {"description": "Authentication failed"}})
+        )
+        with pytest.raises(RazorpayAuthError) as excinfo:
+            await _client().create_order(amount_paise=700, currency="USD", receipt="r", notes={})
+
+    # The message has to name the variables an operator would go and fix.
+    assert "RAZORPAY_KEY_ID" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_other_razorpay_errors_are_distinguishable_from_auth_failures():
+    """Only one of these is worth retrying; bad credentials fail forever."""
+    with respx.mock:
+        respx.post(_ORDERS).mock(return_value=httpx.Response(500, text="upstream boom"))
+        with pytest.raises(RazorpayApiError) as excinfo:
+            await _client().create_order(amount_paise=700, currency="USD", receipt="r", notes={})
+    assert not isinstance(excinfo.value, RazorpayAuthError)
+
+
+@pytest.mark.asyncio
+async def test_network_failure_is_wrapped_too():
+    with respx.mock:
+        respx.post(_ORDERS).mock(side_effect=httpx.ConnectError("dns"))
+        with pytest.raises(RazorpayApiError):
+            await _client().create_order(amount_paise=700, currency="USD", receipt="r", notes={})
+
+
+@pytest.mark.asyncio
+async def test_a_successful_order_still_returns_the_raw_object():
+    with respx.mock:
+        respx.post(_ORDERS).mock(return_value=httpx.Response(200, json={"id": "order_abc", "amount": 700}))
+        order = await _client().create_order(amount_paise=700, currency="USD", receipt="r", notes={})
+    assert order["id"] == "order_abc"

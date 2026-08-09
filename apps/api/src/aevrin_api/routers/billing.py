@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 
@@ -24,7 +24,13 @@ from ..crypto import ByokUnavailable, encrypt_byok_key
 from ..db import SupabaseRest
 from ..deps import get_current_user, get_db
 from ..quota import effective_tier, get_or_create_account
-from ..razorpay_client import RazorpayClient, RazorpayUnavailable, verify_webhook_signature
+from ..razorpay_client import (
+    RazorpayApiError,
+    RazorpayAuthError,
+    RazorpayClient,
+    RazorpayUnavailable,
+    verify_webhook_signature,
+)
 from ..schemas import (
     ByokKeyRequest,
     ByokStatusResponse,
@@ -90,6 +96,34 @@ def _paid_until(existing: str | None, cycle: str) -> datetime:
     return base.replace(month=base.month + 1)
 
 
+async def _create_order_or_503(client: RazorpayClient, **kwargs: Any) -> dict[str, Any]:
+    """Turns a Razorpay outage or a bad key into a clear 503 instead of an
+    unhandled exception.
+
+    A raw httpx error escaping here surfaced to a real user as "Internal
+    server error" with a stack trace in the logs and nothing linking it to
+    billing credentials. Distinguishing the two cases matters because only
+    one is worth retrying: bad credentials will fail identically forever
+    until someone changes an environment variable.
+    """
+    try:
+        return await client.create_order(**kwargs)
+    except RazorpayAuthError:
+        logger.exception("billing: Razorpay rejected our API credentials")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            # Deliberately not "log in again": the user's own session is
+            # fine, it is the server's payment credentials that are wrong.
+            detail="Payments are temporarily unavailable. This is on our side and we've been alerted.",
+        ) from None
+    except RazorpayApiError:
+        logger.exception("billing: Razorpay order creation failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Payments are temporarily unavailable. Please try again in a moment.",
+        ) from None
+
+
 @router.post("/checkout", response_model=CheckoutResponse)
 async def create_checkout(
     body: CheckoutRequest,
@@ -108,7 +142,7 @@ async def create_checkout(
     # Razorpay caps receipt at 40 chars — the user_id already travels in
     # `notes` below, so the receipt itself just needs to be unique.
     receipt = f"aevrin_{uuid.uuid4().hex}"
-    order = await client.create_order(
+    order = await _create_order_or_503(client, 
         amount_paise=amount_paise,
         currency=_CURRENCY,
         receipt=receipt,
@@ -160,7 +194,7 @@ async def create_autofix_addon_checkout(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing isn't configured yet.") from exc
 
     receipt = f"aevrin_{uuid.uuid4().hex}"
-    order = await client.create_order(
+    order = await _create_order_or_503(client, 
         amount_paise=_AUTOFIX_ADDON_CENTS,
         currency=_CURRENCY,
         receipt=receipt,
