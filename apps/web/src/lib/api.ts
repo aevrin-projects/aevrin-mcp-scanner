@@ -128,6 +128,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ razorpay_order_id, razorpay_payment_id, razorpay_signature }),
     }),
+  createByokAddonCheckout: () =>
+    request<{ order_id: string; amount_paise: number; currency: string; razorpay_key_id: string }>(
+      "/billing/addon/byok/checkout",
+      { method: "POST" },
+    ),
   createAutofixAddonCheckout: () =>
     request<{ order_id: string; amount_paise: number; currency: string; razorpay_key_id: string }>(
       "/billing/addon/autofix/checkout",

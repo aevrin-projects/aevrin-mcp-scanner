@@ -33,17 +33,38 @@ const PAYMENT_STATUS_LABEL: Record<Payment["status"], string> = {
   failed: "Failed",
 };
 
+/** Locale follows the currency, so an Indian customer sees Rs 1,499 rather
+ *  than a rupee amount grouped the American way. */
 function formatMoney(amountPaise: number, currency: string) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 2 }).format(
-    amountPaise / 100,
-  );
+  return new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2,
+  }).format(amountPaise / 100);
 }
 
+type Pricing = {
+  currency: string;
+  tiers: Record<string, number>;
+  byok_addon_per_month: number;
+  autofix_addon: number;
+};
+
+/**
+ * Everything a price appears in on this page reads from GET /billing/pricing,
+ * in the currency this account is actually charged in.
+ *
+ * These were hardcoded USD strings ("$9 / $7"), which meant a customer who
+ * had just paid Rs 499 was shown dollars on the page confirming what they
+ * bought, next to a payment history row correctly showing rupees. Two
+ * currencies for one purchase reads as a billing error even when the charge
+ * was right.
+ */
 const PLAN_COPY = {
-  free: { price: "$0", billing: "No renewal", body: "Five CLI scans, two hook auto-scans, and five dashboard scans each month." },
-  hobby: { price: "$9 / $7", billing: "One cycle at a time", body: "Monthly / effective annual monthly price, charged in USD with no automatic renewal." },
-  pro: { price: "$34 / $29", billing: "One cycle at a time", body: "Monthly / effective annual monthly price, includes 15 auto-fix PRs/month, charged in USD with no automatic renewal." },
-  team: { price: "$40 / $33 per seat", billing: "One cycle at a time", body: "Monthly / effective annual per-seat price, includes 15 auto-fix PRs/seat/month, charged in USD with no automatic renewal." },
+  free: { billing: "No renewal", body: "Five CLI scans, two hook auto-scans, and five dashboard scans each month." },
+  hobby: { billing: "One cycle at a time", body: "Monthly / effective annual monthly price, with no automatic renewal." },
+  pro: { billing: "One cycle at a time", body: "Monthly / effective annual monthly price, includes 15 auto-fix PRs/month, with no automatic renewal." },
+  team: { billing: "One cycle at a time", body: "Monthly / effective annual per-seat price, includes 15 auto-fix PRs/seat/month, with no automatic renewal." },
 } as const;
 
 // Full labels for every bucket — a `capitalize` utility was previously doing
@@ -56,6 +77,7 @@ export default function BillingPage() {
   // Captured once on mount: reading the clock during render is impure and
   // would make the period bar jitter on every re-render.
   const [now] = useState(() => Date.now());
+  const [pricing, setPricing] = useState<Pricing | null>(null);
 
   useEffect(() => {
     api
@@ -70,9 +92,26 @@ export default function BillingPage() {
       .getPayments()
       .then(setPayments)
       .catch((err) => toast.error(err instanceof ApiError ? err.message : "Could not load billing history."));
+    // Silent on failure: prices simply do not render. A toast about pricing
+    // on a page that is otherwise working would be noise.
+    api.getPricing().then(setPricing).catch(() => {});
   }, []);
 
   const plan = subscription ? PLAN_COPY[subscription.tier] : null;
+
+  /** Monthly / effective-annual-monthly for the current tier, in the
+   *  account's own currency. Null until pricing loads, so nothing renders a
+   *  placeholder price that later changes under the reader. */
+  const planPrice = (() => {
+    if (!subscription || !pricing) return null;
+    const tier = subscription.tier;
+    if (tier === "free") return formatMoney(0, pricing.currency);
+    const monthly = pricing.tiers[`${tier}_monthly`];
+    const annual = pricing.tiers[`${tier}_annual`];
+    if (monthly === undefined || annual === undefined) return null;
+    const suffix = tier === "team" ? " per seat" : "";
+    return `${formatMoney(monthly, pricing.currency)} / ${formatMoney(Math.round(annual / 12), pricing.currency)}${suffix}`;
+  })();
   const expired = subscription?.tier !== "free" && subscription?.effective_tier === "free";
 
   // Earliest bucket reset — the only period a Free account actually has.
@@ -132,7 +171,7 @@ export default function BillingPage() {
                     <h2 className="text-3xl font-semibold tracking-tight">
                       {subscription.effective_tier.charAt(0).toUpperCase() + subscription.effective_tier.slice(1)}
                     </h2>
-                    <span className="text-lg text-muted-foreground">{plan?.price}</span>
+                    <span className="text-lg text-muted-foreground">{planPrice}</span>
                     {expired ? (
                       <Badge variant="outline" className="border-severity-high/40 bg-severity-high/10 text-severity-high">
                         Period ended
@@ -283,7 +322,7 @@ export default function BillingPage() {
           requires scrolling past invoices is effectively invisible. Shown to
           every tier — hiding them from Free meant nobody could discover they
           exist. */}
-      {subscription ? <AutofixSection tier={subscription.effective_tier} /> : null}
+      {subscription ? <AutofixSection tier={subscription.effective_tier} pricing={pricing} /> : null}
 
       <SectionCard
         title="Billing history"
@@ -475,11 +514,23 @@ function AddOnCard({
   );
 }
 
-function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
+function AutofixSection({
+  tier,
+  pricing,
+}: {
+  tier: Subscription["effective_tier"];
+  pricing: Pricing | null;
+}) {
   const [status, setStatus] = useState<{ connected: boolean; account_login: string | null } | null>(null);
   const [byok, setByok] = useState<{ enabled: boolean; provider: string | null; has_key: boolean } | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [buyingAddon, setBuyingAddon] = useState(false);
+  const [buyingByok, setBuyingByok] = useState(false);
+
+  // Em dash while pricing loads rather than a USD guess that changes to
+  // rupees a moment later.
+  const autofixPrice = pricing ? formatMoney(pricing.autofix_addon, pricing.currency) : "—";
+  const byokPrice = pricing ? formatMoney(pricing.byok_addon_per_month, pricing.currency) : "—";
 
   // Add-ons are top-ups on an existing subscription, never sold standalone.
   const isPaid = tier === "pro" || tier === "team";
@@ -526,8 +577,15 @@ function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
     }
   }
 
-  async function buyAddon() {
-    setBuyingAddon(true);
+  /** Shared by both add-on purchases: the only differences were which
+   *  endpoint to call and what to say afterwards. */
+  async function runAddonCheckout(
+    createOrder: () => Promise<{ order_id: string; amount_paise: number; currency: string; razorpay_key_id: string }>,
+    description: string,
+    successMessage: string,
+    setBusy: (busy: boolean) => void,
+  ) {
+    setBusy(true);
     try {
       // Read straight from the session rather than holding it in state: this
       // runs once per purchase, and a stale email on a receipt is worse than
@@ -537,7 +595,7 @@ function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
       } = await createClient().auth.getSession();
       const customerEmail = session?.user.email ?? "";
 
-      const { order_id, amount_paise, currency, razorpay_key_id } = await api.createAutofixAddonCheckout();
+      const { order_id, amount_paise, currency, razorpay_key_id } = await createOrder();
       const script = document.createElement("script");
       script.src = "https://checkout.razorpay.com/v1/checkout.js";
       await new Promise<void>((resolve, reject) => {
@@ -554,7 +612,7 @@ function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
         amount: amount_paise,
         currency,
         name: "Aevrin",
-        description: "+10 auto-fix PRs",
+        description,
         // See the pricing page: without an address here Razorpay has
         // nowhere to send the payment receipt.
         prefill: { email: customerEmail },
@@ -563,7 +621,11 @@ function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
           const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = resp as RazorpaySuccess;
           try {
             await api.verifyPayment(razorpay_order_id, razorpay_payment_id, razorpay_signature);
-            toast.success("+10 auto-fix PRs added to this billing period.");
+            toast.success(successMessage);
+            // Re-read rather than assume: the add-on state shown on this
+            // card comes from the server, and guessing it here would show
+            // "Active" for a grant that failed to apply.
+            api.getByokStatus().then(setByok).catch(() => {});
           } catch (err) {
             toast.error(err instanceof ApiError ? err.message : "Payment succeeded but activation failed — contact support.");
           }
@@ -574,9 +636,25 @@ function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not start checkout.");
     } finally {
-      setBuyingAddon(false);
+      setBusy(false);
     }
   }
+
+  const buyAutofixAddon = () =>
+    void runAddonCheckout(
+      api.createAutofixAddonCheckout,
+      "+10 auto-fix PRs",
+      "+10 auto-fix PRs added to this billing period.",
+      setBuyingAddon,
+    );
+
+  const buyByokAddon = () =>
+    void runAddonCheckout(
+      api.createByokAddonCheckout,
+      "Bring your own API key",
+      "Bring-your-own-key is active. Add your provider key in API keys.",
+      setBuyingByok,
+    );
 
   return (
     <SectionCard
@@ -587,7 +665,7 @@ function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
         <AddOnCard
           index={0}
           title="Auto-fix pull requests"
-          price="$4"
+          price={autofixPrice}
           unit="/ 10 PRs"
           body="Tops up your monthly Fix It allowance when a busy week runs it down."
           bullets={["Cumulative — they stack on your plan's allowance", "Never expire at the end of the period", "One-time charge, no subscription change"]}
@@ -596,7 +674,7 @@ function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
           state={isPaid ? undefined : { label: "Requires Pro", tone: "muted" }}
           action={
             isPaid ? (
-              <Button disabled={buyingAddon} onClick={() => void buyAddon()}>
+              <Button disabled={buyingAddon} onClick={buyAutofixAddon}>
                 {buyingAddon ? "Please wait…" : "Buy +10 PRs"}
               </Button>
             ) : (
@@ -610,7 +688,7 @@ function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
         <AddOnCard
           index={1}
           title="Bring your own API key"
-          price="$3"
+          price={byokPrice}
           unit="/ month"
           body="Pay Aevrin a flat platform fee and your model provider directly for tokens."
           bullets={["Supply your own model provider key", "Scan limits and features stay identical", "Revoke or rotate the key at any time"]}
@@ -622,9 +700,17 @@ function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
               <Button variant="outline" nativeButton={false} render={<Link href="/settings/api-keys" />}>
                 {byok.has_key ? "Manage key" : "Add key"}
               </Button>
-            ) : (
+            ) : tier === "free" ? (
+              // BYOK needs an active paid plan, so there is genuinely
+              // nothing to buy here yet.
               <Button variant="outline" nativeButton={false} render={<Link href="/pricing" />}>
-                Add at checkout
+                Requires a paid plan
+              </Button>
+            ) : (
+              // Previously this bounced to /pricing, which meant buying
+              // another whole plan cycle just to add a $3 flag.
+              <Button variant="outline" disabled={buyingByok} onClick={buyByokAddon}>
+                {buyingByok ? "Please wait…" : "Add for " + byokPrice}
               </Button>
             )
           }
@@ -633,9 +719,9 @@ function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
         <AddOnCard
           index={2}
           title="Extra scan credits"
-          price="$4"
+          price="—"
           unit="/ +25 scans"
-          body="Top up CLI, hook, and dashboard scans without changing plan. Pro tops up +100 for $10."
+          body="Top up CLI, hook, and dashboard scans without changing plan."
           bullets={["Applies across all three scan buckets", "Today: a spent bucket pauses until it resets", "Or upgrade for a permanently higher limit"]}
           accent="var(--chart-4)"
           Icon={Zap}

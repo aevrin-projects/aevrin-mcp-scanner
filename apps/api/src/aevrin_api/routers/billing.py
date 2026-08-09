@@ -316,6 +316,66 @@ async def create_autofix_addon_checkout(
     )
 
 
+@router.post("/addon/byok/checkout", response_model=CheckoutResponse)
+async def create_byok_addon_checkout(
+    request: Request,
+    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> CheckoutResponse:
+    """Buy BYOK on its own, without repurchasing a plan cycle.
+
+    Previously the only way to get BYOK was to set the flag while buying a
+    plan, so anyone already subscribed had to buy another cycle to add it.
+    `accounts.byok_enabled` is a flag with no expiry, so a one-time purchase
+    of the flat platform fee matches how it already behaves.
+    """
+    account = await get_or_create_account(db, user.id)
+    if effective_tier(account) == "free":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bring-your-own-key requires an active paid plan.",
+        )
+    if account.get("byok_enabled"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Bring-your-own-key is already active on this account.",
+        )
+    try:
+        client = RazorpayClient(settings)
+    except RazorpayUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing isn't configured yet.") from exc
+
+    currency = await _resolve_currency(request)
+    addon_amount = _byok_addon_amount("monthly", currency)
+
+    receipt = f"aevrin_{uuid.uuid4().hex}"
+    order = await _create_order_or_503(
+        client,
+        amount_paise=addon_amount,
+        currency=currency,
+        receipt=receipt,
+        notes={"aevrin_user_id": user.id, "tier": "byok_addon"},
+    )
+    await db.insert(
+        "payments",
+        {
+            "user_id": user.id,
+            "tier": "byok_addon",
+            "cycle": "monthly",
+            "seats": 1,
+            "byok": True,
+            "amount_paise": addon_amount,
+            "currency": currency,
+            "razorpay_order_id": order["id"],
+            "status": "created",
+        },
+    )
+    return CheckoutResponse(
+        order_id=order["id"], amount_paise=addon_amount, currency=currency, razorpay_key_id=settings.razorpay_key_id or ""
+    )
+
+
 @router.post("/verify", response_model=VerifyPaymentResponse)
 async def verify_payment(
     body: VerifyPaymentRequest,
@@ -345,7 +405,7 @@ async def verify_payment(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment signature mismatch")
 
     account = await get_or_create_account(db, user.id)
-    is_addon = payment["tier"] == "autofix_addon"
+    is_addon = payment["tier"] in ("autofix_addon", "byok_addon")
     # The add-on tops up auto_fix_bonus_prs, not tier/paid_until — it never
     # extends or changes the subscription itself (V5 prompt §5).
     existing_paid_until = account.get("paid_until")
@@ -371,7 +431,9 @@ async def verify_payment(
         },
     )
     if claimed:
-        if is_addon:
+        if payment["tier"] == "byok_addon":
+            await db.update("accounts", {"user_id": user.id}, {"byok_enabled": True})
+        elif is_addon:
             await db.update(
                 "accounts",
                 {"user_id": user.id},
@@ -434,9 +496,14 @@ async def razorpay_webhook(
         return {"status": "ok"}
 
     account = await get_or_create_account(db, payment["user_id"])
-    is_addon = payment["tier"] == "autofix_addon"
 
-    if is_addon:
+    # Must branch on the exact tier, not on "is this an add-on". Both add-ons
+    # leave tier and paid_until alone but grant entirely different things, and
+    # collapsing them here would have a BYOK purchase silently hand out ten
+    # auto-fix pull requests instead.
+    if payment["tier"] == "byok_addon":
+        await db.update("accounts", {"user_id": payment["user_id"]}, {"byok_enabled": True})
+    elif payment["tier"] == "autofix_addon":
         await db.update(
             "accounts",
             {"user_id": payment["user_id"]},

@@ -198,3 +198,20 @@ async def test_only_the_first_claim_of_a_payment_grants_anything():
 
     # One payment, one grant -- not two months of Pro for one charge.
     assert len(db.account_updates) == 1
+
+
+def test_the_two_addons_grant_different_things():
+    """Both leave tier and paid_until alone, which makes it tempting to
+    handle them together. They must not be: collapsing them had a BYOK
+    purchase hand out ten auto-fix pull requests."""
+    import re
+    from pathlib import Path
+
+    source = Path(__file__).parent.parent / "src/aevrin_api/routers/billing.py"
+    text = source.read_text()
+
+    # Every branch that grants something must test the exact tier rather
+    # than a shared "is this an add-on" flag.
+    grant_blocks = re.findall(r'if payment\["tier"\] == "byok_addon":\s*\n\s*await db\.update\(\s*\n?\s*"accounts",', text)
+    assert len(grant_blocks) == 2, "both /verify and the webhook must grant BYOK explicitly"
+    assert 'if is_addon:\n        await db.update(\n            "accounts",' not in text

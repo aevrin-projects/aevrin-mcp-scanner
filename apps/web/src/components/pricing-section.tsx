@@ -152,7 +152,7 @@ const FAQ = [
   { q: "Is there a student or nonprofit rate?", a: "A separate student or nonprofit rate is not currently offered." },
   {
     q: "What does bring-your-own-key change?",
-    a: `BYOK is a flat +$${BYOK_ADDON_MONTHLY}/month platform fee, not a token markup — it never changes your scan limits or feature access, only who pays for the model calls. Team includes it at no extra charge.`,
+    a: "BYOK is a flat monthly platform fee, not a token markup — it never changes your scan limits or feature access, only who pays for the model calls. It can be added at checkout or later from your account settings. Team includes it at no extra charge.",
   },
   {
     q: "How does Team's per-seat pricing work?",
@@ -160,7 +160,7 @@ const FAQ = [
   },
   {
     q: "What happens when I use all 15 auto-fix PRs in a month?",
-    a: "Fix It pauses until your allowance resets, or you buy +10 more PRs for $4 from your account settings — a one-time, explicit purchase, never an automatic overage charge. The add-on requires an active Pro or Team subscription and is never sold on its own.",
+    a: "Fix It pauses until your allowance resets, or you buy +10 more PRs from your account settings — a one-time, explicit purchase, never an automatic overage charge. The add-on requires an active Pro or Team subscription and is never sold on its own.",
   },
 ];
 
@@ -210,11 +210,11 @@ function formatMoney(value: number, currency: string) {
 export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | "h2" }) {
   const router = useRouter();
   const [annual, setAnnual] = useState(true);
+  // Currency is decided by the server from the caller's location, never
+  // chosen here. The override parameter still exists on the API for support
+  // to use, but presenting it as a switch invited the obvious question of
+  // why a price moves when you press a button.
   const [pricing, setPricing] = useState<Pricing | null>(null);
-  // Null until the first fetch resolves; the server decides, and an explicit
-  // choice is only honoured when it does not lower the price (see
-  // _resolve_currency in the API).
-  const [currencyPref, setCurrencyPref] = useState<string | null>(null);
   const [loadingTier, setLoadingTier] = useState<TierId | null>(null);
   const [teamSeats, setTeamSeats] = useState(TEAM_MIN_SEATS);
   const [byok, setByok] = useState<Record<TierId, boolean>>({ free: false, hobby: false, pro: false, team: false });
@@ -223,7 +223,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
   useEffect(() => {
     let cancelled = false;
     api
-      .getPricing(currencyPref)
+      .getPricing()
       .then((p) => {
         if (!cancelled) setPricing(p);
       })
@@ -235,7 +235,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
     return () => {
       cancelled = true;
     };
-  }, [currencyPref]);
+  }, []);
 
   const currency = pricing?.currency ?? "USD";
   const fmt = (value: number) => formatMoney(value, currency);
@@ -277,7 +277,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
       const { order_id, amount_paise, currency: orderCurrency, razorpay_key_id } = await api.createCheckout(
         tier.id as "hobby" | "pro",
         cycle,
-        { seats: 1, byok: byok[tier.id], currency: currencyPref },
+        { seats: 1, byok: byok[tier.id] },
       );
       await loadRazorpayScript();
       type RazorpaySuccess = { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string };
@@ -338,34 +338,6 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
           </span>
         </div>
       </Reveal>
-
-      {/* Only offered once the server has told us what it detected. An
-          Indian visitor can switch to USD; the reverse is refused server-side
-          because it would halve the price, so it is not offered here either. */}
-      {currency === "INR" || currencyPref === "USD" ? (
-        <div className="mt-4 flex items-center justify-center gap-2 text-sm">
-          <span className="text-muted-foreground">Pay in</span>
-          <div className="inline-flex overflow-hidden rounded-lg border border-border">
-            <button
-              type="button"
-              onClick={() => setCurrencyPref("INR")}
-              className={`px-3 py-1 ${currency === "INR" ? "bg-brand text-brand-foreground" : "text-muted-foreground"}`}
-            >
-              ₹ INR
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrencyPref("USD")}
-              className={`px-3 py-1 ${currency === "USD" ? "bg-brand text-brand-foreground" : "text-muted-foreground"}`}
-            >
-              $ USD
-            </button>
-          </div>
-          {currency === "INR" ? (
-            <span className="text-xs text-muted-foreground">UPI available</span>
-          ) : null}
-        </div>
-      ) : null}
 
       <div className="mt-10 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
         {TIERS.map((tier, i) => {
@@ -536,7 +508,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
       </div>
 
       <p className="mt-8 text-center text-xs leading-5 text-muted-foreground">
-        Prices are charged in US dollars through Razorpay. Taxes may apply. Aevrin pauses new scans at the configured limit and does not create automatic overage charges.
+        Prices are shown and charged in your local currency through Razorpay — rupees in India, US dollars elsewhere. Taxes may apply. Aevrin pauses new scans at the configured limit and does not create automatic overage charges.
       </p>
     </section>
   );
