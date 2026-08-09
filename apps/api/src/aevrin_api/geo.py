@@ -12,6 +12,7 @@ wrong currency on a pricing page, which the manual toggle exists to fix.
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 from typing import Any
 
@@ -20,7 +21,18 @@ from fastapi import Request
 
 logger = logging.getLogger("aevrin.geo")
 
-_LOOKUP_URL = "https://ipapi.co/{ip}/country/"
+# Two providers, tried in order. Both are keyless over HTTPS and both were
+# checked from the API container's own network, not just a laptop: the first
+# provider chosen for this (ipapi.co) turned out to sit behind a Cloudflare
+# challenge that 403s every server-to-server request, so it silently never
+# resolved a single country in production.
+#
+# The fallback exists because a dead provider here does not fail loudly. It
+# fails as "everyone sees USD", which looks exactly like working software.
+_PROVIDERS = (
+    ("https://ipwho.is/{ip}", "json"),
+    ("https://ipinfo.io/{ip}/country", "text"),
+)
 _TIMEOUT_S = 2.0  # a pricing hint is never worth making checkout feel slow
 
 # Bounded so a burst of unique IPs can't grow this without limit. Country by
@@ -63,22 +75,45 @@ async def country_for_request(request: Request) -> str | None:
     if ip in _cache:
         return _cache[ip]
 
-    country: str | None = None
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
-            resp = await client.get(_LOOKUP_URL.format(ip=ip))
-        if resp.status_code == 200:
-            value = resp.text.strip().upper()
-            # The free tier answers errors with a 200 and a prose body, so
-            # anything that is not a two-letter code is treated as unknown.
-            if len(value) == 2 and value.isalpha():
-                country = value
-    except httpx.HTTPError:
-        logger.info("geo: country lookup failed for a checkout, defaulting currency", exc_info=True)
+    country = await _lookup(ip)
 
     if len(_cache) < _CACHE_MAX:
         _cache[ip] = country
     return country
+
+
+def _parse(body: str, shape: str) -> str | None:
+    """A two-letter alphabetic code, or None.
+
+    Free tiers answer errors with HTTP 200 and a prose body or an HTML
+    challenge page, so the shape of the response is checked rather than
+    trusted. Anything else becomes "unknown", which resolves to USD.
+    """
+    if shape == "json":
+        try:
+            value = str(json.loads(body).get("country_code") or "")
+        except (json.JSONDecodeError, AttributeError):
+            return None
+    else:
+        value = body.strip()
+    value = value.strip().upper()
+    return value if len(value) == 2 and value.isalpha() else None
+
+
+async def _lookup(ip: str) -> str | None:
+    async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+        for template, shape in _PROVIDERS:
+            try:
+                resp = await client.get(template.format(ip=ip))
+            except httpx.HTTPError:
+                continue
+            if resp.status_code != 200:
+                continue
+            country = _parse(resp.text, shape)
+            if country:
+                return country
+    logger.info("geo: no provider resolved a country, currency will default")
+    return None
 
 
 def reset_cache() -> None:

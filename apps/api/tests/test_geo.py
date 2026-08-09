@@ -62,8 +62,8 @@ def test_no_address_at_all_is_unknown():
 async def test_a_country_code_is_returned_and_cached():
     req = _request({"x-forwarded-for": "8.8.8.8"})
     with respx.mock:
-        route = respx.get("https://ipapi.co/8.8.8.8/country/").mock(
-            return_value=httpx.Response(200, text="IN\n")
+        route = respx.get("https://ipwho.is/8.8.8.8").mock(
+            return_value=httpx.Response(200, json={"success": True, "country_code": "IN"})
         )
         assert await geo.country_for_request(req) == "IN"
         assert await geo.country_for_request(req) == "IN"
@@ -74,11 +74,14 @@ async def test_a_country_code_is_returned_and_cached():
 
 @pytest.mark.asyncio
 async def test_a_prose_body_is_treated_as_unknown():
-    """The free tier answers errors with HTTP 200 and an explanation, which
-    would otherwise be stored as a country code."""
+    """Free tiers answer errors with HTTP 200 and a prose body or a
+    Cloudflare challenge page, which must not be stored as a country."""
     with respx.mock:
-        respx.get("https://ipapi.co/8.8.8.8/country/").mock(
-            return_value=httpx.Response(200, text="RateLimited. Visit https://ipapi.co/ratelimited/")
+        respx.get("https://ipwho.is/8.8.8.8").mock(
+            return_value=httpx.Response(200, text="<!DOCTYPE html><html>Just a moment...</html>")
+        )
+        respx.get("https://ipinfo.io/8.8.8.8/country").mock(
+            return_value=httpx.Response(200, text="RateLimited. Visit https://example.invalid/")
         )
         assert await geo.country_for_request(_request({"x-forwarded-for": "8.8.8.8"})) is None
 
@@ -88,14 +91,16 @@ async def test_a_network_failure_is_unknown_not_an_exception():
     """Checkout calls this; an exception here would turn a slow third party
     into a failed payment."""
     with respx.mock:
-        respx.get("https://ipapi.co/8.8.8.8/country/").mock(side_effect=httpx.ConnectTimeout("slow"))
+        respx.get("https://ipwho.is/8.8.8.8").mock(side_effect=httpx.ConnectTimeout("slow"))
+        respx.get("https://ipinfo.io/8.8.8.8/country").mock(side_effect=httpx.ConnectTimeout("slow"))
         assert await geo.country_for_request(_request({"x-forwarded-for": "8.8.8.8"})) is None
 
 
 @pytest.mark.asyncio
 async def test_an_http_error_is_unknown():
     with respx.mock:
-        respx.get("https://ipapi.co/8.8.8.8/country/").mock(return_value=httpx.Response(429))
+        respx.get("https://ipwho.is/8.8.8.8").mock(return_value=httpx.Response(429))
+        respx.get("https://ipinfo.io/8.8.8.8/country").mock(return_value=httpx.Response(429))
         assert await geo.country_for_request(_request({"x-forwarded-for": "8.8.8.8"})) is None
 
 
@@ -104,6 +109,27 @@ async def test_the_cache_is_bounded():
     """A burst of unique IPs must not grow this without limit."""
     geo._cache.update({f"9.0.{i // 256}.{i % 256}": "US" for i in range(geo._CACHE_MAX)})
     with respx.mock:
-        respx.get("https://ipapi.co/49.36.1.1/country/").mock(return_value=httpx.Response(200, text="IN"))
+        respx.get("https://ipwho.is/49.36.1.1").mock(return_value=httpx.Response(200, json={"success": True, "country_code": "IN"}))
         assert await geo.country_for_request(_request({"x-forwarded-for": "49.36.1.1"})) == "IN"
     assert geo.cache_snapshot()["entries"] == geo._CACHE_MAX
+
+
+@pytest.mark.asyncio
+async def test_the_second_provider_covers_the_first_one_being_down():
+    """The reason a fallback exists: a dead provider does not fail loudly
+    here, it fails as "everyone sees USD", which looks like working
+    software."""
+    with respx.mock:
+        respx.get("https://ipwho.is/8.8.8.8").mock(return_value=httpx.Response(403, text="<html>Just a moment...</html>"))
+        respx.get("https://ipinfo.io/8.8.8.8/country").mock(return_value=httpx.Response(200, text="IN\n"))
+        assert await geo.country_for_request(_request({"x-forwarded-for": "8.8.8.8"})) == "IN"
+
+
+@pytest.mark.asyncio
+async def test_a_provider_answering_success_false_is_not_trusted():
+    with respx.mock:
+        respx.get("https://ipwho.is/8.8.8.8").mock(
+            return_value=httpx.Response(200, json={"success": False, "message": "invalid"})
+        )
+        respx.get("https://ipinfo.io/8.8.8.8/country").mock(return_value=httpx.Response(404))
+        assert await geo.country_for_request(_request({"x-forwarded-for": "8.8.8.8"})) is None
