@@ -45,6 +45,8 @@ const STATIC_ROUTES = [
   "src/app/status/page.tsx",
   "src/app/terms/page.tsx",
   "src/app/privacy/page.tsx",
+  "src/app/refund/page.tsx",
+  "src/app/contact/page.tsx",
 ] as const;
 
 export default function sitemap(): MetadataRoute.Sitemap {

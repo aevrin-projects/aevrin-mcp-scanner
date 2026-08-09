@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { SiteFooter } from "@/components/site-footer";
 
 export const metadata: Metadata = {
@@ -56,12 +57,13 @@ export default function TermsPage() {
             <h2 className="font-medium text-foreground">Refunds</h2>
             <p className="mt-1">
               Payments are non-refundable except where required by applicable law, including
-              India&apos;s Consumer Protection Act, 2019 and its e-commerce rules. If you believe a
-              charge was made in error, contact{" "}
-              <a href="mailto:support@aevrin.net" className="underline underline-offset-2">
-                support@aevrin.net
-              </a>{" "}
-              and we&apos;ll review it.
+              India&apos;s Consumer Protection Act, 2019 and its e-commerce rules. Duplicate
+              charges, and payments for access that was never delivered, are always refunded. The
+              full terms, including how to request a refund, are in the{" "}
+              <Link href="/refund" className="underline underline-offset-2">
+                Refund and Cancellation Policy
+              </Link>
+              .
             </p>
           </section>
           <section>

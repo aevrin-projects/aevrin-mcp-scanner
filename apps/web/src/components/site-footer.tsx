@@ -95,6 +95,15 @@ export function SiteFooter() {
             <Link href="/privacy" className="text-muted-foreground hover:text-foreground">
               Privacy Policy
             </Link>
+            {/* Both are required to be directly linkable, not buried inside
+                the terms: payment providers check for them during merchant
+                review, and a customer chasing a charge looks in the footer. */}
+            <Link href="/refund" className="text-muted-foreground hover:text-foreground">
+              Refunds &amp; Cancellation
+            </Link>
+            <Link href="/contact" className="text-muted-foreground hover:text-foreground">
+              Contact
+            </Link>
           </div>
 
           <div className="flex flex-col items-start gap-3 text-sm">
