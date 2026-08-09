@@ -335,6 +335,16 @@ class CheckoutRequest(BaseModel):
         return self
 
 
+class PricingResponse(BaseModel):
+    """Amounts are in the currency's smallest unit (cents / paise), the same
+    convention Razorpay orders use, so the page and the charge cannot drift."""
+
+    currency: str
+    tiers: dict[str, int]
+    byok_addon_per_month: int
+    autofix_addon: int
+
+
 class CheckoutResponse(BaseModel):
     order_id: str
     amount_paise: int

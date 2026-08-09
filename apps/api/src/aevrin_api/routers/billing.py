@@ -17,12 +17,13 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 
 from ..config import Settings, get_settings
 from ..crypto import ByokUnavailable, encrypt_byok_key
 from ..db import SupabaseRest
 from ..deps import get_current_user, get_db
+from ..geo import country_for_request
 from ..quota import effective_tier, get_or_create_account
 from ..razorpay_client import (
     RazorpayApiError,
@@ -37,6 +38,7 @@ from ..schemas import (
     CheckoutRequest,
     CheckoutResponse,
     PaymentOut,
+    PricingResponse,
     SubscriptionResponse,
     VerifyPaymentRequest,
     VerifyPaymentResponse,
@@ -74,7 +76,77 @@ _BYOK_ADDON_CENTS_PER_MONTH = 300
 # above is also charged once per order regardless of body.seats.
 _AUTOFIX_ADDON_CENTS = 400
 _AUTOFIX_ADDON_BONUS_PRS = 10
-_CURRENCY = "USD"
+
+# India is priced for its own market rather than converted from USD. A
+# straight FX conversion (~x88) would put Pro at over Rs 2,900/month, which
+# is not a price Indian developers pay for a tool in this category, and the
+# alternative to selling at a local price is not selling.
+#
+# INR also exists for a mechanical reason, not just a commercial one: UPI
+# settles only in INR. A USD order cannot offer UPI at all, so without this
+# table every Indian customer is pushed onto an international card, which
+# many Indian banks block by default.
+#
+# Amounts are in paise, the same smallest-unit convention as the USD table
+# above uses for cents.
+_PRICE_PAISE_INR: dict[tuple[str, str], int] = {
+    ("hobby", "monthly"): 49_900,
+    ("hobby", "annual"): 479_900,
+    ("pro", "monthly"): 149_900,
+    ("pro", "annual"): 1_499_900,
+    ("team", "monthly"): 199_900,
+    ("team", "annual"): 1_999_900,
+}
+_BYOK_ADDON_PAISE_PER_MONTH_INR = 19_900
+_AUTOFIX_ADDON_PAISE_INR = 24_900
+
+_DEFAULT_CURRENCY = "USD"
+_INR = "INR"
+_INR_COUNTRIES = {"IN"}
+
+
+async def _resolve_currency(request: Request, requested: str | None = None) -> str:
+    """Which currency this caller is charged in.
+
+    Derived from the request, never taken from the client. A currency sent
+    up from the browser would let anyone pay Indian prices for a US
+    subscription -- Pro is Rs 1,499 against $34, so the toggle would be worth
+    roughly half the subscription. The toggle on the pricing page changes
+    what is *displayed*; this decides what is *charged*, and the two agree
+    because the page reads its numbers from the same endpoint.
+
+    An unknown country resolves to USD, the higher price. A lookup failure
+    must never be the cheaper outcome, or breaking the lookup becomes a
+    discount.
+    """
+    country = await country_for_request(request)
+    detected = _INR if country in _INR_COUNTRIES else _DEFAULT_CURRENCY
+    if requested is None or requested == detected:
+        return detected
+    # A caller may override, but only upwards. Choosing USD is always
+    # allowed: it is the dearer currency, so nobody gains by it, and it
+    # serves the Indian customer who would rather be billed in dollars.
+    # Choosing INR from outside India is refused, because that direction is
+    # worth roughly half the subscription and cannot be told apart from
+    # someone simply asking for a discount.
+    if requested == _DEFAULT_CURRENCY:
+        return _DEFAULT_CURRENCY
+    return detected
+
+
+def _tier_amount(tier: str, cycle: str, currency: str) -> int:
+    table = _PRICE_PAISE_INR if currency == _INR else _PRICE_CENTS
+    return table[(tier, cycle)]
+
+
+def _byok_addon_amount(cycle: str, currency: str) -> int:
+    months = 12 if cycle == "annual" else 1
+    per_month = _BYOK_ADDON_PAISE_PER_MONTH_INR if currency == _INR else _BYOK_ADDON_CENTS_PER_MONTH
+    return per_month * months
+
+
+def _autofix_addon_amount(currency: str) -> int:
+    return _AUTOFIX_ADDON_PAISE_INR if currency == _INR else _AUTOFIX_ADDON_CENTS
 
 
 def _byok_addon_cents(cycle: str) -> int:
@@ -124,16 +196,37 @@ async def _create_order_or_503(client: RazorpayClient, **kwargs: Any) -> dict[st
         ) from None
 
 
+@router.get("/pricing", response_model=PricingResponse)
+async def get_pricing(request: Request, currency: str | None = None) -> PricingResponse:
+    """The prices to display, in the currency this caller will be charged in.
+
+    Deliberately the same resolution the checkout endpoints use, so the page
+    cannot show one number and the order be created for another. Public: a
+    signed-out visitor reading the pricing page needs it too.
+    """
+    resolved = await _resolve_currency(request, currency)
+    table = _PRICE_PAISE_INR if resolved == _INR else _PRICE_CENTS
+    return PricingResponse(
+        currency=resolved,
+        tiers={f"{tier}_{cycle}": amount for (tier, cycle), amount in table.items()},
+        byok_addon_per_month=_byok_addon_amount("monthly", resolved),
+        autofix_addon=_autofix_addon_amount(resolved),
+    )
+
+
 @router.post("/checkout", response_model=CheckoutResponse)
 async def create_checkout(
     body: CheckoutRequest,
+    request: Request,
     user: Annotated[AuthenticatedUser, Depends(get_current_user)],
     db: Annotated[SupabaseRest, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    currency_preference: Annotated[str | None, Query(alias="currency")] = None,
 ) -> CheckoutResponse:
-    amount_paise = _PRICE_CENTS[(body.tier, body.cycle)] * body.seats
+    currency = await _resolve_currency(request, currency_preference)
+    amount_paise = _tier_amount(body.tier, body.cycle, currency) * body.seats
     if body.byok:
-        amount_paise += _byok_addon_cents(body.cycle)
+        amount_paise += _byok_addon_amount(body.cycle, currency)
     try:
         client = RazorpayClient(settings)
     except RazorpayUnavailable as exc:
@@ -144,7 +237,7 @@ async def create_checkout(
     receipt = f"aevrin_{uuid.uuid4().hex}"
     order = await _create_order_or_503(client, 
         amount_paise=amount_paise,
-        currency=_CURRENCY,
+        currency=currency,
         receipt=receipt,
         notes={
             "aevrin_user_id": user.id,
@@ -165,19 +258,20 @@ async def create_checkout(
             "seats": body.seats,
             "byok": body.byok,
             "amount_paise": amount_paise,
-            "currency": _CURRENCY,
+            "currency": currency,
             "razorpay_order_id": order["id"],
             "status": "created",
         },
     )
 
     return CheckoutResponse(
-        order_id=order["id"], amount_paise=amount_paise, currency=_CURRENCY, razorpay_key_id=settings.razorpay_key_id or ""
+        order_id=order["id"], amount_paise=amount_paise, currency=currency, razorpay_key_id=settings.razorpay_key_id or ""
     )
 
 
 @router.post("/addon/autofix/checkout", response_model=CheckoutResponse)
 async def create_autofix_addon_checkout(
+    request: Request,
     user: Annotated[AuthenticatedUser, Depends(get_current_user)],
     db: Annotated[SupabaseRest, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -193,10 +287,13 @@ async def create_autofix_addon_checkout(
     except RazorpayUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing isn't configured yet.") from exc
 
+    currency = await _resolve_currency(request)
+    addon_amount = _autofix_addon_amount(currency)
+
     receipt = f"aevrin_{uuid.uuid4().hex}"
-    order = await _create_order_or_503(client, 
-        amount_paise=_AUTOFIX_ADDON_CENTS,
-        currency=_CURRENCY,
+    order = await _create_order_or_503(client,
+        amount_paise=addon_amount,
+        currency=currency,
         receipt=receipt,
         notes={"aevrin_user_id": user.id, "tier": "autofix_addon"},
     )
@@ -208,14 +305,14 @@ async def create_autofix_addon_checkout(
             "cycle": "monthly",
             "seats": 1,
             "byok": False,
-            "amount_paise": _AUTOFIX_ADDON_CENTS,
-            "currency": _CURRENCY,
+            "amount_paise": addon_amount,
+            "currency": currency,
             "razorpay_order_id": order["id"],
             "status": "created",
         },
     )
     return CheckoutResponse(
-        order_id=order["id"], amount_paise=_AUTOFIX_ADDON_CENTS, currency=_CURRENCY, razorpay_key_id=settings.razorpay_key_id or ""
+        order_id=order["id"], amount_paise=addon_amount, currency=currency, razorpay_key_id=settings.razorpay_key_id or ""
     )
 
 
@@ -256,17 +353,24 @@ async def verify_payment(
         datetime.fromisoformat(existing_paid_until) if is_addon and existing_paid_until else _paid_until(existing_paid_until, payment["cycle"])
     )
 
-    if payment["status"] != "paid":
-        await db.update(
-            "payments",
-            {"razorpay_order_id": body.razorpay_order_id},
-            {
-                "status": "paid",
-                "razorpay_payment_id": body.razorpay_payment_id,
-                "razorpay_signature": body.razorpay_signature,
-                "verified_at": datetime.now(UTC).isoformat(),
-            },
-        )
+    # Compare-and-set, not check-then-act. Filtering on the *current* status
+    # makes the transition to "paid" atomic in Postgres: of two concurrent
+    # verifies carrying the same valid signature, exactly one matches a row
+    # and the other comes back empty. Reading the status first and then
+    # updating left a window where both passed the check and both extended
+    # the subscription -- one real payment, two months of Pro, or twice the
+    # auto-fix PRs on the add-on.
+    claimed = await db.update(
+        "payments",
+        {"razorpay_order_id": body.razorpay_order_id, "status": "created"},
+        {
+            "status": "paid",
+            "razorpay_payment_id": body.razorpay_payment_id,
+            "razorpay_signature": body.razorpay_signature,
+            "verified_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    if claimed:
         if is_addon:
             await db.update(
                 "accounts",
@@ -276,6 +380,9 @@ async def verify_payment(
         else:
             await db.update("accounts", {"user_id": user.id}, _account_update_for_payment(payment, new_paid_until))
 
+    # A second verify of an already-paid order is not an error: the browser
+    # legitimately retries, and the webhook may have claimed it first. It
+    # just must not grant anything a second time.
     return VerifyPaymentResponse(status="ok", tier=payment["tier"], paid_until=new_paid_until)
 
 
@@ -309,18 +416,26 @@ async def razorpay_webhook(
         return {"status": "ignored"}
 
     rows = await db.select("payments", {"razorpay_order_id": order_id})
-    if not rows or rows[0]["status"] == "paid":
+    if not rows:
         return {"status": "ok"}
     payment = rows[0]
+
+    # Same compare-and-set as /verify, and for a sharper reason: this path
+    # and /verify race each other by design. Razorpay fires the webhook while
+    # the browser is calling /verify for the very same payment, so whichever
+    # arrives second must find the row already claimed and grant nothing.
+    # Reading the status first left both able to pass the check.
+    claimed = await db.update(
+        "payments",
+        {"razorpay_order_id": order_id, "status": "created"},
+        {"status": "paid", "razorpay_payment_id": payment_id, "verified_at": datetime.now(UTC).isoformat()},
+    )
+    if not claimed:
+        return {"status": "ok"}
 
     account = await get_or_create_account(db, payment["user_id"])
     is_addon = payment["tier"] == "autofix_addon"
 
-    await db.update(
-        "payments",
-        {"razorpay_order_id": order_id},
-        {"status": "paid", "razorpay_payment_id": payment_id, "verified_at": datetime.now(UTC).isoformat()},
-    )
     if is_addon:
         await db.update(
             "accounts",

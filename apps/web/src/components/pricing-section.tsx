@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -179,10 +179,30 @@ function loadRazorpayScript(): Promise<void> {
   });
 }
 
-function formatUsd(value: number) {
-  return new Intl.NumberFormat("en-US", {
+/**
+ * Prices come from GET /billing/pricing, never from constants here, because
+ * the same endpoint decides what the order is actually created for. A number
+ * hardcoded in this file could drift from what the card is charged.
+ *
+ * The USD figures in TIERS above remain as the pre-fetch placeholder, so the
+ * page renders immediately instead of flashing empty price slots.
+ */
+type Pricing = {
+  currency: string;
+  tiers: Record<string, number>;
+  byok_addon_per_month: number;
+  autofix_addon: number;
+};
+
+/** Minor units (cents/paise) to a whole-unit amount for display. */
+function majorUnits(minor: number) {
+  return minor / 100;
+}
+
+function formatMoney(value: number, currency: string) {
+  return new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", {
     style: "currency",
-    currency: "USD",
+    currency,
     maximumFractionDigits: 0,
   }).format(value);
 }
@@ -190,13 +210,50 @@ function formatUsd(value: number) {
 export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | "h2" }) {
   const router = useRouter();
   const [annual, setAnnual] = useState(true);
+  const [pricing, setPricing] = useState<Pricing | null>(null);
+  // Null until the first fetch resolves; the server decides, and an explicit
+  // choice is only honoured when it does not lower the price (see
+  // _resolve_currency in the API).
+  const [currencyPref, setCurrencyPref] = useState<string | null>(null);
   const [loadingTier, setLoadingTier] = useState<TierId | null>(null);
   const [teamSeats, setTeamSeats] = useState(TEAM_MIN_SEATS);
   const [byok, setByok] = useState<Record<TierId, boolean>>({ free: false, hobby: false, pro: false, team: false });
   const Heading = headingLevel;
 
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getPricing(currencyPref)
+      .then((p) => {
+        if (!cancelled) setPricing(p);
+      })
+      // A failed fetch leaves the USD placeholders in place, which is the
+      // safe direction: the checkout call re-resolves currency server-side
+      // anyway, so the worst case is a visitor seeing USD who could have
+      // seen INR.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [currencyPref]);
+
+  const currency = pricing?.currency ?? "USD";
+  const fmt = (value: number) => formatMoney(value, currency);
+
+  /** Per-month display price, from the server table when it has arrived. */
+  function priceFor(tier: Tier, forAnnual: boolean): number {
+    if (tier.id === "free") return 0;
+    const key = `${tier.id}_${forAnnual ? "annual" : "monthly"}`;
+    const amount = pricing?.tiers[key];
+    if (amount === undefined) return forAnnual ? tier.annual : tier.monthly;
+    // Annual amounts are the full year; the card shows a monthly equivalent.
+    return forAnnual ? majorUnits(amount) / 12 : majorUnits(amount);
+  }
+
+  const byokMonthly = pricing ? majorUnits(pricing.byok_addon_per_month) : BYOK_ADDON_MONTHLY;
+
   function savingsFor(tier: Tier): number {
-    return (tier.monthly - tier.annual) * 12;
+    return (priceFor(tier, false) - priceFor(tier, true)) * 12;
   }
 
   async function handleCta(tier: Tier) {
@@ -217,10 +274,10 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
     setLoadingTier(tier.id);
     try {
       const cycle = annual ? "annual" : "monthly";
-      const { order_id, amount_paise, currency, razorpay_key_id } = await api.createCheckout(
+      const { order_id, amount_paise, currency: orderCurrency, razorpay_key_id } = await api.createCheckout(
         tier.id as "hobby" | "pro",
         cycle,
-        { seats: 1, byok: byok[tier.id] },
+        { seats: 1, byok: byok[tier.id], currency: currencyPref },
       );
       await loadRazorpayScript();
       type RazorpaySuccess = { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string };
@@ -230,7 +287,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
         key: razorpay_key_id,
         order_id,
         amount: amount_paise,
-        currency,
+        currency: orderCurrency,
         name: "Aevrin",
         description: `${tier.name} — ${cycle}`,
         theme: { color: "#000000" },
@@ -277,11 +334,39 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
         </div>
       </Reveal>
 
+      {/* Only offered once the server has told us what it detected. An
+          Indian visitor can switch to USD; the reverse is refused server-side
+          because it would halve the price, so it is not offered here either. */}
+      {currency === "INR" || currencyPref === "USD" ? (
+        <div className="mt-4 flex items-center justify-center gap-2 text-sm">
+          <span className="text-muted-foreground">Pay in</span>
+          <div className="inline-flex overflow-hidden rounded-lg border border-border">
+            <button
+              type="button"
+              onClick={() => setCurrencyPref("INR")}
+              className={`px-3 py-1 ${currency === "INR" ? "bg-brand text-brand-foreground" : "text-muted-foreground"}`}
+            >
+              ₹ INR
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrencyPref("USD")}
+              className={`px-3 py-1 ${currency === "USD" ? "bg-brand text-brand-foreground" : "text-muted-foreground"}`}
+            >
+              $ USD
+            </button>
+          </div>
+          {currency === "INR" ? (
+            <span className="text-xs text-muted-foreground">UPI available</span>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="mt-10 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
         {TIERS.map((tier, i) => {
-          const price = annual ? tier.annual : tier.monthly;
+          const price = priceFor(tier, annual);
           const seats = tier.id === "team" ? teamSeats : 1;
-          const addonMonthly = tier.id !== "free" && tier.id !== "team" && byok[tier.id] ? BYOK_ADDON_MONTHLY : 0;
+          const addonMonthly = tier.id !== "free" && tier.id !== "team" && byok[tier.id] ? byokMonthly : 0;
           const totalMonthlyEquivalent = price * seats + addonMonthly;
           return (
             <Reveal key={tier.id} delay={i * 80} className="h-full">
@@ -298,20 +383,20 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
                     )}
                   </div>
                   <div className="flex items-baseline gap-1 pt-2">
-                    <span className="text-3xl font-semibold">{formatUsd(totalMonthlyEquivalent)}</span>
+                    <span className="text-3xl font-semibold">{fmt(totalMonthlyEquivalent)}</span>
                     <span className="text-sm text-muted-foreground">
                       /month{tier.id === "team" ? ` (${seats} seats)` : ""}
                     </span>
                   </div>
                   {annual && tier.id !== "free" && (
                     <p className="text-xs text-muted-foreground">
-                      {formatUsd(totalMonthlyEquivalent * 12)} billed today for one year — save{" "}
-                      {formatUsd(savingsFor(tier) * seats)}
+                      {fmt(totalMonthlyEquivalent * 12)} billed today for one year — save{" "}
+                      {fmt(savingsFor(tier) * seats)}
                     </p>
                   )}
                   {!annual && tier.id !== "free" ? (
                     <p className="text-xs text-muted-foreground">
-                      {formatUsd(totalMonthlyEquivalent)} billed today for one month
+                      {fmt(totalMonthlyEquivalent)} billed today for one month
                     </p>
                   ) : null}
                 </CardHeader>
@@ -336,7 +421,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
                   {(tier.id === "hobby" || tier.id === "pro") && (
                     <div className="flex items-center justify-between rounded-lg border border-border/80 px-3 py-2 text-sm">
                       <label htmlFor={`byok-${tier.id}`} className="text-muted-foreground">
-                        Bring your own key (+{formatUsd(BYOK_ADDON_MONTHLY)}/mo)
+                        Bring your own key (+{fmt(byokMonthly)}/mo)
                       </label>
                       <Switch
                         id={`byok-${tier.id}`}

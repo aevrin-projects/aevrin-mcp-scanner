@@ -23,6 +23,25 @@ async function authHeaders(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${session.access_token}` };
 }
 
+/** Same error handling as `request`, without requiring a session.
+ *  `authHeaders` throws when signed out, which is right for account
+ *  endpoints and wrong for anything a visitor can see. */
+async function publicRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...init?.headers },
+    });
+  } catch {
+    throw new ApiError(0, "Could not reach the Aevrin API. Check your connection and try again.");
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, res.statusText);
+  }
+  return (await res.json()) as T;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = await authHeaders();
   let res: Response;
@@ -87,14 +106,22 @@ export const api = {
   createCheckout: (
     tier: "hobby" | "pro" | "team",
     cycle: "monthly" | "annual",
-    options?: { seats?: number; byok?: boolean },
+    // `currency` is a preference, not a decision: the API re-derives it and
+    // only honours this when it does not lower the price.
+    options?: { seats?: number; byok?: boolean; currency?: string | null },
   ) =>
     request<{ order_id: string; amount_paise: number; currency: string; razorpay_key_id: string }>(
-      "/billing/checkout",
+      `/billing/checkout${options?.currency ? `?currency=${encodeURIComponent(options.currency)}` : ""}`,
       {
         method: "POST",
         body: JSON.stringify({ tier, cycle, seats: options?.seats ?? 1, byok: options?.byok ?? false }),
       },
+    ),
+  /** Public: the pricing page has to render for signed-out visitors, so
+   *  this deliberately skips the auth header rather than throwing. */
+  getPricing: (currency?: string | null) =>
+    publicRequest<{ currency: string; tiers: Record<string, number>; byok_addon_per_month: number; autofix_addon: number }>(
+      `/billing/pricing${currency ? `?currency=${encodeURIComponent(currency)}` : ""}`,
     ),
   verifyPayment: (razorpay_order_id: string, razorpay_payment_id: string, razorpay_signature: string) =>
     request<{ status: string; tier: string; paid_until: string }>("/billing/verify", {
