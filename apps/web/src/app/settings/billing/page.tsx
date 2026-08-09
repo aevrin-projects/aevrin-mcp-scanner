@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Check, CreditCard, GitPullRequest, KeyRound, Receipt, Wrench, Zap } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { createClient } from "@/lib/supabase/client";
 import type { AccountUsage, Payment, Subscription } from "@/lib/types";
 import { PageHeader, SectionCard } from "@/components/product-ui";
 import { USAGE_BUCKETS, usageFillColor } from "@/components/usage-bucket-meta";
@@ -528,6 +529,14 @@ function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
   async function buyAddon() {
     setBuyingAddon(true);
     try {
+      // Read straight from the session rather than holding it in state: this
+      // runs once per purchase, and a stale email on a receipt is worse than
+      // one extra call.
+      const {
+        data: { session },
+      } = await createClient().auth.getSession();
+      const customerEmail = session?.user.email ?? "";
+
       const { order_id, amount_paise, currency, razorpay_key_id } = await api.createAutofixAddonCheckout();
       const script = document.createElement("script");
       script.src = "https://checkout.razorpay.com/v1/checkout.js";
@@ -546,6 +555,9 @@ function AutofixSection({ tier }: { tier: Subscription["effective_tier"] }) {
         currency,
         name: "Aevrin",
         description: "+10 auto-fix PRs",
+        // See the pricing page: without an address here Razorpay has
+        // nowhere to send the payment receipt.
+        prefill: { email: customerEmail },
         theme: { color: "#000000" },
         handler: async (resp: unknown) => {
           const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = resp as RazorpaySuccess;

@@ -290,6 +290,11 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
         currency: orderCurrency,
         name: "Aevrin",
         description: `${tier.name} — ${cycle}`,
+        // Razorpay emails the payment receipt to whatever address it is
+        // given here. Without a prefill it has none, so receipts cannot be
+        // sent at all no matter what the dashboard is set to. It also saves
+        // the customer retyping an address we already know.
+        prefill: { email: session.user.email ?? "" },
         theme: { color: "#000000" },
         handler: async (resp: unknown) => {
           const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = resp as RazorpaySuccess;
