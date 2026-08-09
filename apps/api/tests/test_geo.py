@@ -27,32 +27,23 @@ def setup_function() -> None:
     geo.reset_cache()
 
 
-def test_the_rightmost_public_entry_wins():
-    """The documentation ranges (203.0.113.x and friends) are not used here:
-    Python classifies them as private, so client_ip refuses them and they
-    would test nothing."""
-    req = _request({"x-forwarded-for": "10.0.0.1, 10.0.0.2, 8.8.8.8"})
-    assert geo.client_ip(req) == "8.8.8.8"
-
-
-def test_railways_trailing_private_hop_is_skipped():
-    """Railway's chain is `<real client>, <internal hop>` where the hop is a
-    private 100.64.x.x address. Reading the literal last entry resolved
-    nothing and priced every Indian visitor in dollars."""
-    req = _request({"x-forwarded-for": "202.131.143.39, 100.64.0.6"})
+def test_the_real_railway_chain_resolves_to_the_client():
+    """The exact shape production sends: client, Railway's public edge, then
+    a carrier-grade NAT hop. Reading this from the right picked Railway's
+    own edge and priced every visitor in dollars."""
+    req = _request({"x-forwarded-for": "202.131.143.39, 152.233.15.123, 100.64.0.6"})
     assert geo.client_ip(req) == "202.131.143.39"
 
 
-def test_a_client_cannot_spoof_its_country_through_forwarded_for():
-    """The attack this ordering exists to stop: a US visitor prepending an
-    Indian address to buy Pro at Rs 1,499 instead of $34. The forged value
-    sits left of the address the proxy observed, so it loses."""
-    req = _request({"x-forwarded-for": "49.36.1.1, 8.8.8.8, 100.64.0.6"})
-    assert geo.client_ip(req) == "8.8.8.8"
+def test_carrier_grade_nat_is_not_mistaken_for_a_public_address():
+    """100.64.0.0/10 is RFC 6598 space, which Python reports as neither
+    private nor reserved. A hand-rolled check let it through."""
+    req = _request({"x-forwarded-for": "100.64.0.6"})
+    assert geo.client_ip(req) is None
 
 
 def test_garbage_entries_are_skipped_rather_than_ending_the_search():
-    req = _request({"x-forwarded-for": "8.8.8.8, not-an-ip, 100.64.0.6"})
+    req = _request({"x-forwarded-for": "not-an-ip, 8.8.8.8, 100.64.0.6"})
     assert geo.client_ip(req) == "8.8.8.8"
 
 

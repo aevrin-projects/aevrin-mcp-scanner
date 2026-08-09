@@ -42,40 +42,44 @@ _cache: dict[str, str | None] = {}
 
 
 def client_ip(request: Request) -> str | None:
-    """The caller's real IP: the rightmost *public* X-Forwarded-For entry.
+    """The caller's real IP: the leftmost globally-routable X-Forwarded-For
+    entry.
 
-    Not the leftmost, because that is whatever the client claimed, and a
-    client that can name its own country can name its own currency -- Pro is
-    Rs 1,499 against $34, so a forged header would be worth half the
-    subscription.
+    Reading from the *right* is the usual advice, and it is wrong here. On
+    Railway the chain is `<client>, <Railway edge>, <internal hop>`: the
+    trailing hop is 100.64.0.x carrier-grade NAT and the one before it is
+    Railway's own public edge (152.233.x.x). Scanning right-to-left finds
+    Railway's edge, geolocates it to wherever that edge lives, and prices
+    every visitor in dollars. That is not a hypothetical -- it shipped, and
+    the logs showed ipwho.is being asked about 152.233.15.123.
 
-    Not the literal rightmost either. Railway's chain is
-    `<real client>, <internal hop>`, and that trailing hop is a private
-    100.64.x.x address, so reading the last entry resolved nothing at all and
-    priced every Indian visitor in dollars.
+    The leftmost entry is safe here because Railway replaces the inbound
+    header rather than appending to it. Verified against production: a
+    request carrying a forged `X-Forwarded-For: 8.8.8.8` was still resolved
+    from the caller's real address, so a client cannot put a value in this
+    position.
 
-    Scanning right-to-left for the first public address is correct under
-    either platform behaviour. Railway strips inbound X-Forwarded-For (a
-    request carrying a forged 8.8.8.8 was still resolved from the real
-    caller's address), so the only public entry is the true client. Were it
-    ever to append instead, the client's forged value would sit to the *left*
-    of the address the proxy observed, and this still picks the proxy's.
+    That safety is a property of the platform, so it is worth restating what
+    is at stake if the platform ever changes: currency is derived from this,
+    and Pro is Rs 1,499 against $34, so a spoofable header is worth half a
+    subscription. If Aevrin moves off Railway, re-check this before trusting
+    it, and prefer a platform-provided country header (Cloudflare's
+    CF-IPCountry, say) over parsing this at all.
     """
     forwarded = request.headers.get("x-forwarded-for", "")
     candidates = [part.strip() for part in forwarded.split(",") if part.strip()]
     if request.client and request.client.host:
         candidates.append(request.client.host)
 
-    for value in reversed(candidates):
+    for value in candidates:
         try:
             parsed = ipaddress.ip_address(value)
         except ValueError:
             continue
-        # `is_global` rather than a hand-rolled private/loopback/reserved
-        # check. Railway's internal hop is 100.64.0.6, which lives in the
-        # carrier-grade NAT range (RFC 6598) that Python reports as neither
-        # private nor reserved -- so the hand-rolled version let it through
-        # and it won as the rightmost "public" address.
+        # `is_global` rather than a hand-rolled private/loopback check:
+        # 100.64.0.0/10 is carrier-grade NAT (RFC 6598), which Python reports
+        # as neither private nor reserved, so a hand-rolled version lets
+        # Railway's internal hop through.
         if not parsed.is_global:
             continue
         return value
