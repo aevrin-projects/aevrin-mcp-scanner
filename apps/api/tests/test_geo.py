@@ -27,22 +27,32 @@ def setup_function() -> None:
     geo.reset_cache()
 
 
-def test_forwarded_for_takes_the_rightmost_entry():
-    """The rightmost entry is what the trusted proxy observed. The leftmost
-    is whatever the client claimed.
-
-    The documentation ranges (203.0.113.x and friends) are not used here:
-    Python classifies them as private, so client_ip correctly refuses them
-    and they would test nothing.
-    """
+def test_the_rightmost_public_entry_wins():
+    """The documentation ranges (203.0.113.x and friends) are not used here:
+    Python classifies them as private, so client_ip refuses them and they
+    would test nothing."""
     req = _request({"x-forwarded-for": "10.0.0.1, 10.0.0.2, 8.8.8.8"})
     assert geo.client_ip(req) == "8.8.8.8"
 
 
+def test_railways_trailing_private_hop_is_skipped():
+    """Railway's chain is `<real client>, <internal hop>` where the hop is a
+    private 100.64.x.x address. Reading the literal last entry resolved
+    nothing and priced every Indian visitor in dollars."""
+    req = _request({"x-forwarded-for": "202.131.143.39, 100.64.0.6"})
+    assert geo.client_ip(req) == "202.131.143.39"
+
+
 def test_a_client_cannot_spoof_its_country_through_forwarded_for():
     """The attack this ordering exists to stop: a US visitor prepending an
-    Indian address to buy Pro at Rs 1,499 instead of $34."""
-    req = _request({"x-forwarded-for": "49.36.1.1, 8.8.8.8"})
+    Indian address to buy Pro at Rs 1,499 instead of $34. The forged value
+    sits left of the address the proxy observed, so it loses."""
+    req = _request({"x-forwarded-for": "49.36.1.1, 8.8.8.8, 100.64.0.6"})
+    assert geo.client_ip(req) == "8.8.8.8"
+
+
+def test_garbage_entries_are_skipped_rather_than_ending_the_search():
+    req = _request({"x-forwarded-for": "8.8.8.8, not-an-ip, 100.64.0.6"})
     assert geo.client_ip(req) == "8.8.8.8"
 
 
