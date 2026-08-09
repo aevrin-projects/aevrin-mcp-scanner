@@ -42,15 +42,21 @@ _cache: dict[str, str | None] = {}
 
 
 def client_ip(request: Request) -> str | None:
-    """The caller's real IP, honouring the proxy chain Railway sits behind.
+    """The caller's real IP, as observed by the proxy in front of us.
 
-    X-Forwarded-For is client-controlled up to the point our own proxy
-    appends to it, so the *first* entry is a claim, not a fact. It is good
-    enough for choosing a currency and is never used for anything security
-    -bearing.
+    Takes the *rightmost* X-Forwarded-For entry, not the leftmost. The
+    leftmost is whatever the client claimed, and a client that can name its
+    own country can name its own currency -- Pro is Rs 1,499 against $34, so
+    a spoofed header would be worth half the subscription.
+
+    Railway was verified to replace this header rather than append to it, so
+    the leftmost entry happens to be safe there today. Reading from the right
+    does not depend on that: whether the platform replaces the header or
+    appends to it, the last entry is the address the trusted proxy actually
+    saw, and the client cannot push a value into that position.
     """
     forwarded = request.headers.get("x-forwarded-for")
-    candidate = forwarded.split(",")[0].strip() if forwarded else None
+    candidate = forwarded.split(",")[-1].strip() if forwarded else None
     if not candidate and request.client:
         candidate = request.client.host
     if not candidate:
