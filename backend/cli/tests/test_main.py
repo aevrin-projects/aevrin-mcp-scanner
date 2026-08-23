@@ -1,5 +1,6 @@
 from importlib.metadata import version as pkg_version
 
+from helpers import plain
 from typer.testing import CliRunner
 
 from aevrin_cli.main import app
@@ -25,15 +26,15 @@ def test_version_subcommand_still_works():
 def test_help_still_works():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "--version" in result.stdout
+    assert "--version" in plain(result.stdout)
 
 
 def test_no_args_shows_help_not_a_crash():
     result = runner.invoke(app, [])
-    assert "Usage:" in result.stdout
+    assert "Usage:" in plain(result.stdout)
 
 
 def test_false_positive_triage_requires_reason_before_auth_lookup():
     result = runner.invoke(app, ["findings", "triage", "finding-id", "false_positive"])
     assert result.exit_code == 2
-    assert "require --reason" in result.stderr
+    assert "require --reason" in plain(result.stderr)

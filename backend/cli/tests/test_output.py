@@ -10,6 +10,7 @@ from uuid import uuid4
 from aevrin_scanner_core import ScanStatus, StageName, TargetType
 from aevrin_scanner_core.classification.owasp import OwaspMcpCategory
 from aevrin_scanner_core.models import Finding, Location, Scan, Severity, ToolName
+from helpers import plain
 
 from aevrin_cli.rendering import output
 
@@ -80,7 +81,7 @@ def test_terminal_report_hides_excluded_path_findings():
         output.stdout_console.file = buf
         output.print_terminal_report(scan)
         output.stdout_console.file = None
-    text = buf.getvalue()
+    text = plain(buf.getvalue())
     assert "Real finding" in text
     assert "Fixture finding" not in text
     assert "1 additional finding(s) in test/fixture paths excluded" in text
