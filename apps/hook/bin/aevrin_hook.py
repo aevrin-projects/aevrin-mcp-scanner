@@ -1,1 +1,0 @@
-../../../packages/cli/src/aevrin_cli/hook_script.py
