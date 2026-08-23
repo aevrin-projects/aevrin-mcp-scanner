@@ -1,7 +1,7 @@
 name: Publish Python packages
 
 # Triggered by a version tag, e.g. `v0.1.0`. Publishes both PyPI packages via
-# Trusted Publishing (OIDC) — no stored PyPI token. Before the first run,
+# Trusted Publishing (OIDC): no stored PyPI token. Before the first run,
 # register each project as a trusted publisher at
 # https://pypi.org/manage/project/<name>/settings/publishing/ (or, for a
 # not-yet-existing project, https://pypi.org/manage/account/publishing/)
@@ -27,13 +27,13 @@ jobs:
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
 
       - name: Build
-        working-directory: packages/scanner-core
+        working-directory: backend/scanner-core
         run: uv build
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
-          packages-dir: packages/scanner-core/dist
+          packages-dir: backend/scanner-core/dist
           skip-existing: true
 
   publish-cli:
@@ -51,7 +51,7 @@ jobs:
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
 
       - name: Build
-        working-directory: packages/cli
+        working-directory: backend/cli
         # Build in isolation from the workspace so the wheel records a normal
         # PyPI dependency on aevrin-scanner-core, not the local path override
         # in [tool.uv.sources] (that override only applies to editable dev
@@ -61,12 +61,17 @@ jobs:
       - name: Verify pip installation
         run: |
           python -m venv "${RUNNER_TEMP}/aevrin-pip-verify"
-          "${RUNNER_TEMP}/aevrin-pip-verify/bin/python" -m pip install packages/cli/dist/*.whl
+          "${RUNNER_TEMP}/aevrin-pip-verify/bin/python" -m pip install backend/cli/dist/*.whl
           "${RUNNER_TEMP}/aevrin-pip-verify/bin/python" -m pip check
           "${RUNNER_TEMP}/aevrin-pip-verify/bin/aevrin" --version
-          "${RUNNER_TEMP}/aevrin-pip-verify/bin/aevrin" --help >/dev/null
+          # Assert the commands are actually registered, not just that the app
+          # starts. A stray decorator once left `scan` unregistered while
+          # --help still exited 0, so the CLI shipped without its main command.
+          for cmd in scan login logout fix version hook findings; do
+            "${RUNNER_TEMP}/aevrin-pip-verify/bin/aevrin" "$cmd" --help >/dev/null               || { echo "::error::aevrin $cmd is missing from the published wheel"; exit 1; }
+          done
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
-          packages-dir: packages/cli/dist
+          packages-dir: backend/cli/dist
