@@ -14,4 +14,3 @@ exploit details, customer data, or an unpatched vulnerability.
 Include the affected component and version, reproduction steps, impact, and
 any suggested mitigation. The maintainers will acknowledge the report and
 coordinate remediation and disclosure through the private advisory.
-

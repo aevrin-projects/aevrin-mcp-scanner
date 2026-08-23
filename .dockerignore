@@ -1,5 +1,5 @@
-# Keeps the Docker build context small — apps/api's Dockerfile builds from
-# the repo root (needs the sibling packages/scanner-core), so without this
+# Keeps the Docker build context small, backend/api's Dockerfile builds from
+# the repo root (needs the sibling backend/scanner-core), so without this
 # every Docker build would upload node_modules, .venv, .git, etc.
 node_modules/
 **/node_modules/
