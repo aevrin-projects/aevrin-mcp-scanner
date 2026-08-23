@@ -1,0 +1,38 @@
+{
+  "name": "aevrin",
+  "version": "0.1.10",
+  "description": "Install and run the Aevrin MCP Security Scanner CLI through npm.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "aevrin": "bin/aevrin.js"
+  },
+  "files": [
+    "bin",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install-python.js",
+    "test": "node --test test/*.test.js",
+    "prepack": "npm test"
+  },
+  "homepage": "https://mcp.aevrin.net",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aevrin-projects/aevrin-mcp-scanner.git"
+  },
+  "bugs": {
+    "email": "support@aevrin.net"
+  },
+  "keywords": [
+    "mcp",
+    "security",
+    "scanner",
+    "cli"
+  ]
+}
