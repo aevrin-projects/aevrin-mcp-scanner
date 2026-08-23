@@ -1,0 +1,4 @@
+FROM defectdojo/defectdojo-django:3.1.200@sha256:166d484b855105e18c033c1bf4dfc80a0aac9d1d54f54e122a86c9728400fbc3
+USER 1001
+HEALTHCHECK NONE
+ENTRYPOINT ["/entrypoint-uwsgi.sh"]

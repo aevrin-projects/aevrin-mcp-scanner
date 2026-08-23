@@ -1,0 +1,10 @@
+# A runtime `startCommand` override proved unreliable for the
+# defectdojo/defectdojo-django image (verified empirically: every attempt,
+# both plain and shell-wrapped exec form, silently ran the image's default
+# ENTRYPOINT (/entrypoint-uwsgi.sh) instead of the one requested). Baking the
+# entrypoint into the image itself, in a real Dockerfile, sidesteps that
+# platform quirk entirely and is guaranteed to be respected.
+FROM defectdojo/defectdojo-django:3.1.200@sha256:166d484b855105e18c033c1bf4dfc80a0aac9d1d54f54e122a86c9728400fbc3
+USER 1001
+HEALTHCHECK NONE
+ENTRYPOINT ["/entrypoint-initializer.sh"]
