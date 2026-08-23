@@ -1,0 +1,60 @@
+---
+title: Reading Results
+description: Understand score, verdict, stage evidence, findings, and scan status.
+---
+
+Read a result in this order: reliability, stage coverage, open critical/high findings, then score.
+A high score cannot override an incomplete warning.
+
+## Result header
+
+- **Status**: running, completed, incomplete, or failed.
+- **Score**: 0–100, calculated from active findings produced by completed checks.
+- **Source**: dashboard, CLI, or hook.
+- **Target type**: repository, local path, live server, or pasted configuration.
+- **MCP detected**: whether a known MCP SDK or entrypoint was identified in source.
+
+## Stage timeline
+
+The stage list shows cloning, static analysis, secrets, dependencies, tool-description check, and
+aggregation separately. Expand errors before acting on an empty findings list. Scanner stderr is
+redacted and shortened, but retains enough context to distinguish a finding exit code from a tool
+failure, timeout, image problem, or invalid response.
+
+## Findings
+
+Each finding includes severity, source scanner, OWASP MCP category, title, explanation, location,
+remediation, triage status, and verification metadata where available. Open the detail page for
+the complete evidence rather than deciding from the list-row title alone.
+
+## AI review
+
+Every finding that survives deterministic filtering also gets a second opinion from a language
+model, on every plan. The review reads the finding, its location, and the signals already
+computed for it (EPSS probability, CISA KEV listing, dependency scope, cross-scanner
+corroboration, live credential verification), then returns one of three verdicts: **confirmed**,
+**likely false positive**, or **needs review**, with a stated reason.
+
+Two things it deliberately does not do:
+
+- **It never changes your score.** The score is computed from the scanner's severity. A model
+  suggesting a different severity is shown next to the finding as commentary, never applied.
+- **It never removes a finding.** A finding the model calls a likely false positive stays in the
+  report, labeled. You decide, with the reasoning in front of you.
+
+Findings marked as test or fixture paths, and the MCP08 coverage placeholder, are skipped: they
+are already excluded from scoring, so there is nothing for a second opinion to add.
+
+On very large scans the review is capped so a single monorepo cannot consume an unbounded
+budget. When that happens the scan says so explicitly, and the cap spends its budget on the
+highest-severity findings first. Every finding is still reported in full either way; only the
+commentary is limited.
+
+If the review is unavailable for any reason, scans complete normally with the scanner results
+intact. It is additive, never a dependency.
+
+## Comparing scans
+
+Repeat the same target type after remediation. A local-path scan and remote repository scan may
+see different files; a live URL scan has fundamentally less coverage. Resolve or dispute old
+findings with an audit reason instead of assuming a new score silently rewrites history.

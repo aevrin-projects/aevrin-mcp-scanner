@@ -1,0 +1,68 @@
+---
+title: Dashboard
+description: What's on mcp.aevrin.net and how it stays in sync with the CLI and hook.
+---
+
+[mcp.aevrin.net/dashboard](https://mcp.aevrin.net/dashboard) is where every scan lands,
+regardless of where it came from. The CLI, a hook auto-scan, and the dashboard's own "scan a
+repo" form all write to the same `scans` table and render through the same scan-detail page.
+
+## Starting a scan from the dashboard
+
+The dashboard can scan a GitHub repo or a pasted MCP config directly. Sign in, paste a target,
+and it runs the identical pipeline the CLI runs, server-side, with live stage-by-stage progress
+while it's running.
+
+## Reading a scan result
+
+Every scan page shows:
+
+- **Score and verdict.** See [Concepts → Scoring](/docs/concepts#scoring).
+- **Per-stage results.** Cloning, static analysis, secrets, dependencies, tool description
+  check, each with a status icon. A scan flagged **incomplete** shows a destructive-styled
+  banner naming exactly which categories couldn't run, and the score is explicitly labeled "not
+  a reliable result" instead of a clean verdict.
+- **Findings list.** Searchable and filterable by severity and triage status, with each row
+  linking to a detail page containing the full description, exact file/line, remediation, and
+  auditable false-positive workflow.
+- **Coverage notes.** What this scan format does not test (currently MCP08, prompt injection via
+  live tool responses), shown as an explicit note rather than omitted.
+- **A "doesn't look like an MCP server" warning** when the target has no detectable MCP SDK
+  dependency. The findings are still real, but they are general code-security findings rather
+  than an MCP-specific risk assessment.
+
+CLI-originated results carry a visible note: **uploaded by the authenticated CLI; score
+recomputed by the API; findings not independently re-scanned**. See [Concepts → Self-reported
+results](/docs/concepts#self-reported-results) for exactly what that does and doesn't mean.
+
+## Usage meters
+
+The dedicated **Usage** page shows CLI, hook, and dashboard scan counts against your plan's
+monthly limit, resetting on a rolling window from your signup date. Its activity ledger lists the
+latest 50 charged scans with source filters, timestamp, status, score, target type, and a link to
+the full report. Hook cache hits are not listed because they do not consume a scan credit. See
+[Concepts → Quota & tiers](/docs/concepts#quota-and-tiers) for the exact numbers per plan.
+
+## History and deletion
+
+**Scan history** lists dashboard, CLI, and hook-originated reports together. Delete one report
+from its row, or use **Clear history** to remove every owned scan after confirmation. Deletion
+cascades to that scan's stages and findings; it does not refund quota already consumed.
+
+## Finding review
+
+Finding detail supports `open`, `fixed`, and `false_positive` triage. False-positive reports
+require a review reason, and the reason plus triage timestamp remain visible in the report and
+printable export. See [Triage and False Positives](/docs/triage).
+
+## API keys
+
+Settings → API Keys lets you mint additional long-lived keys for automation contexts where
+`aevrin login`'s interactive browser flow is not practical, such as CI pipelines and scheduled
+jobs. These are separate from (and in addition to) the key `aevrin login` and `aevrin hook setup`
+store locally on your own machine.
+
+## Export
+
+Scan details can export an OWASP MCP-mapped HTML report with a browser Print / Save as PDF action.
+The export retains coverage, active and resolved findings, and false-positive triage reasons.

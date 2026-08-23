@@ -1,0 +1,88 @@
+---
+title: Installation
+description: Supported platforms, pip, pipx, npm, upgrades, verification, and removal.
+---
+
+Aevrin supports Python 3.10 or newer on macOS, Linux, and Windows. Install it from PyPI with
+`pip` or `pipx`, or from npm with Node.js 18 or newer.
+
+## Choose a package manager
+
+<Tabs items={['pipx', 'pip', 'npm']}>
+  <Tab value="pipx">
+    ```bash
+    pipx install aevrin
+    ```
+
+    Recommended for Python-based global installation because dependencies stay isolated.
+  </Tab>
+  <Tab value="pip">
+    ```bash
+    python3 -m pip install --upgrade aevrin
+    ```
+
+    This works in a virtual environment or any Python installation that permits package writes.
+  </Tab>
+  <Tab value="npm">
+    ```bash
+    npm install --global aevrin
+    ```
+
+    npm creates its own private Python environment and installs the matching Aevrin release there.
+    It does not alter globally installed Python libraries.
+  </Tab>
+</Tabs>
+
+## Install by platform
+
+<Tabs items={['macOS', 'Linux', 'Windows PowerShell']}>
+  <Tab value="macOS">
+    ```bash
+    brew install pipx
+    pipx ensurepath
+    pipx install aevrin
+    ```
+  </Tab>
+  <Tab value="Linux">
+    ```bash
+    python3 -m pip install --user pipx
+    python3 -m pipx ensurepath
+    pipx install aevrin
+    ```
+  </Tab>
+  <Tab value="Windows PowerShell">
+    ```powershell
+    py -m pip install --user pipx
+    py -m pipx ensurepath
+    pipx install aevrin
+    ```
+  </Tab>
+</Tabs>
+
+Restart the shell after `ensurepath`, then verify the installed command:
+
+```bash
+aevrin --version
+aevrin --help
+```
+
+## Scanner prerequisites
+
+Local source scans run version-pinned scanner containers. Install Docker Desktop or a compatible
+Docker Engine, start it before scanning, and allocate at least 4 GB of memory. Windows must use
+Linux containers and allow bind mounts from its temporary directory. Live URL inspection does
+not need a source checkout, but still needs outbound HTTPS.
+
+## Upgrade, repair, or remove
+
+```bash
+pipx upgrade aevrin
+aevrin --version
+```
+
+Use `pipx reinstall aevrin` to repair an installation. To remove everything cleanly, run
+`aevrin logout`, `aevrin hook logout`, then `pipx uninstall aevrin`.
+
+For pip, repair with `python3 -m pip install --upgrade --force-reinstall --no-cache-dir aevrin`.
+For npm, upgrade or repair with `npm install --global aevrin@latest` and remove with
+`npm uninstall --global aevrin`.

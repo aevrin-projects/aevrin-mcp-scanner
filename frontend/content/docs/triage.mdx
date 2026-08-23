@@ -1,0 +1,27 @@
+---
+title: Triage and False Positives
+description: Review, resolve, and dispute findings with an auditable reason.
+---
+
+Finding status is `open`, `fixed`, or `false_positive`. Triage changes the active risk view
+without deleting original scanner evidence.
+
+## Dashboard workflow
+
+1. Open a scan, then the finding detail.
+2. Verify the file, line, manifest field, scanner, and raw evidence.
+3. Choose **Fixed** after remediation or **False positive** when the rule does not apply.
+4. Enter a specific reason. False-positive submission is rejected without one.
+
+The reason and triage timestamp are stored and included in report exports. False positives are
+excluded from open-risk summaries and hook block decisions, but remain visible for audit.
+
+## CLI workflow
+
+```bash
+aevrin findings triage FINDING_ID false_positive \
+  --reason "Generated fixture contains a non-routable example; no credential is accepted"
+```
+
+Use `open` to reopen a result and `fixed` when the underlying code or dependency changed. Record
+the exact mitigating fact. If the risk is real but accepted, do not label it false positive.

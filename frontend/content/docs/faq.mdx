@@ -1,0 +1,42 @@
+---
+title: Frequently Asked Questions
+description: Short answers about safety, coverage, sync, quotas, and supported workflows.
+---
+
+## Does Aevrin execute the server I submit?
+
+Source scans run security scanners against files. Hosted stdio commands are never executed. Safe
+public HTTPS endpoints may be contacted only for remote MCP tool discovery.
+
+## Why can a scan have a score and still be incomplete?
+
+The score reflects findings from checks that ran. Incomplete means at least one required category
+did not produce reliable evidence, so the score is not a complete risk decision.
+
+## Are CLI results visible in the dashboard?
+
+Yes, by default after authenticated scans. Full findings, stages, source label, score, and report
+link use the same dashboard model. Pass `--no-upload` to keep a run ephemeral.
+
+## Do hook cache checks consume quota?
+
+No. Only a cache miss that starts a new hook auto-scan consumes the hook bucket.
+
+## Can I delete scan history?
+
+Yes. History supports individual deletion and Clear history. Deletion does not refund a scan
+credit already consumed in the current period.
+
+## Can I report a false positive?
+
+Yes. Mark it `false_positive` with an evidence-based reason from the finding page or CLI. The
+evidence stays auditable while the finding stops affecting active-risk and hook decisions.
+
+## Does Aevrin test runtime prompt injection?
+
+Not in this release. Dynamic adversarial testing of tool responses is outside static coverage and
+is explicitly listed as not tested in reports.
+
+## Where can I get help?
+
+Email [support@aevrin.net](mailto:support@aevrin.net).
