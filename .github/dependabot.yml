@@ -10,8 +10,7 @@ updates:
   - package-ecosystem: npm
     directories:
       - "/"
-      - "/apps/web"
-      - "/apps/docs"
+      - "/frontend"
     schedule:
       interval: weekly
     cooldown:
@@ -22,9 +21,9 @@ updates:
 
   - package-ecosystem: pip
     directories:
-      - "/apps/api"
-      - "/packages/cli"
-      - "/packages/scanner-core"
+      - "/backend/api"
+      - "/backend/cli"
+      - "/backend/scanner-core"
     schedule:
       interval: weekly
     cooldown:

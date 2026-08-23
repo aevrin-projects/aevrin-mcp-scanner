@@ -1,0 +1,35 @@
+@import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+
+/* Maps fumadocs' own design tokens straight onto mcp.aevrin.net's existing
+   --background/--foreground/etc. custom properties (defined for :root and
+   .dark in frontend/src/app/globals.css) instead of hardcoding a second,
+   parallel color palette. The docs section then follows whatever theme
+   next-themes has already resolved for the rest of the site, light, dark,
+   or system, with zero duplicated color values to keep in sync. */
+.docs-shell {
+  --color-fd-background: var(--background);
+  --color-fd-foreground: var(--foreground);
+  --color-fd-card: var(--card);
+  --color-fd-card-foreground: var(--card-foreground);
+  --color-fd-popover: var(--popover);
+  --color-fd-popover-foreground: var(--popover-foreground);
+  /* --brand-text, not --brand: fumadocs uses this as a text/accent color
+     (active sidebar item, TOC highlight, link underline), --brand itself
+     is a pale, high-lightness swatch meant for fills, not text, and fails
+     contrast on a light background. See the --brand-text definition in
+     frontend/src/app/globals.css. */
+  --color-fd-primary: var(--brand-text);
+  --color-fd-primary-foreground: var(--brand-foreground);
+  --color-fd-secondary: var(--secondary);
+  --color-fd-secondary-foreground: var(--secondary-foreground);
+  --color-fd-muted: var(--muted);
+  --color-fd-muted-foreground: var(--muted-foreground);
+  --color-fd-accent: var(--accent);
+  --color-fd-accent-foreground: var(--accent-foreground);
+  --color-fd-border: var(--border);
+  --color-fd-ring: var(--ring);
+
+  background-color: var(--color-fd-background);
+}
