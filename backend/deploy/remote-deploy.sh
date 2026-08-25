@@ -8,6 +8,38 @@ set -euo pipefail
 SRC=/home/ec2-user/aevrin
 ENV_FILE=/opt/aevrin/api.env
 
+# Environment values shipped by the deploy, one KEY=VALUE per line, written
+# by the workflow from a repository secret. Applied before anything reads the
+# file so the container below starts with them.
+#
+# This exists because editing /opt/aevrin/api.env over SSH and restarting is
+# how values have gone missing and gone stale: `docker restart` does not
+# re-read --env-file, so a hand-edited value can sit in the file for days
+# while the running container still has the old one. Going through the
+# deploy makes the change and the container recreation the same action.
+#
+# Only ever adds or replaces the keys it is given; nothing is removed, so a
+# value set by hand and not present here survives untouched.
+OVERRIDES=/home/ec2-user/env-overrides
+if [ -f "$OVERRIDES" ]; then
+  applied=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Shape check, not a value check: a stray blank or comment line must not
+    # become a key, and the values themselves are never echoed anywhere.
+    case "$line" in
+      [A-Z]*=*)
+        key="${line%%=*}"
+        sudo sed -i "/^${key}=/d" "$ENV_FILE"
+        echo "$line" | sudo tee -a "$ENV_FILE" >/dev/null
+        applied=$((applied + 1))
+        ;;
+    esac
+  done < "$OVERRIDES"
+  shred -u "$OVERRIDES" 2>/dev/null || rm -f "$OVERRIDES"
+  sudo chmod 600 "$ENV_FILE"
+  echo "env overrides applied: ${applied} key(s)"
+fi
+
 # The API stores two things encrypted with one Fernet key: customer BYOK
 # provider keys, and admin TOTP secrets. It was documented under the BYOK
 # feature and never set here, so /admin could not enrol an authenticator at

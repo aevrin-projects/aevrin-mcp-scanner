@@ -52,6 +52,12 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
           HOST: ${{ secrets.AWS_HOST }}
+          # Optional. KEY=VALUE lines applied to /opt/aevrin/api.env before
+          # the container is recreated, so changing a value and restarting
+          # with it are one action. Editing the file over SSH and running
+          # `docker restart` does not re-read --env-file, which has left
+          # the running container on a stale value more than once.
+          ENV_OVERRIDES: ${{ secrets.AEVRIN_ENV_OVERRIDES }}
         run: |
           install -m 600 /dev/null key.pem
           printf '%s\n' "$SSH_KEY" > key.pem
@@ -63,6 +69,17 @@ jobs:
           # report themselves missing.
           git archive --format=tar.gz --worktree-attributes -o src.tgz HEAD backend
           scp -o StrictHostKeyChecking=accept-new -i key.pem src.tgz "ec2-user@${HOST}:/home/ec2-user/src.tgz"
+
+          # Shipped as a file rather than an argument or an env var over
+          # ssh: a command line is visible in `ps` on the instance, and
+          # SendEnv needs sshd configured to accept it. The remote script
+          # shreds it after applying, and GitHub masks the value here.
+          if [ -n "${ENV_OVERRIDES:-}" ]; then
+            install -m 600 /dev/null env-overrides
+            echo "$ENV_OVERRIDES" > env-overrides
+            scp -o StrictHostKeyChecking=accept-new -i key.pem env-overrides "ec2-user@${HOST}:/home/ec2-user/env-overrides"
+            shred -u env-overrides 2>/dev/null || rm -f env-overrides
+          fi
 
           # The remote half lives in backend/deploy/remote-deploy.sh and is piped
           # in over stdin, so there is no heredoc terminator to indent wrongly.
