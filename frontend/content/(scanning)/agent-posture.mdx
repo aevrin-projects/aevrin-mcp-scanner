@@ -1,0 +1,175 @@
+---
+title: AI agent posture
+description: What Aevrin discovers about the coding agents on a machine, the MCP trust grade, and what never leaves your device.
+---
+
+Aevrin's MCP scanner answers whether a server is safe to install. Agent posture answers the
+question around it: which AI coding agents are on this machine, what each has been allowed to do,
+and what that conclusion rests on.
+
+Configuration is read and nothing else. No agent is started, no command from a configuration file
+is executed, and nothing is uploaded.
+
+## What is supported today
+
+**Claude Code.** Codex, Cursor and Gemini CLI are not yet discovered; when they are, they will
+appear through the same normalised model rather than a parallel one.
+
+Everything below comes from Claude Code's published settings and MCP reference.
+
+| What | Where it is read from |
+|---|---|
+| Managed policy | `/Library/Application Support/ClaudeCode/managed-settings.json` (macOS), `/etc/claude-code/managed-settings.json` (Linux, WSL), `C:\Program Files\ClaudeCode\managed-settings.json` (Windows) |
+| User settings | `~/.claude/settings.json` |
+| Project settings | `<project>/.claude/settings.json` |
+| Local settings | `<project>/.claude/settings.local.json` |
+| MCP servers, user scope | `~/.claude.json` |
+| MCP servers, project scope | `<project>/.mcp.json` |
+| Skills | `~/.claude/skills/<name>/SKILL.md` and `<project>/.claude/skills/<name>/SKILL.md` |
+| Plugin marketplaces | `~/.claude/plugins/` |
+
+Each discovered item keeps the file it came from and its scope, because the same permission means
+different things in different places: one an organisation pushed through managed policy is a
+deliberate decision, and the same rule in a local file is one developer's shortcut.
+
+## Running it
+
+```bash
+aevrin agent scan
+```
+
+Add `--project` to include a specific project's configuration, and `--verbose` to list every file
+that was read:
+
+```bash
+aevrin agent scan --project ./my-repo --verbose
+```
+
+Output names each capability, the level it reaches, and the evidence behind it:
+
+```text
+Claude Code
+
+Capability       Level    Evidence
+Filesystem read  LIMITED  permissions.additionalDirectories: ../shared-ui
+Network          LIMITED  permissions.allow: WebFetch(domain:raw.githubusercontent.com)
+Shell            LIMITED  permissions.allow: Bash(npm run *)  (+11 more)
+
+MCP servers configured
+  github  user scope, stdio
+      npx -y @modelcontextprotocol/server-github
+```
+
+## How permissions are read
+
+**Effective capability is the widest grant across every file, not the winner of precedence.**
+Precedence decides which setting applies; it does not narrow what the agent can reach. An agent
+with `Bash(npm run *)` in project settings and an unrestricted `Bash` in user settings can run
+anything, and is reported that way.
+
+A few consequences worth knowing:
+
+- `Bash(npm run *)` is reported as **limited**, not full shell. It is the most common safe setup
+  there is, and calling it unrestricted would make the report useless.
+- A `deny` rule is recorded as evidence but never removes a capability. It narrows one path while
+  the agent keeps that capability everywhere else.
+- A **hook grants shell** whatever the permissions block says, because it runs a command on the
+  agent's behalf with the agent's privileges.
+- `permissions.defaultMode: bypassPermissions` grants every capability, and is called out.
+- `enableAllProjectMcpServers` marks project servers **auto-approved**, since it removes the one
+  human checkpoint in front of an untrusted server.
+
+## JSON output
+
+```bash
+aevrin agent scan --json
+```
+
+Returns a versioned snapshot. `schema_version` is `"1"`; it is bumped when the shape changes in a
+way a consumer must notice.
+
+```json
+{
+  "agents": [
+    {
+      "schema_version": "1",
+      "agent": { "type": "claude_code", "name": "Claude Code", "version": "...", "install_path": "..." },
+      "device": { "hostname": "...", "platform": "Windows", "platform_version": "10" },
+      "permissions": [{ "rule": "Bash(npm run *)", "effect": "allow", "scope": "user", "source_path": "..." }],
+      "capabilities": [{ "capability": "shell", "level": "limited", "evidence": [] }],
+      "mcp_servers": [], "skills": [], "plugins": [], "hooks": [],
+      "credentials": [{ "kind": "github_token", "present": true, "source": "environment", "location": "GITHUB_TOKEN" }],
+      "coverage": { "checked": [], "not_checked": [], "complete": true }
+    }
+  ]
+}
+```
+
+The same machine and configuration produce the same JSON, so two snapshots can be diffed.
+
+## Credentials: presence only
+
+Aevrin records that a credential is **reachable**, never what it is.
+
+```json
+{ "kind": "github_token", "present": true, "source": "environment", "location": "GITHUB_TOKEN" }
+```
+
+The value is never read, never stored and never transmitted. Knowing a GitHub token is within
+reach of an agent that also has shell access is the finding; the token itself adds nothing to it,
+and would turn a posture report into a breach if it leaked.
+
+## Coverage
+
+`coverage` says what was established and what was not. A configuration file that exists but will
+not parse is reported as unreadable, never treated as absent — an unparseable config is not an
+empty one, the same rule the MCP scanner applies to a stage whose tools did not run.
+
+## MCP trust grade
+
+A scan produces a number. The number answers "how many problems does this have"; it does not
+answer the question you have in front of an install prompt, which is whether to let the thing run.
+The grade answers that, and the score stays underneath for the detail.
+
+| Grade | Meaning | Recommended action |
+|---|---|---|
+| **A** | Trusted | Allow |
+| **B** | Generally safe | Allow with caution |
+| **C** | Caution | Require approval |
+| **D** | High risk | Block or isolate |
+
+The recommendation is a recommendation. Aevrin does not enforce it, and does not change any
+configuration on the strength of it.
+
+Grades are derived from the findings a scan already produced — the same scanners, severities and
+OWASP MCP categories — so a grade can never disagree with the scan it came from. It appears on a
+scan of an MCP target:
+
+```text
+MCP trust:  C  Caution   recommended: require approval
+  + 15  1 high-severity finding
+  +  5  1 medium-severity finding
+  +  8  authentication could not be established
+  + 10  reachable over plaintext HTTP
+```
+
+Every letter arrives with the factors that produced it. Two rules override the arithmetic, because
+a weighted total can otherwise average away the one fact that mattered:
+
+- **A critical finding is always D.** No combination of good properties offsets it.
+- **Unauthenticated command execution is always D.** That is remote code execution with a friendlier
+  name.
+
+And one rule protects the top of the scale: **incomplete coverage can never be A**. A is a claim
+that the evidence is good, which requires evidence to exist. The clean-looking part of a scan that
+did not finish is exactly what was not established.
+
+Aevrin's grading is its own. It is not derived from, and does not claim to match, any other
+project's methodology.
+
+## Limitations
+
+- Only Claude Code is discovered today.
+- Discovery reads configuration. An agent's actual runtime behaviour is not observed.
+- MCP servers found on a machine are not automatically scanned; a trust grade requires a scan.
+- Aevrin cannot change configuration on your machine from the dashboard.

@@ -247,3 +247,107 @@ def test_managed_policy_is_read_and_attributed_to_the_organisation(tmp_path, hom
 
     shell = agent.capability(Capability.SHELL)
     assert shell.evidence[0].scope is ConfigScope.MANAGED
+
+
+# ---------------------------------------------------------------- snapshot
+
+
+def test_the_snapshot_is_versioned(home, project, nowhere):
+    """The CLI, the API and the dashboard all read this. A silent shape
+    change is how a report ends up half-empty somewhere downstream."""
+    _write(home / ".claude" / "settings.json", {"permissions": {"allow": ["Read"]}})
+    assert _discover(home, project, nowhere).schema_version == "1"
+
+
+def test_raw_rules_are_kept_beside_the_normalised_capabilities(home, project, nowhere):
+    """Someone changing a permission needs the line they typed and the file
+    it is in, not only the conclusion drawn from it."""
+    _write(
+        home / ".claude" / "settings.json",
+        {"permissions": {"allow": ["Bash(npm run *)"], "deny": ["Read(./.env)"]}},
+    )
+
+    agent = _discover(home, project, nowhere)
+    by_rule = {p.rule: p for p in agent.permissions}
+
+    assert by_rule["Bash(npm run *)"].effect == "allow"
+    assert by_rule["Read(./.env)"].effect == "deny"
+    assert by_rule["Read(./.env)"].scope is ConfigScope.USER
+    assert by_rule["Read(./.env)"].source_path.endswith("settings.json")
+
+
+def test_skills_are_found_in_both_documented_locations(home, project, nowhere):
+    """~/.claude/skills/<name>/SKILL.md and <project>/.claude/skills/..."""
+    for root, name in ((home, "summarize-changes"), (project, "security-check")):
+        manifest = root / ".claude" / "skills" / name / "SKILL.md"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(
+            f"---\nname: {name}\ndescription: does {name}\n---\n\nbody\n", encoding="utf-8"
+        )
+
+    agent = _discover(home, project, nowhere)
+    by_name = {s.name: s for s in agent.skills}
+
+    assert by_name["summarize-changes"].scope is ConfigScope.USER
+    assert by_name["security-check"].scope is ConfigScope.PROJECT
+    assert by_name["security-check"].description == "does security-check"
+
+
+def test_a_skill_directory_without_a_manifest_is_not_a_skill(home, project, nowhere):
+    (home / ".claude" / "skills" / "half-made").mkdir(parents=True)
+    _write(home / ".claude" / "settings.json", {"permissions": {"allow": ["Read"]}})
+
+    assert _discover(home, project, nowhere).skills == []
+
+
+def test_credentials_record_presence_and_never_a_value(home, project, nowhere, monkeypatch):
+    """The absolute rule. Knowing a token is within reach of an agent with
+    shell access is the finding; the token itself only turns a posture report
+    into a breach if it leaks."""
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_thismustneverappearanywhere")
+    _write(home / ".claude" / "settings.json", {"permissions": {"allow": ["Bash"]}})
+
+    agent = _discover(home, project, nowhere)
+    github = next(c for c in agent.credentials if c.kind == "github_token")
+
+    assert github.present is True
+    assert github.source == "environment"
+    assert github.location == "GITHUB_TOKEN"
+    # Serialise the whole snapshot and prove the value is nowhere in it.
+    assert "ghp_thismustneverappearanywhere" not in agent.model_dump_json()
+
+
+def test_an_absent_credential_is_simply_not_listed(home, project, nowhere, monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    _write(home / ".claude" / "settings.json", {"permissions": {"allow": ["Read"]}})
+
+    agent = _discover(home, project, nowhere)
+    assert not [c for c in agent.credentials if c.kind == "github_token"]
+
+
+def test_coverage_names_what_was_not_established(home, project, nowhere):
+    """A thin report must not read as a clean one."""
+    path = home / ".claude" / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{ broken", encoding="utf-8")
+
+    agent = _discover(home, project, nowhere)
+
+    assert agent.coverage.complete is False
+    assert "unreadable_configuration" in agent.coverage.not_checked
+
+
+def test_discovery_is_deterministic(home, project, nowhere):
+    """Same inputs, same JSON. A posture that shifts between runs cannot be
+    diffed, and change detection is the whole point of snapshots."""
+    _write(
+        home / ".claude" / "settings.json",
+        {"permissions": {"allow": ["Bash(ls *)", "Read", "mcp__github__x"]}},
+    )
+    _write(project / ".mcp.json", {"mcpServers": {"b": {"command": "b"}, "a": {"command": "a"}}})
+
+    first = _discover(home, project, nowhere).model_dump_json()
+    second = _discover(home, project, nowhere).model_dump_json()
+
+    assert first == second

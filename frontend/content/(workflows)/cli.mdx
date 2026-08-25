@@ -137,6 +137,24 @@ executed.
 Only for local paths. A GitHub URL or a live MCP server is already reachable from Aevrin, so
 scan those from the dashboard.
 
+## `agent scan`
+
+```bash
+aevrin agent scan
+aevrin agent scan --json
+aevrin agent scan --project ./my-repo --verbose
+```
+
+Reports what the AI coding agents on this machine have been allowed to do: permissions, MCP
+servers by scope, skills, plugins, hooks, and which credentials are within reach. Configuration is
+read and nothing else — no agent is started, nothing from a config file is executed, and nothing
+leaves the machine.
+
+`--json` returns a versioned snapshot (`schema_version` `"1"`) that is stable across runs, so two
+snapshots can be diffed. Credential **values** are never included; only that one is present and
+where. See [AI agent posture](/docs/agent-posture) for what is discovered and how permissions are
+resolved.
+
 ## `findings triage`
 
 ```bash

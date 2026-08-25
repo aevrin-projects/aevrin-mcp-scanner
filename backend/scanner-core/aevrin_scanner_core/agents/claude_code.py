@@ -23,18 +23,27 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shutil
+import socket
 from typing import Any
 
 from .models import (
+    AgentInfo,
     AgentKind,
     Capability,
     ConfigScope,
+    Coverage,
+    CredentialRef,
+    DeviceInfo,
     DiscoveredAgent,
     EffectiveCapability,
     Evidence,
     HookRef,
     Level,
     McpServerRef,
+    PluginRef,
+    RawPermission,
+    SkillRef,
     widest,
 )
 
@@ -189,6 +198,23 @@ def _apply_permissions(
     return mode if isinstance(mode, str) else None
 
 
+def _raw_permissions(
+    settings: dict[str, Any], path: str, scope: ConfigScope
+) -> list[RawPermission]:
+    """The rules exactly as written, kept beside the normalised capabilities
+    they produced. Someone who wants to change a permission needs the line
+    they typed and the file it is in, not the conclusion drawn from it."""
+    permissions = settings.get("permissions")
+    if not isinstance(permissions, dict):
+        return []
+    return [
+        RawPermission(rule=rule, effect=effect, scope=scope, source_path=path)
+        for effect in ("allow", "ask", "deny")
+        for rule in permissions.get(effect, []) or []
+        if isinstance(rule, str)
+    ]
+
+
 def _hooks_from(settings: dict[str, Any], path: str, scope: ConfigScope) -> list[HookRef]:
     """Hooks run a shell command on the agent's behalf. A hook is a shell
     grant regardless of what the permissions block says."""
@@ -244,6 +270,116 @@ def _mcp_servers_from(
     return servers
 
 
+# Environment variables and files whose *presence* tells you what an agent
+# with shell access could reach. The value is never read: knowing a GitHub
+# token is within reach is the finding, and the token itself only turns a
+# posture report into a breach if it leaks.
+_CREDENTIAL_ENV_VARS = {
+    "ANTHROPIC_API_KEY": "anthropic_api_key",
+    "GITHUB_TOKEN": "github_token",
+    "GH_TOKEN": "github_token",
+    "AWS_ACCESS_KEY_ID": "aws_access_key",
+    "AWS_SECRET_ACCESS_KEY": "aws_secret_key",
+    "OPENAI_API_KEY": "openai_api_key",
+    "DATABASE_URL": "database_url",
+}
+
+_CREDENTIAL_FILES = {
+    os.path.join(".aws", "credentials"): "aws_credentials_file",
+    os.path.join(".config", "gh", "hosts.yml"): "github_cli_credentials",
+    os.path.join(".claude", ".credentials.json"): "claude_code_credentials",
+}
+
+
+def _credentials(home: str) -> list[CredentialRef]:
+    found: list[CredentialRef] = []
+    for variable, kind in _CREDENTIAL_ENV_VARS.items():
+        if os.environ.get(variable):
+            found.append(
+                CredentialRef(
+                    kind=kind, present=True, source="environment", location=variable
+                )
+            )
+    for relative, kind in _CREDENTIAL_FILES.items():
+        path = os.path.join(home, relative)
+        if os.path.isfile(path):
+            found.append(CredentialRef(kind=kind, present=True, source="file", location=path))
+    return found
+
+
+def _skills(root: str, scope: ConfigScope) -> list[SkillRef]:
+    """Skills live at <root>/skills/<name>/SKILL.md, per Claude Code's skills
+    documentation. Only the frontmatter name and description are read; the
+    body is prose for the model, not posture."""
+    skills_dir = os.path.join(root, "skills")
+    if not os.path.isdir(skills_dir):
+        return []
+    found: list[SkillRef] = []
+    for name in sorted(os.listdir(skills_dir)):
+        manifest = os.path.join(skills_dir, name, "SKILL.md")
+        if not os.path.isfile(manifest):
+            continue
+        description = None
+        try:
+            with open(manifest, encoding="utf-8") as handle:
+                # Frontmatter only: read the opening block and stop.
+                if handle.readline().strip() == "---":
+                    for line in handle:
+                        if line.strip() == "---":
+                            break
+                        if line.lower().startswith("description:"):
+                            description = line.split(":", 1)[1].strip()
+        except OSError:
+            pass
+        found.append(
+            SkillRef(name=name, scope=scope, source_path=manifest, description=description)
+        )
+    return found
+
+
+def _plugins(home: str) -> list[PluginRef]:
+    """Marketplaces Claude Code knows about, from ~/.claude/plugins."""
+    path = os.path.join(home, ".claude", "plugins", "known_marketplaces.json")
+    parsed, existed = _read_json(path)
+    if not existed or not parsed:
+        return []
+    found: list[PluginRef] = []
+    for name, entry in parsed.items():
+        if not isinstance(entry, dict):
+            continue
+        source = entry.get("source") or {}
+        label = source.get("repo") if isinstance(source, dict) else None
+        found.append(
+            PluginRef(
+                name=str(name),
+                source=str(label or (source.get("source") if isinstance(source, dict) else "unknown")),
+                install_location=entry.get("installLocation")
+                if isinstance(entry.get("installLocation"), str)
+                else None,
+            )
+        )
+    return found
+
+
+def _claude_version(executable: str | None) -> str | None:
+    """`claude --version`, a fixed argv with a short timeout -- not a shell,
+    and not a command taken from configuration. None when it cannot be
+    established, which the coverage block then reports rather than hiding."""
+    if not executable:
+        return None
+    import subprocess  # nosec B404 - fixed argv, no shell
+
+    try:
+        proc = subprocess.run(  # nosec B603
+            [executable, "--version"], capture_output=True, timeout=10, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.decode("utf-8", "replace").strip()[:80] or None
+
+
 def discover_claude_code(
     home: str | None = None,
     project_root: str | None = None,
@@ -287,6 +423,7 @@ def discover_claude_code(
         if mode:
             agent.default_permission_mode = mode
         agent.hooks.extend(_hooks_from(settings, path, scope))
+        agent.permissions.extend(_raw_permissions(settings, path, scope))
         if settings.get("enableAllProjectMcpServers") is True:
             auto_approve_project_mcp = True
 
@@ -319,7 +456,16 @@ def discover_claude_code(
                     )
                 )
 
-    if not saw_any:
+    # Collected before the existence check below, because a skill or a plugin
+    # is Claude Code being present just as much as a settings file is. Reading
+    # them afterwards meant a machine configured only with skills reported no
+    # agent at all.
+    agent.skills = _skills(os.path.join(home, ".claude"), ConfigScope.USER)
+    if project_root:
+        agent.skills += _skills(os.path.join(project_root, ".claude"), ConfigScope.PROJECT)
+    agent.plugins = _plugins(home)
+
+    if not (saw_any or agent.skills or agent.plugins):
         return None
 
     # A hook is a shell command the agent runs, so it grants shell whatever
@@ -350,4 +496,33 @@ def discover_claude_code(
         )
         for server, evidence in sorted(acc.mcp_tool_servers.items())
     ]
+
+    agent.credentials = _credentials(home)
+
+    executable = shutil.which("claude")
+    agent.agent = AgentInfo(
+        type=AgentKind.CLAUDE_CODE,
+        name="Claude Code",
+        version=_claude_version(executable),
+        install_path=executable,
+    )
+    agent.device = DeviceInfo(
+        hostname=socket.gethostname(),
+        platform=platform.system(),
+        platform_version=platform.release() or None,
+    )
+
+    # Says what was established and what was not, so a thin report is never
+    # mistaken for a clean one.
+    checked = ["permissions", "mcp_servers", "hooks", "skills", "plugins", "credential_presence"]
+    not_checked: list[str] = []
+    if agent.agent.version is None:
+        not_checked.append("agent_version")
+    if not project_root:
+        not_checked.append("project_scope_configuration")
+    if agent.unreadable_paths:
+        not_checked.append("unreadable_configuration")
+    agent.coverage = Coverage(
+        checked=checked, not_checked=not_checked, complete=not not_checked
+    )
     return agent

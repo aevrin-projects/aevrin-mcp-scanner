@@ -1,3 +1,9 @@
 {
-  "pages": ["targets", "scanners", "results", "concepts"]
+  "pages": [
+    "targets",
+    "scanners",
+    "results",
+    "concepts",
+    "agent-posture"
+  ]
 }

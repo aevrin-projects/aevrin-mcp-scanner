@@ -14,9 +14,11 @@ from aevrin_scanner_core import (
     ScanStatus,
     Severity,
     StageStatus,
+    TargetType,
     category_label,
     verdict,
 )
+from aevrin_scanner_core.agents.grade import grade_mcp_server
 from rich.console import Console
 from rich.table import Table
 
@@ -30,6 +32,32 @@ _SEVERITY_STYLE: dict[Severity, str] = {
     Severity.LOW: "bold blue",
     Severity.INFO: "dim",
 }
+
+
+_GRADE_STYLE = {"A": "bold green", "B": "green", "C": "bold yellow", "D": "bold red"}
+
+
+def _print_trust_grade(scan: Scan) -> None:
+    """Aevrin MCP trust grade, derived from this scan's own findings.
+
+    Shown with the factors that produced it: a letter nobody can interrogate
+    is an opinion with better typography.
+    """
+    result = grade_mcp_server(
+        findings=scan.findings,
+        scan_score=scan.score,
+        coverage_complete=scan.status != ScanStatus.INCOMPLETE,
+        transport=scan.target if scan.target_type is TargetType.LIVE_MCP_SERVER else None,
+    )
+    style = _GRADE_STYLE.get(result.grade.value, "")
+    stdout_console.print()
+    stdout_console.print(
+        f"[bold]MCP trust:[/bold]  [{style}]{result.grade.value}[/{style}]  {result.label}"
+        f"   [dim]recommended: {result.recommended_action.replace('_', ' ')}[/dim]"
+    )
+    for factor in result.factors:
+        marker = "+" if factor.points > 0 else " "
+        stdout_console.print(f"  [dim]{marker}{factor.points:>3}[/dim]  {factor.reason}")
 
 
 def print_stage_update(name: str, status: str, error: str | None = None) -> None:
@@ -109,6 +137,14 @@ def print_terminal_report(scan: Scan) -> None:
     stdout_console.print(
         "[dim]Self-reported by your local scan, not independently re-verified by Aevrin.[/dim]"
     )
+
+    # The letter answers "should I let this run"; the score above answers "how
+    # many problems does it have". Only shown for a target that is actually an
+    # MCP server -- grading a general codebase as an MCP trust signal would be
+    # a number about the wrong thing.
+    if scan.mcp_detected or scan.target_type in (TargetType.LIVE_MCP_SERVER, TargetType.CONFIG_PASTE):
+        _print_trust_grade(scan)
+
     stdout_console.print()
 
     real_findings = [f for f in scan.findings if not f.not_tested and not f.excluded_path]

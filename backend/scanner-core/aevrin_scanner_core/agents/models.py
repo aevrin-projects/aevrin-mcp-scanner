@@ -127,7 +127,79 @@ class HookRef(BaseModel):
     scope: ConfigScope
 
 
+class RawPermission(BaseModel):
+    """A vendor rule exactly as written, kept alongside the normalised
+    capability it produced. The normalised view is what the product reasons
+    about; this is what the person actually typed, and is what they will look
+    for when they want to change it."""
+
+    rule: str
+    effect: str  # "allow" | "ask" | "deny"
+    scope: ConfigScope
+    source_path: str
+
+
+class SkillRef(BaseModel):
+    name: str
+    scope: ConfigScope
+    source_path: str
+    description: str | None = None
+
+
+class PluginRef(BaseModel):
+    """A plugin can bring its own skills, hooks and MCP servers, so it is a
+    distribution channel for capability rather than a passive add-on."""
+
+    name: str
+    source: str
+    install_location: str | None = None
+
+
+class CredentialRef(BaseModel):
+    """Presence and location only.
+
+    The value is never read, never stored and never transmitted. Knowing a
+    GitHub token is reachable by an agent with shell access is the finding;
+    the token itself adds nothing to it and turns a posture report into a
+    breach if it leaks.
+    """
+
+    kind: str
+    present: bool
+    source: str  # "environment" | "file"
+    location: str
+
+
+class Coverage(BaseModel):
+    """What was actually established, so a thin report is not mistaken for a
+    clean one. The same rule the MCP scanner already applies to a stage whose
+    tools did not run."""
+
+    checked: list[str] = Field(default_factory=list)
+    not_checked: list[str] = Field(default_factory=list)
+    complete: bool = True
+
+
+class DeviceInfo(BaseModel):
+    hostname: str
+    platform: str
+    platform_version: str | None = None
+
+
+class AgentInfo(BaseModel):
+    type: AgentKind
+    name: str
+    version: str | None = None
+    install_path: str | None = None
+
+
 class DiscoveredAgent(BaseModel):
+    # Bumped when the shape changes in a way a consumer must notice. The CLI,
+    # the API and the dashboard all read this, and a silent shape change is
+    # how a report ends up half-empty somewhere downstream.
+    schema_version: str = "1"
+    agent: AgentInfo | None = None
+    device: DeviceInfo | None = None
     kind: AgentKind
     # Absolute paths actually read, so a report can be reproduced.
     config_paths: list[str] = Field(default_factory=list)
@@ -136,6 +208,11 @@ class DiscoveredAgent(BaseModel):
     capabilities: list[EffectiveCapability] = Field(default_factory=list)
     mcp_servers: list[McpServerRef] = Field(default_factory=list)
     hooks: list[HookRef] = Field(default_factory=list)
+    permissions: list[RawPermission] = Field(default_factory=list)
+    skills: list[SkillRef] = Field(default_factory=list)
+    plugins: list[PluginRef] = Field(default_factory=list)
+    credentials: list[CredentialRef] = Field(default_factory=list)
+    coverage: Coverage = Field(default_factory=Coverage)
     # Configs found but unreadable. Present so the report can say coverage is
     # partial rather than quietly reporting less risk than exists.
     unreadable_paths: list[str] = Field(default_factory=list)
