@@ -46,8 +46,8 @@ def get_fallback_redis(settings: Settings | None = None) -> redis.Redis | None:
     product down once already, so a spare instance is worth the few lines.
     """
     settings = settings or get_settings()
-    url = getattr(settings, "upstash_fallback_redis_rest_url", None)
-    token = getattr(settings, "upstash_fallback_redis_rest_token", None)
+    url = settings.upstash_fallback_redis_rest_url
+    token = settings.upstash_fallback_redis_rest_token
     if not url or not token:
         return None
     return _client(url, token)

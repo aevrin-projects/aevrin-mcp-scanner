@@ -119,21 +119,39 @@ async def get_user_from_jwt_or_api_key(
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token or X-API-Key")
 
 
-def enforce_rate_limit(settings: Settings, bucket: str, identity: str, limit: int) -> None:
+def enforce_rate_limit(
+    settings: Settings,
+    bucket: str,
+    identity: str,
+    limit: int,
+    *,
+    window_seconds: int = 3600,
+    detail: str = "Rate limit exceeded. Try again later.",
+) -> None:
     """Called explicitly inside route handlers once they've already resolved
     an identity (JWT user id, API key's user id, or client IP for
     unauthenticated paths), kept as a plain function rather than a Depends()
     factory so it doesn't force a second, possibly-conflicting auth
-    resolution on top of the route's own auth dependency."""
+    resolution on top of the route's own auth dependency.
+
+    `detail` exists so callers with a better sentence than the generic one
+    can use this instead of hand-rolling their own limiter and losing the
+    failure handling below with it.
+    """
     try:
         # Falls through to the spare Upstash instance before giving up. A
         # fresh burst window on failover is harmless here: this limiter only
         # paces requests, and monthly usage is enforced separately.
-        with_redis(settings, lambda client: check_fixed_window_rate_limit(client, f"{bucket}:{identity}", limit))
+        with_redis(
+            settings,
+            lambda client: check_fixed_window_rate_limit(
+                client, f"{bucket}:{identity}", limit, window_seconds
+            ),
+        )
     except RateLimitExceeded as exc:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Rate limit exceeded. Try again later.",
+            detail=detail,
             headers={"Retry-After": str(exc.retry_after_seconds)},
         ) from exc
     except RedisError:

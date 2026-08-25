@@ -7,10 +7,13 @@ The flow itself is documented on routes/device.py, which owns the contract.
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import HTTPException, status
+from redis.exceptions import RedisError
 
 from aevrin_api.config import Settings
 from aevrin_api.core.security import generate_api_key
@@ -18,8 +21,9 @@ from aevrin_api.db import SupabaseRest
 from aevrin_api.integrations.redis_client import (
     RateLimitExceeded,
     check_fixed_window_rate_limit,
-    get_redis,
+    with_redis,
 )
+from aevrin_api.routes.deps import enforce_rate_limit
 from aevrin_api.schemas import (
     DeviceApproveRequest,
     DeviceCodeRequest,
@@ -28,6 +32,8 @@ from aevrin_api.schemas import (
     DeviceTokenResponse,
 )
 from aevrin_api.services.quota import get_or_create_account
+
+logger = logging.getLogger("aevrin.device")
 
 _CODE_TTL_SECONDS = 600  # 10 minutes, matches RFC 8628's typical window
 _POLL_INTERVAL_SECONDS = 5
@@ -45,14 +51,20 @@ async def request_device_code(
 ) -> DeviceCodeResponse:
     # New public surface (addendum §10): rate-limit issuance separately from
     # scan quotas, per-IP, so this can't be hammered independently.
-    try:
-        check_fixed_window_rate_limit(get_redis(settings), f"device_code:{ip}", limit=20)
-    except RateLimitExceeded as exc:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many login attempts from this network. Try again shortly.",
-            headers={"Retry-After": str(exc.retry_after_seconds)},
-        ) from exc
+    #
+    # Through enforce_rate_limit rather than the raw counter, because this
+    # called get_redis() directly and so had neither the spare-instance
+    # failover nor the fail-open handling. When Upstash's monthly request
+    # cap was reached, every command raised ResponseError and `aevrin login`
+    # answered 500 with nothing to act on. A limiter that cannot be reached
+    # must not be the reason nobody can sign in.
+    enforce_rate_limit(
+        settings,
+        "device_code",
+        ip,
+        limit=20,
+        detail="Too many login attempts from this network. Try again shortly.",
+    )
 
     device_code = secrets.token_urlsafe(32)
     user_code = _generate_user_code()
@@ -81,12 +93,21 @@ async def request_device_code(
 async def poll_device_token(
     body: DeviceTokenRequest, db: SupabaseRest, settings: Settings
 ) -> DeviceTokenResponse:
+    # Not enforce_rate_limit: this answers with a status the CLI understands
+    # rather than a 429, so it needs the same failover and fail-open handling
+    # spelled out here. Failing open costs one extra poll per interval;
+    # failing closed would end the login with an unexplained 500.
     try:
-        check_fixed_window_rate_limit(
-            get_redis(settings), f"device_poll:{body.device_code}", limit=1, window_seconds=_POLL_INTERVAL_SECONDS
+        with_redis(
+            settings,
+            lambda client: check_fixed_window_rate_limit(
+                client, f"device_poll:{body.device_code}", limit=1, window_seconds=_POLL_INTERVAL_SECONDS
+            ),
         )
     except RateLimitExceeded:
         return DeviceTokenResponse(status="slow_down")
+    except RedisError:
+        logger.warning("device poll limiter unavailable, allowing the poll through", exc_info=True)
 
     rows = await db.select("device_codes", {"device_code": body.device_code})
     if not rows:
@@ -194,13 +215,26 @@ async def _record_abuse_signals_and_maybe_flag(
         await db.insert("abuse_signals", {"user_id": user_id, "signal_type": signal_type, "value_hash": value_hash})
 
     ip_hash = hashlib.sha256(ip.encode()).hexdigest()
-    redis = get_redis(settings)
     velocity_key = f"aevrin:signup_velocity:{ip_hash}"
-    velocity_count = redis.incr(velocity_key)
-    if velocity_count == 1:
-        redis.expire(velocity_key, 3600)
+
+    def _bump(client: Any) -> int:
+        count = int(client.incr(velocity_key))
+        if count == 1:
+            client.expire(velocity_key, 3600)
+        return count
+
+    # None means the velocity signal could not be evaluated, which is not the
+    # same as a low velocity. The account-matching check below runs off
+    # Postgres and is unaffected, so an unreachable Redis costs one of two
+    # signals rather than the whole check -- and, more importantly, does not
+    # turn approving a login into a 500.
+    try:
+        velocity_count, _ = with_redis(settings, _bump)
+    except RedisError:
+        logger.warning("signup velocity signal unavailable for this approval", exc_info=True)
+        velocity_count = None
 
     matched_another_account = any(count >= 2 for count in other_user_signal_counts.values())
-    high_velocity = velocity_count > 3
+    high_velocity = velocity_count is not None and velocity_count > 3
     if matched_another_account or high_velocity:
         await db.update("accounts", {"user_id": user_id}, {"flagged": True})

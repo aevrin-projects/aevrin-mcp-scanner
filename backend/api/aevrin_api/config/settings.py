@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     # Upstash Redis
     upstash_redis_rest_url: str
     upstash_redis_rest_token: str
+    # A second instance, used only when the primary refuses; see
+    # redis_client.get_fallback_redis. These were read through getattr() on a
+    # Settings that never declared them, so the lookup always returned None
+    # and the failover the code documents could not engage at all. Unset is
+    # still fine: with no spare, callers fall back to failing open.
+    upstash_fallback_redis_rest_url: str | None = None
+    upstash_fallback_redis_rest_token: str | None = None
 
     # Cloudflare R2 (S3-compatible)
     r2_account_id: str
