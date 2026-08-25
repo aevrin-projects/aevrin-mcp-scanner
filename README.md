@@ -9,7 +9,7 @@ speak the same finding vocabulary.
 
 ```
 backend/
-  api/            FastAPI service: orchestrates scans, billing, auth, auto-fix
+  api/            FastAPI service: orchestrates scans, billing, and auth
   scanner-core/   The scanning engine, shared by the API and the CLI
   cli/            `aevrin` Python CLI, published to PyPI
   cli-npm/        npm wrapper that installs the Python CLI
@@ -33,7 +33,7 @@ core/         request authentication and the identity built on it
 db/           the Supabase REST client, and nothing that knows a product rule
 integrations/ thin clients for Redis, R2, Razorpay, GitHub, DefectDojo, DeepSeek, geo
 schemas/      Pydantic request/response models, grouped by domain
-services/     business logic: quota, scan, triage, autofix, reports, admin auth
+services/     business logic: quota, scan, triage, reports, admin auth
 controllers/  what each endpoint does, taking plain values rather than a Request
 middleware/   ASGI middleware and exception handlers
 routes/       the HTTP contract only: path, method, status, response model, deps
@@ -61,7 +61,7 @@ Router. Layers run top to bottom and may only import downward:
 app/        Next.js routing only: the path, `metadata`, and a default export
 views/      one slice per screen (FSD calls this layer `pages`; `app/` has the name)
 widgets/    composite page sections: app shell, navbar, footer, pricing
-features/   user capabilities: theme, auth gate, autofix, GitHub connect
+features/   user capabilities: theme, auth gate, GitHub connect
 entities/   business domain: scan, finding, usage, billing, api-key, github, admin
 shared/     ui kit, api transport, lib, config; imports from nothing above it
 ```
@@ -91,10 +91,10 @@ cd backend/cli && uv run aevrin scan <target>
 
 ## Connecting GitHub
 
-"Connect GitHub for Auto-Fix" is backed by a GitHub App, which is what lets
-Aevrin open a draft PR against a repository without ever asking for a
-password. Until one is configured, Connect returns 503 and Fix It reports
-itself unavailable; that is the intended behaviour, not a fault.
+"Connect GitHub" is backed by a GitHub App, which is what lets Aevrin read a
+private repository without ever asking for a password. Until one is
+configured, Connect returns 503 and the repo picker says so; that is the
+intended behaviour, not a fault.
 
 Three environment variables turn it on, and all three come from the App's own
 settings page. `GITHUB_TOKEN` is unrelated and does **not** enable this.
@@ -107,8 +107,7 @@ settings page. `GITHUB_TOKEN` is unrelated and does **not** enable this.
      changes to which repositories are granted come back to you too.
    - **Webhook** can stay disabled; nothing reads webhook deliveries.
 2. Under **Permissions -> Repository**, grant:
-   - *Contents* read and write, to push the fix branch
-   - *Pull requests* read and write, to open the draft PR
+   - *Contents* read-only, to read the source being scanned
    - *Metadata* read-only, which GitHub selects for you
 3. Create it, then from the App's settings page collect:
    - **App ID** the number at the top, into `GITHUB_APP_ID`

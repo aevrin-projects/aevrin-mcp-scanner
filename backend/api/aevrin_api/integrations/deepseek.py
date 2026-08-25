@@ -1,4 +1,4 @@
-"""DeepSeek client for triage and Fix It.
+"""DeepSeek client for LLM triage.
 
 One module for both callers so model choice, caching, timeouts and error
 handling stay in a single place.
@@ -111,88 +111,6 @@ async def complete_json(
         # first is fixed by raising max_tokens; worth being able to tell
         # apart in logs rather than guessing.
         truncated=choices[0].get("finish_reason") == "length",
-        prompt_tokens=int(usage.get("prompt_tokens") or 0),
-        completion_tokens=int(usage.get("completion_tokens") or 0),
-        cache_hit_tokens=int(usage.get("prompt_cache_hit_tokens") or 0),
-    )
-
-
-async def stream_json(
-    *,
-    api_key: str,
-    model: str,
-    system_prompt: str,
-    user_prompt: str,
-    max_tokens: int,
-    timeout_s: float,
-) -> DeepSeekResult:
-    """Same contract as `complete_json`, but streamed.
-
-    Used for Fix It, where the model rewrites an entire source file and can
-    generate for minutes. A non-streaming POST sends nothing until the whole
-    completion is ready, so the HTTP read timeout has to cover the full
-    generation and a slow one reads as a network failure. This exact failure
-    already happened once on the previous provider: a 60s non-streaming
-    ceiling turned three of four fixes in a live run into timeouts reported
-    to the user as "the model is unavailable", which was untrue. Streaming
-    keeps bytes flowing, so the timeout measures a stall rather than the
-    length of the work.
-    """
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "response_format": {"type": "json_object"},
-        "max_tokens": max_tokens,
-        "stream": True,
-        # Usage arrives in a final chunk only if asked for; without this the
-        # cache-hit accounting silently reads zero for every streamed call.
-        "stream_options": {"include_usage": True},
-    }
-
-    parts: list[str] = []
-    usage: dict[str, Any] = {}
-    finish_reason: str | None = None
-
-    async with httpx.AsyncClient(timeout=timeout_s) as client, client.stream(
-        "POST",
-        f"{BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json=payload,
-    ) as resp:
-        if resp.status_code >= 400:
-            body = (await resp.aread()).decode("utf-8", "replace")
-            raise DeepSeekError(f"{resp.status_code}: {body[:300]}")
-
-        async for line in resp.aiter_lines():
-            if not line.startswith("data: "):
-                continue
-            data = line[6:].strip()
-            if data == "[DONE]":
-                break
-            try:
-                chunk = json.loads(data)
-            except json.JSONDecodeError:
-                # A malformed SSE frame is not worth discarding an
-                # otherwise good generation over.
-                continue
-            if chunk.get("usage"):
-                usage = chunk["usage"]
-            for choice in chunk.get("choices") or []:
-                piece = (choice.get("delta") or {}).get("content")
-                if piece:
-                    parts.append(piece)
-                if choice.get("finish_reason"):
-                    finish_reason = choice["finish_reason"]
-
-    if not parts:
-        raise DeepSeekError("stream produced no content")
-
-    return DeepSeekResult(
-        content="".join(parts),
-        truncated=finish_reason == "length",
         prompt_tokens=int(usage.get("prompt_tokens") or 0),
         completion_tokens=int(usage.get("completion_tokens") or 0),
         cache_hit_tokens=int(usage.get("prompt_cache_hit_tokens") or 0),

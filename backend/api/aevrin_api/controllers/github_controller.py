@@ -32,11 +32,10 @@ from aevrin_api.schemas import (
 
 logger = logging.getLogger("aevrin.github.controller")
 
-# One message for both entry points. Two different strings for the same
-# root cause meant "Connect" and the Fix It check reported the same missing
-# configuration as if they were separate faults.
+# One message for both entry points, so the same missing configuration never
+# reads as two separate faults.
 _NOT_CONFIGURED = (
-    "GitHub auto-fix is not set up on this Aevrin server yet. "
+    "GitHub is not set up on this Aevrin server yet. "
     "It needs a GitHub App configured by whoever runs this instance."
 )
 
@@ -82,11 +81,8 @@ async def _label_mcp_repos(
     MCP detection is a label, never a gate; see looks_like_mcp_repo.
 
     It costs up to six GitHub calls per repository, and running that
-    sequentially over 30 repos made this endpoint take tens of seconds. This
-    route is also what the finding page consults to decide whether Fix It can
-    run, so a slow answer here showed up as a Fix It button greyed out on a
-    paid, connected account, a label nobody asked for blocking the feature
-    people pay for.
+    sequentially over 30 repos made this endpoint take tens of seconds, with
+    the repo picker sitting empty the whole time on a connected account.
 
     So: bounded concurrency, a hard overall budget, and unlabelled (None)
     results if it runs out. Never fails the request.

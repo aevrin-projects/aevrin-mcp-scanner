@@ -11,7 +11,6 @@ from aevrin_api.routes import (
     admin,
     api_keys,
     auth_lookup,
-    autofix,
     billing,
     cli,
     device,
@@ -35,7 +34,6 @@ ROUTERS: list[APIRouter] = [
     account.router,
     billing.router,
     auth_lookup.router,
-    autofix.router,
     github.router,
     admin.router,
 ]

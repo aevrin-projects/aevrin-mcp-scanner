@@ -37,10 +37,10 @@ async def scan_diff(scan_id: UUID, user: CurrentUser, db: Db) -> dict[str, Any]:
     """What changed since the previous scan of the same target.
 
     Exists because a working fix read as a failure. A repository reported
-    the same secret title in three files; Fix It resolved one and the
-    rescan correctly stopped reporting it, but the two untouched ones carry
-    an identical title, so the result looked unchanged. This answers "did my
-    fix work" directly instead of leaving it to be inferred from a list.
+    the same secret title in three files; fixing one correctly stopped it
+    being reported, but the two untouched ones carry an identical title, so
+    the result looked unchanged. This answers "did my fix work" directly
+    instead of leaving it to be inferred from a list.
     """
     return await scan_controller.scan_diff(scan_id, user.id, db)
 

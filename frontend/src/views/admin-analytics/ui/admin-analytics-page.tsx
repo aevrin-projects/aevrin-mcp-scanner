@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Gauge, Globe, TerminalSquare, TrendingUp, Users, Webhook, Wrench } from "lucide-react";
+import { AlertTriangle, Gauge, Globe, TerminalSquare, TrendingUp, Users, Webhook } from "lucide-react";
 import { ApiError } from "@/shared/api";
 import { adminApi } from "@/entities/admin";
 import { Button } from "@/shared/ui/button";
@@ -24,12 +24,11 @@ type UsageRow = {
 
 const RANGES = [7, 30, 90];
 
-const BUCKETS = ["cli", "hook", "dashboard", "auto_fix"] as const;
+const BUCKETS = ["cli", "hook", "dashboard"] as const;
 const BUCKET_LABEL: Record<string, string> = {
   cli: "CLI",
   hook: "Hook",
   dashboard: "Dashboard",
-  auto_fix: "Auto-fix",
 };
 
 // One hue per series, from the existing token set so both themes work.
@@ -240,10 +239,9 @@ export function AdminAnalyticsPage() {
       </div>
 
       {/* ------------------------------------------------- CLI + hook + $ */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Kpi icon={<TerminalSquare className="size-4" />} label="CLI authenticated" value={data.cli_authenticated_accounts} sub={`${data.cli_active_accounts} active in ${days}d`} />
         <Kpi icon={<Webhook className="size-4" />} label="Hook active" value={data.hook_active_accounts} sub={`${data.hook_cached_targets} cached targets`} />
-        <Kpi icon={<Wrench className="size-4" />} label="Auto-fix PRs" value={data.autofix_prs_opened} sub={`${data.autofix_prs_in_window} in ${days}d`} />
         <Kpi icon={<TrendingUp className="size-4" />} label={`Revenue (${days}d)`} value={money(data.revenue_paise_in_window ?? 0)} sub={`${money(data.revenue_paise_total ?? 0)} all time`} />
       </div>
 

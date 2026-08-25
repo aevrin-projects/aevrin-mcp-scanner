@@ -120,12 +120,12 @@ Quota resets on a **rolling monthly window from your signup date**, not the cale
 is tracked independently across three buckets. CLI, hook, and dashboard scans each have their
 own limit:
 
-| Tier | CLI scans/mo | Hook scans/mo | Dashboard scans/mo | History retention | PDF export | Auto-fix PRs/mo | AI review per scan |
-|---|---|---|---|---|---|---|---|
-| Free | 5 | 2 | 5 | 7 days | No | None | 40 findings |
-| Hobby | 50 | 20 | 50 | 90 days | Yes | None | 200 findings |
-| Pro | 200 | 100 | 200 | 1 year | Yes | 15 | 200 findings |
-| Team | Usage-based | Usage-based | Usage-based | Unlimited | Yes | 15 per seat | 200 findings |
+| Tier | CLI scans/mo | Hook scans/mo | Dashboard scans/mo | History retention | PDF export | AI review per scan |
+|---|---|---|---|---|---|---|
+| Free | 5 | 2 | 5 | 7 days | No | 40 findings |
+| Hobby | 50 | 20 | 50 | 90 days | Yes | 200 findings |
+| Pro | 200 | 100 | 200 | 1 year | Yes | 200 findings |
+| Team | Usage-based | Usage-based | Usage-based | Unlimited | Yes | 200 findings |
 
 AI review runs on every plan, capped per scan so one very large repository cannot consume an
 unbounded budget. Paid plans use a stronger model. A scan that hits the cap says so, and reviews

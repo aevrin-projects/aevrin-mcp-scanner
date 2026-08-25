@@ -47,7 +47,6 @@ export function UsageMeters() {
       <CardContent className="@container flex flex-1 flex-col">
         <div className="grid gap-4 @md:grid-cols-2 @3xl:grid-cols-4">
           {usage.buckets
-            .filter((bucket) => bucket.bucket !== "auto_fix" || bucket.limit !== 0)
             .map((bucket, index) => {
               const meta = USAGE_BUCKETS[bucket.bucket];
               const Icon = meta.icon;

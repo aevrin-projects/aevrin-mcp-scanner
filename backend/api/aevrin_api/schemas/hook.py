@@ -19,7 +19,6 @@ class HookCacheResponse(BaseModel):
     quota_resets_at: datetime | None = None
     upgrade_url: str | None = None
     target_key: str | None = None
-    autofix_hint: str | None = None
 
 
 class HookCacheRequest(BaseModel):

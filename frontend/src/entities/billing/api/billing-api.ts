@@ -32,7 +32,6 @@ export const billingApi = {
       currency: string;
       tiers: Record<string, number>;
       byok_addon_per_month: number;
-      autofix_addon: number;
     }>(`/billing/pricing${currency ? `?currency=${encodeURIComponent(currency)}` : ""}`),
   verifyPayment: (razorpay_order_id: string, razorpay_payment_id: string, razorpay_signature: string) =>
     request<{ status: string; tier: string; paid_until: string }>("/billing/verify", {
@@ -41,8 +40,6 @@ export const billingApi = {
     }),
   createByokAddonCheckout: () =>
     request<CheckoutOrder>("/billing/addon/byok/checkout", { method: "POST" }),
-  createAutofixAddonCheckout: () =>
-    request<CheckoutOrder>("/billing/addon/autofix/checkout", { method: "POST" }),
   getByokStatus: () =>
     request<{ enabled: boolean; provider: "anthropic" | "google" | null; has_key: boolean }>("/billing/byok"),
   setByokKey: (provider: "anthropic" | "google", api_key: string) =>

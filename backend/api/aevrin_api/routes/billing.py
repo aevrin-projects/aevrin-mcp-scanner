@@ -66,15 +66,6 @@ async def create_checkout(
     )
 
 
-@router.post("/addon/autofix/checkout", response_model=CheckoutResponse)
-async def create_autofix_addon_checkout(
-    request: Request, user: CurrentUser, db: Db, settings: Config
-) -> CheckoutResponse:
-    return await billing_controller.create_autofix_addon_checkout(
-        await country_for_request(request), user.id, db, settings
-    )
-
-
 @router.post("/addon/byok/checkout", response_model=CheckoutResponse)
 async def create_byok_addon_checkout(
     request: Request, user: CurrentUser, db: Db, settings: Config

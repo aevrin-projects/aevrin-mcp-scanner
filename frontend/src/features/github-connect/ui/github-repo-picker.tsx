@@ -15,8 +15,8 @@ import { cn } from "@/shared/lib/utils";
  *
  * The list comes from the GitHub App *installation*, so it shows exactly
  * what was granted at install time, a few hand-picked repos, or all of
- * them. That's also what decides where Fix It can open a PR, so this list
- * and Fix It availability can never disagree.
+ * them, so the list here and what Aevrin can actually reach can never
+ * disagree.
  *
  * The MCP label is a hint for scanning the list, never a gate. The
  * heuristic only looks for a committed MCP config or an SDK dependency, so
@@ -105,7 +105,7 @@ export function GithubRepoPicker({
       <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border px-4 py-5">
         <p className="text-sm font-medium">Connect GitHub to pick from your repositories</p>
         <p className="text-sm text-muted-foreground">
-          You choose which repositories to grant: a few, or all of them. The same grant is what lets Fix It open
+          You choose which repositories to grant: a few, or all of them. The same grant is what lets Aevrin read
           pull requests.
         </p>
         <Button variant="outline" size="sm" disabled={connecting} onClick={() => void connect()}>

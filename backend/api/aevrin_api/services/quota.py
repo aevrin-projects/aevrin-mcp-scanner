@@ -30,13 +30,12 @@ from aevrin_api.integrations.redis_client import with_redis
 
 logger = logging.getLogger("aevrin.quota")
 
-Bucket = Literal["cli", "hook", "dashboard", "auto_fix"]
+Bucket = Literal["cli", "hook", "dashboard"]
 
 _BUCKET_TO_LIMIT_COLUMN: dict[Bucket, str] = {
     "cli": "cli_scans_per_month",
     "hook": "hook_scans_per_month",
     "dashboard": "dashboard_scans_per_month",
-    "auto_fix": "auto_fix_prs_per_month",
 }
 
 
@@ -158,12 +157,6 @@ async def _tier_limit(db: SupabaseRest, account: dict[str, Any], bucket: Bucket)
         msg = f"No tier_limits row for tier={tier!r}: seed migration 0003 must have failed to apply"
         raise RuntimeError(msg)
     value: int | None = rows[0][_BUCKET_TO_LIMIT_COLUMN[bucket]]
-    # auto_fix is the one bucket with a per-account top-up on top of the
-    # tier's bundled allowance (see backend/infra/migrations/0016), a purchased
-    # add-on is cumulative and never resets on its own, so it's added to
-    # the tier limit rather than tracked as a separate counter.
-    if bucket == "auto_fix" and value is not None:
-        value += int(account.get("auto_fix_bonus_prs") or 0)
     return value
 
 
@@ -194,27 +187,9 @@ async def _used_from_durable_history(
 ) -> int | None:
     """Counts this period's usage from `scans` when Redis can't answer.
 
-    auto_fix counts opened pull requests via findings.autofix_at, which is
-    stamped in Postgres the moment a PR is opened (migration 0017). Without
-    it a successfully opened PR could go uncounted entirely whenever Redis
-    was unreachable; confirmed live, with the PR real and the usage meter
-    still reading zero.
-
     Returns None only if the bucket has no durable record at all, which
     callers treat as "cannot verify, allow through".
     """
-    if bucket == "auto_fix":
-        rows = await db.select(
-            "findings",
-            {
-                "user_id": user_id,
-                "autofix_status": "fixed",
-                "autofix_at": f"gte.{period_start.isoformat()}",
-            },
-            columns="id",
-        )
-        return len(rows)
-
     source = _BUCKET_TO_SCAN_SOURCE.get(bucket)
     if source is None:
         return None
@@ -325,7 +300,7 @@ async def get_usage(settings: Settings, db: SupabaseRest, user_id: str) -> list[
     period_end = _add_month(period_start)
 
     results: list[BucketUsage] = []
-    for bucket in ("cli", "hook", "dashboard", "auto_fix"):
+    for bucket in ("cli", "hook", "dashboard"):
         limit = await _tier_limit(db, account, bucket)
         used = 0
         reachable = True

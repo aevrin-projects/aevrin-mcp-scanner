@@ -6,9 +6,10 @@ That means a CLI importing a scanner-core symbol *newer* than its declared
 minimum works perfectly on every developer machine and in CI, then dies with
 an ImportError on a real `pipx install aevrin`.
 
-That exact bug shipped once: `output.py` began importing `is_autofix_eligible`
-while `pyproject.toml` still declared `aevrin-scanner-core>=0.1.8`, a version
-that predates the symbol. These tests fail loudly instead.
+That exact bug shipped once: `output.py` began importing a scanner-core symbol
+that `pyproject.toml`'s declared floor predated, so every developer machine
+was fine and the published CLI raised ImportError on import. These tests fail
+loudly instead.
 """
 
 from __future__ import annotations
@@ -78,9 +79,3 @@ def test_every_imported_symbol_exists_in_scanner_core():
     assert not missing, f"CLI imports names that don't exist in scanner-core: {missing}"
 
 
-def test_scanner_core_exports_the_autofix_eligibility_api():
-    """The specific symbols whose absence caused the shipped ImportError."""
-    import aevrin_scanner_core
-
-    for name in ("is_autofix_eligible", "FIXABLE_TOOLS"):
-        assert hasattr(aevrin_scanner_core, name), f"aevrin_scanner_core must export {name}"

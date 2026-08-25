@@ -53,7 +53,7 @@ from aevrin_api.utils.crypto import ByokUnavailable
 logger = logging.getLogger("aevrin.admin.controller")
 
 
-_BUCKETS: tuple[Bucket, ...] = ("cli", "hook", "dashboard", "auto_fix")
+_BUCKETS: tuple[Bucket, ...] = ("cli", "hook", "dashboard")
 
 
 # ------------------------------------------------------------------ session
@@ -312,16 +312,7 @@ async def grant_addon(
     account = await get_or_create_account(db, user_id)
     result: dict[str, Any] = {"addon": body.addon}
 
-    if body.addon == "auto_fix_prs":
-        # Additive, matching the paid add-on: purchased PRs stack and don't
-        # expire at period end, and _tier_limit already adds this to the
-        # tier's bundled allowance.
-        current = int(account.get("auto_fix_bonus_prs") or 0)
-        new_total = current + body.quantity
-        await db.update("accounts", {"user_id": user_id}, {"auto_fix_bonus_prs": new_total})
-        result |= {"granted": body.quantity, "total_bonus_prs": new_total}
-
-    elif body.addon == "byok":
+    if body.addon == "byok":
         # Only flips entitlement. The key itself stays the customer's to
         # supply through their own settings; an admin must never be able to
         # set or see it.

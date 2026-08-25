@@ -139,9 +139,8 @@ class GithubAppClient:
             return await client.request(method, f"{_API_BASE}{path}", headers=headers, **kwargs)
 
     async def get_repo_installation_id(self, owner: str, repo: str) -> int | None:
-        """None means this App isn't installed on this repo, the caller
-        (routers/autofix.py) turns that into "prompt to connect GitHub",
-        not an error."""
+        """None means this App isn't installed on this repo; the caller turns
+        that into "prompt to connect GitHub", not an error."""
         resp = await self._app_request("GET", f"/repos/{owner}/{repo}/installation")
         if resp.status_code == 404:
             return None
@@ -227,73 +226,3 @@ class GithubAppClient:
             raise GithubAppError(f"unexpected content encoding: {body.get('encoding')}")
         content = base64.b64decode(body["content"]).decode("utf-8", errors="replace")
         return content, body["sha"]
-
-    async def get_default_branch_head_sha(self, owner: str, repo: str, token: str) -> tuple[str, str]:
-        """Returns (default_branch_name, commit_sha) at its current HEAD."""
-        repo_resp = await self._installation_request("GET", f"/repos/{owner}/{repo}", token)
-        if repo_resp.status_code >= 400:
-            raise GithubAppError(f"get repo failed: {repo_resp.status_code} {repo_resp.text}")
-        default_branch: str = repo_resp.json()["default_branch"]
-        ref_resp = await self._installation_request(
-            "GET", f"/repos/{owner}/{repo}/git/ref/heads/{default_branch}", token
-        )
-        if ref_resp.status_code >= 400:
-            raise GithubAppError(f"get ref failed: {ref_resp.status_code} {ref_resp.text}")
-        sha: str = ref_resp.json()["object"]["sha"]
-        return default_branch, sha
-
-    async def create_branch(self, owner: str, repo: str, token: str, branch_name: str, from_sha: str) -> None:
-        resp = await self._installation_request(
-            "POST",
-            f"/repos/{owner}/{repo}/git/refs",
-            token,
-            json={"ref": f"refs/heads/{branch_name}", "sha": from_sha},
-        )
-        if resp.status_code >= 400:
-            raise GithubAppError(f"create branch failed: {resp.status_code} {resp.text}")
-
-    async def commit_file(
-        self, owner: str, repo: str, token: str, *, path: str, content: str, message: str, branch: str, sha: str
-    ) -> None:
-        resp = await self._installation_request(
-            "PUT",
-            f"/repos/{owner}/{repo}/contents/{path}",
-            token,
-            json={
-                "message": message,
-                "content": base64.b64encode(content.encode("utf-8")).decode(),
-                "branch": branch,
-                "sha": sha,
-            },
-        )
-        if resp.status_code >= 400:
-            raise GithubAppError(f"commit file failed: {resp.status_code} {resp.text}")
-
-    async def open_draft_pr(
-        self, owner: str, repo: str, token: str, *, title: str, body: str, head: str, base: str
-    ) -> str:
-        """Returns the PR's html_url. Never sets `merge`, opening a draft PR
-        is the entire scope of this method; respecting branch protection and
-        review requirements is left entirely to GitHub itself."""
-        resp = await self._installation_request(
-            "POST",
-            f"/repos/{owner}/{repo}/pulls",
-            token,
-            json={"title": title, "body": body, "head": head, "base": base, "draft": True},
-        )
-        if resp.status_code >= 400:
-            raise GithubAppError(f"open PR failed: {resp.status_code} {resp.text}")
-        html_url: str = resp.json()["html_url"]
-        return html_url
-
-    async def pull_request_is_open(self, owner: str, repo: str, token: str, *, number: int) -> bool | None:
-        """Whether a pull request is still awaiting a decision.
-
-        None means "could not determine" (deleted PR, revoked installation,
-        GitHub unreachable). Callers must treat None as "don't know" and fall
-        back to the safe reading rather than assuming either answer.
-        """
-        resp = await self._installation_request("GET", f"/repos/{owner}/{repo}/pulls/{number}", token)
-        if resp.status_code >= 400:
-            return None
-        return bool(resp.json().get("state") == "open")

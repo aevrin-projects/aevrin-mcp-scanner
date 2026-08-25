@@ -198,21 +198,16 @@ def _block_message(result: dict[str, Any], override_target: str) -> str:
     """
     score = result.get("score")
     findings = result.get("findings_summary", [])
-    autofix_hint = result.get("autofix_hint")
 
     lines = [f"Aevrin: this MCP server scored {score}/100 with unresolved high/critical findings:"]
     for f in findings[:5]:
         loc = f", {f['file_path']}" + (f":{f['line_start']}" if f.get("line_start") else "") if f.get("file_path") else ""
-        tag = " [auto-fixable]" if f.get("autofix_eligible") else ""
-        lines.append(f"  - [{f['severity'].upper()}] {f['title']} ({f['owasp_category']}){loc}{tag}")
+        lines.append(f"  - [{f['severity'].upper()}] {f['title']} ({f['owasp_category']}){loc}")
         if f.get("remediation"):
             lines.append(f"      fix: {f['remediation']}")
         lines.append(f"      finding id: {f['id']}")
     if len(findings) > 5:
         lines.append(f"  ...and {len(findings) - 5} more; see your Aevrin dashboard for the full list.")
-    if autofix_hint:
-        lines.append("")
-        lines.append(f"  {autofix_hint}")
     lines.append("")
 
     options = [
@@ -227,11 +222,6 @@ def _block_message(result: dict[str, Any], override_target: str) -> str:
             "then retry.",
         ],
     ]
-    # Only offered when the account can actually run it right now, the Pro/Team
-    # hint text is the one that names the command itself.
-    if autofix_hint and "aevrin fix" in autofix_hint:
-        options.append(["Auto-fix it: run `aevrin fix <finding id>` on an auto-fixable finding above, then retry."])
-
     lines.append(f"You have {len(options)} options. Ask the person which they want:")
     for i, option_lines in enumerate(options, start=1):
         lines.append(f"  {i}. {option_lines[0]}")

@@ -14,7 +14,6 @@ from aevrin_scanner_core import (
     ScanStatus,
     Severity,
     category_label,
-    is_autofix_eligible,
     verdict,
 )
 from rich.console import Console
@@ -152,7 +151,6 @@ def print_json_report(scan: Scan) -> None:
                 "dependency_scope": f.dependency_scope.value if f.dependency_scope else None,
                 "corroborated_by": [t.value for t in f.corroborated_by],
                 "occurrence_count": f.occurrence_count,
-                "autofix_eligible": is_autofix_eligible(f)[0],
                 "additional_locations": [
                     {
                         "file_path": loc.file_path,

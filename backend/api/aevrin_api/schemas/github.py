@@ -1,4 +1,4 @@
-"""Fix It responses and the GitHub App connection state behind them."""
+"""GitHub App connection state: what the repo picker needs to render."""
 
 from __future__ import annotations
 
@@ -8,19 +8,6 @@ from pydantic import BaseModel
 class GithubStatusResponse(BaseModel):
     connected: bool
     account_login: str | None = None
-
-
-class BulkFixResponse(BaseModel):
-    """Whole-scan Fix It. `skipped` counts findings that were never
-    candidates (dependency CVEs, no file location, already fixed), kept
-    separate from `failed` so a healthy run doesn't read as a broken one."""
-
-    attempted: int
-    fixed: int
-    failed: int
-    skipped: int
-    pr_urls: list[str] = []
-    message: str
 
 
 class GithubRepoOut(BaseModel):
@@ -43,10 +30,3 @@ class GithubReposResponse(BaseModel):
 
 class GithubInstallUrlResponse(BaseModel):
     url: str
-
-
-class AutofixResponse(BaseModel):
-    status: str  # "fixed" | "failed" | "needs_github_connection"
-    pr_url: str | None = None
-    failure_reason: str | None = None
-    install_url: str | None = None

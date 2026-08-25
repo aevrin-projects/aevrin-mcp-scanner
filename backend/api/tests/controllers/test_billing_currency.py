@@ -12,13 +12,9 @@ The route is what turns a request into a country.
 import pytest
 
 from aevrin_api.controllers.billing_controller import (
-    _AUTOFIX_ADDON_BONUS_PRS,
-    _AUTOFIX_ADDON_CENTS,
-    _AUTOFIX_ADDON_PAISE_INR,
     _DEFAULT_CURRENCY,
     _PRICE_CENTS,
     _PRICE_PAISE_INR,
-    _autofix_addon_amount,
     _byok_addon_amount,
     _byok_addon_cents,
     _tier_amount,
@@ -67,18 +63,11 @@ def test_byok_addon_is_flat_three_dollars_per_month() -> None:
     assert _byok_addon_cents("annual") == 3_600
 
 
-def test_autofix_addon_is_flat_four_dollars_for_ten_prs() -> None:
-    assert _AUTOFIX_ADDON_CENTS == 400
-    assert _AUTOFIX_ADDON_BONUS_PRS == 10
-
-
 def test_addon_amounts_follow_the_resolved_currency() -> None:
     assert _byok_addon_amount("monthly", "USD") == 300
     assert _byok_addon_amount("annual", "USD") == 3_600
     assert _byok_addon_amount("monthly", "INR") == 19_900
     assert _byok_addon_amount("annual", "INR") == 238_800
-    assert _autofix_addon_amount("USD") == 400
-    assert _autofix_addon_amount("INR") == _AUTOFIX_ADDON_PAISE_INR
 
 
 def test_tier_amount_selects_the_right_table() -> None:

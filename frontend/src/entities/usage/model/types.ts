@@ -1,6 +1,6 @@
 import type { ScanSource, ScanStatus, TargetType } from "@/entities/scan";
 
-export type UsageBucket = "cli" | "hook" | "dashboard" | "auto_fix";
+export type UsageBucket = "cli" | "hook" | "dashboard";
 
 export interface BucketUsage {
   bucket: UsageBucket;

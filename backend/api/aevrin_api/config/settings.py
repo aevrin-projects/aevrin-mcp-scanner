@@ -37,12 +37,12 @@ class Settings(BaseSettings):
     # distinct from the GitHub App identity below.
     github_token: str | None = None
 
-    # GitHub App ("Connect GitHub for Auto-Fix", V5 prompt §6/§9), JWT-based
-    # installation-token auth for opening real draft PRs, architecturally
+    # GitHub App ("Connect GitHub"), JWT-based installation-token auth for
+    # reading a private repository the person has granted. Architecturally
     # separate from both github_token above (a PAT) and Supabase's GitHub
     # OAuth identity provider (Sign in with GitHub, configured directly in
-    # the Supabase dashboard, not here). None means the auto-fix PR flow is
-    # disabled; Fix It shows "not configured yet" rather than erroring.
+    # the Supabase dashboard, not here). None means repo connect is
+    # disabled, and the picker says so rather than erroring.
     # Exactly three values are needed, and all three come from the App's
     # settings page on github.com; see README, Connecting GitHub.
     github_app_id: str | None = None
@@ -69,9 +69,9 @@ class Settings(BaseSettings):
     razorpay_key_secret: str | None = None
     razorpay_webhook_secret: str | None = None
 
-    # Powers both LLM triage (triage.py) and Fix It patch generation
-    # (autofix.py). None means those paths are unconfigured; both fail open,
-    # keeping the deterministic scanner result rather than erroring.
+    # Powers LLM triage (triage.py). None means triage is unconfigured; it
+    # fails open, keeping the deterministic scanner result rather than
+    # erroring.
     deepseek_api_key: str | None = None
 
     # Fernet key (44-char urlsafe-base64, `Fernet.generate_key()`) used to

@@ -8,6 +8,8 @@ export interface Subscription {
 
 export interface Payment {
   id: string;
+  // "autofix_addon" is a historical tier: it is no longer sold, but rows
+  // for it are still in billing history and have to render.
   tier: "hobby" | "pro" | "team" | "autofix_addon";
   cycle: "monthly" | "annual";
   seats: number;

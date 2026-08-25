@@ -15,14 +15,6 @@ from aevrin_api.schemas.api_keys import (
     ApiKeyCreateRequest,
     ApiKeyOut,
 )
-from aevrin_api.schemas.autofix import (
-    AutofixResponse,
-    BulkFixResponse,
-    GithubInstallUrlResponse,
-    GithubRepoOut,
-    GithubReposResponse,
-    GithubStatusResponse,
-)
 from aevrin_api.schemas.billing import (
     ByokKeyRequest,
     ByokStatusResponse,
@@ -46,6 +38,12 @@ from aevrin_api.schemas.device import (
     DeviceTokenRequest,
     DeviceTokenResponse,
 )
+from aevrin_api.schemas.github import (
+    GithubInstallUrlResponse,
+    GithubRepoOut,
+    GithubReposResponse,
+    GithubStatusResponse,
+)
 from aevrin_api.schemas.hook import (
     HookCacheRequest,
     HookCacheResponse,
@@ -66,9 +64,7 @@ __all__ = [
     "ApiKeyCreateRequest",
     "ApiKeyCreatedResponse",
     "ApiKeyOut",
-    "AutofixResponse",
     "BucketUsageOut",
-    "BulkFixResponse",
     "ByokKeyRequest",
     "ByokStatusResponse",
     "CheckoutRequest",

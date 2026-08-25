@@ -1,4 +1,4 @@
-import { GitPullRequest, LayoutDashboard, ShieldCheck, TerminalSquare } from "lucide-react";
+import { LayoutDashboard, ShieldCheck, TerminalSquare } from "lucide-react";
 import type { UsageBucket } from "@/entities/usage";
 
 /**
@@ -32,12 +32,6 @@ export const USAGE_BUCKETS: Record<
     description: "Scans requested by the Claude Code pre-install workflow.",
     color: "var(--chart-1)",
     icon: ShieldCheck,
-  },
-  auto_fix: {
-    label: "Auto-fix PRs",
-    description: "Fix It pull requests opened this period, Pro and Team only.",
-    color: "var(--brand)",
-    icon: GitPullRequest,
   },
 };
 

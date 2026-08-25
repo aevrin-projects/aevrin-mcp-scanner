@@ -40,20 +40,5 @@ export interface Finding {
   llm_reasoning: string | null;
   llm_remediation: string | null;
   llm_triaged_at: string | null;
-  autofix_status: "none" | "queued" | "in_progress" | "fixed" | "failed";
-  /** Which step of an in-flight fix is running. Null once terminal. */
-  autofix_stage: "analysing" | "generating" | "verifying" | "authorizing" | "opening_pr" | null;
-  autofix_pr_url: string | null;
-  autofix_failure_reason: string | null;
 }
 
-/** Result of fixing every eligible finding in one scan. Counts are per
- *  finding, and `pr_urls` holds one entry per PR actually opened. */
-export type BulkFixResponse = {
-  attempted: number;
-  fixed: number;
-  failed: number;
-  skipped: number;
-  pr_urls: string[];
-  message: string;
-};

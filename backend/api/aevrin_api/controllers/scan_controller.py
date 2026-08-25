@@ -78,10 +78,10 @@ async def scan_diff(scan_id: UUID, user_id: str, db: SupabaseRest) -> dict[str, 
     """What changed since the previous scan of the same target.
 
     Exists because a working fix read as a failure. A repository reported
-    the same secret title in three files; Fix It resolved one and the
-    rescan correctly stopped reporting it, but the two untouched ones carry
-    an identical title, so the result looked unchanged. This answers "did my
-    fix work" directly instead of leaving it to be inferred from a list.
+    the same secret title in three files; fixing one correctly stopped it
+    being reported, but the two untouched ones carry an identical title, so
+    the result looked unchanged. This answers "did my fix work" directly
+    instead of leaving it to be inferred from a list.
     """
     # Shape guaranteed by the scan_diff SQL function, not by db.rpc, which
     # returns the response body untyped.

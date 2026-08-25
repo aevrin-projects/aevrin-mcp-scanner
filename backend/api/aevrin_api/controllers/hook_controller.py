@@ -10,19 +10,16 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from aevrin_scanner_core import TargetType, is_autofix_eligible
+from aevrin_scanner_core import TargetType
 from fastapi import BackgroundTasks
 
 from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest
 from aevrin_api.routes.deps import enforce_rate_limit
 from aevrin_api.schemas import HookCacheResponse, HookOverrideRequest, HookOverrideResponse
-from aevrin_api.services.autofix import finding_from_row
 from aevrin_api.services.quota import (
     QuotaExceeded,
     check_and_increment_quota,
-    effective_tier,
-    get_or_create_account,
 )
 from aevrin_api.services.scan import start_scan
 from aevrin_api.services.targets import stored_target
@@ -55,24 +52,7 @@ def _finding_summary(f: dict[str, object]) -> dict[str, object]:
         "file_path": f.get("file_path"),
         "line_start": f.get("line_start"),
         "remediation": f.get("remediation"),
-        "autofix_eligible": is_autofix_eligible(finding_from_row(f))[0],
     }
-
-
-async def _autofix_hint(db: SupabaseRest, user_id: str) -> str:
-    """A real conversion moment: tell the person right where the block happens,
-    not just on the pricing page, when an auto-fix could clear this without
-    hand-editing anything."""
-    account = await get_or_create_account(db, user_id)
-    if effective_tier(account) in ("pro", "team"):
-        return (
-            "One or more of these findings can be auto-fixed; run `aevrin fix <finding id>` "
-            "to generate and open a pull request."
-        )
-    return (
-        "One or more of these findings can be auto-fixed on Pro/Team. Aevrin drafts a patch, "
-        "re-verifies it against the scanner, and opens a pull request for you."
-    )
 
 
 async def _queue_first_scan(
@@ -121,12 +101,12 @@ async def _queue_first_scan(
 
 async def _decide_from_cache(
     row: dict[str, object], durable_target: str, user_id: str, db: SupabaseRest
-) -> tuple[str, list[dict[str, object]], str | None]:
+) -> tuple[str, list[dict[str, object]]]:
     """Turns the cached scan into a hook decision, honouring any active
-    install-anyway override. Returns (decision, findings_summary, autofix_hint).
+    install-anyway override. Returns (decision, findings_summary).
     """
     if not row.get("last_scan_id"):
-        return "allow_clean", [], None
+        return "allow_clean", []
 
     findings = await db.select(
         "findings", {"scan_id": str(row["last_scan_id"]), "user_id": user_id}
@@ -141,12 +121,9 @@ async def _decide_from_cache(
 
     decision = "allow_clean"
     summary: list[dict[str, object]] = []
-    hint: str | None = None
     if blocking:
         decision = "block"
         summary = [_finding_summary(f) for f in blocking]
-        if any(f["autofix_eligible"] for f in summary):
-            hint = await _autofix_hint(db, user_id)
     elif row.get("last_status") == "incomplete":
         # The scan behind this cache entry couldn't actually run its tools
         # (Docker down, missing binary, no network), an empty findings list
@@ -160,7 +137,7 @@ async def _decide_from_cache(
         if any(o["expires_at"] > now_iso for o in overrides):
             decision = "allow_override"
 
-    return decision, summary, hint
+    return decision, summary
 
 
 async def check_cache(
@@ -181,7 +158,7 @@ async def check_cache(
         )
 
     row = cached[0]
-    decision, findings_summary, autofix_hint = await _decide_from_cache(
+    decision, findings_summary = await _decide_from_cache(
         row, durable_target, user_id, db
     )
 
@@ -192,5 +169,4 @@ async def check_cache(
         checked_at=row.get("checked_at"),
         findings_summary=findings_summary,
         target_key=durable_target,
-        autofix_hint=autofix_hint,
     )

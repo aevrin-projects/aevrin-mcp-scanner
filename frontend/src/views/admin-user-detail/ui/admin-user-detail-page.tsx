@@ -18,7 +18,6 @@ const BUCKET_LABEL: Record<string, string> = {
   cli: "CLI scans",
   hook: "Hook auto-scans",
   dashboard: "Dashboard scans",
-  auto_fix: "Auto-fix PRs",
 };
 
 export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -119,7 +118,7 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
 
 /** Comp an add-on the customer would otherwise pay for. */
 function GrantAddons({ detail, onDone }: { detail: AdminUserDetail; onDone: () => Promise<void> }) {
-  const [addon, setAddon] = useState<"auto_fix_prs" | "byok" | "scan_credits">("auto_fix_prs");
+  const [addon, setAddon] = useState<"byok" | "scan_credits">("byok");
   const [quantity, setQuantity] = useState(10);
   const [bucket, setBucket] = useState("cli");
   const [reason, setReason] = useState("");
@@ -160,7 +159,6 @@ function GrantAddons({ detail, onDone }: { detail: AdminUserDetail; onDone: () =
             value={addon}
             onChange={(e) => setAddon(e.target.value as typeof addon)}
           >
-            <option value="auto_fix_prs">Auto-fix pull requests</option>
             <option value="byok">Bring your own API key</option>
             <option value="scan_credits">Extra scan credits</option>
           </Select>
@@ -168,7 +166,7 @@ function GrantAddons({ detail, onDone }: { detail: AdminUserDetail; onDone: () =
 
         {addon !== "byok" ? (
           <div className="space-y-1.5">
-            <Label htmlFor="qty">{addon === "auto_fix_prs" ? "Extra PRs" : "Extra scans"}</Label>
+            <Label htmlFor="qty">Extra scans</Label>
             <Input
               id="qty"
               type="number"

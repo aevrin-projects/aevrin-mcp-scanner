@@ -207,9 +207,9 @@ async def account_usage(admin: AdminDep, db: DbDep) -> list[dict[str, Any]]:
     """Per-account, per-bucket usage against the limit actually enforced.
 
     Limit resolution mirrors quota._tier_limit() exactly, override beats
-    plan default, expired overrides ignored, NULL means unlimited, auto_fix
-    stacks the purchased bonus. Showing a different number here from the one
-    the product enforces would be worse than showing nothing.
+    plan default, expired overrides ignored, NULL means unlimited. Showing a
+    different number here from the one the product enforces would be worse
+    than showing nothing.
     """
     return await admin_controller.account_usage(admin, db)
 

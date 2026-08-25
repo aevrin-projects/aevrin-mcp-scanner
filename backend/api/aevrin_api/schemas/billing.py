@@ -49,7 +49,6 @@ class PricingResponse(BaseModel):
     currency: str
     tiers: dict[str, int]
     byok_addon_per_month: int
-    autofix_addon: int
 
 
 class CheckoutResponse(BaseModel):

@@ -72,7 +72,7 @@ class PlanChangeIn(BaseModel):
     totp_code: str | None = None
 
 class OverrideIn(BaseModel):
-    bucket: Literal["cli", "hook", "dashboard", "auto_fix"]
+    bucket: Literal["cli", "hook", "dashboard"]
     # None means unlimited; the same convention tier_limits uses.
     limit_value: int | None = Field(default=None, ge=0)
     unlimited: bool = False
@@ -87,9 +87,7 @@ class GrantAddonIn(BaseModel):
     "was this comped" branch anywhere in the product code.
     """
 
-    addon: Literal["auto_fix_prs", "byok", "scan_credits"]
-    # auto_fix_prs: how many PRs to add (cumulative, never expires, matches
-    # the paid add-on's own behaviour).
+    addon: Literal["byok", "scan_credits"]
     quantity: int = Field(default=10, ge=1, le=1000)
     # scan_credits: which bucket to raise, and by how much over the plan.
     bucket: Literal["cli", "hook", "dashboard"] | None = None
@@ -97,7 +95,7 @@ class GrantAddonIn(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 class ResetUsageIn(BaseModel):
-    bucket: Literal["cli", "hook", "dashboard", "auto_fix"]
+    bucket: Literal["cli", "hook", "dashboard"]
     reason: str = Field(min_length=3, max_length=500)
 
 class PasswordResetIn(BaseModel):

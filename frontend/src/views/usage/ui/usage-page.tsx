@@ -77,7 +77,6 @@ function UsageContent({ usage }: { usage: AccountUsage }) {
         >
           <Usage3DChart
             bars={usage.buckets
-              .filter((bucket) => bucket.bucket !== "auto_fix" || bucket.limit !== 0)
               .map((bucket) => ({ bucket: bucket.bucket, used: bucket.used, limit: bucket.limit }))}
           />
         </SectionCard>
@@ -105,7 +104,6 @@ function UsageContent({ usage }: { usage: AccountUsage }) {
       <SectionCard title="Scan-credit buckets" description="A scan credit is consumed only from the product surface that initiated the scan.">
         <div className="grid gap-4 xl:grid-cols-3">
           {usage.buckets
-            .filter((bucket) => bucket.bucket !== "auto_fix" || bucket.limit !== 0)
             .map((bucket, index) => {
               const config = USAGE_BUCKETS[bucket.bucket];
               const Icon = config.icon;

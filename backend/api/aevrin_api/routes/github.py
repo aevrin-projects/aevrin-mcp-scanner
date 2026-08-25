@@ -1,9 +1,7 @@
-"""GitHub App install/callback flow: "Connect GitHub for Auto-Fix".
+"""GitHub App install/callback flow: "Connect GitHub".
 
-Separate from routers/autofix.py on purpose. This half only establishes and
-reports repo access; the fix pipeline that consumes that access lives in
-autofix_service.py. They shared a file for a while and the two concerns kept
-tangling.
+Establishes and reports repo access, which is what lets someone pick a
+private repository to scan without pasting a token.
 """
 
 from __future__ import annotations
@@ -43,8 +41,8 @@ async def github_repos(
     settings: Config,
     labels: Annotated[bool, Query()] = True,
 ) -> GithubReposResponse:
-    """Repositories this person's installation can reach, for the scan picker
-    and for deciding where Fix It can actually work.
+    """Repositories this person's installation can reach, for the scan
+    picker.
 
     Scoped to the installation, so it reflects exactly what they granted at
     install time (a few hand-picked repos or all of them) rather than every

@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   FileCode2,
   GitBranch,
-  GitPullRequest,
   Globe,
   KeyRound,
   RefreshCcw,
@@ -28,7 +27,8 @@ import { cn } from "@/shared/lib/utils";
 // Onboarding completion is derived, never stored in a new column: a real
 // GitHub installation is the actual signal, and "skip" is a local preference.
 // That keeps this flow migration-free and means connecting GitHub later (from
-// settings, or the first time Fix It runs) resolves the same state without a
+// settings, or the first time a private repo is scanned) resolves the same
+// state without a
 // second source of truth.
 const SKIP_KEY = "aevrin.onboarding.skipped";
 
@@ -54,7 +54,6 @@ const PATHS: {
     features: [
       { icon: ScanSearch, label: "Static analysis and secret detection" },
       { icon: ShieldCheck, label: "Dependency CVEs with EPSS and CISA KEV" },
-      { icon: GitPullRequest, label: "Fix It opens draft pull requests" },
       { icon: RefreshCcw, label: "Re-scan to verify a fix actually landed" },
     ],
     cta: "Scan a repository",
@@ -120,7 +119,7 @@ export function OnboardingPage() {
           return;
         }
       } catch {
-        // Status unavailable (API down, or auto-fix not configured yet):
+        // Status unavailable (API down, or GitHub not configured yet):
         // showing the flow is safe; the connect button surfaces the real
         // error if it's genuinely broken.
       }
@@ -258,8 +257,7 @@ export function OnboardingPage() {
           <div className="w-full max-w-xl">
             <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Connect GitHub</h1>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Aevrin scans public repositories without this. Connecting adds private-repository scanning and lets
-              Fix It open pull requests for you.
+              Aevrin scans public repositories without this. Connecting adds private-repository scanning.
             </p>
 
             <ul className="mt-6 flex flex-col gap-3">
@@ -268,11 +266,6 @@ export function OnboardingPage() {
                   icon: GitBranch,
                   title: "Private repositories",
                   body: "Scan code that isn't publicly reachable.",
-                },
-                {
-                  icon: GitPullRequest,
-                  title: "Fix It pull requests",
-                  body: "A patch is generated, re-verified by the scanner that flagged it, then opened as a draft PR; never merged automatically.",
                 },
                 {
                   icon: ShieldCheck,

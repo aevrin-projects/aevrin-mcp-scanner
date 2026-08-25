@@ -116,7 +116,10 @@ def _blocking_finding(scan_id: str, user_id: str, **overrides: Any) -> dict[str,
     return row
 
 
-def test_hook_block_marks_autofix_eligible_findings_with_free_tier_upgrade_hint(monkeypatch, settings) -> None:
+def test_hook_block_returns_the_findings_that_caused_it(monkeypatch, settings) -> None:
+    """A block has to carry the findings with it. The hook prints them to a
+    session that has just been stopped mid-install, and a bare "blocked" with
+    no file, line, or remediation leaves nobody able to act on it."""
     scan_id = str(uuid4())
     user = AuthenticatedUser("user-1", None)
     db = _MemoryDb(
@@ -142,69 +145,11 @@ def test_hook_block_marks_autofix_eligible_findings_with_free_tier_upgrade_hint(
     )
 
     assert result.decision == "block"
-    assert result.findings_summary[0]["autofix_eligible"] is True
-    assert result.autofix_hint is not None
-    assert "Pro/Team" in result.autofix_hint
-
-
-def test_hook_block_marks_autofix_hint_for_pro_tier_as_actionable_now(monkeypatch, settings) -> None:
-    scan_id = str(uuid4())
-    user = AuthenticatedUser("user-1", None)
-    db = _MemoryDb(
-        {
-            "accounts": [{"user_id": user.id, "tier": "pro", "paid_until": (datetime.now(UTC) + timedelta(days=10)).isoformat(), "signup_anchor_day": 1}],
-            "hook_cache": [
-                {
-                    "user_id": user.id,
-                    "target": "https://github.com/a/b",
-                    "last_scan_id": scan_id,
-                    "last_score": 40,
-                    "last_status": "completed",
-                    "checked_at": datetime.now(UTC).isoformat(),
-                }
-            ],
-            "findings": [_blocking_finding(scan_id, user.id)],
-        }
-    )
-    monkeypatch.setattr(hook, "enforce_rate_limit", lambda *args, **kwargs: None)
-
-    result = asyncio.run(
-        hook.check_cache(BackgroundTasks(), "https://github.com/a/b", "github_repo", user.id, db, settings)  # type: ignore[arg-type]
-    )
-
-    assert result.decision == "block"
-    assert result.autofix_hint is not None
-    assert "aevrin fix" in result.autofix_hint
-
-
-def test_hook_block_finds_non_eligible_finding_has_no_autofix_hint(monkeypatch, settings) -> None:
-    scan_id = str(uuid4())
-    user = AuthenticatedUser("user-1", None)
-    db = _MemoryDb(
-        {
-            "accounts": [{"user_id": user.id, "tier": "free", "paid_until": None, "signup_anchor_day": 1}],
-            "hook_cache": [
-                {
-                    "user_id": user.id,
-                    "target": "https://github.com/a/b",
-                    "last_scan_id": scan_id,
-                    "last_score": 40,
-                    "last_status": "completed",
-                    "checked_at": datetime.now(UTC).isoformat(),
-                }
-            ],
-            "findings": [_blocking_finding(scan_id, user.id, tool="osv-scanner", file_path=None, manifest_field="package.json")],
-        }
-    )
-    monkeypatch.setattr(hook, "enforce_rate_limit", lambda *args, **kwargs: None)
-
-    result = asyncio.run(
-        hook.check_cache(BackgroundTasks(), "https://github.com/a/b", "github_repo", user.id, db, settings)  # type: ignore[arg-type]
-    )
-
-    assert result.decision == "block"
-    assert result.findings_summary[0]["autofix_eligible"] is False
-    assert result.autofix_hint is None
+    assert len(result.findings_summary) == 1
+    summary = result.findings_summary[0]
+    assert summary["severity"] == "critical"
+    for field in ("id", "title", "owasp_category", "file_path", "line_start", "remediation"):
+        assert field in summary
 
 
 def test_hook_config_scan_keeps_payload_out_of_durable_targets(monkeypatch, settings) -> None:

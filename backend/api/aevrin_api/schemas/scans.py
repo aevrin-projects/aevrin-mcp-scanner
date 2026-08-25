@@ -106,12 +106,6 @@ class FindingOut(BaseModel):
     llm_reasoning: str | None = None
     llm_remediation: str | None = None
     llm_triaged_at: datetime | None = None
-    # Auto-fix lifecycle (V5 prompt §7): Pro/Team only, "none" everywhere else.
-    autofix_status: str = "none"
-    # Which step of an in-flight fix is running, for the progress dialog.
-    autofix_stage: str | None = None
-    autofix_pr_url: str | None = None
-    autofix_failure_reason: str | None = None
 
 
 class TriageRequest(BaseModel):

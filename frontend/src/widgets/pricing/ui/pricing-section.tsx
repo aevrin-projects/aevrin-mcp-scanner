@@ -26,7 +26,6 @@ interface Tier {
   dashboard: string;
   retention: string;
   seats: string;
-  autoFixPrs: string;
   pdfExport: boolean;
   aiRemediation: boolean;
   aiReviewPerScan: string;
@@ -46,7 +45,6 @@ const TIERS: Tier[] = [
     dashboard: "5 / month",
     retention: "7 days",
     seats: "1",
-    autoFixPrs: "-",
     pdfExport: false,
     aiRemediation: true,
     aiReviewPerScan: "40 findings / scan",
@@ -69,7 +67,6 @@ const TIERS: Tier[] = [
     dashboard: "50 / month",
     retention: "90 days",
     seats: "1",
-    autoFixPrs: "-",
     pdfExport: true,
     aiRemediation: true,
     aiReviewPerScan: "200 findings / scan",
@@ -93,7 +90,6 @@ const TIERS: Tier[] = [
     dashboard: "200 / month",
     retention: "1 year",
     seats: "1",
-    autoFixPrs: "15 / month",
     pdfExport: true,
     aiRemediation: true,
     aiReviewPerScan: "200 findings / scan",
@@ -104,7 +100,6 @@ const TIERS: Tier[] = [
       "100 hook auto-scans / month",
       "200 dashboard scans / month",
       "1-year scan history",
-      "15 auto-fix pull requests / month; drafts a fix, re-runs the scanner to confirm it, opens a draft PR",
       "AI-drafted remediation suggestions",
       "Plain-language scan summary",
       "Upgraded tool-poisoning detection",
@@ -120,14 +115,12 @@ const TIERS: Tier[] = [
     dashboard: "Usage-based",
     retention: "Unlimited",
     seats: "3-seat minimum",
-    autoFixPrs: "15 / month / seat",
     pdfExport: true,
     aiRemediation: true,
     aiReviewPerScan: "200 findings / scan",
     cta: "Contact us",
     features: [
       "Everything in Pro, usage-based instead of fixed",
-      "15 auto-fix pull requests / month / seat, pooled across the team",
       "Org-wide hook policy console: set the block threshold everyone's hook enforces",
       "See everything blocked across the team in one place",
       "SSO and audit log",
@@ -183,7 +176,6 @@ const COMPARISON_GROUPS: {
   {
     title: "Automation",
     rows: [
-      { label: "Auto-fix pull requests", render: (t) => t.autoFixPrs },
       { label: "Compliance PDF export", render: (t) => (t.pdfExport ? <Included /> : <NotIncluded />) },
     ],
   },
@@ -218,10 +210,6 @@ const FAQ = [
     q: "How does Team's per-seat pricing work?",
     a: "Team is billed per seat with a 3-seat minimum. Seats are a billing quantity today, not yet a shared multi-user login, every seat purchased raises the account's usage-based limits.",
   },
-  {
-    q: "What happens when I use all 15 auto-fix PRs in a month?",
-    a: "Fix It pauses until your allowance resets, or you buy +10 more PRs from your account settings, a one-time, explicit purchase, never an automatic overage charge. The add-on requires an active Pro or Team subscription and is never sold on its own.",
-  },
 ];
 
 function loadRazorpayScript(): Promise<void> {
@@ -251,7 +239,6 @@ type Pricing = {
   currency: string;
   tiers: Record<string, number>;
   byok_addon_per_month: number;
-  autofix_addon: number;
 };
 
 /** Minor units (cents/paise) to a whole-unit amount for display. */

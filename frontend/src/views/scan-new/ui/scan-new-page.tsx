@@ -187,7 +187,7 @@ export function NewScanPage() {
 
                       {/* Pasting a URL still works; this is the shortcut for
                           your own repositories, and it doubles as the honest
-                          answer to "which repos can Fix It actually touch",
+                          answer to "which repos can Aevrin actually read",
                           since both read the same installation grant. */}
                       {targetType === "github_repo" ? (
                         <div className="space-y-2 border-t border-border pt-4">

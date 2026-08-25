@@ -256,7 +256,7 @@ export function DashboardPage() {
                 done={githubConnected === true}
                 loading={githubConnected === null}
                 title="Connect GitHub"
-                body="Adds private-repository scanning and lets Fix It open pull requests. Optional; public repos, live servers, and pasted configs work without it."
+                body="Adds private-repository scanning. Optional; public repos, live servers, and pasted configs work without it."
                 action={
                   githubConnected === false ? (
                     <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/settings/billing" />}>

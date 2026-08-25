@@ -31,9 +31,8 @@ class _FakeDb:
     """Stands in for SupabaseRest: one 'accounts' row for the given tier, and
     a 'tier_limits' row with a limit of 5/month unless the tier is 'team'."""
 
-    def __init__(self, tier: str, auto_fix_bonus_prs: int = 0):
+    def __init__(self, tier: str):
         self._tier = tier
-        self._auto_fix_bonus_prs = auto_fix_bonus_prs
 
     async def select(self, table: str, filters: dict[str, str] | None = None, **kwargs: Any):
         if table == "accounts":
@@ -46,7 +45,6 @@ class _FakeDb:
                     "tier": self._tier,
                     "paid_until": paid_until,
                     "signup_anchor_day": 1,
-                    "auto_fix_bonus_prs": self._auto_fix_bonus_prs,
                 }
             ]
         if table == "tier_limits":
@@ -58,7 +56,6 @@ class _FakeDb:
                     "cli_scans_per_month": limit,
                     "hook_scans_per_month": limit,
                     "dashboard_scans_per_month": limit,
-                    "auto_fix_prs_per_month": limit,
                 }
             ]
         if table in ("scans", "findings", "account_quota_overrides"):
@@ -108,22 +105,6 @@ async def test_limited_tier_usage_reflects_increments(settings):
     assert cli_bucket.limit == 5
 
 
-async def test_auto_fix_limit_adds_bonus_prs_to_tier_allowance(settings):
-    """A purchased auto-fix add-on tops up the tier's bundled monthly
-    allowance rather than replacing it; see backend/infra/migrations/0016."""
-    db = _FakeDb(tier="pro", auto_fix_bonus_prs=10)
-    usage = await get_usage(settings, db, "user-1")
-    auto_fix_bucket = next(b for b in usage if b.bucket == "auto_fix")
-    assert auto_fix_bucket.limit == 15  # base tier_limits value from _FakeDb + 10 bonus
-
-
-async def test_auto_fix_limit_with_no_bonus_matches_tier_allowance(settings):
-    db = _FakeDb(tier="pro")
-    usage = await get_usage(settings, db, "user-1")
-    auto_fix_bucket = next(b for b in usage if b.bucket == "auto_fix")
-    assert auto_fix_bucket.limit == 5
-
-
 # --- Redis outage falls back to durable history ----------------------------
 #
 # Redis holding the live counters used to mean a Redis outage raised straight
@@ -145,23 +126,17 @@ class _BrokenRedis:
 
 
 class _DbWithScanHistory(_FakeDb):
-    """_FakeDb plus durable history: `scans` rows for scan buckets and
-    `findings` rows carrying autofix_at for the auto_fix bucket."""
+    """_FakeDb plus durable history: `scans` rows for each scan bucket."""
 
-    def __init__(self, tier: str, count: int, autofix_count: int = 0, **kwargs: Any):
+    def __init__(self, tier: str, count: int, **kwargs: Any):
         super().__init__(tier, **kwargs)
         self._count = count
-        self._autofix_count = autofix_count
         self.last_scan_filters: dict[str, str] | None = None
-        self.last_finding_filters: dict[str, str] | None = None
 
     async def select(self, table: str, filters: dict[str, str] | None = None, **kwargs: Any):
         if table == "scans":
             self.last_scan_filters = filters
             return [{"id": f"scan-{i}"} for i in range(self._count)]
-        if table == "findings":
-            self.last_finding_filters = filters
-            return [{"id": f"finding-{i}"} for i in range(self._autofix_count)]
         return await super().select(table, filters, **kwargs)
 
 
@@ -187,38 +162,13 @@ async def test_redis_outage_still_enforces_the_limit_from_history(monkeypatch, s
 
 
 @pytest.mark.asyncio
-async def test_redis_outage_counts_auto_fix_from_opened_pull_requests(monkeypatch, settings):
-    """A PR that exists must always be countable. findings.autofix_at is
-    stamped in Postgres when the PR opens, so the counter survives Redis
-    being unreachable; previously a real PR could go entirely uncounted."""
-    monkeypatch.setattr("aevrin_api.integrations.redis_client.get_redis", lambda settings=None: _BrokenRedis())
-    monkeypatch.setattr("aevrin_api.integrations.redis_client.get_fallback_redis", lambda settings=None: None)
-    db = _DbWithScanHistory("pro", count=0, autofix_count=2)  # limit is 5
-    await check_and_increment_quota(settings, db, "user-1", "auto_fix")
-    assert db.last_finding_filters is not None
-    assert db.last_finding_filters["autofix_status"] == "fixed"
-    assert db.last_finding_filters["autofix_at"].startswith("gte.")
-
-
-@pytest.mark.asyncio
-async def test_redis_outage_still_enforces_the_auto_fix_limit(monkeypatch, settings):
-    monkeypatch.setattr("aevrin_api.integrations.redis_client.get_redis", lambda settings=None: _BrokenRedis())
-    monkeypatch.setattr("aevrin_api.integrations.redis_client.get_fallback_redis", lambda settings=None: None)
-    db = _DbWithScanHistory("pro", count=0, autofix_count=5)  # already at 5
-    with pytest.raises(QuotaExceeded):
-        await check_and_increment_quota(settings, db, "user-1", "auto_fix")
-
-
-@pytest.mark.asyncio
 async def test_usage_meters_degrade_to_history_instead_of_showing_zero(monkeypatch, settings):
     monkeypatch.setattr("aevrin_api.integrations.redis_client.get_redis", lambda settings=None: _BrokenRedis())
     monkeypatch.setattr("aevrin_api.integrations.redis_client.get_fallback_redis", lambda settings=None: None)
-    db = _DbWithScanHistory("free", count=3, autofix_count=1)
+    db = _DbWithScanHistory("free", count=3)
     usage = await get_usage(settings, db, "user-1")
     dashboard = next(b for b in usage if b.bucket == "dashboard")
     assert dashboard.used == 3
-    # The auto-fix meter reads its own durable source, not the scan count.
-    assert next(b for b in usage if b.bucket == "auto_fix").used == 1
 
 
 # --- admin quota overrides -------------------------------------------------

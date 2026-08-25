@@ -9,7 +9,6 @@ from aevrin_api.integrations.deepseek import (
     DeepSeekError,
     complete_json,
     parse_json_object,
-    stream_json,
 )
 
 _URL = f"{BASE_URL}/chat/completions"
@@ -76,63 +75,6 @@ async def test_empty_choices_is_an_error_not_a_crash():
         respx.post(_URL).mock(return_value=httpx.Response(200, json={"choices": []}))
         with pytest.raises(DeepSeekError):
             await complete_json(**_ARGS)
-
-
-@pytest.mark.asyncio
-async def test_stream_reassembles_deltas_and_final_usage():
-    stream = _sse(
-        '{"choices": [{"delta": {"content": "{\\"patched_content\\": \\"a"}}]}',
-        '{"choices": [{"delta": {"content": "bc\\"}"}, "finish_reason": "stop"}]}',
-        '{"choices": [], "usage": {"prompt_tokens": 900, "completion_tokens": 40, '
-        '"prompt_cache_hit_tokens": 832}}',
-    )
-    with respx.mock:
-        respx.post(_URL).mock(return_value=httpx.Response(200, text=stream))
-        result = await stream_json(**_ARGS)
-    assert result.content == '{"patched_content": "abc"}'
-    assert result.cache_hit_tokens == 832
-    assert result.truncated is False
-
-
-@pytest.mark.asyncio
-async def test_stream_flags_truncation():
-    stream = _sse('{"choices": [{"delta": {"content": "{\\"a"}, "finish_reason": "length"}]}')
-    with respx.mock:
-        respx.post(_URL).mock(return_value=httpx.Response(200, text=stream))
-        result = await stream_json(**_ARGS)
-    assert result.truncated is True
-
-
-@pytest.mark.asyncio
-async def test_stream_tolerates_a_malformed_frame():
-    """One unparseable SSE frame must not discard an otherwise complete
-    generation."""
-    stream = _sse(
-        '{"choices": [{"delta": {"content": "hel"}}]}',
-        "{not json at all",
-        '{"choices": [{"delta": {"content": "lo"}, "finish_reason": "stop"}]}',
-    )
-    with respx.mock:
-        respx.post(_URL).mock(return_value=httpx.Response(200, text=stream))
-        result = await stream_json(**_ARGS)
-    assert result.content == "hello"
-
-
-@pytest.mark.asyncio
-async def test_stream_surfaces_http_errors():
-    with respx.mock:
-        respx.post(_URL).mock(return_value=httpx.Response(429, text="rate limited"))
-        with pytest.raises(DeepSeekError) as excinfo:
-            await stream_json(**_ARGS)
-    assert "429" in str(excinfo.value)
-
-
-@pytest.mark.asyncio
-async def test_stream_with_no_content_is_an_error():
-    with respx.mock:
-        respx.post(_URL).mock(return_value=httpx.Response(200, text="data: [DONE]\n\n"))
-        with pytest.raises(DeepSeekError):
-            await stream_json(**_ARGS)
 
 
 def test_parse_json_object_handles_a_fenced_reply():

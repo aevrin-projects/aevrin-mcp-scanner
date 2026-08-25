@@ -38,7 +38,7 @@ export interface ScanStage {
 }
 
 /** What changed between this scan and the previous scan of the same target.
- *  Matching is (title, file_path, tool), the same triple Fix It uses to
+ *  Matching is (title, file_path, tool), the same triple used to
  *  decide whether a patch cleared a finding, so the two always agree. */
 export type ScanDiffEntry = { title: string; file_path: string | null; tool: string };
 

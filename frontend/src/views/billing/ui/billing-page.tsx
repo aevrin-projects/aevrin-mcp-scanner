@@ -22,6 +22,7 @@ const PAYMENT_TIER_LABEL: Record<Payment["tier"], string> = {
   hobby: "Hobby",
   pro: "Pro",
   team: "Team",
+  // No longer sold; historical rows in billing history still render.
   autofix_addon: "+10 auto-fix PRs",
 };
 
@@ -51,7 +52,6 @@ type Pricing = {
   currency: string;
   tiers: Record<string, number>;
   byok_addon_per_month: number;
-  autofix_addon: number;
 };
 
 /**
@@ -67,8 +67,8 @@ type Pricing = {
 const PLAN_COPY = {
   free: { billing: "No renewal", body: "Five CLI scans, two hook auto-scans, and five dashboard scans each month." },
   hobby: { billing: "One cycle at a time", body: "Monthly / effective annual monthly price, with no automatic renewal." },
-  pro: { billing: "One cycle at a time", body: "Monthly / effective annual monthly price, includes 15 auto-fix PRs/month, with no automatic renewal." },
-  team: { billing: "One cycle at a time", body: "Monthly / effective annual per-seat price, includes 15 auto-fix PRs/seat/month, with no automatic renewal." },
+  pro: { billing: "One cycle at a time", body: "Monthly / effective annual monthly price, with no automatic renewal." },
+  team: { billing: "One cycle at a time", body: "Monthly / effective annual per-seat price, with no automatic renewal." },
 } as const;
 
 // Full labels for every bucket: a `capitalize` utility was previously doing
@@ -265,7 +265,6 @@ export function BillingPage() {
                 of the section, so it should be impossible to miss. */}
             <div className="space-y-3">
               {usage.buckets
-                .filter((bucket) => bucket.bucket !== "auto_fix" || bucket.limit !== 0)
                 .map((bucket, index) => {
                   const meta = USAGE_BUCKETS[bucket.bucket];
                   const Icon = meta.icon;
@@ -327,7 +326,7 @@ export function BillingPage() {
           requires scrolling past invoices is effectively invisible. Shown to
           every tier, hiding them from Free meant nobody could discover they
           exist. */}
-      {subscription ? <AutofixSection tier={subscription.effective_tier} pricing={pricing} /> : null}
+      {subscription ? <AddOnsSection tier={subscription.effective_tier} pricing={pricing} /> : null}
 
       <BillingHistory payments={payments} />
 
@@ -512,7 +511,7 @@ function BillingHistory({ payments }: { payments: Payment[] | null }) {
 // that they hadn't, the exact confusion behind "I approved it and nothing
 // updated".
 const GITHUB_CALLBACK_MESSAGE: Record<string, { message: string; ok: boolean }> = {
-  connected: { message: "GitHub connected: Fix It can now open pull requests on the repos you granted.", ok: true },
+  connected: { message: "GitHub connected: Aevrin can now scan the repositories you granted.", ok: true },
   cancelled: { message: "GitHub connection cancelled; nothing was granted.", ok: false },
   invalid_state: { message: "That connection link expired, try connecting again.", ok: false },
   authorized_not_installed: {
@@ -630,7 +629,7 @@ function AddOnCard({
   );
 }
 
-function AutofixSection({
+function AddOnsSection({
   tier,
   pricing,
 }: {
@@ -640,16 +639,12 @@ function AutofixSection({
   const [status, setStatus] = useState<{ connected: boolean; account_login: string | null } | null>(null);
   const [byok, setByok] = useState<{ enabled: boolean; provider: string | null; has_key: boolean } | null>(null);
   const [connecting, setConnecting] = useState(false);
-  const [buyingAddon, setBuyingAddon] = useState(false);
   const [buyingByok, setBuyingByok] = useState(false);
 
   // Em dash while pricing loads rather than a USD guess that changes to
   // rupees a moment later.
-  const autofixPrice = pricing ? formatMoney(pricing.autofix_addon, pricing.currency) : "-";
   const byokPrice = pricing ? formatMoney(pricing.byok_addon_per_month, pricing.currency) : "-";
 
-  // Add-ons are top-ups on an existing subscription, never sold standalone.
-  const isPaid = tier === "pro" || tier === "team";
 
   useEffect(() => {
     billingApi
@@ -756,14 +751,6 @@ function AutofixSection({
     }
   }
 
-  const buyAutofixAddon = () =>
-    void runAddonCheckout(
-      billingApi.createAutofixAddonCheckout,
-      "+10 auto-fix PRs",
-      "+10 auto-fix PRs added to this billing period.",
-      setBuyingAddon,
-    );
-
   const buyByokAddon = () =>
     void runAddonCheckout(
       billingApi.createByokAddonCheckout,
@@ -777,32 +764,9 @@ function AutofixSection({
       title="Add-ons"
       description="Optional top-ups on your existing plan. Each is an explicit one-time purchase; nothing is ever billed automatically when you hit a limit."
     >
-      <div className="panel-rise grid items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="panel-rise grid items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <AddOnCard
           index={0}
-          title="Auto-fix pull requests"
-          price={autofixPrice}
-          unit="/ 10 PRs"
-          body="Tops up your monthly Fix It allowance when a busy week runs it down."
-          bullets={["Cumulative: they stack on your plan's allowance", "Never expire at the end of the period", "One-time charge, no subscription change"]}
-          accent="var(--brand)"
-          Icon={Wrench}
-          state={isPaid ? undefined : { label: "Requires Pro", tone: "muted" }}
-          action={
-            isPaid ? (
-              <Button disabled={buyingAddon} onClick={buyAutofixAddon}>
-                {buyingAddon ? "Please wait…" : "Buy +10 PRs"}
-              </Button>
-            ) : (
-              <Button variant="outline" nativeButton={false} render={<Link href="/pricing" />}>
-                Upgrade to Pro
-              </Button>
-            )
-          }
-        />
-
-        <AddOnCard
-          index={1}
           title="Bring your own API key"
           price={byokPrice}
           unit="/ month"
@@ -833,7 +797,7 @@ function AutofixSection({
         />
 
         <AddOnCard
-          index={2}
+          index={1}
           title="Extra scan credits"
           price="-"
           unit="/ +25 scans"
@@ -846,15 +810,15 @@ function AutofixSection({
         />
 
         <AddOnCard
-          index={3}
+          index={2}
           title="GitHub connection"
           price="Included"
           body={
             status === null
               ? "Checking connection status…"
               : status.connected
-                ? `Connected as ${status.account_login}. Fix It can open draft pull requests on the repositories you granted.`
-                : "Required before Fix It can open pull requests on your behalf."
+                ? `Connected as ${status.account_login}. Aevrin can scan the repositories you granted.`
+                : "Required before Aevrin can scan a private repository on your behalf."
           }
           bullets={["Scoped to the repositories you pick", "Opens draft PRs only; never merges", "Revocable from GitHub at any time"]}
           accent="var(--chart-1)"

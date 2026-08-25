@@ -67,8 +67,6 @@ _BYOK_ADDON_CENTS_PER_MONTH = 300
 # same "requires an active paid subscription" rule as the BYOK add-on above.
 # Flat one-time price, not seat-multiplied; mirrors how the BYOK add-on
 # above is also charged once per order regardless of body.seats.
-_AUTOFIX_ADDON_CENTS = 400
-_AUTOFIX_ADDON_BONUS_PRS = 10
 
 # India is priced for its own market rather than converted from USD. A
 # straight FX conversion (~x88) would put Pro at over Rs 2,900/month, which
@@ -91,7 +89,6 @@ _PRICE_PAISE_INR: dict[tuple[str, str], int] = {
     ("team", "annual"): 1_999_900,
 }
 _BYOK_ADDON_PAISE_PER_MONTH_INR = 19_900
-_AUTOFIX_ADDON_PAISE_INR = 24_900
 
 _DEFAULT_CURRENCY = "USD"
 _INR = "INR"
@@ -135,10 +132,6 @@ def _byok_addon_amount(cycle: str, currency: str) -> int:
     months = 12 if cycle == "annual" else 1
     per_month = _BYOK_ADDON_PAISE_PER_MONTH_INR if currency == _INR else _BYOK_ADDON_CENTS_PER_MONTH
     return per_month * months
-
-
-def _autofix_addon_amount(currency: str) -> int:
-    return _AUTOFIX_ADDON_PAISE_INR if currency == _INR else _AUTOFIX_ADDON_CENTS
 
 
 def _byok_addon_cents(cycle: str) -> int:
@@ -195,7 +188,6 @@ def get_pricing(country: str | None, currency: str | None = None) -> PricingResp
         currency=resolved,
         tiers={f"{tier}_{cycle}": amount for (tier, cycle), amount in table.items()},
         byok_addon_per_month=_byok_addon_amount("monthly", resolved),
-        autofix_addon=_autofix_addon_amount(resolved),
     )
 
 
@@ -250,49 +242,6 @@ async def create_checkout(
 
     return CheckoutResponse(
         order_id=order["id"], amount_paise=amount_paise, currency=currency, razorpay_key_id=settings.razorpay_key_id or ""
-    )
-
-
-async def create_autofix_addon_checkout(
-    country: str | None, user_id: str, db: SupabaseRest, settings: Settings
-) -> CheckoutResponse:
-    account = await get_or_create_account(db, user_id)
-    if effective_tier(account) not in ("pro", "team"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="The auto-fix PR add-on requires an active Pro or Team subscription.",
-        )
-    try:
-        client = RazorpayClient(settings)
-    except RazorpayUnavailable as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing isn't configured yet.") from exc
-
-    currency = resolve_currency(country)
-    addon_amount = _autofix_addon_amount(currency)
-
-    receipt = f"aevrin_{uuid.uuid4().hex}"
-    order = await _create_order_or_503(client,
-        amount_paise=addon_amount,
-        currency=currency,
-        receipt=receipt,
-        notes={"aevrin_user_id": user_id, "tier": "autofix_addon"},
-    )
-    await db.insert(
-        "payments",
-        {
-            "user_id": user_id,
-            "tier": "autofix_addon",
-            "cycle": "monthly",
-            "seats": 1,
-            "byok": False,
-            "amount_paise": addon_amount,
-            "currency": currency,
-            "razorpay_order_id": order["id"],
-            "status": "created",
-        },
-    )
-    return CheckoutResponse(
-        order_id=order["id"], amount_paise=addon_amount, currency=currency, razorpay_key_id=settings.razorpay_key_id or ""
     )
 
 
@@ -370,9 +319,12 @@ async def verify_payment(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment signature mismatch")
 
     account = await get_or_create_account(db, user_id)
+    # "autofix_addon" is no longer sold, but rows for it are still in
+    # `payments` and a browser can re-verify one at any time. It has to stay
+    # recognised here: an add-on must never extend paid_until, and dropping
+    # the tier from this tuple would silently hand an old one-off purchase a
+    # month of Pro. It grants nothing now -- see the claim block below.
     is_addon = payment["tier"] in ("autofix_addon", "byok_addon")
-    # The add-on tops up auto_fix_bonus_prs, not tier/paid_until; it never
-    # extends or changes the subscription itself (V5 prompt §5).
     existing_paid_until = account.get("paid_until")
     new_paid_until = (
         datetime.fromisoformat(existing_paid_until) if is_addon and existing_paid_until else _paid_until(existing_paid_until, payment["cycle"])
@@ -399,11 +351,10 @@ async def verify_payment(
         if payment["tier"] == "byok_addon":
             await db.update("accounts", {"user_id": user_id}, {"byok_enabled": True})
         elif is_addon:
-            await db.update(
-                "accounts",
-                {"user_id": user_id},
-                {"auto_fix_bonus_prs": int(account.get("auto_fix_bonus_prs") or 0) + _AUTOFIX_ADDON_BONUS_PRS},
-            )
+            # A historical auto-fix add-on. What it topped up no longer
+            # exists, so there is nothing to credit; the row is still marked
+            # paid so it stops looking unsettled.
+            pass
         else:
             await db.update("accounts", {"user_id": user_id}, _account_update_for_payment(payment, new_paid_until))
 
@@ -457,18 +408,13 @@ async def razorpay_webhook(
 
     account = await get_or_create_account(db, payment["user_id"])
 
-    # Must branch on the exact tier, not on "is this an add-on". Both add-ons
-    # leave tier and paid_until alone but grant entirely different things, and
-    # collapsing them here would have a BYOK purchase silently hand out ten
-    # auto-fix pull requests instead.
+    # Branch on the exact tier, not on "is this an add-on": an add-on leaves
+    # tier and paid_until alone, and collapsing the cases would let a
+    # historical auto-fix row fall through and extend a subscription.
     if payment["tier"] == "byok_addon":
         await db.update("accounts", {"user_id": payment["user_id"]}, {"byok_enabled": True})
     elif payment["tier"] == "autofix_addon":
-        await db.update(
-            "accounts",
-            {"user_id": payment["user_id"]},
-            {"auto_fix_bonus_prs": int(account.get("auto_fix_bonus_prs") or 0) + _AUTOFIX_ADDON_BONUS_PRS},
-        )
+        pass  # No longer sold and nothing left to credit; see /verify above.
     else:
         new_paid_until = _paid_until(account.get("paid_until"), payment["cycle"])
         await db.update("accounts", {"user_id": payment["user_id"]}, _account_update_for_payment(payment, new_paid_until))

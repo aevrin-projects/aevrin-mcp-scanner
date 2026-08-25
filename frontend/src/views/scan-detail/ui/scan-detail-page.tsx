@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, CircleDashed, GitPullRequest, Loader2, MinusCircle, Search, Sparkles, Wrench, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, MinusCircle, Search, Sparkles, XCircle } from "lucide-react";
 import { ApiError } from "@/shared/api";
 import { billingApi } from "@/entities/billing";
 import { findingApi } from "@/entities/finding";
@@ -19,9 +19,8 @@ import { formatDateTime, formatDuration } from "@/shared/lib/format";
 import { PageHeader, SectionCard, EmptyState } from "@/shared/ui";
 import { Select } from "@/shared/ui/select";
 import { StatusBadge } from "@/entities/scan";
-import { FixProgressDialog } from "@/features/autofix";
 import { SeverityBadge } from "@/entities/finding";
-import { Button, buttonVariants } from "@/shared/ui/button";
+import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Input } from "@/shared/ui/input";
 import { Card, CardContent } from "@/shared/ui/card";
@@ -46,9 +45,6 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [fixingAll, setFixingAll] = useState(false);
-  const [cancellingFix, setCancellingFix] = useState(false);
-  const [fixDialogOpen, setFixDialogOpen] = useState(false);
   const [diff, setDiff] = useState<ScanDiff | null>(null);
   const [canExport, setCanExport] = useState<boolean | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -135,18 +131,6 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
     });
   }, [activeFindings, query, severityFilter, triageFilter]);
 
-  const fixInFlight = findings.some(
-    (f) => f.autofix_status === "queued" || f.autofix_status === "in_progress",
-  );
-
-  useEffect(() => {
-    if (!fixInFlight) return;
-    const id = window.setInterval(() => {
-      void findingApi.getScanFindings(scanId).then(setFindings).catch(() => {});
-    }, 3000);
-    return () => window.clearInterval(id);
-  }, [fixInFlight, scanId]);
-
   // "Did my fix actually work?" is the question a rescan has to answer, and
   // it cannot be answered from a findings list alone when two findings share
   // a title in different files.
@@ -157,19 +141,6 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
     }, 0);
     return () => window.clearTimeout(id);
   }, [scan, scanId]);
-
-  async function cancelFixRun() {
-    setCancellingFix(true);
-    try {
-      const result = await findingApi.cancelScanFix(scanId);
-      toast.info(`Fix run cancelled. ${result.released} queued finding(s) released.`);
-      void findingApi.getScanFindings(scanId).then(setFindings).catch(() => {});
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Could not cancel the fix run.");
-    } finally {
-      setCancellingFix(false);
-    }
-  }
 
   if (loadError && !scan) {
     return (
@@ -197,49 +168,12 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
 
   return (
     <div className="space-y-6">
-      {fixDialogOpen ? (
-        <FixProgressDialog
-          findings={findings}
-          cancelling={cancellingFix}
-          onCancel={() => void cancelFixRun()}
-          onClose={() => setFixDialogOpen(false)}
-        />
-      ) : null}
-
       <PageHeader
         pretitle="Scan"
         title="Scan result"
         description="Review the target, actual coverage, score, urgent findings, and the limitations that still need separate verification."
         actions={
           <>
-            {/* Whole-scan Fix It. Only offered for repository scans, since
-                there is nothing to open a pull request against otherwise,
-                but never hidden on plan grounds: it explains what's needed
-                when pressed, the same as the per-finding button. */}
-            {scan.target_type === "github_repo" && (scan.status === "completed" || scan.status === "incomplete") ? (
-              <Button
-                disabled={fixingAll}
-                onClick={async () => {
-                  setFixingAll(true);
-                  try {
-                    const result = await findingApi.fixScan(scanId);
-                    if (result.attempted > 0) {
-                      setFixDialogOpen(true);
-                      void load();
-                    } else {
-                      toast.info(`Fix It: ${result.message}`);
-                    }
-                  } catch (err) {
-                    toast.error(err instanceof ApiError ? err.message : "Could not run Fix It for this scan.");
-                  } finally {
-                    setFixingAll(false);
-                  }
-                }}
-              >
-                <Wrench className="size-4" />
-                {fixingAll ? "Fixing all…" : "Fix all"}
-              </Button>
-            ) : null}
             {scan.target_type === "local_path" ? (
               <Button nativeButton={false} render={<Link href="/integrations" />} variant="outline">Rescan with CLI</Button>
             ) : (
@@ -475,12 +409,6 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                 {filteredFindings.map((finding) => {
                   const params = new URLSearchParams(searchParams.toString());
                   const returnTo = params.toString() ? `${pathname}?${params.toString()}` : pathname;
-
-                  // The row shows fix *state* but never offers the action;
-                  // starting a fix belongs on the finding's own page, and the
-                  // whole-scan button covers the bulk case. A third entry
-                  // point here only made the list noisy.
-                  const alreadyFixed = finding.autofix_status === "fixed" && finding.autofix_pr_url;
                   return (
                     <div
                       key={finding.id}
@@ -546,37 +474,6 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                         </div>
                       </div>
                     </button>
-
-                      {alreadyFixed ? (
-                        <div className="mt-4 mr-4 flex shrink-0 flex-col items-end gap-1">
-                          {/* Named explicitly rather than implied by the
-                              presence of a PR link. This label only ever
-                              appears while the pull request is still open;
-                              a merged PR whose finding came back is left
-                              open on purpose, because the fix did not
-                              work. */}
-                          <span className="flex items-center gap-1.5 text-[11px] font-medium text-chart-1">
-                            <CheckCircle2 className="size-3" />
-                            Fix ready for review
-                          </span>
-                          <a
-                            href={finding.autofix_pr_url ?? "#"}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={buttonVariants({ variant: "outline", size: "sm" })}
-                          >
-                            <GitPullRequest className="size-3.5" />
-                            View PR
-                          </a>
-                        </div>
-                      ) : finding.autofix_status === "queued" || finding.autofix_status === "in_progress" ? (
-                        <span className="mt-5 mr-4 flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                          <Loader2 className="size-3 animate-spin" />
-                          {finding.autofix_status === "queued" ? "Queued" : "Fixing…"}
-                        </span>
-                      ) : finding.autofix_status === "failed" ? (
-                        <span className="mt-5 mr-4 shrink-0 text-[11px] text-severity-high">Fix failed</span>
-                      ) : null}
                     </div>
                   );
                 })}
