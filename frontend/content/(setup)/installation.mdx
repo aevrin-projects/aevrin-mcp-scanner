@@ -73,6 +73,21 @@ Docker Engine, start it before scanning, and allocate at least 4 GB of memory. W
 Linux containers and allow bind mounts from its temporary directory. Live URL inspection does
 not need a source checkout, but still needs outbound HTTPS.
 
+Docker is the recommended setup, not a hard requirement. When the daemon is unreachable, each
+scanner falls back to a copy on your `PATH`, per tool: if `bandit` is installed and `trivy` is
+not, the static analysis runs and the dependency check reports itself as missing. A scanner that
+is neither containerised nor installed names the command that would install it.
+
+```bash
+pip install semgrep bandit
+```
+
+Fewer scanners means less coverage, and Aevrin says so rather than scoring the gap as clean. The
+scan is marked `PARTIAL COVERAGE` for a category that ran with something missing, and
+`SCAN INCOMPLETE` for one where nothing ran at all.
+
+To pin one mode and turn the fallback off, set `AEVRIN_EXECUTOR` to `docker` or `subprocess`.
+
 ## Upgrade, repair, or remove
 
 ```bash

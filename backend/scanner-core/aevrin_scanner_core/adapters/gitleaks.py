@@ -19,7 +19,7 @@ from ..classification.owasp import OwaspMcpCategory
 from ..execution.runner import (
     DockerRunSpec,
     LocalCommandSpec,
-    get_executor_mode,
+    resolve_execution,
     run_container,
     run_local_command,
 )
@@ -64,7 +64,9 @@ class GitleaksAdapter(ScannerAdapter):
         )
 
     def run(self, scan_id: UUID, target_dir: str) -> list[Finding]:
-        if get_executor_mode() == "subprocess":
+        # Same per-tool resolution as the base adapter; this one only
+        # overrides run() because gitleaks reports to a file rather than stdout.
+        if resolve_execution(self.tool.value, self.local_binary()) == "subprocess":
             run_local_command(self.tool.value, self.build_local_command(target_dir), target_dir)
         else:
             run_container(self.tool.value, self.build_spec(target_dir))

@@ -10,7 +10,7 @@ from ..execution.runner import (
     DockerRunSpec,
     LocalCommandSpec,
     ToolExecutionError,
-    get_executor_mode,
+    resolve_execution,
     run_container,
     run_local_command,
 )
@@ -32,12 +32,27 @@ class ScannerAdapter(ABC):
             f"{self.tool.value} has no subprocess-mode command, Docker-only"
         )
 
+    def local_binary(self) -> str:
+        """The executable to look for on PATH when Docker is unreachable.
+
+        Built from build_local_command with a throwaway path, so it can never
+        drift from the command that would actually be run. A Docker-only
+        adapter returns "" and is simply never eligible for the fallback.
+        """
+        try:
+            return self.build_local_command("/nonexistent").binary
+        except NotImplementedError:
+            return ""
+
     @abstractmethod
     def parse_output(self, scan_id: UUID, stdout: str) -> list[Finding]:
         """Normalize raw tool JSON into shared Finding models."""
 
     def run(self, scan_id: UUID, target_dir: str) -> list[Finding]:
-        if get_executor_mode() == "subprocess":
+        # Per tool, not once globally: whether this scanner can run right now
+        # depends on the daemon AND on whether this particular binary is
+        # installed, and those differ between tools on the same machine.
+        if resolve_execution(self.tool.value, self.local_binary()) == "subprocess":
             spec = self.build_local_command(target_dir)
             stdout, stderr, _code = run_local_command(self.tool.value, spec, target_dir)
         else:

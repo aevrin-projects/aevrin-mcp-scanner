@@ -22,21 +22,92 @@ one broken scanner never takes down the rest of the scan.
 
 from __future__ import annotations
 
+# This module intentionally runs versioned scanner argv without a shell.
+import functools
 import os
 import platform
 import re
 import shlex
-
-# This module intentionally runs versioned scanner argv without a shell.
+import shutil
 import subprocess  # nosec B404
 from dataclasses import dataclass, field
 
+# How to install each scanner if it is neither containerised nor on PATH.
+# An error that says a tool is missing without saying how to get it just
+# moves the work to a search engine.
+INSTALL_HINTS = {
+    "semgrep": "pip install semgrep",
+    "bandit": "pip install bandit",
+    "trivy": "https://trivy.dev/latest/getting-started/installation/",
+    "gitleaks": "https://github.com/gitleaks/gitleaks#installing",
+    "trufflehog": "https://github.com/trufflesecurity/trufflehog#floppy_disk-installation",
+    "osv-scanner": "https://google.github.io/osv-scanner/installation/",
+    "scorecard": "https://github.com/ossf/scorecard#installation",
+    "mcp-shield": "npm install -g mcp-shield",
+}
+
 
 def get_executor_mode() -> str:
-    mode = os.environ.get("AEVRIN_EXECUTOR", "docker").lower()
-    if mode not in ("docker", "subprocess"):
-        raise ValueError(f"AEVRIN_EXECUTOR must be 'docker' or 'subprocess', got {mode!r}")
+    """`auto` (the default), `docker`, or `subprocess`.
+
+    `auto` prefers Docker, because a container is the isolated way to run an
+    untrusted scanner over untrusted source, and falls back to a binary on
+    PATH only when the daemon cannot be reached. Setting the variable
+    explicitly pins one mode and disables the fallback, which is what the API
+    container wants: its scanners are baked in and there is no Docker inside
+    it to fall back from.
+    """
+    mode = os.environ.get("AEVRIN_EXECUTOR", "auto").lower()
+    if mode not in ("auto", "docker", "subprocess"):
+        raise ValueError(f"AEVRIN_EXECUTOR must be 'auto', 'docker' or 'subprocess', got {mode!r}")
     return mode
+
+
+@functools.lru_cache(maxsize=1)
+def docker_available() -> bool:
+    """Whether a Docker daemon is actually reachable, not merely whether the
+    CLI exists.
+
+    `docker info` rather than `docker version`: the latter succeeds against a
+    stopped daemon by reporting only the client. Cached, so a scan pays for
+    this once rather than once per scanner, and short-timeout, because a
+    stopped Docker Desktop on Windows can hang a connection attempt for a
+    long time and this is a fast-path check, not the work.
+    """
+    try:
+        proc = subprocess.run(  # nosec B603 B607
+            ["docker", "info", "--format", "{{.ServerVersion}}"],
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0
+
+
+def resolve_execution(tool: str, binary: str) -> str:
+    """Which mode this specific tool should use right now: "docker" or
+    "subprocess".
+
+    Raises rather than returning a mode that cannot work, so the failure names
+    both routes and how to fix either. Previously every tool was hard-wired to
+    Docker, so a stopped daemon failed the whole scan even when the scanner
+    was sitting on PATH.
+    """
+    mode = get_executor_mode()
+    if mode != "auto":
+        return mode
+    if docker_available():
+        return "docker"
+    if shutil.which(binary):
+        return "subprocess"
+    hint = INSTALL_HINTS.get(tool)
+    raise ToolExecutionError(
+        tool,
+        f"no Docker daemon and no local '{binary}' binary"
+        + (f"; start Docker, or install it with: {hint}" if hint else "; start Docker or install it"),
+    )
 
 
 class ToolExecutionError(Exception):
@@ -180,6 +251,24 @@ def run_container(tool: str, spec: DockerRunSpec) -> tuple[str, str, int]:
         except subprocess.TimeoutExpired as exc:
             raise ToolExecutionError(tool, f"timed out after {spec.timeout_s}s") from exc
 
+    # Checked before the exit code is trusted at all. `docker run` reports
+    # its own failures using the status of the command it could not run,
+    # and for several scanners that status is inside ok_exit_codes -- 1
+    # means "found something" for osv-scanner and bandit. A daemon that
+    # refused the container therefore looked like a successful run with no
+    # output, and osv-scanner's parser reads empty output as an empty
+    # result set: a clean dependency report from a scanner that never
+    # started. Confirmed live, with Docker stopped, on a scan that then
+    # reported 100/100.
+    if _is_docker_launch_failure(proc.stderr):
+        first_line = next((ln for ln in proc.stderr.strip().splitlines() if ln.strip()), "")
+        raise ToolExecutionError(
+            tool,
+            f"container never started: {first_line[:200]}",
+            stdout=proc.stdout,
+            stderr=proc.stderr,
+        )
+
     if proc.returncode not in spec.ok_exit_codes:
         raise ToolExecutionError(
             tool,
@@ -188,6 +277,25 @@ def run_container(tool: str, spec: DockerRunSpec) -> tuple[str, str, int]:
             stderr=proc.stderr,
         )
     return proc.stdout, proc.stderr, proc.returncode
+
+
+# Emitted by the docker CLI itself, before any scanner runs. Matching the
+# message is unavoidable: the CLI exits with the status of the command it
+# was asked to run, so the exit code cannot tell these apart from the
+# tool's own.
+_DOCKER_LAUNCH_FAILURES = (
+    "cannot connect to the docker daemon",
+    "failed to connect to the docker api",
+    "error response from daemon",
+    "is the docker daemon running",
+    "docker daemon is not running",
+    "permission denied while trying to connect to the docker daemon",
+)
+
+
+def _is_docker_launch_failure(stderr: str) -> bool:
+    lowered = stderr.lower()
+    return any(marker in lowered for marker in _DOCKER_LAUNCH_FAILURES)
 
 
 def _is_platform_error(stderr: str) -> bool:
