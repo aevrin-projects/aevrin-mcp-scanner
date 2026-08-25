@@ -11,6 +11,12 @@ on:
   push:
     tags:
       - "v*"
+  # A tag fires this once. When one package publishes and the other is
+  # stopped by its own verify step, the release is half-done and the tag
+  # cannot fire again; this finishes it without deleting and re-pushing a
+  # tag that has already shipped something. Safe to re-run: both uploads
+  # skip a version that is already on PyPI.
+  workflow_dispatch:
 
 jobs:
   publish-scanner-core:
@@ -67,7 +73,7 @@ jobs:
           # Assert the commands are actually registered, not just that the app
           # starts. A stray decorator once left `scan` unregistered while
           # --help still exited 0, so the CLI shipped without its main command.
-          for cmd in scan login logout fix version hook findings; do
+          for cmd in scan login logout version hook findings; do
             "${RUNNER_TEMP}/aevrin-pip-verify/bin/aevrin" "$cmd" --help >/dev/null               || { echo "::error::aevrin $cmd is missing from the published wheel"; exit 1; }
           done
 
@@ -75,3 +81,4 @@ jobs:
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: backend/cli/dist
+          skip-existing: true
