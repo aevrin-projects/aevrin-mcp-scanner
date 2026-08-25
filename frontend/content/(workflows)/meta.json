@@ -1,0 +1,3 @@
+{
+  "pages": ["dashboard", "cli", "hook", "usage", "ci"]
+}

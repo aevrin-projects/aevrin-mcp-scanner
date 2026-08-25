@@ -1,0 +1,17 @@
+{
+  "title": "Aevrin Docs",
+  "pages": [
+    "index",
+    "getting-started",
+    "---Setup---",
+    "...(setup)",
+    "---Scanning---",
+    "...(scanning)",
+    "---Workflows---",
+    "...(workflows)",
+    "---Review and governance---",
+    "...(governance)",
+    "---Reference---",
+    "...(reference)"
+  ]
+}

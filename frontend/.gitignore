@@ -20,6 +20,10 @@
 # fumadocs
 /.source
 
+# cloudflare workers build output
+/.open-next
+/.wrangler
+
 # production
 /build
 
