@@ -38,4 +38,17 @@ jobs:
         run: npm test
 
       - name: Publish
+        # setup-node writes an .npmrc pointing _authToken at NODE_AUTH_TOKEN,
+        # but nothing ever set it, so every run published anonymously and npm
+        # answered "E404 PUT /aevrin" -- its response for an unauthenticated
+        # write, not a missing package. The name has never been claimed, so
+        # the documented `npm install --global aevrin` has always 404d.
+        #
+        # NPM_TOKEN must be a granular token scoped to *all* packages, or a
+        # classic automation token: a token scoped to existing packages only
+        # cannot create a new name, and fails the same opaque way. Trusted
+        # publishing is not an option until the package exists, since the
+        # publisher is configured against an already-published package.
         run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
