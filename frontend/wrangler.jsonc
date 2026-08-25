@@ -8,6 +8,18 @@
   // real public request rather than looping back internally, which is what the
   // adapter expects for self-referencing routes.
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // Attaching the hostnames here means `wrangler deploy` creates and keeps the
+  // DNS records itself, instead of anyone hand-editing them in the dashboard.
+  // Both previously pointed at Railway services that no longer exist, so those
+  // two CNAME records have to be deleted once before the first deploy can
+  // claim the names.
+  //
+  // docs.mcp.aevrin.net is the same Worker: src/middleware.ts rewrites that
+  // host onto /docs, so there is no second deployment to keep in step.
+  "routes": [
+    { "pattern": "mcp.aevrin.net", "custom_domain": true },
+    { "pattern": "docs.mcp.aevrin.net", "custom_domain": true }
+  ],
   "assets": {
     "binding": "ASSETS",
     "directory": ".open-next/assets"
