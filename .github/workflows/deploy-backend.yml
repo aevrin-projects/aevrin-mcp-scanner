@@ -74,13 +74,13 @@ jobs:
           # failure tells you nothing about whether the origin was down, the
           # edge was returning 5xx, or DNS never resolved at all.
           for attempt in $(seq 1 24); do
-            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://api.aevrin.net/health || true)"
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://api.mcp.aevrin.net/health || true)"
             echo "attempt ${attempt}: ${code}"
             [ "$code" = "200" ] && { echo "health 200"; exit 0; }
             sleep 5
           done
-          echo "::error::api.aevrin.net/health never returned 200"
-          echo "last body:"; curl -sS --max-time 20 https://api.aevrin.net/health || true
+          echo "::error::api.mcp.aevrin.net/health never returned 200"
+          echo "last body:"; curl -sS --max-time 20 https://api.mcp.aevrin.net/health || true
           exit 1
 
       - name: Close the SSH rule

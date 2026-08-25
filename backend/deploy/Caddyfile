@@ -12,6 +12,6 @@
 	}
 }
 
-api.aevrin.net {
+api.mcp.aevrin.net {
 	reverse_proxy api:8000
 }

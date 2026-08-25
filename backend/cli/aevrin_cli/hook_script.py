@@ -45,7 +45,7 @@ from typing import Any
 
 # Kept in step with aevrin_cli.services.auth.DEFAULT_API_URL. This file is
 # stdlib-only on purpose, so it cannot import that constant.
-_DEFAULT_API_URL = "https://api.aevrin.net"
+_DEFAULT_API_URL = "https://api.mcp.aevrin.net"
 
 
 def _validated_api_url(value: str) -> str:

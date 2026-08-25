@@ -182,7 +182,7 @@ Two things have to match the deployment:
 
 ### DNS
 
-The CLI and the hook ship `https://api.aevrin.net` as their default, so that
+The CLI and the hook ship `https://api.mcp.aevrin.net` as their default, so that
 name has to point at whatever is serving the API before a release goes out.
 Pointing a domain we control at the deployment, rather than shipping the
 provider's own hostname, is what makes a move between clouds a DNS change

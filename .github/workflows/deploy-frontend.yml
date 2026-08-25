@@ -51,7 +51,7 @@ jobs:
         env:
           # Read at runtime as well, so a wrong value here cannot reach a
           # deployed page; they exist so the production build can complete.
-          NEXT_PUBLIC_API_URL: https://api.aevrin.net
+          NEXT_PUBLIC_API_URL: https://api.mcp.aevrin.net
           NEXT_PUBLIC_SITE_URL: https://mcp.aevrin.net
           NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}

@@ -3,7 +3,7 @@ title: API Reference
 description: The REST API behind the CLI, hook, and dashboard.
 ---
 
-Base URL: `https://api.aevrin.net`. Every endpoint here is what the CLI, the
+Base URL: `https://api.mcp.aevrin.net`. Every endpoint here is what the CLI, the
 hook, and the dashboard's own frontend actually call. Nothing is hidden behind a separate
 "internal" API.
 
@@ -17,7 +17,7 @@ Two schemes, depending on the caller:
     **Settings → API Keys** on the dashboard. Sent as a header:
 
     ```bash
-    curl -H "X-API-Key: aevrin_xxxxx" https://api.aevrin.net/cli/precheck
+    curl -H "X-API-Key: aevrin_xxxxx" https://api.mcp.aevrin.net/cli/precheck
     ```
   </Tab>
   <Tab value="Bearer token">
@@ -25,7 +25,7 @@ Two schemes, depending on the caller:
     uses after you sign in, not something you would typically construct by hand.
 
     ```bash
-    curl -H "Authorization: Bearer <supabase-access-token>" https://api.aevrin.net/scans
+    curl -H "Authorization: Bearer <supabase-access-token>" https://api.mcp.aevrin.net/scans
     ```
   </Tab>
 </Tabs>

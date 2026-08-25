@@ -21,7 +21,7 @@ from .machine_id import get_machine_id_hash
 # A domain this project controls, not the hosting provider's. Moving the
 # API between clouds is then a DNS change rather than a CLI release that
 # every installed copy has to pick up. Override with AEVRIN_API_URL.
-DEFAULT_API_URL = "https://api.aevrin.net"
+DEFAULT_API_URL = "https://api.mcp.aevrin.net"
 CREDENTIALS_DIR = Path.home() / ".aevrin"
 CREDENTIALS_PATH = CREDENTIALS_DIR / "credentials"
 # Separate from the CLI's own credentials, addendum §3: hook and CLI usage
