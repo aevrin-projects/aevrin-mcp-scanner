@@ -57,6 +57,12 @@ if [ "$(health)" != "healthy" ]; then
   exit 1
 fi
 
+# Recreating the container can hand it a new address on the docker network,
+# and Caddy may still be holding the previous one. A reload costs nothing and
+# forces the upstream to be resolved again, so the first request after a
+# deploy cannot land on a dead address.
+sudo docker exec caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null ||   echo "caddy reload failed; continuing since the container is healthy"
+
 # Each build leaves its predecessor's layers behind and the root volume is
 # 30 GB; two or three deploys would fill it otherwise.
 sudo docker image prune -f >/dev/null
