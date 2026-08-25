@@ -22,6 +22,10 @@ CLI_ROOT = pathlib.Path(__file__).resolve().parents[1]
 # Sibling, matching the `../scanner-core` uv source in pyproject.toml, so this
 # keeps working if the tree is rearranged again.
 SCANNER_CORE = CLI_ROOT.parent / "scanner-core"
+# The importable package, not a src/ layout: this pointed at CLI_ROOT/"src",
+# which does not exist, so the scan below found zero imports and the symbol
+# test asserted nothing at all. It passed for as long as it had been wrong.
+CLI_PACKAGE = CLI_ROOT / "aevrin_cli"
 
 
 def _declared_floor() -> tuple[int, ...]:
@@ -46,8 +50,12 @@ def _symbols_imported_from_scanner_core() -> set[tuple[str, str]]:
     `.network_safety`), and those symbols are deliberately not re-exported
     at the package top level.
     """
+    assert CLI_PACKAGE.is_dir(), (
+        f"{CLI_PACKAGE} is missing; this scan silently finds nothing if the "
+        "package moves, which makes the test below vacuous rather than failing"
+    )
     found: set[tuple[str, str]] = set()
-    for path in (CLI_ROOT / "src").rglob("*.py"):
+    for path in CLI_PACKAGE.rglob("*.py"):
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("aevrin_scanner_core"):

@@ -1,6 +1,6 @@
 {
   "name": "aevrin",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Install and run the Aevrin MCP Security Scanner CLI through npm.",
   "license": "MIT",
   "type": "module",
