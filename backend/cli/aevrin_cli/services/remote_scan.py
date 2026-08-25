@@ -109,7 +109,13 @@ def _fetch_full_scan(api_url: str, headers: dict[str, str], scan_id: str, row: d
 
     payload = dict(row)
     payload["findings"] = findings.json()
-    payload["stages"] = stages.json() if stages.status_code < 400 else []
+    # ScanStageOut omits scan_id -- it is already implied by the URL the
+    # stages were fetched from -- while the shared ScanStage model requires
+    # it. Filled back in here rather than widening the API response, which
+    # would put the same id on every row of every stage list.
+    payload["stages"] = [
+        {**stage, "scan_id": scan_id} for stage in (stages.json() if stages.status_code < 400 else [])
+    ]
     # Validated through the shared model, so a server that changes shape fails
     # loudly here rather than rendering a half-empty report.
     return Scan.model_validate(payload)

@@ -114,6 +114,29 @@ unresolved high or critical findings. This is the "install anyway" path. `TARGET
 the hook printed in its block message. This doesn't fix or dismiss the findings, it just doesn't
 block on them once.
 
+## `scan --remote`
+
+```bash
+aevrin scan ./my-project --remote
+```
+
+Scans a local folder on Aevrin's servers instead of on this machine. Every scanner is installed
+there, so this needs no Docker and no scanner binaries locally, and runs tools that cannot run
+here at all: semgrep has no native Windows build, and works over `--remote` from Windows.
+
+The folder's source is uploaded. In a git repository the file list is `git ls-files --cached
+--others --exclude-standard`, so whatever `.gitignore` excludes is excluded here too; otherwise
+dependency directories, build output, and virtualenvs are pruned. `.git` is never sent, since its
+history carries every secret that was ever committed and later removed. A 62 MB folder typically
+packs to well under a megabyte of actual source.
+
+The report is identical to a local scan, and the result is already on your dashboard because the
+server produced it. The uploaded copy is deleted when the scan finishes, and nothing in it is
+executed.
+
+Only for local paths. A GitHub URL or a live MCP server is already reachable from Aevrin, so
+scan those from the dashboard.
+
 ## `findings triage`
 
 ```bash
