@@ -13,6 +13,7 @@ from aevrin_scanner_core import (
     Scan,
     ScanStatus,
     Severity,
+    StageStatus,
     category_label,
     verdict,
 )
@@ -70,8 +71,39 @@ def print_terminal_report(scan: Scan) -> None:
             "ran; treat this as [bold]inconclusive, not clean[/bold]."
         )
         stdout_console.print()
+
+    # A category that ran, but not with everything it has. Distinct from the
+    # list above, which is categories where nothing ran at all, and worth
+    # naming: a stage can be missing half its scanners and still not be
+    # "unreliable" by that stricter definition.
+    partial_labels = ", ".join(
+        STAGE_LABELS[stage.name]
+        for stage in scan.stages
+        if stage.status == StageStatus.DONE and stage.error and stage.name in STAGE_LABELS
+    )
+    if partial_labels:
+        stdout_console.print(
+            f"[bold yellow]⚠ PARTIAL COVERAGE[/bold yellow]: {partial_labels}. Some scanners in "
+            "these categories did not run, so they are less thorough than a full scan, "
+            "not clean."
+        )
+        stdout_console.print()
+
     score = scan.score if scan.score is not None else 0
-    score_style = "bold green" if score >= 90 else "bold yellow" if score >= 40 else "bold red"
+    # Never green on a scan that did not fully run. 100/100 in green is the
+    # most reassuring thing this tool can print, and it was being printed for
+    # the least reliable result it can produce: a scan where nearly every
+    # tool failed to start still scored 100, because nothing ran to find
+    # anything. The verdict text beside it said so; the colour did not.
+    score_style = (
+        "bold red"
+        if scan.status == ScanStatus.INCOMPLETE
+        else "bold green"
+        if score >= 90
+        else "bold yellow"
+        if score >= 40
+        else "bold red"
+    )
     verdict_text = "Incomplete: not a reliable result" if scan.status == ScanStatus.INCOMPLETE else verdict(score)
     stdout_console.print(f"[bold]Score:[/bold]  [{score_style}]{score}/100[/{score_style}]  {verdict_text}")
     stdout_console.print(

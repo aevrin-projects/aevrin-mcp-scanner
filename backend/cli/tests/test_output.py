@@ -142,3 +142,58 @@ def test_a_stage_where_nothing_ran_stays_a_cross(capsys):
 
     assert "[✗]" in line
     assert "[!]" not in line
+
+
+def _incomplete_scan_with_a_partial_stage() -> Scan:
+    """The live shape: static analysis and secrets dead, dependencies half
+    covered because osv-scanner ran and trivy could not reach Docker."""
+    from aevrin_scanner_core.models import ScanStage, StageStatus
+
+    scan_id = uuid4()
+    scan = Scan(
+        id=scan_id,
+        target_type=TargetType.LOCAL_PATH,
+        target="/some/repo",
+        status=ScanStatus.INCOMPLETE,
+        score=100,
+        unreliable_stages=[StageName.STATIC_ANALYSIS, StageName.SECRETS],
+    )
+    scan.stages = [
+        ScanStage(scan_id=scan_id, name=StageName.STATIC_ANALYSIS, status=StageStatus.FAILED,
+                  error="semgrep: docker unreachable"),
+        ScanStage(scan_id=scan_id, name=StageName.SECRETS, status=StageStatus.FAILED,
+                  error="gitleaks: docker unreachable"),
+        ScanStage(scan_id=scan_id, name=StageName.DEPENDENCIES, status=StageStatus.DONE,
+                  error="trivy: docker unreachable"),
+    ]
+    return scan
+
+
+def test_an_incomplete_scan_never_prints_its_score_in_green(capsys):
+    """100/100 in green is the most reassuring thing this tool can print, and
+    it was printing it for its least reliable result: a scan where almost
+    nothing ran scores 100 precisely because nothing ran to find anything.
+    The words beside it said inconclusive; the colour said all clear.
+    """
+    from aevrin_cli.rendering.output import print_terminal_report
+
+    print_terminal_report(_incomplete_scan_with_a_partial_stage())
+    raw = capsys.readouterr().out
+
+    score_line = next(line for line in raw.splitlines() if "100/100" in line)
+    assert "green" not in score_line.lower()
+    assert "not a reliable result" in plain(raw)
+
+
+def test_a_half_covered_stage_is_named_rather_than_left_to_the_stage_log(capsys):
+    """Dependencies is not in unreliable_stages -- osv-scanner did run -- so
+    it is absent from "could not run". Without this it is reported nowhere in
+    the summary, and a scanner silently missing from a category is exactly
+    what this tool refuses to let pass unmentioned."""
+    from aevrin_cli.rendering.output import print_terminal_report
+
+    print_terminal_report(_incomplete_scan_with_a_partial_stage())
+    out = plain(capsys.readouterr().out)
+
+    assert "PARTIAL COVERAGE" in out
+    assert "Dependencies" in out.split("PARTIAL COVERAGE")[1].split("\n\n")[0]
