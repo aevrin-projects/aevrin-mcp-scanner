@@ -5,18 +5,19 @@ from __future__ import annotations
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Response, UploadFile, status
 
 from aevrin_api.config import Settings, get_settings
 from aevrin_api.controllers import scan_controller
 from aevrin_api.core.security import AuthenticatedUser
 from aevrin_api.db import SupabaseRest
-from aevrin_api.routes.deps import get_current_user, get_db
+from aevrin_api.routes.deps import get_db, get_user_from_jwt_or_api_key
 from aevrin_api.schemas import CreateScanRequest, FindingOut, ScanOut, ScanStageOut
 
 router = APIRouter(prefix="/scans", tags=["scans"])
 
-CurrentUser = Annotated[AuthenticatedUser, Depends(get_current_user)]
+# JWT or API key: the dashboard and `aevrin scan --remote` both land here.
+CurrentUser = Annotated[AuthenticatedUser, Depends(get_user_from_jwt_or_api_key)]
 Db = Annotated[SupabaseRest, Depends(get_db)]
 Config = Annotated[Settings, Depends(get_settings)]
 
@@ -30,6 +31,30 @@ async def create_scan(
     settings: Config,
 ) -> ScanOut:
     return await scan_controller.create_scan(body, background_tasks, user.id, db, settings)
+
+
+@router.post("/upload", response_model=ScanOut, status_code=status.HTTP_201_CREATED)
+async def create_scan_from_upload(
+    background_tasks: BackgroundTasks,
+    user: CurrentUser,
+    db: Db,
+    settings: Config,
+    archive: Annotated[UploadFile, File(description="gzipped tar of the folder to scan")],
+    target_label: Annotated[str, Form(description="path to show in the report")] = "",
+) -> ScanOut:
+    """Scan a local folder on the server instead of on the caller's machine.
+
+    Every scanner is installed in this image, which is why a repository scan
+    started from the website needs nothing locally. A folder on a laptop had
+    no way to reach it, so scanning one required Docker and the whole tool set
+    installed there instead. This accepts the source directly.
+
+    The archive is extracted under strict limits and read; nothing inside it
+    is ever executed, and the extracted copy is deleted when the scan ends.
+    """
+    return await scan_controller.create_scan_from_upload(
+        archive, target_label, background_tasks, user.id, db, settings
+    )
 
 
 @router.get("/{scan_id}/diff")

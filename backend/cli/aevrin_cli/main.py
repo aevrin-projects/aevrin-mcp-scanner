@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import httpx
 import typer
-from aevrin_scanner_core import Finding, Scan, ScanStage, ScanStatus, Severity
+from aevrin_scanner_core import Finding, Scan, ScanStage, ScanStatus, Severity, TargetType
 from aevrin_scanner_core.pipeline import PipelineConfig, run_pipeline
 
 from .rendering import output
@@ -22,6 +22,8 @@ from .services.auth import (
     load_api_key,
     save_credentials,
 )
+from .services.remote_scan import RemoteScanError, run_remote_scan
+from .services.source_archive import ArchiveTooLarge
 from .services.target_detection import TargetDetectionError, detect_target
 from .services.upload import UploadError, upload_scan
 
@@ -139,6 +141,15 @@ def scan(
     fail_on: Annotated[
         str, typer.Option("--fail-on", help="Minimum severity that causes a non-zero exit code.")
     ] = "high",
+    remote: Annotated[
+        bool,
+        typer.Option(
+            "--remote",
+            help="Scan a local folder on Aevrin's servers instead of on this machine. Uploads the "
+            "folder's source, so every scanner runs without Docker or any scanner binary installed "
+            "here. Excludes .git, dependencies, and build output.",
+        ),
+    ] = False,
 ) -> None:
     """Run the full Aevrin scan pipeline against TARGET."""
     _authenticated_preflight()
@@ -149,6 +160,16 @@ def scan(
     except TargetDetectionError as exc:
         output.print_error(str(exc))
         raise typer.Exit(code=2) from None
+
+    if remote:
+        if target_type is not TargetType.LOCAL_PATH:
+            output.print_error(
+                "--remote is for local folders. A GitHub URL or live server is already reachable "
+                "from Aevrin's servers; start that scan from the dashboard."
+            )
+            raise typer.Exit(code=2)
+        _run_remote_scan(normalized_target, json_output, fail_on_severity)
+        return
 
     config = PipelineConfig(github_token=os.environ.get("GITHUB_TOKEN"))
 
@@ -184,6 +205,37 @@ def scan(
                 output.stderr_console.print("[green]Saved to your Aevrin dashboard.[/green]")
         except UploadError as exc:
             output.print_error(f"Scan completed, but saving to your dashboard failed: {exc}")
+
+    raise typer.Exit(code=_exit_code(result, fail_on_severity))
+
+
+def _run_remote_scan(folder: str, json_output: bool, fail_on_severity: Severity) -> None:
+    """Uploads the folder, waits for the server, renders the same report.
+
+    Already saved to the dashboard by definition -- the server ran it -- so
+    there is no upload step afterwards the way a local scan has.
+    """
+    def progress(message: str) -> None:
+        if not json_output:
+            output.stderr_console.print(rf"[dim]\[…][/dim] {message}")
+
+    if not json_output:
+        output.stderr_console.print(
+            "[dim]--remote uploads this folder's source to Aevrin so the server can scan it. "
+            "Version control history, dependencies, and build output are excluded.[/dim]"
+        )
+
+    try:
+        result = run_remote_scan(folder, progress)
+    except (RemoteScanError, ArchiveTooLarge) as exc:
+        output.print_error(str(exc))
+        raise typer.Exit(code=2) from None
+
+    if json_output:
+        output.print_json_report(result)
+    else:
+        output.print_terminal_report(result)
+        output.stderr_console.print("[green]Scanned on Aevrin's servers; saved to your dashboard.[/green]")
 
     raise typer.Exit(code=_exit_code(result, fail_on_severity))
 
