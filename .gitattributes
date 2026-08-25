@@ -1,0 +1,12 @@
+# The kernel reads a script's shebang literally. A CRLF ending turns
+# "#!/bin/sh" into a request for "/bin/sh\r", which does not exist, and the
+# failure surfaces as "binary 'semgrep' not found on host" even though the
+# file is present and executable -- `command -v` finds it, exec'ing it does
+# not. This only appears when the tree is checked out or archived on Windows
+# with core.autocrlf=true, so Linux CI builds never reproduce it.
+#
+# Pin every file that is executed by path to LF, regardless of platform.
+backend/api/docker-bin/* text eol=lf
+backend/hook/bin/*       text eol=lf
+*.sh                     text eol=lf
+Dockerfile*              text eol=lf
