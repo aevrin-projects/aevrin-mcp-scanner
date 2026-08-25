@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Check, CreditCard, GitPullRequest, KeyRound, Receipt, Wrench, Zap } from "lucide-react";
+import { Archive, ArchiveRestore, Check, CreditCard, Eye, EyeOff, GitPullRequest, KeyRound, Receipt, Wrench, Zap } from "lucide-react";
 import { ApiError } from "@/shared/api";
-import { billingApi } from "@/entities/billing";
+import { billingApi, useBillingHistoryPrefs } from "@/entities/billing";
 import { githubApi } from "@/entities/github";
 import { createClient } from "@/shared/lib/supabase/client";
 import type { Payment, Subscription } from "@/entities/billing";
@@ -329,59 +329,7 @@ export function BillingPage() {
           exist. */}
       {subscription ? <AutofixSection tier={subscription.effective_tier} pricing={pricing} /> : null}
 
-      <SectionCard
-        title="Billing history"
-        description="Every checkout this account has started, most recent first, including ones that didn't complete, so a missing charge is never a mystery."
-      >
-        {payments === null ? (
-          <div className="space-y-3">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <Skeleton key={index} className="h-14 rounded-xl" />
-            ))}
-          </div>
-        ) : payments.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border px-5 py-10 text-center">
-            <Receipt className="size-6 text-muted-foreground" />
-            <p className="text-sm font-medium">No payments yet</p>
-            <p className="max-w-sm text-sm text-muted-foreground">
-              Nothing has been charged on this account. Free needs no payment method at all.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto" tabIndex={0} aria-label="Billing history">
-            <table className="w-full min-w-[560px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs uppercase tracking-[0.08em] text-muted-foreground">
-                  <th className="py-2 pr-4 font-medium">Date</th>
-                  <th className="py-2 pr-4 font-medium">Plan</th>
-                  <th className="py-2 pr-4 font-medium">Cycle</th>
-                  <th className="py-2 pr-4 font-medium">Amount</th>
-                  <th className="py-2 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payments.map((payment) => (
-                  <tr key={payment.id} className="border-b border-border/50 last:border-0">
-                    <td className="py-3 pr-4 text-muted-foreground">{formatDate(payment.created_at)}</td>
-                    <td className="py-3 pr-4">
-                      {PAYMENT_TIER_LABEL[payment.tier]}
-                      {payment.seats > 1 ? ` · ${payment.seats} seats` : ""}
-                      {payment.byok ? " · BYOK" : ""}
-                    </td>
-                    <td className="py-3 pr-4 capitalize text-muted-foreground">{payment.cycle}</td>
-                    <td className="py-3 pr-4 font-medium">{formatMoney(payment.amount_paise, payment.currency)}</td>
-                    <td className="py-3">
-                      <Badge variant="outline" className={PAYMENT_STATUS_STYLE[payment.status]}>
-                        {PAYMENT_STATUS_LABEL[payment.status]}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </SectionCard>
+      <BillingHistory payments={payments} />
 
       <SectionCard title="Need something else?" description="Refunds, receipts for accounting, or anything billing-related.">
         <p className="text-sm leading-6 text-muted-foreground">
@@ -393,6 +341,169 @@ export function BillingPage() {
         </p>
       </SectionCard>
     </div>
+  );
+}
+
+/**
+ * Billing history, with the two ways to tidy it: archive one row, or hide the
+ * whole table.
+ *
+ * Neither deletes anything. Every payment stays on the account and in the API
+ * response, because these are records of money moving and a control that
+ * could make one disappear for good would be a liability rather than a
+ * feature. Archiving moves a row behind a toggle, hiding collapses the
+ * section, and both are reversible from the header. They are stored in this
+ * browser only, so nothing here can reach a charge.
+ */
+function BillingHistory({ payments }: { payments: Payment[] | null }) {
+  const { archived, hidden, archive, restore, restoreAll, setHidden } = useBillingHistoryPrefs();
+  // Peeking into the archive lasts for the visit rather than being
+  // remembered: someone who opens it to find one receipt does not want the
+  // section permanently expanded every time afterwards.
+  const [showArchived, setShowArchived] = useState(false);
+
+  const loading = payments === null;
+  const active = payments?.filter((payment) => !archived.has(payment.id)) ?? [];
+  const archivedRows = payments?.filter((payment) => archived.has(payment.id)) ?? [];
+  const rows = showArchived ? archivedRows : active;
+  const hasHistory = payments !== null && payments.length > 0;
+
+  return (
+    <SectionCard
+      title="Billing history"
+      description="Every checkout this account has started, most recent first, including ones that didn't complete, so a missing charge is never a mystery."
+      action={
+        hasHistory ? (
+          <Button variant="ghost" size="sm" onClick={() => setHidden(!hidden)}>
+            {hidden ? <Eye aria-hidden="true" /> : <EyeOff aria-hidden="true" />}
+            {hidden ? "Show" : "Hide"}
+          </Button>
+        ) : null
+      }
+    >
+      {loading ? (
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <Skeleton key={index} className="h-14 rounded-xl" />
+          ))}
+        </div>
+      ) : hidden ? (
+        <p className="rounded-xl border border-dashed border-border px-5 py-6 text-center text-sm text-muted-foreground">
+          Billing history is hidden on this device. {payments.length}{" "}
+          {payments.length === 1 ? "payment is" : "payments are"} still on the account: use Show above to bring the
+          table back.
+        </p>
+      ) : payments.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border px-5 py-10 text-center">
+          <Receipt className="size-6 text-muted-foreground" />
+          <p className="text-sm font-medium">No payments yet</p>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            Nothing has been charged on this account. Free needs no payment method at all.
+          </p>
+        </div>
+      ) : (
+        <>
+          {archivedRows.length > 0 ? (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <Button
+                variant={showArchived ? "secondary" : "outline"}
+                size="sm"
+                aria-pressed={showArchived}
+                onClick={() => setShowArchived(!showArchived)}
+              >
+                <Archive aria-hidden="true" />
+                {showArchived ? "Back to active" : `Archived (${archivedRows.length})`}
+              </Button>
+              {showArchived ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    restoreAll();
+                    setShowArchived(false);
+                  }}
+                >
+                  <ArchiveRestore aria-hidden="true" />
+                  Restore all
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {rows.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-border px-5 py-6 text-center text-sm text-muted-foreground">
+              Every payment on this account is archived. Open Archived ({archivedRows.length}) above to see them.
+            </p>
+          ) : (
+            <div
+              className="overflow-x-auto"
+              tabIndex={0}
+              aria-label={showArchived ? "Archived billing history" : "Billing history"}
+            >
+              <table className="w-full min-w-[640px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs uppercase tracking-[0.08em] text-muted-foreground">
+                    <th className="py-2 pr-4 font-medium">Date</th>
+                    <th className="py-2 pr-4 font-medium">Plan</th>
+                    <th className="py-2 pr-4 font-medium">Cycle</th>
+                    <th className="py-2 pr-4 font-medium">Amount</th>
+                    <th className="py-2 pr-4 font-medium">Status</th>
+                    <th className="py-2 font-medium">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((payment) => (
+                    <tr key={payment.id} className="border-b border-border/50 last:border-0">
+                      <td className="py-3 pr-4 text-muted-foreground">{formatDate(payment.created_at)}</td>
+                      <td className="py-3 pr-4">
+                        {PAYMENT_TIER_LABEL[payment.tier]}
+                        {payment.seats > 1 ? ` · ${payment.seats} seats` : ""}
+                        {payment.byok ? " · BYOK" : ""}
+                      </td>
+                      <td className="py-3 pr-4 capitalize text-muted-foreground">{payment.cycle}</td>
+                      <td className="py-3 pr-4 font-medium">{formatMoney(payment.amount_paise, payment.currency)}</td>
+                      <td className="py-3 pr-4">
+                        <Badge variant="outline" className={PAYMENT_STATUS_STYLE[payment.status]}>
+                          {PAYMENT_STATUS_LABEL[payment.status]}
+                        </Badge>
+                      </td>
+                      <td className="py-3 text-right">
+                        {/* Labelled with the row it acts on, so a screen
+                            reader hears which payment is being put away
+                            rather than six identical "Archive" buttons. */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`${showArchived ? "Restore" : "Archive"} the ${formatDate(
+                            payment.created_at,
+                          )} ${PAYMENT_TIER_LABEL[payment.tier]} payment`}
+                          onClick={() => {
+                            if (!showArchived) {
+                              archive(payment.id);
+                              return;
+                            }
+                            restore(payment.id);
+                            // Restoring the last archived row would otherwise
+                            // leave the view stuck on an empty archive with no
+                            // toggle left to leave it by.
+                            if (archivedRows.length === 1) setShowArchived(false);
+                          }}
+                        >
+                          {showArchived ? <ArchiveRestore aria-hidden="true" /> : <Archive aria-hidden="true" />}
+                          {showArchived ? "Restore" : "Archive"}
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </SectionCard>
   );
 }
 
