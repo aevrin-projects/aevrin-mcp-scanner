@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable
+from typing import Any
 
 import httpx
 from aevrin_scanner_core import Scan
@@ -101,7 +102,9 @@ def _await_result(api_url: str, api_key: str, scan_id: str) -> Scan:
     )
 
 
-def _fetch_full_scan(api_url: str, headers: dict[str, str], scan_id: str, row: dict) -> Scan:
+def _fetch_full_scan(
+    api_url: str, headers: dict[str, str], scan_id: str, row: dict[str, Any]
+) -> Scan:
     findings = httpx.get(f"{api_url}/scans/{scan_id}/findings", headers=headers, timeout=60)
     stages = httpx.get(f"{api_url}/scans/{scan_id}/stages", headers=headers, timeout=30)
     if findings.status_code >= 400:
