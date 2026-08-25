@@ -62,12 +62,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
   });
 
   // Every real docs page, driven by the same fumadocs source /docs itself
-  // renders from, a new file dropped into content/docs/ appears here with
+  // renders from, a new file dropped into content/ appears here with
   // no manual list to keep in sync, and a deleted or renamed page can't
   // leave a stale 404 URL behind.
   const docEntries: MetadataRoute.Sitemap = source.getPages().map((page) => ({
     url: `${SITE_URL}${page.url}`,
-    lastModified: lastCommitDate(page.absolutePath ?? path.join(process.cwd(), "content/docs", page.path)),
+    lastModified: lastCommitDate(page.absolutePath ?? path.join(process.cwd(), "content", page.path)),
   }));
 
   return [...staticEntries, ...docEntries];
