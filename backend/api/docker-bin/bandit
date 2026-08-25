@@ -1,3 +1,6 @@
 #!/bin/sh
+# Matches the semgrep launcher: run the console script through the system
+# interpreter rather than `python -m`, which upstream has been retiring, and
+# without depending on the shebang under /opt being executable.
 PYTHONPATH="/opt/uv-tools/bandit/lib/python3.11/site-packages" \
-  exec /usr/local/bin/python -m bandit "$@"
+  exec /usr/local/bin/python /opt/uv-tools/bandit/bin/bandit "$@"
