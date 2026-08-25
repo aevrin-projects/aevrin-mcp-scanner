@@ -1,0 +1,128 @@
+name: Deploy backend
+
+# Rebuilds and restarts the API on the EC2 instance whenever something the
+# image is actually built from changes on master. scanner-core is in the path
+# list because the Dockerfile copies it as a sibling: a change there is a
+# change to the API image even though nothing under backend/api moved.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "backend/api/**"
+      - "backend/scanner-core/**"
+      - "backend/deploy/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one already running: the window
+# between `docker rm` and the new container passing its health check is the
+# only moment the API is down, and two overlapping runs would widen it.
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Rebuild and restart on EC2
+    runs-on: ubuntu-latest
+    environment: aws
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Authorise this runner for SSH
+        # The security group allows 22 from one operator address, not from
+        # GitHub's shared runner pool. Open a rule for this run's address only
+        # and remove it in the always() step below, so a failed deploy cannot
+        # leave port 22 open to an address nobody owns tomorrow.
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ap-south-1
+        run: |
+          RUNNER_IP="$(curl -fsS --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')"
+          echo "RUNNER_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
+          aws ec2 authorize-security-group-ingress \
+            --group-id "${{ secrets.AWS_SECURITY_GROUP_ID }}" \
+            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${RUNNER_IP}/32,Description='github actions deploy, transient'}]"
+
+      - name: Ship the source and rebuild
+        env:
+          SSH_KEY: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
+          HOST: ${{ secrets.AWS_HOST }}
+        run: |
+          install -m 600 /dev/null key.pem
+          printf '%s\n' "$SSH_KEY" > key.pem
+
+          # git archive rather than a clone on the instance: no GitHub
+          # credential ever lands on the server. --worktree-attributes applies
+          # .gitattributes, which pins the docker-bin launchers to LF; a CRLF
+          # shebang makes the kernel look for "/bin/sh\r" and the scanners
+          # report themselves missing.
+          git archive --format=tar.gz --worktree-attributes -o src.tgz HEAD backend
+          scp -o StrictHostKeyChecking=accept-new -i key.pem src.tgz "ec2-user@${HOST}:/home/ec2-user/src.tgz"
+
+          ssh -o StrictHostKeyChecking=accept-new -i key.pem "ec2-user@${HOST}" bash -euo pipefail <<'REMOTE'
+            rm -rf ~/aevrin.new && mkdir -p ~/aevrin.new
+            tar xzf ~/src.tgz -C ~/aevrin.new && rm ~/src.tgz
+            rm -rf ~/aevrin && mv ~/aevrin.new ~/aevrin
+
+            cd ~/aevrin
+            sudo docker build -f backend/api/Dockerfile -t aevrin-api:new .
+
+            # Keep the previous image tagged so the rollback below has
+            # something to return to.
+            sudo docker tag aevrin-api:latest aevrin-api:previous 2>/dev/null || true
+            sudo docker tag aevrin-api:new aevrin-api:latest
+
+            sudo docker rm -f api >/dev/null 2>&1 || true
+            sudo docker run -d --name api --network aevrin \
+              --env-file /opt/aevrin/api.env --restart unless-stopped \
+              aevrin-api:latest
+
+            # Wait for the container's own HEALTHCHECK rather than a fixed
+            # sleep, and roll back if it never turns healthy.
+            for _ in $(seq 1 30); do
+              state="$(sudo docker inspect -f '{{.State.Health.Status}}' api 2>/dev/null || echo starting)"
+              [ "$state" = "healthy" ] && break
+              sleep 5
+            done
+
+            if [ "$(sudo docker inspect -f '{{.State.Health.Status}}' api)" != "healthy" ]; then
+              echo "::error::new image never became healthy, rolling back"
+              sudo docker logs api --tail 40 || true
+              sudo docker rm -f api || true
+              sudo docker tag aevrin-api:previous aevrin-api:latest
+              sudo docker run -d --name api --network aevrin \
+                --env-file /opt/aevrin/api.env --restart unless-stopped \
+                aevrin-api:latest
+              exit 1
+            fi
+
+            # Each build leaves the old layers behind and the volume is 30 GB.
+            sudo docker image prune -f >/dev/null
+            echo "deployed: $(sudo docker inspect -f '{{.State.Health.Status}}' api)"
+          REMOTE
+
+      - name: Verify through Cloudflare
+        run: |
+          for _ in $(seq 1 12); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://api.aevrin.net/health || true)"
+            [ "$code" = "200" ] && { echo "health 200"; exit 0; }
+            sleep 5
+          done
+          echo "::error::api.aevrin.net/health never returned 200"
+          exit 1
+
+      - name: Close the SSH rule
+        if: always()
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ap-south-1
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id "${{ secrets.AWS_SECURITY_GROUP_ID }}" \
+            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${RUNNER_CIDR}}]" || true
