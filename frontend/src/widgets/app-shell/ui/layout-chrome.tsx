@@ -5,7 +5,7 @@ import { createClient } from "@/shared/lib/supabase/client";
 import { AuthenticatedAppShell } from "@/widgets/app-shell";
 import { PublicNavbar } from "@/widgets/public-navbar";
 
-const APP_ROUTE_PREFIXES = ["/dashboard", "/scans", "/settings", "/integrations", "/usage"];
+const APP_ROUTE_PREFIXES = ["/dashboard", "/scans", "/settings", "/integrations", "/usage", "/agents"];
 
 // Onboarding is a focused, single-decision flow: it carries its own logo,
 // progress indicator, and Skip control, so the marketing navbar on top of it

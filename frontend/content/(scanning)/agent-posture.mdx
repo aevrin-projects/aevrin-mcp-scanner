@@ -107,6 +107,54 @@ way a consumer must notice.
 
 The same machine and configuration produce the same JSON, so two snapshots can be diffed.
 
+## Sending it to your dashboard
+
+```bash
+aevrin agent scan --upload
+```
+
+The snapshot is stored against your account, one record per machine and agent.
+Running it again from the same machine replaces that machine's record rather than adding to a list:
+the snapshot describes what is true there now.
+
+What is sent is the same JSON `--json` prints. No source code, no file contents, and no credential
+value. The upload is not billed as a scan; no scanner runs on the server, it stores the document
+your machine already produced.
+
+Once a device has reported, the dashboard shows it under **AI security**:
+
+| Page | What is on it |
+|---|---|
+| **Agents** | Every agent that has reported, its device, its posture risk and why |
+| An agent | Capabilities with their evidence, MCP servers, skills, plugins, hooks, permission rules, credentials in reach, and every file that was read |
+| **MCP servers** | Every MCP server configured across every device, with the scope it was configured at |
+
+**The dashboard is read-only about your machines.** It cannot add, remove, disable or edit an MCP
+server, and it cannot change a permission. Those live in files on your machine and are changed
+there. Aevrin has no channel to your laptop, and a page offering a button that silently does
+nothing would be worse than one that says so.
+
+**Forget a device** removes Aevrin's copy of what it reported. Nothing on the machine changes, and
+the next `--upload` from it reports it again.
+
+## Posture risk
+
+Distinct from the MCP trust grade below, and answering a different question. The grade asks whether
+a particular server is safe to run, from scanner findings. Posture risk asks how much this agent can
+already do on this machine, from configuration alone — no scanner has to have run.
+
+| Risk | What puts an agent here |
+|---|---|
+| **Critical** | Permission checks bypassed, or unrestricted shell with a credential reachable from the same environment |
+| **High** | Unrestricted shell, or unrestricted file writes together with unrestricted network |
+| **Medium** | Shell limited to specific commands, MCP servers approved without a prompt, or configuration that could not be read |
+| **Low** | No elevated capability in the configuration that was read |
+
+Rules rather than a weighted total. An agent running with permission checks switched off is not a
+medium-risk agent because the rest of its config looks tidy, and adding numbers is how that fact gets
+averaged away. The same guard applies at the bottom of the scale as at the top of the grade:
+**configuration that could not be read is incomplete, not clean**, and can never be Low.
+
 ## Credentials: presence only
 
 Aevrin records that a credential is **reachable**, never what it is.
@@ -172,4 +220,8 @@ project's methodology.
 - Only Claude Code is discovered today.
 - Discovery reads configuration. An agent's actual runtime behaviour is not observed.
 - MCP servers found on a machine are not automatically scanned; a trust grade requires a scan.
-- Aevrin cannot change configuration on your machine from the dashboard.
+- Aevrin cannot change configuration on your machine from the dashboard. Adding, removing or
+  disabling an MCP server happens on the machine itself.
+- Change history is not kept. Each upload replaces the previous snapshot for that machine.
+- Devices are not connected to Aevrin. A snapshot is as current as the last time you ran the
+  command there, and the dashboard shows that timestamp for exactly that reason.
