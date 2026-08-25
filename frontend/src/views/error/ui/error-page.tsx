@@ -25,6 +25,20 @@ const MESSAGES: Record<string, { title: string; description: string }> = {
     title: "GitHub sign-in failed",
     description: "GitHub reported an error completing the request. This is usually temporary.",
   },
+  // Distinct from *_error because it is not temporary and retrying will not
+  // help: the exchange succeeded and the provider simply returned no address
+  // to identify the account by. Worded without blaming the reader, since the
+  // usual cause is a permission missing on our side, not their settings.
+  github_email: {
+    title: "GitHub didn't share an email address",
+    description:
+      "Sign-in completed, but GitHub returned no email address, and an account needs one. Try Google instead, or let us know at support@aevrin.net.",
+  },
+  google_email: {
+    title: "Google didn't share an email address",
+    description:
+      "Sign-in completed, but Google returned no email address, and an account needs one. Try GitHub instead, or let us know at support@aevrin.net.",
+  },
   exchange_failed: {
     title: "That sign-in link has expired",
     description: "Sign-in links and codes are single-use and expire quickly, request a new one.",

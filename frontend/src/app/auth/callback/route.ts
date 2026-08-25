@@ -24,7 +24,28 @@ export async function GET(request: NextRequest) {
   const providerError = searchParams.get("error");
   if (providerError) {
     const provider = searchParams.get("provider") === "github" ? "github" : "google";
-    const reason = providerError === "access_denied" ? `${provider}_denied` : `${provider}_error`;
+    const description = searchParams.get("error_description") ?? "";
+
+    // error_description is the only field that says what actually broke, and
+    // it was being dropped on the floor. A GitHub App configured for sign-in
+    // without the "Email addresses" account permission fails here with "Error
+    // getting user email from external provider"; that reached people as a
+    // flat "this is usually temporary" and sent the search to the wrong layer
+    // entirely. Logged rather than rendered: anyone can craft a request to
+    // this route, so the string is untrusted and never reaches the page.
+    console.error("oauth callback failed", {
+      provider,
+      error: providerError,
+      code: searchParams.get("error_code"),
+      description,
+    });
+
+    const reason =
+      providerError === "access_denied"
+        ? `${provider}_denied`
+        : /email/i.test(description)
+          ? `${provider}_email`
+          : `${provider}_error`;
     return NextResponse.redirect(new URL(`/error?reason=${reason}`, siteUrl()));
   }
 
