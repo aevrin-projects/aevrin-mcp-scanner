@@ -77,6 +77,17 @@ export function install() {
 
   const indexUrl =
     process.env.AEVRIN_PYPI_INDEX_URL?.trim() || "https://pypi.org/simple";
+
+  // Normally the exact release matching this wrapper, fetched from PyPI.
+  // AEVRIN_PYTHON_REQUIREMENT overrides that with whitespace-separated pip
+  // requirements, which is how CI installs the packages from the checkout it
+  // is testing. Without it every version bump broke the npm install job until
+  // a release was published: the wrapper asked PyPI for a version that only
+  // existed in the commit under test.
+  const requirements = (process.env.AEVRIN_PYTHON_REQUIREMENT?.trim() || `aevrin==${packageMetadata.version}`)
+    .split(/\s+/)
+    .filter(Boolean);
+
   run(environmentPython, [
     "-m",
     "pip",
@@ -85,7 +96,7 @@ export function install() {
     "--no-cache-dir",
     "--index-url",
     indexUrl,
-    `aevrin==${packageMetadata.version}`,
+    ...requirements,
   ]);
 
   if (installedVersion() !== packageMetadata.version) {

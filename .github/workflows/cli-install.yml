@@ -41,6 +41,12 @@ jobs:
 
       - name: Install with npm
         if: matrix.channel == 'npm'
+        # Point the wrapper's Python install at this checkout instead of PyPI.
+        # It normally fetches the release matching its own version, so every
+        # version bump failed this job until that release was published --
+        # testing the registry rather than the commit.
+        env:
+          AEVRIN_PYTHON_REQUIREMENT: "${{ github.workspace }}/backend/scanner-core ${{ github.workspace }}/backend/cli"
         run: npm install --global ./backend/cli-npm
 
       - name: Verify CLI
