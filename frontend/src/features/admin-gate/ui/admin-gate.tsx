@@ -8,6 +8,7 @@ import { adminApi } from "@/entities/admin";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { TotpQr } from "./totp-qr";
 
 /**
  * The login sequence for the admin panel, and the only way into it.
@@ -120,22 +121,25 @@ function Enrol({ onDone }: { onDone: () => Promise<void> }) {
 
       {secret ? (
         <>
+          {uri ? (
+            <div className="flex flex-col items-center gap-2">
+              <div className="rounded-xl border border-border bg-white p-3">
+                <TotpQr uri={uri} />
+              </div>
+              <p className="text-xs text-muted-foreground">Scan this with your authenticator app.</p>
+            </div>
+          ) : null}
+
           <div className="space-y-2">
-            <Label>Setup key</Label>
+            {/* The key stays, below the QR rather than instead of it: a
+                desktop browser cannot scan its own screen, and some
+                authenticators still only accept typed entry. */}
+            <Label>Or enter this setup key manually</Label>
             {/* Shown once, at enrolment, and never readable again, the API
                 refuses to re-issue over a confirmed enrolment. */}
             <code className="block rounded-lg border border-border bg-background px-3 py-2 font-mono text-[13px] break-all">
               {secret}
             </code>
-            {uri ? (
-              <p className="text-xs text-muted-foreground">
-                Or open{" "}
-                <a href={uri} className="text-brand-text underline underline-offset-2">
-                  this link
-                </a>{" "}
-                on the device with your authenticator.
-              </p>
-            ) : null}
           </div>
 
           <div className="space-y-2">

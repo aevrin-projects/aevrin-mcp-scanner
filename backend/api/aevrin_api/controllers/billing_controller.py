@@ -50,13 +50,18 @@ logger = logging.getLogger("aevrin.billing")
 # Pro and Team were raised (V5 prompt §5) to fund the bundled 15 auto-fix
 # PRs/month/seat allowance: Sonnet-generated patches cost real money per
 # fix, unlike the flat-cost deterministic scans the prior prices covered.
+# Pro and Team came down when the auto-fix pull requests bundled into them
+# were removed: 15/month at the add-on's own rate ($0.40/PR, Rs 24.90/PR) is
+# $6.00 and Rs 373.50 a month of value, so the monthly prices drop by $6 and
+# Rs 400 and the annual ones keep the same discount ratio they had before.
+# Hobby is unchanged; it never included any.
 _PRICE_CENTS: dict[tuple[str, str], int] = {
     ("hobby", "monthly"): 900,
     ("hobby", "annual"): 8_400,
-    ("pro", "monthly"): 3_400,
-    ("pro", "annual"): 34_800,
-    ("team", "monthly"): 4_000,
-    ("team", "annual"): 39_600,
+    ("pro", "monthly"): 2_800,
+    ("pro", "annual"): 28_800,
+    ("team", "monthly"): 3_400,
+    ("team", "annual"): 33_600,
 }
 # Flat platform fee, not a token markup (addendum §3), same $3/mo whichever
 # tier or provider. Charged for the same number of months as the base cycle
@@ -83,10 +88,10 @@ _BYOK_ADDON_CENTS_PER_MONTH = 300
 _PRICE_PAISE_INR: dict[tuple[str, str], int] = {
     ("hobby", "monthly"): 49_900,
     ("hobby", "annual"): 479_900,
-    ("pro", "monthly"): 149_900,
-    ("pro", "annual"): 1_499_900,
-    ("team", "monthly"): 199_900,
-    ("team", "annual"): 1_999_900,
+    ("pro", "monthly"): 109_900,
+    ("pro", "annual"): 1_099_900,
+    ("team", "monthly"): 159_900,
+    ("team", "annual"): 1_599_900,
 }
 _BYOK_ADDON_PAISE_PER_MONTH_INR = 19_900
 

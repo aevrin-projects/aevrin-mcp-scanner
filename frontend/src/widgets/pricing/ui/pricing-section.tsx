@@ -83,8 +83,8 @@ const TIERS: Tier[] = [
   {
     id: "pro",
     name: "Pro",
-    monthly: 34,
-    annual: 29,
+    monthly: 28,
+    annual: 24,
     cli: "200 / month",
     hook: "100 / month",
     dashboard: "200 / month",
@@ -108,8 +108,8 @@ const TIERS: Tier[] = [
   {
     id: "team",
     name: "Team",
-    monthly: 40,
-    annual: 33,
+    monthly: 34,
+    annual: 28,
     cli: "Usage-based",
     hook: "Usage-based",
     dashboard: "Usage-based",

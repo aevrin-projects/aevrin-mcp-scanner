@@ -27,10 +27,10 @@ def test_public_usd_prices_match_checkout_minor_units() -> None:
     assert _PRICE_CENTS == {
         ("hobby", "monthly"): 900,
         ("hobby", "annual"): 8_400,
-        ("pro", "monthly"): 3_400,
-        ("pro", "annual"): 34_800,
-        ("team", "monthly"): 4_000,
-        ("team", "annual"): 39_600,
+        ("pro", "monthly"): 2_800,
+        ("pro", "annual"): 28_800,
+        ("team", "monthly"): 3_400,
+        ("team", "annual"): 33_600,
     }
 
 
@@ -39,10 +39,10 @@ def test_public_inr_prices_match_checkout_minor_units() -> None:
     assert _PRICE_PAISE_INR == {
         ("hobby", "monthly"): 49_900,
         ("hobby", "annual"): 479_900,
-        ("pro", "monthly"): 149_900,
-        ("pro", "annual"): 1_499_900,
-        ("team", "monthly"): 199_900,
-        ("team", "annual"): 1_999_900,
+        ("pro", "monthly"): 109_900,
+        ("pro", "annual"): 1_099_900,
+        ("team", "monthly"): 159_900,
+        ("team", "annual"): 1_599_900,
     }
 
 
@@ -71,8 +71,8 @@ def test_addon_amounts_follow_the_resolved_currency() -> None:
 
 
 def test_tier_amount_selects_the_right_table() -> None:
-    assert _tier_amount("pro", "monthly", "USD") == 3_400
-    assert _tier_amount("pro", "monthly", "INR") == 149_900
+    assert _tier_amount("pro", "monthly", "USD") == 2_800
+    assert _tier_amount("pro", "monthly", "INR") == 109_900
 
 
 @pytest.mark.parametrize(
