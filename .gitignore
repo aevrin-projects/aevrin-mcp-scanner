@@ -7,10 +7,6 @@ githubapp.txt
 backend/infra/defectdojo/secrets.generated.md
 *.pem
 *.key
-docs-personal/
-strix-design/
-ui-promax.md
-AEVRIN_FULL_PRODUCT_REDESIGN_LOCALHOST_MASTER_PROMPT.md
 
 # Node
 node_modules/
@@ -49,3 +45,5 @@ blob-report/
 *.log
 .cache/
 .claude/
+.aws-keys
+.github-keys
