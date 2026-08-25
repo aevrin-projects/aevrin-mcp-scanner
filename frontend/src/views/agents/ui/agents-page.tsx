@@ -108,7 +108,7 @@ export function AgentsPage() {
             <Skeleton className="h-10 w-full" />
           </PanelBody>
         </Panel>
-      ) : agents.length === 0 ? (
+      ) : agents.length === 0 && !error ? (
         <Panel>
           <EmptyState
             icon={<Bot />}
@@ -127,7 +127,7 @@ export function AgentsPage() {
             }
           />
         </Panel>
-      ) : (
+      ) : agents.length === 0 ? null : (
         <Panel>
           <PanelTableWrap>
             <Table>

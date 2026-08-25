@@ -106,7 +106,7 @@ export function McpInventoryPage() {
             <Skeleton className="h-10 w-full" />
           </PanelBody>
         </Panel>
-      ) : servers.length === 0 ? (
+      ) : servers.length === 0 && !error ? (
         <Panel>
           <EmptyState
             icon={<Blocks />}
@@ -119,7 +119,7 @@ export function McpInventoryPage() {
             }
           />
         </Panel>
-      ) : (
+      ) : servers.length === 0 ? null : (
         <Panel>
           <PanelBody className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <Input
