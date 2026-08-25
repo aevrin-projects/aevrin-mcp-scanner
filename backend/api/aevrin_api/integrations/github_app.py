@@ -106,7 +106,14 @@ class GithubAppClient:
         if not settings.github_app_id or not settings.github_app_private_key:
             raise GithubAppUnavailable("GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY not configured")
         self._app_id = settings.github_app_id
-        self._private_key = settings.github_app_private_key
+        # An env var holds one line, so GITHUB_APP_PRIVATE_KEY carries the PEM
+        # with its newlines written as a literal backslash-n (the README says
+        # to flatten it that way, and docker --env-file cannot express a
+        # multi-line value at all). PyJWT needs the real thing, and rejects the
+        # flattened form with "Could not parse the provided public key", so
+        # undo it here. A PEM that already has real newlines contains no such
+        # sequence and passes through untouched.
+        self._private_key = settings.github_app_private_key.replace("\\n", "\n")
 
     def _app_jwt(self) -> str:
         now = int(time.time())
