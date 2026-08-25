@@ -10,9 +10,11 @@ from uuid import uuid4
 import httpx
 import typer
 from aevrin_scanner_core import Finding, Scan, ScanStage, ScanStatus, Severity, TargetType
+from aevrin_scanner_core.agents import discover_claude_code, managed_settings_path
 from aevrin_scanner_core.pipeline import PipelineConfig, run_pipeline
 
 from .rendering import output
+from .rendering.agent_report import print_agent_report, print_no_agents
 from .services.auth import (
     HOOK_CREDENTIALS_PATH,
     DeviceLoginError,
@@ -238,6 +240,46 @@ def _run_remote_scan(folder: str, json_output: bool, fail_on_severity: Severity)
         output.stderr_console.print("[green]Scanned on Aevrin's servers; saved to your dashboard.[/green]")
 
     raise typer.Exit(code=_exit_code(result, fail_on_severity))
+
+
+agent_app = typer.Typer(help="Inspect the AI coding agents installed on this machine.")
+app.add_typer(agent_app, name="agent")
+
+
+@agent_app.command("scan")
+def agent_scan(
+    project: Annotated[
+        str, typer.Option("--project", help="Project directory whose agent configuration to include.")
+    ] = ".",
+    json_output: Annotated[bool, typer.Option("--json", help="Machine-readable JSON output.")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", help="List every configuration file read.")] = False,
+) -> None:
+    """Report what the AI coding agents here have been allowed to do.
+
+    Reads configuration only. Nothing is executed, no agent is started, and
+    nothing leaves this machine.
+    """
+    project_root = os.path.abspath(project)
+    agent = discover_claude_code(project_root=project_root)
+
+    if agent is None:
+        if json_output:
+            print(json.dumps({"agents": []}, indent=2))
+        else:
+            print_no_agents([
+                os.path.join(os.path.expanduser("~"), ".claude", "settings.json"),
+                os.path.join(os.path.expanduser("~"), ".claude.json"),
+                os.path.join(project_root, ".claude", "settings.json"),
+                os.path.join(project_root, ".mcp.json"),
+                managed_settings_path(),
+            ])
+        raise typer.Exit(code=0)
+
+    if json_output:
+        print(json.dumps({"agents": [agent.model_dump(mode="json")]}, indent=2))
+    else:
+        print_agent_report(agent, verbose=verbose)
+    raise typer.Exit(code=0)
 
 
 @app.command()
