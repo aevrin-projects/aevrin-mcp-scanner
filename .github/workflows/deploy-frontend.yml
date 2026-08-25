@@ -1,0 +1,65 @@
+name: Deploy frontend
+
+# Redeploys mcp.aevrin.net whenever something the site is actually built from
+# changes on master. Docs content counts: docs.mcp.aevrin.net is a rewrite onto
+# /docs in this same Worker, not a separate deployment, so an .mdx edit has to
+# go through here to appear.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend.yml"
+  workflow_dispatch:
+
+# Never cancel a deploy that is already uploading: a half-applied Worker is
+# worse than a queued one. Later pushes wait instead.
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and deploy to Cloudflare
+    runs-on: ubuntu-latest
+    environment: cloudflare
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # sitemap.xml is prerendered at build time and reads each page's last
+          # commit date with `git log`, which needs real history rather than a
+          # depth-1 clone.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build Worker bundle
+        run: npx opennextjs-cloudflare build
+        env:
+          # Read at runtime as well, so a wrong value here cannot reach a
+          # deployed page; they exist so the production build can complete.
+          NEXT_PUBLIC_API_URL: https://api.aevrin.net
+          NEXT_PUBLIC_SITE_URL: https://mcp.aevrin.net
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+
+      - name: Deploy
+        # wrangler is already a devDependency, so this needs no third-party
+        # action and nothing extra to pin.
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aevrin-web",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-24",
+  // nodejs_compat: Next's server runtime reaches for Node built-ins.
+  // global_fetch_strictly_public: makes fetch() from the Worker behave like a
+  // real public request rather than looping back internally, which is what the
+  // adapter expects for self-referencing routes.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".open-next/assets"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "aevrin-web"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
