@@ -100,3 +100,45 @@ def test_json_report_serializes_new_accuracy_fields(capsys):
     assert "corroborated_by" in findings[0]
     assert "occurrence_count" in findings[0]
     assert "additional_locations" in findings[0]
+
+
+def test_a_stage_that_finished_with_a_failed_tool_is_not_shown_as_clean(capsys):
+    """`[✓] dependencies (trivy: ... docker unreachable)` was the live
+    output: a green tick, with the fact that a scanner never ran tucked into
+    a parenthetical beside it. At a glance that reads as a stage that passed,
+    which is the one thing this scanner is careful never to imply.
+    """
+    from aevrin_cli.rendering.output import print_stage_update
+
+    print_stage_update(
+        "dependencies",
+        "done",
+        "trivy: docker unreachable; openssf-scorecard: skipped, no GITHUB_TOKEN configured",
+    )
+    line = plain(capsys.readouterr().err)
+
+    assert "[!]" in line
+    assert "[✓]" not in line
+    assert "trivy" in line
+
+
+def test_a_stage_with_nothing_to_report_still_shows_a_tick(capsys):
+    from aevrin_cli.rendering.output import print_stage_update
+
+    print_stage_update("secrets", "done")
+    line = plain(capsys.readouterr().err)
+
+    assert "[✓]" in line
+    assert "[!]" not in line
+
+
+def test_a_stage_where_nothing_ran_stays_a_cross(capsys):
+    """The three states have to stay distinguishable: nothing ran, something
+    ran with a caveat, everything ran."""
+    from aevrin_cli.rendering.output import print_stage_update
+
+    print_stage_update("static_analysis", "failed", "semgrep: docker unreachable")
+    line = plain(capsys.readouterr().err)
+
+    assert "[✗]" in line
+    assert "[!]" not in line

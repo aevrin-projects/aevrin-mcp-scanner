@@ -139,3 +139,54 @@ def test_stdio_mcp_entry_is_never_executed(monkeypatch):
     stage = next(s for s in scan.stages if s.name == StageName.TOOL_DESCRIPTION_CHECK)
     assert stage.status == StageStatus.SKIPPED
     assert "never executes submitted stdio commands" in (stage.error or "")
+
+
+def _stage(scan, name):
+    return next(s for s in scan.stages if s.name == name)
+
+
+def test_both_dependency_scanners_failing_marks_the_stage_failed(monkeypatch, tmp_path):
+    """The stage's verdict must come from the tools that decide whether the
+    category was covered.
+
+    openssf-scorecard was counted in the failure threshold, making it 3 for a
+    stage whose own logic already excludes scorecard from that judgement. With
+    osv-scanner and trivy both dead that was 2 failures against a threshold of
+    3, so the stage reported success: a green dependencies stage with no
+    dependency scanning behind it.
+    """
+    _patch_core_adapters(monkeypatch, failing=frozenset({"osv-scanner", "trivy"}))
+    scan = _run(tmp_path)
+
+    stage = _stage(scan, StageName.DEPENDENCIES)
+    assert stage.status == StageStatus.FAILED
+    # And the two halves of the report must agree with each other. They did
+    # not: the stage said done while the summary listed it as unrunnable.
+    assert StageName.DEPENDENCIES in scan.unreliable_stages
+    assert scan.status == ScanStatus.INCOMPLETE
+
+
+def test_scorecard_being_unconfigured_is_a_notice_not_a_failure(monkeypatch, tmp_path):
+    """Not asking a tool to run is not the same as it breaking. Without a
+    GITHUB_TOKEN, scorecard is simply out of scope for the run."""
+    _patch_core_adapters(monkeypatch)
+    scan = _run(tmp_path)
+
+    stage = _stage(scan, StageName.DEPENDENCIES)
+    assert stage.status == StageStatus.DONE
+    assert StageName.DEPENDENCIES not in scan.unreliable_stages
+    # Still reported -- a silently absent check is the thing this scanner
+    # refuses to do -- but it must not be what decides the stage's verdict.
+    assert "openssf-scorecard: skipped" in (stage.error or "")
+
+
+def test_one_dependency_scanner_failing_still_leaves_the_category_covered(monkeypatch, tmp_path):
+    """osv-scanner alone is real coverage, so this is not INCOMPLETE -- but
+    the failure has to remain visible on the stage rather than vanishing."""
+    _patch_core_adapters(monkeypatch, failing=frozenset({"trivy"}))
+    scan = _run(tmp_path)
+
+    stage = _stage(scan, StageName.DEPENDENCIES)
+    assert stage.status == StageStatus.DONE
+    assert StageName.DEPENDENCIES not in scan.unreliable_stages
+    assert "trivy" in (stage.error or "")

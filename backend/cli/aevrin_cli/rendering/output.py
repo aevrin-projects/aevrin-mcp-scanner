@@ -32,12 +32,22 @@ _SEVERITY_STYLE: dict[Severity, str] = {
 
 
 def print_stage_update(name: str, status: str, error: str | None = None) -> None:
-    icon = {"running": "…", "done": "✓", "failed": "✗", "skipped": "–"}.get(status, "?")
+    # A stage that finished with something to say is not the same as one
+    # that finished cleanly. A dependencies stage where trivy could not
+    # reach Docker rendered as a plain green tick with the failure tucked
+    # into a parenthetical, which reads as "this passed" at a glance --
+    # the opposite of what happened, and against the rule this scanner
+    # follows everywhere else: a check that did not run is not a check
+    # that passed.
+    partial = status == "done" and bool(error)
+    icon = "!" if partial else {"running": "…", "done": "✓", "failed": "✗", "skipped": "–"}.get(status, "?")
     line = f"[dim]\\[{icon}][/dim] {name.replace('_', ' ')}"
     if error:
-        line += f" [red]({error})[/red]"
+        # Yellow, not red: the stage did produce results. Red stays for a
+        # stage where nothing ran at all.
+        colour = "yellow" if partial else "red"
+        line += f" [{colour}]({error})[/{colour}]"
     stderr_console.print(line)
-
 
 def print_terminal_report(scan: Scan) -> None:
     stdout_console.print()

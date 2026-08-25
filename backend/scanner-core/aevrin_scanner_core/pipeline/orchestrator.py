@@ -375,19 +375,22 @@ def _run_dependencies_stage(
         scan_id, repo_dir, (("osv-scanner", OsvScannerAdapter()), ("trivy", TrivyAdapter())), emit
     )
 
+    notices: list[str] = []
     if config.github_token and github_url.startswith("https://github.com/"):
         owner_repo = github_url.removeprefix("https://github.com/").removesuffix(".git")
         scorecard = ScorecardAdapter(github_repo=owner_repo, github_token=config.github_token)
         findings, error = _run_isolated("openssf-scorecard", lambda: scorecard.run(scan_id, repo_dir))
         emit(findings)
+        # A scorecard that was asked to run and then broke IS a failure; only
+        # never being asked is a notice.
         if error:
             tool_errors.append(error)
     elif not config.github_token:
-        tool_errors.append("openssf-scorecard: skipped, no GITHUB_TOKEN configured")
+        notices.append("openssf-scorecard: skipped, no GITHUB_TOKEN configured")
     else:
-        tool_errors.append("openssf-scorecard: skipped, target is not a github.com repo URL")
+        notices.append("openssf-scorecard: skipped, target is not a github.com repo URL")
 
-    _finish_stage(stage, tool_errors, on_stage, errors)
+    _finish_stage(stage, tool_errors, on_stage, errors, notices=tuple(notices))
     return succeeded > 0
 
 
@@ -581,17 +584,41 @@ def _discover_mcp_entries(
     return {}
 
 
-def _finish_stage(stage: ScanStage, tool_errors: list[str], on_stage: OnStage, errors: list[str]) -> None:
+def _finish_stage(
+    stage: ScanStage,
+    tool_errors: list[str],
+    on_stage: OnStage,
+    errors: list[str],
+    notices: tuple[str, ...] = (),
+) -> None:
+    """`notices` are tools that were never going to run here -- opt-in, or not
+    applicable to this target. They are reported, because a silently absent
+    check is exactly what this scanner refuses to do, but they are not
+    failures: they do not reach the scan-level error list and they do not
+    count toward the threshold below.
+
+    Keeping them in `tool_errors` made "openssf-scorecard: skipped, no
+    GITHUB_TOKEN configured" read as a broken tool, and worse, made the
+    dependencies stage's verdict depend on whether that skip happened to be
+    present to pad the count.
+    """
     if tool_errors:
         errors.extend(tool_errors)
     # A stage is only FAILED if every tool in it failed; partial results still count as DONE.
     all_failed = len(tool_errors) > 0 and stage.name in _tools_per_stage_count and len(tool_errors) >= _tools_per_stage_count[stage.name]
-    _mark(stage, StageStatus.FAILED if all_failed else StageStatus.DONE, on_stage, error="; ".join(tool_errors) or None)
+    message = "; ".join([*tool_errors, *notices]) or None
+    _mark(stage, StageStatus.FAILED if all_failed else StageStatus.DONE, on_stage, error=message)
 
 
+# How many tools have to fail before the stage itself counts as failed. Only
+# the tools that decide whether the category was actually covered: dependencies
+# is 2 (osv-scanner, trivy), NOT 3. Counting openssf-scorecard here contradicted
+# _run_dependencies_stage, which already excludes it from that judgement, and
+# meant both real dependency scanners could fail while the stage reported
+# success -- green, with no dependency scanning having happened at all.
 _tools_per_stage_count = {
     StageName.STATIC_ANALYSIS: 2,
     StageName.SECRETS: 2,
-    StageName.DEPENDENCIES: 3,
+    StageName.DEPENDENCIES: 2,
     StageName.TOOL_DESCRIPTION_CHECK: 1,
 }
