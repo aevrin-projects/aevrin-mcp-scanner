@@ -8,6 +8,28 @@ set -euo pipefail
 SRC=/home/ec2-user/aevrin
 ENV_FILE=/opt/aevrin/api.env
 
+# The API stores two things encrypted with one Fernet key: customer BYOK
+# provider keys, and admin TOTP secrets. It was documented under the BYOK
+# feature and never set here, so /admin could not enrol an authenticator at
+# all -- it answered "Encryption isn't configured on the API" and locked the
+# panel out for everyone. Mint one if the env file has none, so a fresh
+# instance cannot come up missing it again.
+#
+# Only ever fills a blank. An existing key is left exactly as it is: every
+# secret already stored is unreadable under a different one, and silently
+# rotating it on deploy would lock out the admins it just let in.
+if sudo grep -q '^BYOK_ENCRYPTION_KEY=.\+' "$ENV_FILE"; then
+  echo "encryption key: present"
+else
+  # openssl rather than python: this runs before any image is built, and a
+  # url-safe base64 32-byte value is exactly what Fernet accepts.
+  sudo sed -i '/^BYOK_ENCRYPTION_KEY=/d' "$ENV_FILE"
+  echo "BYOK_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr '+/' '-_')" |
+    sudo tee -a "$ENV_FILE" >/dev/null
+  sudo chmod 600 "$ENV_FILE"
+  echo "encryption key: generated a new one (back up $ENV_FILE)"
+fi
+
 # Unpack beside the live tree and swap, so a failed extraction never leaves a
 # half-written source directory behind.
 rm -rf "${SRC}.new"
