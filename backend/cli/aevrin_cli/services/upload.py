@@ -5,9 +5,11 @@ from typing import Any
 
 import httpx
 from aevrin_scanner_core import Scan
+from aevrin_scanner_core.agents.models import DiscoveredAgent
 
 from .auth import api_url as get_api_url
 from .auth import load_api_key
+from .machine_id import get_machine_id_hash
 
 
 class UploadError(Exception):
@@ -71,19 +73,23 @@ def _serialize_scan(scan: Scan) -> dict[str, Any]:
     }
 
 
-def upload_scan(scan: Scan) -> None:
+def _post(path: str, body: dict[str, Any]) -> httpx.Response:
+    """POST to the API with the stored key, retrying only server-side failures.
+
+    A 4xx is the server's answer, not a hiccup, so it is returned immediately
+    rather than sent twice.
+    """
     api_key = load_api_key()
     if not api_key:
         raise UploadError("Not logged in. Run `aevrin login` first.")
     api_url = get_api_url()
-    body = _serialize_scan(scan)
 
     last_error: httpx.HTTPError | None = None
     resp: httpx.Response | None = None
     for attempt in range(3):
         try:
             resp = httpx.post(
-                f"{api_url}/cli/upload",
+                f"{api_url}{path}",
                 json=body,
                 headers={"X-API-Key": api_key},
                 timeout=30,
@@ -98,12 +104,10 @@ def upload_scan(scan: Scan) -> None:
 
     if resp is None:
         raise UploadError(f"Could not reach {api_url}: {last_error}") from last_error
+    return resp
 
-    if resp.status_code == 402:
-        error_body = resp.json()
-        raise QuotaExceededError(
-            error_body["bucket"], error_body["resets_at"], error_body["upgrade_url"]
-        )
+
+def _raise_for_status(resp: httpx.Response) -> None:
     if resp.status_code >= 400:
         detail = resp.text
         try:
@@ -111,3 +115,27 @@ def upload_scan(scan: Scan) -> None:
         except ValueError:
             pass
         raise UploadError(f"Upload failed ({resp.status_code}): {detail}")
+
+
+def upload_agent_snapshot(agents: list[DiscoveredAgent]) -> None:
+    """Send the posture snapshot to the dashboard.
+
+    The snapshot carries no credential values -- the model has no field for
+    one -- so this uploads configuration metadata and nothing else.
+    """
+    body = {
+        "device_id": get_machine_id_hash(),
+        "agents": [agent.model_dump(mode="json") for agent in agents],
+    }
+    _raise_for_status(_post("/agents/snapshots", body))
+
+
+def upload_scan(scan: Scan) -> None:
+    resp = _post("/cli/upload", _serialize_scan(scan))
+
+    if resp.status_code == 402:
+        error_body = resp.json()
+        raise QuotaExceededError(
+            error_body["bucket"], error_body["resets_at"], error_body["upgrade_url"]
+        )
+    _raise_for_status(resp)

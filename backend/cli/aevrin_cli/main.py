@@ -27,7 +27,7 @@ from .services.auth import (
 from .services.remote_scan import RemoteScanError, run_remote_scan
 from .services.source_archive import ArchiveTooLarge
 from .services.target_detection import TargetDetectionError, detect_target
-from .services.upload import UploadError, upload_scan
+from .services.upload import UploadError, upload_agent_snapshot, upload_scan
 
 app = typer.Typer(
     name="aevrin",
@@ -253,11 +253,15 @@ def agent_scan(
     ] = ".",
     json_output: Annotated[bool, typer.Option("--json", help="Machine-readable JSON output.")] = False,
     verbose: Annotated[bool, typer.Option("--verbose", help="List every configuration file read.")] = False,
+    upload: Annotated[
+        bool, typer.Option("--upload", help="Send the snapshot to your Aevrin dashboard.")
+    ] = False,
 ) -> None:
     """Report what the AI coding agents here have been allowed to do.
 
-    Reads configuration only. Nothing is executed, no agent is started, and
-    nothing leaves this machine.
+    Reads configuration only. Nothing is executed and no agent is started.
+    Nothing leaves this machine unless you pass --upload, and even then the
+    snapshot carries no credential values.
     """
     project_root = os.path.abspath(project)
     agent = discover_claude_code(project_root=project_root)
@@ -279,6 +283,15 @@ def agent_scan(
         print(json.dumps({"agents": [agent.model_dump(mode="json")]}, indent=2))
     else:
         print_agent_report(agent, verbose=verbose)
+
+    if upload:
+        try:
+            upload_agent_snapshot([agent])
+        except UploadError as exc:
+            output.print_error(str(exc))
+            raise typer.Exit(code=2) from None
+        output.stderr_console.print("[green]Snapshot sent to your dashboard.[/green]")
+
     raise typer.Exit(code=0)
 
 

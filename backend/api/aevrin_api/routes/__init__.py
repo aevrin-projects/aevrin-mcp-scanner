@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from aevrin_api.routes import (
     account,
     admin,
+    agents,
     api_keys,
     auth_lookup,
     billing,
@@ -36,6 +37,7 @@ ROUTERS: list[APIRouter] = [
     auth_lookup.router,
     github.router,
     admin.router,
+    agents.router,
 ]
 
 __all__ = ["ROUTERS"]
