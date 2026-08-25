@@ -64,47 +64,9 @@ jobs:
           git archive --format=tar.gz --worktree-attributes -o src.tgz HEAD backend
           scp -o StrictHostKeyChecking=accept-new -i key.pem src.tgz "ec2-user@${HOST}:/home/ec2-user/src.tgz"
 
-          ssh -o StrictHostKeyChecking=accept-new -i key.pem "ec2-user@${HOST}" bash -euo pipefail <<'REMOTE'
-            rm -rf ~/aevrin.new && mkdir -p ~/aevrin.new
-            tar xzf ~/src.tgz -C ~/aevrin.new && rm ~/src.tgz
-            rm -rf ~/aevrin && mv ~/aevrin.new ~/aevrin
-
-            cd ~/aevrin
-            sudo docker build -f backend/api/Dockerfile -t aevrin-api:new .
-
-            # Keep the previous image tagged so the rollback below has
-            # something to return to.
-            sudo docker tag aevrin-api:latest aevrin-api:previous 2>/dev/null || true
-            sudo docker tag aevrin-api:new aevrin-api:latest
-
-            sudo docker rm -f api >/dev/null 2>&1 || true
-            sudo docker run -d --name api --network aevrin \
-              --env-file /opt/aevrin/api.env --restart unless-stopped \
-              aevrin-api:latest
-
-            # Wait for the container's own HEALTHCHECK rather than a fixed
-            # sleep, and roll back if it never turns healthy.
-            for _ in $(seq 1 30); do
-              state="$(sudo docker inspect -f '{{.State.Health.Status}}' api 2>/dev/null || echo starting)"
-              [ "$state" = "healthy" ] && break
-              sleep 5
-            done
-
-            if [ "$(sudo docker inspect -f '{{.State.Health.Status}}' api)" != "healthy" ]; then
-              echo "::error::new image never became healthy, rolling back"
-              sudo docker logs api --tail 40 || true
-              sudo docker rm -f api || true
-              sudo docker tag aevrin-api:previous aevrin-api:latest
-              sudo docker run -d --name api --network aevrin \
-                --env-file /opt/aevrin/api.env --restart unless-stopped \
-                aevrin-api:latest
-              exit 1
-            fi
-
-            # Each build leaves the old layers behind and the volume is 30 GB.
-            sudo docker image prune -f >/dev/null
-            echo "deployed: $(sudo docker inspect -f '{{.State.Health.Status}}' api)"
-          REMOTE
+          # The remote half lives in backend/deploy/remote-deploy.sh and is piped
+          # in over stdin, so there is no heredoc terminator to indent wrongly.
+          ssh -o StrictHostKeyChecking=accept-new -i key.pem "ec2-user@${HOST}" bash -euo pipefail < backend/deploy/remote-deploy.sh
 
       - name: Verify through Cloudflare
         run: |
