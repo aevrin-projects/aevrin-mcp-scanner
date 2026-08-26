@@ -167,7 +167,7 @@ Once a device has reported, the dashboard shows it under **AI security**:
 |---|---|
 | **Agents** | Every agent that has reported, its device, its posture risk and why |
 | An agent | Capabilities with their evidence, MCP servers, skills, plugins, hooks, permission rules, credentials in reach, and every file that was read |
-| **MCP servers** | Every MCP server configured across every device, with the scope it was configured at and its trust grade |
+| **MCP servers** | Every MCP server across every device, one row per server, with its scopes and trust grade |
 
 **The dashboard is read-only about your machines.** It cannot add, remove, disable or edit an MCP
 server, and it cannot change a permission. Those live in files on your machine and are changed
@@ -255,10 +255,37 @@ did not finish is exactly what was not established.
 Aevrin's grading is its own. It is not derived from, and does not claim to match, any other
 project's methodology.
 
+## One server, however many places it is configured
+
+The same server reached from Claude Code on one laptop and Codex on another is **one row with two
+installations**, not two servers. Without that, the page shows the same thing repeatedly under
+whatever local name each person gave it, and no count on it means anything.
+
+Servers are matched on what the configuration actually pins down:
+
+| Signal | Example | Confidence |
+|---|---|---|
+| URL | `https://mcp.context7.com/mcp` | High |
+| npm or PyPI package | `npx -y @modelcontextprotocol/server-github` | High |
+| Docker image | `docker run --rm ghcr.io/acme/mcp:1` | High |
+| The whole command line | `pg-mcp --port 5432` | Medium |
+| Only the name someone typed | `postgres` | Low |
+
+Launcher noise is not identity: `npx -y pkg` and `npx pkg` are the same server, and so are
+`/usr/local/bin/npx` and `npx.cmd`. A different path or port in a URL **is** a different server.
+
+**Uncertain identity is recorded, never resolved.** A server Aevrin can only identify by its local
+name is marked *Identity uncertain* and is never merged with anything else, because merging two
+unrelated servers attaches one server's findings to the other — a worse failure than listing one
+server twice. Expanding a row shows every installation: the agent, the device, the scope, the
+project, the local name it was given there, and whether it is enabled.
+
 ### Grades on the MCP servers page
 
-A grade appears there only when a scan of that exact target actually ran, matched on the URL. A
-server with no matching scan reads **Not scanned**, and the letter is absent rather than optimistic.
+A grade appears there only when a scan of that server actually ran, matched on the same identity
+above — so a scan of `https://x/mcp/` correlates with a config of `https://x/mcp`, and nothing
+looser. A server with no matching scan reads **Not scanned**, and the letter is absent rather than
+optimistic.
 
 Servers launched over stdio — a command on your machine, like
 `npx -y @modelcontextprotocol/server-github` — have no URL for Aevrin to reach, so they are always

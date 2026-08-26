@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from aevrin_scanner_core import Finding
 from aevrin_scanner_core.agents.grade import grade_mcp_server
-from aevrin_scanner_core.agents.models import DiscoveredAgent
+from aevrin_scanner_core.agents.identity import mcp_identity
+from aevrin_scanner_core.agents.models import ConfigScope, DiscoveredAgent, McpServerRef
 from aevrin_scanner_core.agents.posture import assess_posture
 from fastapi import HTTPException, status
 
@@ -27,7 +29,8 @@ from aevrin_api.schemas.agents import (
     AgentSnapshotUploadResponse,
     AgentSummaryOut,
     GradeFactorOut,
-    McpServerInventoryOut,
+    McpAssetOut,
+    McpInstallationOut,
     McpTrustOut,
 )
 
@@ -118,19 +121,31 @@ async def get_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> AgentDeta
     )
 
 
-async def _trust_by_target(targets: set[str], user_id: str, db: SupabaseRest) -> dict[str, McpTrustOut]:
+def _scan_identity_key(target: str) -> str:
+    """The identity of a scanned target, in the same vocabulary configured
+    servers use, so the two can be matched at all."""
+    return mcp_identity(
+        McpServerRef(
+            name=target, scope=ConfigScope.USER, source_path="", transport="http", url=target
+        )
+    ).key
+
+
+async def _trust_by_identity(
+    wanted: set[str], user_id: str, db: SupabaseRest
+) -> dict[str, McpTrustOut]:
     """Grade each configured server that has actually been scanned.
 
-    Matched on the exact scanned target. A configured server and a scan are
-    only the same thing when the URL is the same string; guessing at a looser
-    match would attach one server's evidence to another, which is worse than
-    showing nothing.
+    Matched on identity rather than on the raw string, so a scan of
+    `https://x/mcp/` correlates with a config of `https://x/mcp`. Nothing
+    looser: guessing at a match would attach one server's evidence to
+    another, which is worse than showing nothing.
 
     stdio servers never match. They are a command on someone's machine, there
     is no target for Aevrin to have scanned, and they are reported as
     unscanned rather than assumed clean.
     """
-    if not targets:
+    if not wanted:
         return {}
 
     scans = await db.select(
@@ -142,9 +157,11 @@ async def _trust_by_target(targets: set[str], user_id: str, db: SupabaseRest) ->
     )
     latest: dict[str, dict[str, Any]] = {}
     for scan in scans:
-        target = scan["target"]
-        if target in targets and target not in latest and scan["status"] in ("completed", "incomplete"):
-            latest[target] = scan
+        if scan["status"] not in ("completed", "incomplete"):
+            continue
+        key = _scan_identity_key(scan["target"])
+        if key in wanted and key not in latest:
+            latest[key] = scan
     if not latest:
         return {}
 
@@ -155,16 +172,16 @@ async def _trust_by_target(targets: set[str], user_id: str, db: SupabaseRest) ->
         findings_by_scan.setdefault(row["scan_id"], []).append(Finding.model_validate(row))
 
     trust: dict[str, McpTrustOut] = {}
-    for target, scan in latest.items():
+    for key, scan in latest.items():
         result = grade_mcp_server(
             findings=findings_by_scan.get(scan["id"], []),
             scan_score=scan["score"],
             # A scan that did not finish cannot support the top of the scale,
             # the same rule the CLI applies to the same grade.
             coverage_complete=scan["status"] != "incomplete",
-            transport=target,
+            transport=scan["target"],
         )
-        trust[target] = McpTrustOut(
+        trust[key] = McpTrustOut(
             scan_id=UUID(scan["id"]),
             scanned_at=scan["created_at"],
             scan_score=result.scan_score,
@@ -176,35 +193,77 @@ async def _trust_by_target(targets: set[str], user_id: str, db: SupabaseRest) ->
     return trust
 
 
-async def list_mcp_servers(user_id: str, db: SupabaseRest) -> list[McpServerInventoryOut]:
+async def list_mcp_assets(user_id: str, db: SupabaseRest) -> list[McpAssetOut]:
+    """Every MCP server across every reported device, correlated.
+
+    One entry per server, not per configuration file: the same server reached
+    from two agents is one asset with two installations. Grouping happens here
+    rather than in the page, so the CLI, the API and the dashboard can never
+    disagree about what counts as one server.
+    """
     rows = await db.select("agent_snapshots", {"user_id": user_id}, order="reported_at.desc")
-    inventory: list[McpServerInventoryOut] = []
-    agents = [(row, DiscoveredAgent.model_validate(row["snapshot"])) for row in rows]
-    trust = await _trust_by_target(
-        {server.url for _, agent in agents for server in agent.mcp_servers if server.url}, user_id, db
-    )
-    for row, agent in agents:
+    grouped: dict[str, list[McpInstallationOut]] = {}
+    identities: dict[str, Any] = {}
+
+    for row in rows:
+        agent = DiscoveredAgent.model_validate(row["snapshot"])
         for server in agent.mcp_servers:
-            inventory.append(
-                McpServerInventoryOut(
-                    name=server.name,
-                    scope=server.scope,
-                    transport=server.transport,
-                    command=" ".join([server.command, *server.args]) if server.command else None,
-                    url=server.url,
-                    auto_approved=server.auto_approved,
-                    source_path=server.source_path,
-                    project_root=agent.project_root,
+            identity = mcp_identity(server)
+            identities.setdefault(identity.key, identity)
+            grouped.setdefault(identity.key, []).append(
+                McpInstallationOut(
                     agent_id=UUID(row["id"]),
                     agent_type=agent.kind,
                     agent_name=agent.agent.name if agent.agent else agent.kind.value,
+                    device_id=row["device_id"],
                     hostname=row["hostname"],
+                    name=server.name,
+                    scope=server.scope,
+                    project_root=agent.project_root,
+                    source_path=server.source_path,
+                    transport=server.transport,
+                    command=" ".join([server.command, *server.args]) if server.command else None,
+                    url=server.url,
+                    enabled=server.enabled,
+                    auto_approved=server.auto_approved,
                     reported_at=row["reported_at"],
-                    trust=trust.get(server.url) if server.url else None,
                 )
             )
-    inventory.sort(key=lambda s: (s.name.lower(), s.hostname))
-    return inventory
+
+    trust = await _trust_by_identity(set(grouped), user_id, db)
+
+    assets: list[McpAssetOut] = []
+    for key, installations in grouped.items():
+        identity = identities[key]
+        first = installations[0]
+        assets.append(
+            McpAssetOut(
+                identity_key=key,
+                identity_kind=identity.kind,
+                identity_label=identity.label,
+                identity_confidence=identity.confidence.value,
+                # The most common local name. People name the same server
+                # differently, and the majority reading is the least
+                # surprising label to put on one row.
+                name=Counter(i.name for i in installations).most_common(1)[0][0],
+                transport=first.transport,
+                url=next((i.url for i in installations if i.url), None),
+                command=next((i.command for i in installations if i.command), None),
+                installation_count=len(installations),
+                device_count=len({i.device_id for i in installations}),
+                agent_count=len({i.agent_id for i in installations}),
+                project_count=len({i.project_root for i in installations if i.project_root}),
+                scopes=sorted({i.scope for i in installations}, key=lambda s: s.value),
+                # False when it is switched off anywhere: "you are running
+                # this" and "you are running this in one of three places" are
+                # different answers.
+                enabled_everywhere=all(i.enabled for i in installations),
+                installations=installations,
+                trust=trust.get(key),
+            )
+        )
+    assets.sort(key=lambda a: (a.name.lower(), a.identity_key))
+    return assets
 
 
 async def delete_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> None:

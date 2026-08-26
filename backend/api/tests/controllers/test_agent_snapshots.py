@@ -178,12 +178,15 @@ def test_the_listed_summary_is_derived_from_the_stored_document():
 
 def test_the_mcp_inventory_keeps_the_agent_and_device_each_server_came_from():
     db = FakeDb([row()])
-    servers = asyncio.run(agent_controller.list_mcp_servers(USER, db))
-    assert len(servers) == 1
-    assert servers[0].name == "github"
-    assert servers[0].scope is ConfigScope.USER
-    assert servers[0].command == "npx -y @modelcontextprotocol/server-github"
-    assert servers[0].hostname == "DEV-042"
+    assets = asyncio.run(agent_controller.list_mcp_assets(USER, db))
+    assert len(assets) == 1
+    asset = assets[0]
+    assert asset.name == "github"
+    assert asset.installation_count == 1
+    installation = asset.installations[0]
+    assert installation.scope is ConfigScope.USER
+    assert installation.command == "npx -y @modelcontextprotocol/server-github"
+    assert installation.hostname == "DEV-042"
 
 
 def test_another_users_agent_is_not_found_rather_than_returned():
@@ -246,9 +249,9 @@ def test_a_stdio_server_is_reported_unscanned_rather_than_assumed_clean():
     # There is no target for Aevrin to have scanned. A grade here would be a
     # claim about evidence that does not exist.
     db = FakeDb([row()], scans=[scan_row(str(uuid4()), "https://example.com/mcp")])
-    servers = asyncio.run(agent_controller.list_mcp_servers(USER, db))
-    assert servers[0].transport == "stdio"
-    assert servers[0].trust is None
+    assets = asyncio.run(agent_controller.list_mcp_assets(USER, db))
+    assert assets[0].transport == "stdio"
+    assert assets[0].trust is None
 
 
 def test_a_scanned_http_server_carries_the_grade_from_its_own_scan():
@@ -258,8 +261,7 @@ def test_a_scanned_http_server_carries_the_grade_from_its_own_scan():
         scans=[scan_row(scan_id, "https://mcp.context7.com/mcp", score=72)],
         findings=[finding_row(scan_id, "high"), finding_row(scan_id, "medium")],
     )
-    servers = asyncio.run(agent_controller.list_mcp_servers(USER, db))
-    trust = servers[0].trust
+    trust = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0].trust
     assert trust is not None
     assert str(trust.scan_id) == scan_id
     assert trust.scan_score == 72
@@ -271,8 +273,7 @@ def test_a_scanned_http_server_carries_the_grade_from_its_own_scan():
 
 def test_an_http_server_that_was_never_scanned_has_no_grade():
     db = FakeDb([row(http_server_snapshot())], scans=[scan_row(str(uuid4()), "https://elsewhere/mcp")])
-    servers = asyncio.run(agent_controller.list_mcp_servers(USER, db))
-    assert servers[0].trust is None
+    assert asyncio.run(agent_controller.list_mcp_assets(USER, db))[0].trust is None
 
 
 def test_an_incomplete_scan_cannot_produce_the_top_grade():
@@ -281,7 +282,7 @@ def test_an_incomplete_scan_cannot_produce_the_top_grade():
         [row(http_server_snapshot())],
         scans=[scan_row(scan_id, "https://mcp.context7.com/mcp", status="incomplete", score=100)],
     )
-    trust = asyncio.run(agent_controller.list_mcp_servers(USER, db))[0].trust
+    trust = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0].trust
     assert trust is not None
     assert trust.grade != "A"
     assert any("incomplete" in factor.reason for factor in trust.factors)
@@ -299,6 +300,118 @@ def test_the_newest_scan_of_a_target_wins():
     scans[1]["created_at"] = "2026-08-20T10:00:00+00:00"
     scans.reverse()
     db = FakeDb([row(http_server_snapshot())], scans=scans)
-    trust = asyncio.run(agent_controller.list_mcp_servers(USER, db))[0].trust
+    trust = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0].trust
     assert trust is not None
     assert str(trust.scan_id) == newer
+
+
+def project_server_snapshot(hostname: str = "DEV-042") -> dict[str, Any]:
+    """The same GitHub server, configured in a project rather than globally."""
+    document = snapshot(
+        mcp_servers=[
+            {
+                "name": "gh",  # a different local name for the same server
+                "scope": "project",
+                "source_path": "/repo/acme/.mcp.json",
+                "transport": "stdio",
+                "command": "npx",
+                "args": ["@modelcontextprotocol/server-github"],
+            }
+        ]
+    )
+    document["project_root"] = "/repo/acme"
+    document["device"] = {"hostname": hostname, "platform": "Linux"}
+    return document
+
+
+def test_the_same_server_from_two_agents_is_one_asset_with_two_installations():
+    db = FakeDb(
+        [
+            row(),  # Claude Code, global, npx -y @modelcontextprotocol/server-github
+            row(project_server_snapshot("DEV-099"), device_id="other", hostname="DEV-099"),
+        ]
+    )
+    assets = asyncio.run(agent_controller.list_mcp_assets(USER, db))
+    assert len(assets) == 1
+    asset = assets[0]
+    assert asset.identity_kind == "npm"
+    assert asset.identity_confidence == "high"
+    assert asset.installation_count == 2
+    assert asset.device_count == 2
+    assert asset.agent_count == 2
+
+
+def test_global_and_project_scope_are_both_kept_on_the_one_asset():
+    db = FakeDb([row(), row(project_server_snapshot(), device_id="other")])
+    asset = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0]
+    assert [s.value for s in asset.scopes] == ["project", "user"]
+    assert asset.project_count == 1
+    assert {i.project_root for i in asset.installations} == {None, "/repo/acme"}
+
+
+def test_two_different_servers_are_never_merged():
+    other = snapshot(
+        mcp_servers=[
+            {
+                "name": "postgres",
+                "scope": "user",
+                "source_path": "/home/b/.claude.json",
+                "transport": "stdio",
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-postgres"],
+            }
+        ]
+    )
+    db = FakeDb([row(), row(other, device_id="other")])
+    assets = asyncio.run(agent_controller.list_mcp_assets(USER, db))
+    assert len(assets) == 2
+    assert {a.identity_key for a in assets} == {
+        "npm:@modelcontextprotocol/server-github",
+        "npm:@modelcontextprotocol/server-postgres",
+    }
+
+
+def test_a_server_known_only_by_name_is_marked_uncertain_rather_than_merged():
+    def named(name: str) -> dict[str, Any]:
+        return snapshot(
+            mcp_servers=[
+                {"name": name, "scope": "user", "source_path": "/x", "transport": "unknown"}
+            ]
+        )
+
+    db = FakeDb([row(named("thing")), row(named("other"), device_id="d2")])
+    assets = asyncio.run(agent_controller.list_mcp_assets(USER, db))
+    assert len(assets) == 2
+    assert {a.identity_confidence for a in assets} == {"low"}
+
+
+def test_a_server_disabled_in_one_place_is_not_enabled_everywhere():
+    disabled = snapshot(
+        mcp_servers=[
+            {
+                "name": "github",
+                "scope": "user",
+                "source_path": "/home/b/.codex/config.toml",
+                "transport": "stdio",
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-github"],
+                "enabled": False,
+            }
+        ]
+    )
+    db = FakeDb([row(), row(disabled, device_id="other")])
+    asset = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0]
+    assert asset.installation_count == 2
+    assert asset.enabled_everywhere is False
+
+
+def test_a_scan_correlates_through_identity_not_the_raw_string():
+    # A trailing slash is not a different server.
+    scan_id = str(uuid4())
+    db = FakeDb(
+        [row(http_server_snapshot())],
+        scans=[scan_row(scan_id, "https://mcp.context7.com/mcp/")],
+    )
+    trust = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0].trust
+    assert trust is not None
+    assert str(trust.scan_id) == scan_id

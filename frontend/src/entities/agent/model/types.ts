@@ -140,19 +140,45 @@ export interface McpTrust {
   factors: GradeFactor[];
 }
 
-export interface McpServerInventoryItem {
-  name: string;
-  scope: ConfigScope;
-  transport: string;
-  command: string | null;
-  url: string | null;
-  auto_approved: boolean;
-  source_path: string;
-  project_root: string | null;
+/** One place a server is configured: one agent, on one device, at one scope. */
+export interface McpInstallation {
   agent_id: string;
   agent_type: AgentKind;
   agent_name: string;
+  device_id: string;
   hostname: string;
+  name: string;
+  scope: ConfigScope;
+  project_root: string | null;
+  source_path: string;
+  transport: string;
+  command: string | null;
+  url: string | null;
+  enabled: boolean;
+  auto_approved: boolean;
   reported_at: string;
+}
+
+/** How far the correlation can be trusted. `low` means "we could not tell
+ *  these apart from a name", and such servers are deliberately never merged. */
+export type IdentityConfidence = "high" | "medium" | "low";
+
+/** One MCP server, however many places it is configured. */
+export interface McpAsset {
+  identity_key: string;
+  identity_kind: string;
+  identity_label: string;
+  identity_confidence: IdentityConfidence;
+  name: string;
+  transport: string;
+  url: string | null;
+  command: string | null;
+  installation_count: number;
+  device_count: number;
+  agent_count: number;
+  project_count: number;
+  scopes: ConfigScope[];
+  enabled_everywhere: boolean;
+  installations: McpInstallation[];
   trust: McpTrust | null;
 }

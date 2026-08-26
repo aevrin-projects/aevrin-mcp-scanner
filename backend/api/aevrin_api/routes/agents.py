@@ -22,7 +22,7 @@ from aevrin_api.schemas.agents import (
     AgentSnapshotUpload,
     AgentSnapshotUploadResponse,
     AgentSummaryOut,
-    McpServerInventoryOut,
+    McpAssetOut,
 )
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -49,10 +49,14 @@ async def list_agents(user: CurrentUser, db: Db) -> list[AgentSummaryOut]:
     return await agent_controller.list_agents(user.id, db)
 
 
-@router.get("/mcp-servers", response_model=list[McpServerInventoryOut])
-async def list_mcp_servers(user: CurrentUser, db: Db) -> list[McpServerInventoryOut]:
-    """Every MCP server configured across every reported device."""
-    return await agent_controller.list_mcp_servers(user.id, db)
+@router.get("/mcp-servers", response_model=list[McpAssetOut])
+async def list_mcp_servers(user: CurrentUser, db: Db) -> list[McpAssetOut]:
+    """Every MCP server across every reported device, correlated.
+
+    One entry per server rather than per configuration file: the same server
+    reached from two agents is one asset with two installations.
+    """
+    return await agent_controller.list_mcp_assets(user.id, db)
 
 
 @router.get("/{agent_id}", response_model=AgentDetailOut)

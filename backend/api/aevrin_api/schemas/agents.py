@@ -71,25 +71,53 @@ class McpTrustOut(BaseModel):
     factors: list[GradeFactorOut]
 
 
-class McpServerInventoryOut(BaseModel):
-    """One MCP server as configured for one agent on one device.
+class McpInstallationOut(BaseModel):
+    """One place a server is configured: one agent, on one device, at one scope.
 
-    Keyed by where it is configured, not by name: the same server present
-    globally and in a project is two installations with two different
-    answers to "who can reach this", and collapsing them hides that.
+    The unit of "where is this installed", which is what someone needs in
+    order to change it. The same server configured globally and in a project
+    is two installations with two different answers to who can reach it.
     """
 
-    name: str
-    scope: ConfigScope
-    transport: str
-    command: str | None
-    url: str | None
-    auto_approved: bool
-    source_path: str
-    project_root: str | None
     agent_id: UUID
     agent_type: AgentKind
     agent_name: str
+    device_id: str
     hostname: str
+    name: str
+    scope: ConfigScope
+    project_root: str | None
+    source_path: str
+    transport: str
+    command: str | None
+    url: str | None
+    enabled: bool
+    auto_approved: bool
     reported_at: datetime
+
+
+class McpAssetOut(BaseModel):
+    """One MCP server, however many places it is configured.
+
+    Correlated on what the configuration actually pins down -- a URL, or the
+    package a launcher fetches. `identity_confidence` is carried through
+    rather than resolved: merging two unrelated servers would attach one
+    server's findings to another, which is worse than listing one twice.
+    """
+
+    identity_key: str
+    identity_kind: str
+    identity_label: str
+    identity_confidence: str
+    name: str
+    transport: str
+    url: str | None
+    command: str | None
+    installation_count: int
+    device_count: int
+    agent_count: int
+    project_count: int
+    scopes: list[ConfigScope]
+    enabled_everywhere: bool
+    installations: list[McpInstallationOut]
     trust: McpTrustOut | None = None

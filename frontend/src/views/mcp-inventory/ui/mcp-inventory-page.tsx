@@ -1,11 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Blocks, ScanSearch } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Blocks, ChevronRight, ScanSearch } from "lucide-react";
 import { ApiError } from "@/shared/api";
-import { agentApi, AGENT_KIND_LABELS, ScopeBadge, SCOPE_LABELS, TrustGradeBadge } from "@/entities/agent";
-import type { ConfigScope, McpServerInventoryItem } from "@/entities/agent";
+import {
+  agentApi,
+  AGENT_KIND_LABELS,
+  ScopeBadge,
+  SCOPE_LABELS,
+  TrustGradeBadge,
+} from "@/entities/agent";
+import type { ConfigScope, McpAsset } from "@/entities/agent";
 import {
   EmptyState,
   PageHeader,
@@ -25,63 +31,93 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Select } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
+import { formatDateTime } from "@/shared/lib/format";
 
 const SCOPES: ConfigScope[] = ["managed", "user", "project", "local"];
 
-/** Where a server can be scanned from, given what its configuration says.
- *  A stdio server is a command on a machine, so there is nothing the
- *  dashboard can reach; an http server has a URL and can be scanned now. */
-function scanHref(server: McpServerInventoryItem) {
-  if (server.url) {
-    return `/scans/new?mode=live_mcp_server&target=${encodeURIComponent(server.url)}`;
-  }
-  return null;
+/** A stdio server is a command on someone's machine, so there is nothing the
+ *  dashboard can reach. An http server has a URL and can be scanned now. */
+function scanHref(asset: McpAsset) {
+  return asset.url ? `/scans/new?mode=live_mcp_server&target=${encodeURIComponent(asset.url)}` : null;
+}
+
+function InstallationList({ asset }: { asset: McpAsset }) {
+  return (
+    <ul className="flex flex-col gap-2">
+      {asset.installations.map((installation) => (
+        <li
+          key={`${installation.agent_id}:${installation.source_path}:${installation.name}`}
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
+        >
+          <ScopeBadge scope={installation.scope} />
+          <Link href={`/agents/${installation.agent_id}`} className="font-medium hover:underline">
+            {AGENT_KIND_LABELS[installation.agent_type] ?? installation.agent_name}
+          </Link>
+          <span className="text-muted-foreground">on {installation.hostname}</span>
+          {installation.project_root ? (
+            <span className="truncate text-muted-foreground">· {installation.project_root}</span>
+          ) : null}
+          {installation.name !== asset.name ? (
+            <span className="text-muted-foreground">· named &ldquo;{installation.name}&rdquo;</span>
+          ) : null}
+          {!installation.enabled ? <span className="text-muted-foreground">· disabled</span> : null}
+          {installation.auto_approved ? (
+            <span className="text-severity-medium">· auto-approved</span>
+          ) : null}
+          <span className="text-muted-foreground">· {formatDateTime(installation.reported_at)}</span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 export function McpInventoryPage() {
-  const [servers, setServers] = useState<McpServerInventoryItem[] | null>(null);
+  const [assets, setAssets] = useState<McpAsset[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<ConfigScope | "all">("all");
+  const [expanded, setExpanded] = useState<string | null>(null);
 
-  const load = useCallback(() => {
+  useEffect(() => {
     let cancelled = false;
     agentApi
       .listMcpServers()
       .then((result) => {
         if (cancelled) return;
-        setServers(result);
+        setAssets(result);
         setError(null);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
         setError(err instanceof ApiError ? err.message : "Could not load your MCP servers.");
-        setServers([]);
+        setAssets([]);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  useEffect(() => load(), [load]);
-
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return (servers ?? []).filter((server) => {
-      if (scope !== "all" && server.scope !== scope) return false;
+    return (assets ?? []).filter((asset) => {
+      if (scope !== "all" && !asset.scopes.includes(scope)) return false;
       if (!needle) return true;
-      return [server.name, server.hostname, server.command ?? "", server.url ?? ""].some((field) =>
-        field.toLowerCase().includes(needle),
-      );
+      return [
+        asset.name,
+        asset.identity_label,
+        asset.command ?? "",
+        asset.url ?? "",
+        ...asset.installations.map((i) => i.hostname),
+      ].some((field) => field.toLowerCase().includes(needle));
     });
-  }, [servers, query, scope]);
+  }, [assets, query, scope]);
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         pretitle="AI security"
         title="MCP servers"
-        description="Every MCP server configured on a device that has reported in, and the scope it was configured at."
+        description="One row per server, however many agents and devices it is configured on."
       />
 
       <Alert>
@@ -99,14 +135,14 @@ export function McpInventoryPage() {
         </Alert>
       ) : null}
 
-      {servers === null ? (
+      {assets === null ? (
         <Panel>
           <PanelBody className="flex flex-col gap-3">
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
           </PanelBody>
         </Panel>
-      ) : servers.length === 0 && !error ? (
+      ) : assets.length === 0 && !error ? (
         <Panel>
           <EmptyState
             icon={<Blocks />}
@@ -119,13 +155,13 @@ export function McpInventoryPage() {
             }
           />
         </Panel>
-      ) : servers.length === 0 ? null : (
+      ) : assets.length === 0 ? null : (
         <Panel>
           <PanelBody className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search by name, device or command"
+              placeholder="Search by name, package, URL or device"
               aria-label="Search MCP servers"
               className="sm:max-w-xs"
             />
@@ -149,43 +185,59 @@ export function McpInventoryPage() {
                 <TR>
                   <TH>Server</TH>
                   <TH>Trust</TH>
-                  <TH>Scope</TH>
+                  <TH>Installed</TH>
                   <TH>Transport</TH>
-                  <TH>Agent</TH>
-                  <TH>Device</TH>
                   <TH className="text-right">Scan</TH>
                 </TR>
               </THead>
               <TBody>
-                {visible.map((server) => {
-                  const href = scanHref(server);
+                {visible.map((asset) => {
+                  const href = scanHref(asset);
+                  const open = expanded === asset.identity_key;
                   return (
-                    <TR key={`${server.agent_id}:${server.scope}:${server.name}`}>
+                    <TR key={asset.identity_key}>
                       <TD>
-                        <span className="font-medium">{server.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => setExpanded(open ? null : asset.identity_key)}
+                          aria-expanded={open}
+                          className="flex items-center gap-1 text-left font-medium hover:underline"
+                        >
+                          {asset.name}
+                          <ChevronRight
+                            className={`size-3.5 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
+                            aria-hidden="true"
+                          />
+                        </button>
                         <span className="block truncate font-mono text-xs text-muted-foreground">
-                          {server.url ?? server.command ?? server.source_path}
+                          {asset.identity_label}
                         </span>
-                        {server.auto_approved ? (
+                        {/* Correlation is only as good as what the config pins
+                            down. Saying so beats a confident-looking row that
+                            merged two unrelated servers. */}
+                        {asset.identity_confidence === "low" ? (
                           <Badge
                             variant="outline"
-                            className="mt-1 rounded-full border-severity-medium/40 bg-severity-medium/10 px-2 py-0.5 text-severity-medium"
+                            className="mt-1 rounded-full px-2 py-0.5 text-muted-foreground"
+                            title="Identified only by the name someone typed, so it is never merged with any other server."
                           >
-                            Auto-approved
+                            Identity uncertain
                           </Badge>
+                        ) : null}
+                        {open ? (
+                          <div className="mt-3 border-l-2 border-border pl-3">
+                            <InstallationList asset={asset} />
+                          </div>
                         ) : null}
                       </TD>
                       <TD>
-                        {/* Never a letter without a scan behind it. "Not
-                            scanned" is the honest answer; a grade invented
-                            from configuration alone would be the one thing a
-                            security product cannot do. */}
-                        {server.trust ? (
-                          <Link href={`/scans/${server.trust.scan_id}`} className="inline-block">
+                        {/* Never a letter without a scan behind it. */}
+                        {asset.trust ? (
+                          <Link href={`/scans/${asset.trust.scan_id}`} className="inline-block">
                             <TrustGradeBadge
-                              grade={server.trust.grade}
-                              label={server.trust.label}
-                              score={server.trust.scan_score}
+                              grade={asset.trust.grade}
+                              label={asset.trust.label}
+                              score={asset.trust.scan_score}
                             />
                           </Link>
                         ) : (
@@ -193,20 +245,18 @@ export function McpInventoryPage() {
                         )}
                       </TD>
                       <TD>
-                        <ScopeBadge scope={server.scope} />
-                        {server.scope === "project" && server.project_root ? (
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {server.project_root}
-                          </span>
-                        ) : null}
+                        <span className="flex flex-wrap gap-1">
+                          {asset.scopes.map((value) => (
+                            <ScopeBadge key={value} scope={value} />
+                          ))}
+                        </span>
+                        <span className="mt-1 block text-xs text-muted-foreground">
+                          {asset.device_count} device{asset.device_count === 1 ? "" : "s"} ·{" "}
+                          {asset.agent_count} agent{asset.agent_count === 1 ? "" : "s"}
+                          {asset.enabled_everywhere ? "" : " · disabled somewhere"}
+                        </span>
                       </TD>
-                      <TD className="text-muted-foreground">{server.transport}</TD>
-                      <TD>
-                        <Link href={`/agents/${server.agent_id}`} className="hover:underline">
-                          {AGENT_KIND_LABELS[server.agent_type] ?? server.agent_name}
-                        </Link>
-                      </TD>
-                      <TD className="text-muted-foreground">{server.hostname}</TD>
+                      <TD className="text-muted-foreground">{asset.transport}</TD>
                       <TD className="text-right">
                         {href ? (
                           <Button nativeButton={false} render={<Link href={href} />} variant="outline" size="sm">
@@ -214,10 +264,6 @@ export function McpInventoryPage() {
                             Scan
                           </Button>
                         ) : (
-                          // A stdio server is a command that runs on that
-                          // machine. There is no URL for the dashboard to
-                          // reach, and offering a button that cannot work
-                          // would be the lie this product cannot afford.
                           <span className="text-xs text-muted-foreground">Local command</span>
                         )}
                       </TD>
