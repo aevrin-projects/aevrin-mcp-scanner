@@ -16,6 +16,7 @@ from typing import Any
 from uuid import UUID
 
 from aevrin_scanner_core import Finding
+from aevrin_scanner_core.agents.attack_paths import find_attack_paths
 from aevrin_scanner_core.agents.grade import grade_mcp_server
 from aevrin_scanner_core.agents.identity import mcp_identity
 from aevrin_scanner_core.agents.models import ConfigScope, DiscoveredAgent, McpServerRef
@@ -28,6 +29,8 @@ from aevrin_api.schemas.agents import (
     AgentSnapshotUpload,
     AgentSnapshotUploadResponse,
     AgentSummaryOut,
+    AttackPathOut,
+    AttackStepOut,
     GradeFactorOut,
     McpAssetOut,
     McpInstallationOut,
@@ -339,6 +342,42 @@ async def list_permissions(user_id: str, db: SupabaseRest) -> list[PermissionOut
     order = {"allow": 0, "ask": 1, "deny": 2}
     permissions.sort(key=lambda p: (order.get(p.effect, 3), p.rule.lower(), p.hostname))
     return permissions
+
+
+async def list_attack_paths(user_id: str, db: SupabaseRest) -> list[AttackPathOut]:
+    """Every evidenced path across every reported device, worst first."""
+    rows = await db.select("agent_snapshots", {"user_id": user_id}, order="reported_at.desc")
+    grades = await _grades_for_agents(rows, user_id, db)
+
+    found: list[AttackPathOut] = []
+    for row in rows:
+        agent = DiscoveredAgent.model_validate(row["snapshot"])
+        for path in find_attack_paths(agent, mcp_grades=grades.get(row["id"], {})):
+            found.append(
+                AttackPathOut(
+                    key=path.key,
+                    title=path.title,
+                    source=path.source,
+                    target=path.target,
+                    severity=path.severity.value,
+                    confidence=path.confidence.value,
+                    steps=[
+                        AttackStepOut(
+                            label=step.label,
+                            detail=step.detail,
+                            evidence=[e.detail for e in step.evidence],
+                        )
+                        for step in path.steps
+                    ],
+                    remediation=path.remediation,
+                    agent_id=UUID(row["id"]),
+                    agent_type=agent.kind,
+                    hostname=row["hostname"],
+                )
+            )
+    order = {"critical": 0, "high": 1, "medium": 2}
+    found.sort(key=lambda p: (order.get(p.severity, 3), p.hostname, p.key))
+    return found
 
 
 async def delete_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> None:

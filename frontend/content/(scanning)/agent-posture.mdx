@@ -171,6 +171,7 @@ Once a device has reported, the dashboard shows it under **AI security**:
 | **MCP servers** | Every MCP server across every device, one row per server, with its scopes and trust grade |
 | **Skills** | Every skill installed, one row per installation, with its scope and source file |
 | **Permissions** | Every rule across every device, exactly as written, with the file it lives in |
+| **Attack paths** | What an agent can reach, when there is evidence for every step |
 
 A device is rated by its **worst** agent, not an average: averaging lets one tidy agent hide the
 one that can reach everything.
@@ -236,6 +237,42 @@ evidence and a 90 with half the config unreadable are not the same claim.
 
 The score is computed in one place and read everywhere. The CLI prints it, the API stores it and
 the dashboard renders it; none of the three recomputes it.
+
+## Attack paths
+
+A path is a chain from an agent to something it can reach, and it appears **only when every step
+was read out of a configuration**:
+
+```text
+Claude Code  →  Shell  →  aws  →  aws credentials file  →  the AWS account these credentials belong to
+```
+
+Each step lists what established it: the permission rule, the sandbox setting, the credential file
+that exists. The whole chain is repeated as a table, because a row of chips is not something
+everyone can read.
+
+**What is deliberately absent matters more than what is present.** An agent that *might* reach the
+network, that *might* reach a cloud, that *might* reach production is three maybes chained together.
+It looks like a finding, is not one, and a product that publishes them teaches people to ignore it.
+
+The clearest consequence: an agent allowed only `Bash(npm run *)` with AWS credentials sitting on
+disk produces **no path**, because nothing establishes that `aws` is among the commands it may run.
+If the allowlist names it — `Bash(aws s3 *)` — the path appears, at high severity rather than
+critical.
+
+The same rule elsewhere:
+
+| Situation | Path? |
+|---|---|
+| Unrestricted shell, no credentials found | No |
+| Credentials found, no shell at all | No |
+| Shell level could not be established | No |
+| MCP server auto-approved, never scanned | No — auto-approval alone is not evidence of anything |
+| MCP server graded D, but still asks first | No — there is a human in the way |
+| MCP server auto-approved **and** graded D | Yes |
+
+An empty Attack paths page means no evidenced path was found. It is not a guarantee that none
+exists, and the page says so.
 
 ## Credentials: presence only
 

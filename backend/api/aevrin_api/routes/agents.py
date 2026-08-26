@@ -22,6 +22,7 @@ from aevrin_api.schemas.agents import (
     AgentSnapshotUpload,
     AgentSnapshotUploadResponse,
     AgentSummaryOut,
+    AttackPathOut,
     McpAssetOut,
     PermissionOut,
     SkillOut,
@@ -71,6 +72,12 @@ async def list_skills(user: CurrentUser, db: Db) -> list[SkillOut]:
 async def list_permissions(user: CurrentUser, db: Db) -> list[PermissionOut]:
     """Every permission rule across every reported device, exactly as written."""
     return await agent_controller.list_permissions(user.id, db)
+
+
+@router.get("/attack-paths", response_model=list[AttackPathOut])
+async def list_attack_paths(user: CurrentUser, db: Db) -> list[AttackPathOut]:
+    """Paths with evidence behind every step. Speculative chains are absent."""
+    return await agent_controller.list_attack_paths(user.id, db)
 
 
 @router.get("/{agent_id}", response_model=AgentDetailOut)

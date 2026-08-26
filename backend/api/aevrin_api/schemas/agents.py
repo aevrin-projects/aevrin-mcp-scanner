@@ -163,3 +163,30 @@ class PermissionOut(BaseModel):
     agent_id: UUID
     agent_type: AgentKind
     hostname: str
+
+
+class AttackStepOut(BaseModel):
+    label: str
+    detail: str
+    evidence: list[str]
+
+
+class AttackPathOut(BaseModel):
+    """A path with evidence behind every step, or it is not here at all.
+
+    An agent that *might* reach a cloud that *might* reach production is three
+    maybes chained together: it looks like a finding, is not one, and teaches
+    people to ignore the product.
+    """
+
+    key: str
+    title: str
+    source: str
+    target: str
+    severity: str
+    confidence: str
+    steps: list[AttackStepOut]
+    remediation: str
+    agent_id: UUID
+    agent_type: AgentKind
+    hostname: str

@@ -233,3 +233,25 @@ export interface Device {
   lowest_score: number;
   last_reported: string;
 }
+
+export interface AttackStep {
+  label: string;
+  detail: string;
+  evidence: string[];
+}
+
+/** Present only when every step was read out of a configuration. A chain of
+ *  maybes looks like a finding and is not one. */
+export interface AttackPath {
+  key: string;
+  title: string;
+  source: string;
+  target: string;
+  severity: "critical" | "high" | "medium";
+  confidence: "high" | "medium";
+  steps: AttackStep[];
+  remediation: string;
+  agent_id: string;
+  agent_type: AgentKind;
+  hostname: string;
+}

@@ -451,3 +451,42 @@ def test_an_agent_with_no_skills_or_rules_contributes_nothing():
     db = FakeDb([row()])
     assert asyncio.run(agent_controller.list_skills(USER, db)) == []
     assert asyncio.run(agent_controller.list_permissions(USER, db)) == []
+
+
+def test_attack_paths_carry_their_agent_and_device():
+    document = snapshot(
+        capabilities=[
+            {
+                "capability": "shell",
+                "level": "full",
+                "evidence": [
+                    {"detail": "permissions.allow: Bash", "source_path": "/home/a/.claude/settings.json"}
+                ],
+            }
+        ],
+        credentials=[
+            {
+                "kind": "aws_credentials_file",
+                "present": True,
+                "source": "file",
+                "location": "/home/a/.aws/credentials",
+            }
+        ],
+    )
+    paths = asyncio.run(agent_controller.list_attack_paths(USER, FakeDb([row(document)])))
+    assert len(paths) == 1
+    assert paths[0].severity == "critical"
+    assert paths[0].hostname == "DEV-042"
+    assert [step.label for step in paths[0].steps] == ["Shell", "aws", "aws credentials file"]
+    assert paths[0].steps[0].evidence == ["permissions.allow: Bash"]
+
+
+def test_a_machine_with_no_evidenced_path_reports_none():
+    # The default fixture has unrestricted shell but no mapped credential.
+    document = snapshot(
+        capabilities=[{"capability": "shell", "level": "full"}],
+        credentials=[
+            {"kind": "claude_code_credentials", "present": True, "source": "file", "location": "/x"}
+        ],
+    )
+    assert asyncio.run(agent_controller.list_attack_paths(USER, FakeDb([row(document)]))) == []

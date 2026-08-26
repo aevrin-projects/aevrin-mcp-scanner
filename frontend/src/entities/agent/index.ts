@@ -3,6 +3,8 @@ export type {
   AgentKind,
   AgentSnapshot,
   AgentSummary,
+  AttackPath,
+  AttackStep,
   CapabilityLevel,
   CapabilityName,
   Confidence,

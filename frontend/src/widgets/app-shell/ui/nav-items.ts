@@ -2,6 +2,7 @@ import {
   Blocks,
   Bot,
   Laptop,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   ChartNoAxesCombined,
@@ -45,6 +46,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/agents/mcp", label: "MCP servers", icon: Blocks },
       { href: "/agents/skills", label: "Skills", icon: Sparkles },
       { href: "/agents/permissions", label: "Permissions", icon: ShieldCheck },
+      { href: "/agents/attack-paths", label: "Attack paths", icon: ShieldAlert },
     ],
   },
   {
