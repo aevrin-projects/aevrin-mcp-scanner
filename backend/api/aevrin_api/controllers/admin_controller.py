@@ -316,10 +316,8 @@ async def delete_user(
 ) -> DeleteUserResult:
     """Delete an account and everything that cascades from it.
 
-    Irreversible, so it is gated three ways: an admin session, a fresh TOTP
-    code, and the account's own email typed back. The email check is the one
-    that catches the wrong-row click, which is the realistic failure here --
-    nobody deletes the wrong account on purpose.
+    Irreversible, and gated on the authentication code: require_sudo refuses
+    a missing or wrong one, so a live admin session alone cannot do this.
     """
     await require_sudo(db, settings, admin, body.totp_code)
 
@@ -327,12 +325,6 @@ async def delete_user(
     target_email = identity[0].get("email") if identity else None
     if not target_email:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such user.")
-
-    if body.confirm_email.strip().lower() != str(target_email).strip().lower():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="That email does not match this account. Nothing was deleted.",
-        )
 
     # An admin cannot delete their own login out from under the panel, and
     # cannot delete another admin: recovering from either means editing the

@@ -1,8 +1,8 @@
 """Deleting an account is irreversible, so most of this file is about the
 requests that must NOT delete anything.
 
-The realistic failure is not malice, it is the wrong row: an admin with a
-legitimate session, a valid code, and the wrong user open in the panel.
+The authentication code is the whole gate: require_sudo refuses a missing or
+wrong one, and a live admin session alone is not enough.
 """
 
 from __future__ import annotations
@@ -71,9 +71,8 @@ def not_an_admin(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def body(**overrides: Any) -> DeleteUserIn:
     return DeleteUserIn(
-        confirm_email=overrides.pop("confirm_email", "victim@example.com"),
         reason=overrides.pop("reason", "Requested by the account owner"),
-        totp_code="123456",
+        totp_code=overrides.pop("totp_code", "123456"),
     )
 
 
@@ -84,27 +83,12 @@ def run(db: FakeDb, settings: Any, payload: DeleteUserIn):
     return asyncio.run(admin_controller.delete_user(TARGET, payload, admin, db, settings))
 
 
-def test_a_matching_email_deletes_and_reports_what_went(settings, not_an_admin) -> None:
+def test_a_valid_request_deletes_and_reports_what_went(settings, not_an_admin) -> None:
     db = FakeDb()
     result = run(db, settings, body())
     assert result.email == "victim@example.com"
     assert (result.scans_deleted, result.findings_deleted, result.payments_deleted) == (12, 40, 3)
     assert ("admin_delete_user", {"p_user_id": TARGET}) in db.rpc_calls
-
-
-def test_a_mismatched_email_deletes_nothing(settings, not_an_admin) -> None:
-    # The wrong-row click, which is the realistic failure here.
-    db = FakeDb()
-    with pytest.raises(HTTPException) as exc:
-        run(db, settings, body(confirm_email="someone.else@example.com"))
-    assert exc.value.status_code == 422
-    assert "Nothing was deleted" in str(exc.value.detail)
-    assert not any(fn == "admin_delete_user" for fn, _ in db.rpc_calls)
-
-
-def test_the_email_check_ignores_case_and_surrounding_space(settings, not_an_admin) -> None:
-    db = FakeDb()
-    assert run(db, settings, body(confirm_email="  Victim@Example.com ")).email
 
 
 def test_an_admin_account_cannot_be_deleted(settings, monkeypatch) -> None:
@@ -133,3 +117,18 @@ def test_the_audit_entry_is_written_before_the_row_disappears(settings, not_an_a
     assert len(db.audited) == 1
     assert db.audited[0]["target_email"] == "victim@example.com"
     assert db.audited[0]["action"] == "account.delete"
+
+
+def test_a_missing_or_wrong_code_deletes_nothing(settings, not_an_admin, monkeypatch) -> None:
+    """The authentication code is the whole gate now, so this is the test that
+    matters most. `require_sudo` is stubbed out in the fixture above so the
+    other cases can reach the logic they are about; here it is restored."""
+    from aevrin_api.services import admin_auth
+
+    monkeypatch.setattr(admin_controller, "require_sudo", admin_auth.require_sudo)
+
+    db = FakeDb()
+    with pytest.raises(HTTPException) as exc:
+        run(db, settings, body(totp_code=None))
+    assert exc.value.status_code == 403
+    assert not any(fn == "admin_delete_user" for fn, _ in db.rpc_calls)

@@ -82,11 +82,10 @@ class OverrideIn(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 class DeleteUserIn(BaseModel):
-    """Deleting an account is irreversible, so the request has to prove intent
-    three ways: an admin session, a fresh TOTP code, and the account's own
-    email typed back. The email is the one that catches the wrong-row click."""
+    """Deleting an account is irreversible and gated on the authentication
+    code, which require_sudo refuses to skip: a live admin session is not
+    enough, so an unattended logged-in browser cannot be used to do this."""
 
-    confirm_email: str = Field(min_length=3, max_length=320)
     reason: str = Field(min_length=3, max_length=500)
     totp_code: str | None = None
 

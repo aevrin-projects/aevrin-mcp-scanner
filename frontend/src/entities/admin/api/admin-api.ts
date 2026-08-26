@@ -22,10 +22,7 @@ export const adminApi = {
     request<{ status: string }>(`/admin/users/${id}/status`, { method: "POST", body: JSON.stringify(body) }),
   setPlan: (id: string, body: { tier: string; reason: string; months: number; totp_code: string }) =>
     request<{ tier: string }>(`/admin/users/${id}/plan`, { method: "POST", body: JSON.stringify(body) }),
-  deleteUser: (
-    id: string,
-    body: { confirm_email: string; reason: string; totp_code: string },
-  ) =>
+  deleteUser: (id: string, body: { reason: string; totp_code: string }) =>
     request<{
       email: string;
       scans_deleted: number;

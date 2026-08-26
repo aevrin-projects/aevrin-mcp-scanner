@@ -366,24 +366,11 @@ function DangerZone({ detail, onDone }: { detail: AdminUserDetail; onDone: () =>
   const [reason, setReason] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
-  const [confirmEmail, setConfirmEmail] = useState("");
-
-  // The realistic failure is the wrong row, not malice: a legitimate session,
-  // a valid code, and the wrong account open. Typing the email back is the
-  // check that catches it, and the server enforces it too.
-  // An account without an email (an OAuth identity that never supplied one)
-  // cannot be confirmed this way, so deletion stays disabled rather than
-  // falling back to a weaker check.
-  const emailMatches =
-    Boolean(detail.email) &&
-    confirmEmail.trim().toLowerCase() === (detail.email ?? "").trim().toLowerCase();
 
   async function deleteAccount() {
     if (
       !window.confirm(
-        `Permanently delete ${detail.email}?
-
-` +
+        `Permanently delete ${detail.email}?\n\n` +
           "This removes the login and every scan, finding, API key, agent snapshot and payment " +
           "record belonging to it. It cannot be undone.",
       )
@@ -392,11 +379,7 @@ function DangerZone({ detail, onDone }: { detail: AdminUserDetail; onDone: () =>
 
     setBusy(true);
     try {
-      const result = await adminApi.deleteUser(detail.user_id, {
-        confirm_email: confirmEmail,
-        reason,
-        totp_code: code,
-      });
+      const result = await adminApi.deleteUser(detail.user_id, { reason, totp_code: code });
       toast.success(
         `Deleted ${result.email}: ${result.scans_deleted} scans, ${result.findings_deleted} findings, ${result.payments_deleted} payments.`,
       );
@@ -509,19 +492,9 @@ function DangerZone({ detail, onDone }: { detail: AdminUserDetail; onDone: () =>
             belonging to it. There is no undo and no export first. Blocking is the reversible option.
           </p>
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="dz-confirm">Type {detail.email ?? "this account’s email"} to confirm</Label>
-          <Input
-            id="dz-confirm"
-            value={confirmEmail}
-            onChange={(e) => setConfirmEmail(e.target.value)}
-            placeholder={detail.email ?? ""}
-            autoComplete="off"
-          />
-        </div>
         <Button
           variant="destructive"
-          disabled={busy || !emailMatches || reason.trim().length < 3 || code.trim().length < 6}
+          disabled={busy || reason.trim().length < 3 || code.trim().length < 6}
           onClick={() => void deleteAccount()}
         >
           <Trash2 className="size-3.5" />
