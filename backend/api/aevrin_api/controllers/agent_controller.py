@@ -19,7 +19,14 @@ from aevrin_scanner_core import Finding
 from aevrin_scanner_core.agents.attack_paths import find_attack_paths
 from aevrin_scanner_core.agents.grade import grade_mcp_server
 from aevrin_scanner_core.agents.identity import mcp_identity
-from aevrin_scanner_core.agents.models import ConfigScope, DiscoveredAgent, McpServerRef
+from aevrin_scanner_core.agents.models import (
+    Capability,
+    ConfigScope,
+    DiscoveredAgent,
+    Level,
+    McpServerRef,
+)
+from aevrin_scanner_core.agents.policy import Policies, evaluate_agent, evaluate_server
 from aevrin_scanner_core.agents.posture import assess_posture
 from fastapi import HTTPException, status
 
@@ -37,6 +44,10 @@ from aevrin_api.schemas.agents import (
     McpInstallationOut,
     McpTrustOut,
     PermissionOut,
+    PoliciesOut,
+    PoliciesUpdate,
+    PolicyAuditOut,
+    PolicyOutcomeOut,
     PostureFactorOut,
     SkillOut,
 )
@@ -132,9 +143,23 @@ async def store_snapshot(
     return AgentSnapshotUploadResponse(stored=len(rows))
 
 
-def _summary(row: dict[str, Any], mcp_grades: dict[str, str] | None = None) -> AgentSummaryOut:
+def _summary(
+    row: dict[str, Any],
+    mcp_grades: dict[str, str] | None = None,
+    policies: Policies | None = None,
+) -> AgentSummaryOut:
     agent = DiscoveredAgent.model_validate(row["snapshot"])
     posture = assess_posture(agent, mcp_grades=mcp_grades)
+    network = agent.capability(Capability.NETWORK)
+    decision = (
+        evaluate_agent(
+            policies,
+            unattended=agent.unattended,
+            unrestricted_network=network is not None and network.level is Level.FULL,
+        )
+        if policies and policies.any_enabled
+        else None
+    )
     return AgentSummaryOut(
         id=UUID(row["id"]),
         agent_type=agent.kind,
@@ -155,6 +180,7 @@ def _summary(row: dict[str, Any], mcp_grades: dict[str, str] | None = None) -> A
         plugin_count=len(agent.plugins),
         hook_count=len(agent.hooks),
         coverage_complete=agent.coverage.complete and not agent.unreadable_paths,
+        policy=_outcome(decision) if decision else None,
     )
 
 
@@ -182,7 +208,8 @@ async def _grades_for_agents(
 async def list_agents(user_id: str, db: SupabaseRest) -> list[AgentSummaryOut]:
     rows = await db.select("agent_snapshots", {"user_id": user_id}, order="reported_at.desc")
     grades = await _grades_for_agents(rows, user_id, db)
-    return [_summary(row, grades.get(row["id"])) for row in rows]
+    policies = await _policies(user_id, db)
+    return [_summary(row, grades.get(row["id"]), policies) for row in rows]
 
 
 async def get_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> AgentDetailOut:
@@ -192,7 +219,7 @@ async def get_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> AgentDeta
     if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found.")
     grades = await _grades_for_agents(rows, user_id, db)
-    summary = _summary(rows[0], grades.get(rows[0]["id"]))
+    summary = _summary(rows[0], grades.get(rows[0]["id"]), await _policies(user_id, db))
     return AgentDetailOut(
         **summary.model_dump(), snapshot=DiscoveredAgent.model_validate(rows[0]["snapshot"])
     )
@@ -308,6 +335,7 @@ async def list_mcp_assets(user_id: str, db: SupabaseRest) -> list[McpAssetOut]:
             )
 
     trust = await _trust_by_identity(set(grouped), user_id, db)
+    policies = await _policies(user_id, db)
 
     assets: list[McpAssetOut] = []
     for key, installations in grouped.items():
@@ -337,6 +365,16 @@ async def list_mcp_assets(user_id: str, db: SupabaseRest) -> list[McpAssetOut]:
                 enabled_everywhere=all(i.enabled for i in installations),
                 installations=installations,
                 trust=trust.get(key),
+                policy=(
+                    _outcome(
+                        evaluate_server(
+                            policies,
+                            grade=trust[key].grade if key in trust else None,
+                        )
+                    )
+                    if policies.any_enabled
+                    else None
+                ),
             )
         )
     assets.sort(key=lambda a: (a.name.lower(), a.identity_key))
@@ -422,6 +460,73 @@ async def list_attack_paths(user_id: str, db: SupabaseRest) -> list[AttackPathOu
     order = {"critical": 0, "high": 1, "medium": 2}
     found.sort(key=lambda p: (order.get(p.severity, 3), p.hostname, p.key))
     return found
+
+
+# --- Policies -------------------------------------------------------------
+# A grade is a recommendation until someone decides it should be enforcement.
+# Everything here is off until switched on, and switching one on is recorded.
+
+POLICY_FIELDS = (
+    "block_grade_d",
+    "require_approval_grade_c",
+    "block_unattended_shell",
+    "block_unrestricted_network",
+)
+
+
+async def _policies(user_id: str, db: SupabaseRest) -> Policies:
+    rows = await db.select("agent_policies", {"user_id": user_id}, limit=1)
+    if not rows:
+        return Policies()
+    return Policies(**{field: bool(rows[0].get(field)) for field in POLICY_FIELDS})
+
+
+def _outcome(result: Any) -> PolicyOutcomeOut:
+    return PolicyOutcomeOut(decision=result.decision.value, reasons=result.reasons)
+
+
+async def get_policies(user_id: str, db: SupabaseRest) -> PoliciesOut:
+    return PoliciesOut(**vars(await _policies(user_id, db)))
+
+
+async def update_policies(
+    body: PoliciesUpdate, user_id: str, actor: str, db: SupabaseRest, request_id: str | None
+) -> PoliciesOut:
+    before = await get_policies(user_id, db)
+    after = PoliciesOut(**body.model_dump())
+    if before == after:
+        # Nothing changed, so nothing is recorded. An audit log padded with
+        # no-op entries is one nobody reads.
+        return after
+
+    await db.insert(
+        "agent_policies",
+        {
+            "user_id": user_id,
+            **after.model_dump(),
+            "updated_at": datetime.now(UTC).isoformat(),
+        },
+        upsert_on="user_id",
+    )
+    await db.insert(
+        "agent_policy_audit",
+        {
+            "user_id": user_id,
+            "actor": actor,
+            "action": "policies.update",
+            "before": before.model_dump(),
+            "after": after.model_dump(),
+            "request_id": request_id,
+        },
+    )
+    return after
+
+
+async def list_policy_audit(user_id: str, db: SupabaseRest) -> list[PolicyAuditOut]:
+    rows = await db.select(
+        "agent_policy_audit", {"user_id": user_id}, order="created_at.desc", limit=100
+    )
+    return [PolicyAuditOut(**row) for row in rows]
 
 
 async def delete_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> None:

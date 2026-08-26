@@ -21,6 +21,10 @@ export type {
   McpTrust,
   PluginRef,
   Permission,
+  Policies,
+  PolicyAuditEntry,
+  PolicyDecision,
+  PolicyOutcome,
   PostureFactor,
   PostureRisk,
   RawPermission,
@@ -40,5 +44,6 @@ export {
 export { agentApi } from "./api/agent-api";
 export { TrustGradeBadge } from "./ui/trust-grade-badge";
 export { groupByDevice } from "./model/devices";
+export { PolicyBadge } from "./ui/policy-badge";
 export { RiskBadge } from "./ui/risk-badge";
 export { ScopeBadge } from "./ui/scope-badge";

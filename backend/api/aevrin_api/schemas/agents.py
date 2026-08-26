@@ -9,6 +9,7 @@ is that there is exactly one shape.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from aevrin_scanner_core.agents.models import AgentKind, ConfigScope, DiscoveredAgent
@@ -25,6 +26,11 @@ class AgentSnapshotUpload(BaseModel):
 
 class AgentSnapshotUploadResponse(BaseModel):
     stored: int
+
+
+class PolicyOutcomeOut(BaseModel):
+    decision: str
+    reasons: list[str]
 
 
 class PostureFactorOut(BaseModel):
@@ -52,6 +58,7 @@ class AgentSummaryOut(BaseModel):
     plugin_count: int
     hook_count: int
     coverage_complete: bool
+    policy: PolicyOutcomeOut | None = None
 
 
 class AgentDetailOut(AgentSummaryOut):
@@ -130,6 +137,7 @@ class McpAssetOut(BaseModel):
     enabled_everywhere: bool
     installations: list[McpInstallationOut]
     trust: McpTrustOut | None = None
+    policy: PolicyOutcomeOut | None = None
 
 
 class SkillOut(BaseModel):
@@ -190,3 +198,26 @@ class AttackPathOut(BaseModel):
     agent_id: UUID
     agent_type: AgentKind
     hostname: str
+
+
+class PoliciesOut(BaseModel):
+    """Four switches, all off until someone turns them on."""
+
+    block_grade_d: bool = False
+    require_approval_grade_c: bool = False
+    block_unattended_shell: bool = False
+    block_unrestricted_network: bool = False
+
+
+class PoliciesUpdate(PoliciesOut):
+    """Every field is required on update, so a partial body cannot silently
+    switch a policy off that the caller never mentioned."""
+
+
+class PolicyAuditOut(BaseModel):
+    id: int
+    actor: str
+    action: str
+    before: dict[str, Any] | None
+    after: dict[str, Any] | None
+    created_at: datetime

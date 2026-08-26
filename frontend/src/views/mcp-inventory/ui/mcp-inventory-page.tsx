@@ -7,6 +7,7 @@ import { ApiError } from "@/shared/api";
 import {
   agentApi,
   AGENT_KIND_LABELS,
+  PolicyBadge,
   ScopeBadge,
   SCOPE_LABELS,
   TrustGradeBadge,
@@ -243,6 +244,8 @@ export function McpInventoryPage() {
                         ) : (
                           <span className="text-xs text-muted-foreground">Not scanned</span>
                         )}
+                        {/* Only rendered when a policy is switched on. */}
+                        <PolicyBadge policy={asset.policy} className="mt-1" />
                       </TD>
                       <TD>
                         <span className="flex flex-wrap gap-1">

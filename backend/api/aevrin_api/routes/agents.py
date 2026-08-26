@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 
 from aevrin_api.config import Settings, get_settings
 from aevrin_api.controllers import agent_controller
@@ -26,6 +26,9 @@ from aevrin_api.schemas.agents import (
     AttackPathOut,
     McpAssetOut,
     PermissionOut,
+    PoliciesOut,
+    PoliciesUpdate,
+    PolicyAuditOut,
     SkillOut,
 )
 
@@ -81,6 +84,32 @@ async def list_permissions(user: CurrentUser, db: Db) -> list[PermissionOut]:
 async def list_attack_paths(user: CurrentUser, db: Db) -> list[AttackPathOut]:
     """Paths with evidence behind every step. Speculative chains are absent."""
     return await agent_controller.list_attack_paths(user.id, db)
+
+
+@router.get("/policies", response_model=PoliciesOut)
+async def get_policies(user: CurrentUser, db: Db) -> PoliciesOut:
+    """The enforcement switches for this account. All off until turned on."""
+    return await agent_controller.get_policies(user.id, db)
+
+
+@router.put("/policies", response_model=PoliciesOut)
+async def update_policies(
+    body: PoliciesUpdate, request: Request, user: CurrentUser, db: Db
+) -> PoliciesOut:
+    """Change the switches. Recorded, unless nothing actually changed."""
+    return await agent_controller.update_policies(
+        body,
+        user.id,
+        actor=user.email or user.id,
+        db=db,
+        request_id=request.headers.get("x-request-id"),
+    )
+
+
+@router.get("/policy-audit", response_model=list[PolicyAuditOut])
+async def list_policy_audit(user: CurrentUser, db: Db) -> list[PolicyAuditOut]:
+    """Who changed which policy, when, and what it was before."""
+    return await agent_controller.list_policy_audit(user.id, db)
 
 
 @router.get("/{agent_id}", response_model=AgentDetailOut)
