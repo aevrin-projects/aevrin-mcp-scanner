@@ -63,7 +63,7 @@ def test_the_accepted_statuses_are_the_ones_the_api_validates():
     assert set(TRIAGE_STATUSES) == {s.value for s in TriageStatus}
 
 
-def test_the_hook_snippet_needs_no_shell_quoting_to_survive():
+def test_the_hook_snippet_needs_no_shell_quoting_to_survive(capsys):
     r"""It used to emit `python3 'C:\path\hook_script.py'` as one shell
     string. cmd.exe does not treat POSIX single quotes as quoting, so it
     passed them through as part of the filename and every Windows install got
@@ -71,15 +71,22 @@ def test_the_hook_snippet_needs_no_shell_quoting_to_survive():
     exactly like a hook that decided not to object.
 
     Exec form hands the path over as an argument, so no shell parses it.
+
+    Calls the snippet builder rather than `hook setup`, which logs in first:
+    with no stored hook credential that starts a real device-authorisation
+    flow and polls until the code expires. As a test it took ten minutes and
+    its result depended on whether the machine running it happened to be
+    logged in.
     """
     import json
     import sys
     from pathlib import Path
 
-    result = runner.invoke(app, ["hook", "setup"])
-    assert result.exit_code == 0
+    from aevrin_cli.main import print_hook_settings_snippet
 
-    snippet = json.loads(result.stdout)
+    print_hook_settings_snippet()
+
+    snippet = json.loads(capsys.readouterr().out)
     entries = snippet["hooks"]["PreToolUse"]
     assert [e["matcher"] for e in entries] == ["Bash", "Write"]
 
