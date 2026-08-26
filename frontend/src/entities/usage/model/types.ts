@@ -1,6 +1,6 @@
 import type { ScanSource, ScanStatus, TargetType } from "@/entities/scan";
 
-export type UsageBucket = "cli" | "hook" | "dashboard";
+export type UsageBucket = "cli" | "hook" | "dashboard" | "agent";
 
 export interface BucketUsage {
   bucket: UsageBucket;
@@ -14,6 +14,9 @@ export interface AccountUsage {
   tier: "free" | "hobby" | "team";
   paid_until: string | null;
   buckets: BucketUsage[];
+  /** Fleet coverage. Not a bucket: a machine is either watched or it is not,
+   *  and there is nothing to reset at the anchor date. */
+  monitored_devices: { used: number; limit: number | null };
   activity: UsageActivity[];
 }
 

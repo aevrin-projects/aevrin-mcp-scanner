@@ -8,6 +8,7 @@ from aevrin_api.schemas.account import (
     AccountLookupResponse,
     AccountUsageResponse,
     BucketUsageOut,
+    MonitoredDevicesOut,
     UsageActivityOut,
 )
 from aevrin_api.schemas.api_keys import (
@@ -87,6 +88,7 @@ __all__ = [
     "HookCacheResponse",
     "HookOverrideRequest",
     "HookOverrideResponse",
+    "MonitoredDevicesOut",
     "PaymentOut",
     "PricingResponse",
     "ScanOut",

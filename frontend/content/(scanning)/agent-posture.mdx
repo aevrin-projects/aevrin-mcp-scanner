@@ -370,6 +370,31 @@ Servers launched over stdio — a command on your machine, like
 `npx -y @modelcontextprotocol/server-github` — have no URL for Aevrin to reach, so they are always
 Not scanned. Scan the package's repository from **New scan** to grade one of those.
 
+## Usage and plan limits
+
+A posture upload is metered on the same plan, the same rolling month and the same tier
+configuration as every other scan. Two things are counted:
+
+**Agent posture scans.** One per `aevrin agent scan --upload`, **however many agents that upload
+reported**. Claude Code and Codex found by the same command are one posture scan, not two — billing
+two would charge you for the tool being thorough.
+
+**Monitored devices.** The number of machines whose posture is tracked. A machine already being
+tracked keeps reporting even at the limit, so a plan change can never silently stop watching a
+device that was already being watched. Only a machine Aevrin has never seen is refused.
+
+Both appear on the billing page. When the device limit is reached, the refusal says the machine is
+**not monitored** — never that it is fine:
+
+```text
+This device is not monitored: your plan covers 3 device(s) and 3 are already tracked.
+Nothing has been assessed about this machine, which is not the same as it being low risk.
+```
+
+That distinction is the same one the scanner makes between an incomplete scan and a clean one, and
+it matters more here: a fleet page showing three green machines and silently omitting a fourth is
+worse than one that says it cannot see the fourth.
+
 ## Limitations
 
 - Only Claude Code and Codex are discovered today.
@@ -378,6 +403,8 @@ Not scanned. Scan the package's repository from **New scan** to grade one of tho
   that exact target, and servers launched over stdio have no target to scan.
 - Aevrin cannot change configuration on your machine from the dashboard. Adding, removing or
   disabling an MCP server happens on the machine itself.
+- A device beyond your plan's allowance is not monitored at all. It is absent from every page
+  rather than shown as low risk.
 - Change history is not kept. Each upload replaces the previous snapshot for that machine.
 - Devices are not connected to Aevrin. A snapshot is as current as the last time you ran the
   command there, and the dashboard shows that timestamp for exactly that reason.

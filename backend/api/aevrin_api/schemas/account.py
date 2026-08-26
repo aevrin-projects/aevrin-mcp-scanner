@@ -26,10 +26,22 @@ class UsageActivityOut(BaseModel):
     completed_at: datetime | None = None
 
 
+class MonitoredDevicesOut(BaseModel):
+    """Fleet coverage, which is not a per-month meter and so is not a bucket.
+
+    A machine is either being watched or it is not; there is nothing to reset
+    at the anchor date.
+    """
+
+    used: int
+    limit: int | None
+
+
 class AccountUsageResponse(BaseModel):
     tier: str
     paid_until: datetime | None = None
     buckets: list[BucketUsageOut]
+    monitored_devices: MonitoredDevicesOut
     activity: list[UsageActivityOut]
 
 

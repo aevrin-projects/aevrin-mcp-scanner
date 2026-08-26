@@ -47,3 +47,5 @@ blob-report/
 .claude/
 .aws-keys
 .github-keys
+.supabase-keys
+.cloudflare-keys

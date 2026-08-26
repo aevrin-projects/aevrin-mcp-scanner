@@ -1,10 +1,10 @@
-import { LayoutDashboard, ShieldCheck, TerminalSquare } from "lucide-react";
+import { Bot, LayoutDashboard, ShieldCheck, TerminalSquare } from "lucide-react";
 import type { UsageBucket } from "@/entities/usage";
 
 /**
- * Shared identity for the four usage buckets, label, description, icon, and
+ * Shared identity for every usage bucket, label, description, icon, and
  * hue. Kept in one place because the compact meters on the dashboard and the
- * full breakdown on /usage show the same four things; if "CLI scans" is teal
+ * full breakdown on /usage show the same things; if "CLI scans" is teal
  * in one and amber in the other, the color stops being a shortcut and starts
  * being noise.
  *
@@ -32,6 +32,13 @@ export const USAGE_BUCKETS: Record<
     description: "Scans requested by the Claude Code pre-install workflow.",
     color: "var(--chart-1)",
     icon: ShieldCheck,
+  },
+  agent: {
+    label: "Agent posture scans",
+    // One per `aevrin agent scan --upload`, however many agents it found.
+    description: "One per posture upload, however many agents that upload reported.",
+    color: "var(--chart-2)",
+    icon: Bot,
   },
 };
 

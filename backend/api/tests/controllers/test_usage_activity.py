@@ -16,6 +16,10 @@ class _UsageDb:
         filters: dict[str, str],
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
+        # The usage view also reads fleet coverage now; this test is about
+        # the activity list, so the other lookups answer empty.
+        if table in ("agent_snapshots", "tier_limits"):
+            return []
         assert table == "scans"
         assert filters == {"user_id": "user-1"}
         assert kwargs["order"] == "created_at.desc"

@@ -13,6 +13,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response, status
 
+from aevrin_api.config import Settings, get_settings
 from aevrin_api.controllers import agent_controller
 from aevrin_api.core.security import AuthenticatedUser
 from aevrin_api.db import SupabaseRest
@@ -33,18 +34,20 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 # API key for `aevrin agent scan --upload`, JWT for the dashboard.
 CurrentUser = Annotated[AuthenticatedUser, Depends(get_user_from_jwt_or_api_key)]
 Db = Annotated[SupabaseRest, Depends(get_db)]
+Config = Annotated[Settings, Depends(get_settings)]
 
 
 @router.post("/snapshots", response_model=AgentSnapshotUploadResponse)
 async def upload_snapshot(
-    body: AgentSnapshotUpload, user: CurrentUser, db: Db
+    body: AgentSnapshotUpload, user: CurrentUser, db: Db, settings: Config
 ) -> AgentSnapshotUploadResponse:
     """Record what a device found about the agents installed on it.
 
-    Not billed as a scan. It runs no scanner, starts no container and does no
-    analysis on the server; it stores a document the client already produced.
+    Metered as one agent posture scan per call, however many agents it
+    carries. It runs no scanner and starts no container; the allowance exists
+    to bound fleet size rather than compute.
     """
-    return await agent_controller.store_snapshot(body, user.id, db)
+    return await agent_controller.store_snapshot(body, user.id, db, settings)
 
 
 @router.get("", response_model=list[AgentSummaryOut])

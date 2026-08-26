@@ -56,6 +56,7 @@ class _FakeDb:
                     "cli_scans_per_month": limit,
                     "hook_scans_per_month": limit,
                     "dashboard_scans_per_month": limit,
+                    "agent_scans_per_month": limit,
                 }
             ]
         if table in ("scans", "findings", "account_quota_overrides"):

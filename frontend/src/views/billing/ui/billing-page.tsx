@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Archive, ArchiveRestore, Check, CreditCard, Eye, EyeOff, GitPullRequest, KeyRound, Receipt, Wrench, Zap } from "lucide-react";
+import { Archive, ArchiveRestore, Check, CreditCard, Eye, EyeOff, GitPullRequest, KeyRound, Laptop, Receipt, Wrench, Zap } from "lucide-react";
 import { ApiError } from "@/shared/api";
 import { billingApi, useBillingHistoryPrefs } from "@/entities/billing";
 import { githubApi } from "@/entities/github";
 import { createClient } from "@/shared/lib/supabase/client";
+import { cn } from "@/shared/lib/utils";
 import type { Payment, Subscription } from "@/entities/billing";
 import type { AccountUsage } from "@/entities/usage";
 import { PageHeader, SectionCard } from "@/shared/ui";
@@ -316,6 +317,48 @@ export function BillingPage() {
                     </div>
                   );
                 })}
+
+              {/* Fleet coverage, not a meter: a machine is either watched or
+                  it is not, and there is nothing to reset at the anchor date.
+                  At the limit this says the machines are NOT MONITORED, never
+                  that they are fine -- a gap in coverage is not a clean
+                  result, and this page is the last place to imply otherwise. */}
+              {(() => {
+                const devices = usage.monitored_devices;
+                const atLimit = devices.limit !== null && devices.used >= devices.limit;
+                return (
+                  <div className="rounded-xl border border-border bg-background/80 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+                        <Laptop aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">Monitored devices</span>
+                      </span>
+                      <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
+                        {devices.limit === null ? (
+                          "Unlimited"
+                        ) : (
+                          <>
+                            <span
+                              className={cn(
+                                "font-medium",
+                                atLimit ? "text-severity-critical" : "text-foreground",
+                              )}
+                            >
+                              {devices.used}
+                            </span>{" "}
+                            / {devices.limit}
+                          </>
+                        )}
+                      </span>
+                    </div>
+                    <p className="mt-2.5 text-xs leading-5 text-muted-foreground">
+                      {atLimit
+                        ? "At your plan limit. A new machine reporting in is not monitored, which is not the same as it being low risk."
+                        : "Machines whose agent posture Aevrin tracks. Devices already tracked keep reporting."}
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
           </SectionCard>
         </div>

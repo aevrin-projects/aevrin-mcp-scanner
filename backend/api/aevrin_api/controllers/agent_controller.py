@@ -23,6 +23,7 @@ from aevrin_scanner_core.agents.models import ConfigScope, DiscoveredAgent, McpS
 from aevrin_scanner_core.agents.posture import assess_posture
 from fastapi import HTTPException, status
 
+from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest
 from aevrin_api.schemas.agents import (
     AgentDetailOut,
@@ -38,6 +39,11 @@ from aevrin_api.schemas.agents import (
     PermissionOut,
     PostureFactorOut,
     SkillOut,
+)
+from aevrin_api.services.quota import (
+    check_and_increment_quota,
+    effective_tier,
+    get_or_create_account,
 )
 
 # A posture snapshot is configuration metadata: a few hundred kilobytes is
@@ -57,9 +63,47 @@ def _device_id(upload: AgentSnapshotUpload, agent: DiscoveredAgent) -> str:
     return hashlib.sha256(f"hostname:{hostname}".encode()).hexdigest()
 
 
+async def _assert_device_is_covered(
+    device_id: str, user_id: str, db: SupabaseRest
+) -> None:
+    """Refuse a new device once the plan's fleet allowance is used.
+
+    Only ever blocks a device Aevrin has not seen before: a machine already
+    being tracked keeps reporting, so a plan change can never turn a device
+    that was being watched into one that silently stops. The message says the
+    machine is *not monitored*, never that it is fine -- a limit is a gap in
+    coverage, not a clean result.
+    """
+    account = await get_or_create_account(db, user_id)
+    rows = await db.select("tier_limits", {"tier": effective_tier(account)}, columns="monitored_devices")
+    limit = rows[0]["monitored_devices"] if rows else None
+    if limit is None:
+        return
+
+    known = await db.select("agent_snapshots", {"user_id": user_id}, columns="device_id")
+    devices = {row["device_id"] for row in known}
+    if device_id in devices or len(devices) < limit:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail=(
+            f"This device is not monitored: your plan covers {limit} device(s) and "
+            f"{len(devices)} are already tracked. Nothing has been assessed about this machine, "
+            "which is not the same as it being low risk."
+        ),
+    )
+
+
 async def store_snapshot(
-    upload: AgentSnapshotUpload, user_id: str, db: SupabaseRest
+    upload: AgentSnapshotUpload, user_id: str, db: SupabaseRest, settings: Settings
 ) -> AgentSnapshotUploadResponse:
+    # One upload is one posture scan, however many agents it carries: Claude
+    # Code and Codex found by the same command are one `aevrin agent scan`,
+    # and billing two would be charging for the tool's own thoroughness.
+    await check_and_increment_quota(settings, db, user_id, "agent")
+    await _assert_device_is_covered(_device_id(upload, upload.agents[0]), user_id, db)
+
     now = datetime.now(UTC).isoformat()
     rows = []
     for agent in upload.agents:

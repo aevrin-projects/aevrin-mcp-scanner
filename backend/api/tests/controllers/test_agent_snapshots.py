@@ -16,10 +16,39 @@ import pytest
 from aevrin_scanner_core.agents.models import AgentKind, ConfigScope, DiscoveredAgent
 from fastapi import HTTPException
 
+from aevrin_api.config import Settings
 from aevrin_api.controllers import agent_controller
 from aevrin_api.schemas.agents import AgentSnapshotUpload
 
 USER = str(uuid4())
+
+
+class _FakeRedis:
+    """Counters in memory. Without this the quota check reaches for the real
+    Upstash URL in the test settings and every store test pays a timeout."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, int] = {}
+
+    def incr(self, key: str) -> int:
+        self.values[key] = self.values.get(key, 0) + 1
+        return self.values[key]
+
+    def expire(self, key: str, seconds: int) -> None:
+        return None
+
+    def get(self, key: str) -> int | None:
+        return self.values.get(key)
+
+
+@pytest.fixture(autouse=True)
+def _patch_redis(monkeypatch: pytest.MonkeyPatch) -> _FakeRedis:
+    fake = _FakeRedis()
+    monkeypatch.setattr("aevrin_api.integrations.redis_client.get_redis", lambda settings=None: fake)
+    monkeypatch.setattr(
+        "aevrin_api.integrations.redis_client.get_fallback_redis", lambda settings=None: None
+    )
+    return fake
 
 
 class FakeDb:
@@ -31,9 +60,24 @@ class FakeDb:
         *,
         scans: list[dict[str, Any]] | None = None,
         findings: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
     ):
         self.rows = rows or []
-        self.tables = {"scans": scans or [], "findings": findings or []}
+        self.tables = {
+            "scans": scans or [],
+            "findings": findings or [],
+            "accounts": [
+                {"user_id": USER, "tier": "free", "paid_until": None, "signup_anchor_day": 1}
+            ],
+            # Unlimited by default: the tests that care about a limit set one.
+            "tier_limits": [
+                {
+                    "tier": "free",
+                    "agent_scans_per_month": None,
+                    "monitored_devices": kwargs.pop("monitored_devices", None),
+                }
+            ],
+        }
         self.inserted: list[dict[str, Any]] = []
         self.upsert_on: str | None = None
         self.deleted: list[dict[str, str]] = []
@@ -44,7 +88,9 @@ class FakeDb:
         return []
 
     async def select(self, table: str, filters: dict[str, str] | None = None, **kwargs: Any) -> list[dict]:
-        rows = self.rows if table == "agent_snapshots" else self.tables[table]
+        # Tables the store path touches but these tests do not model return
+        # empty, which every caller already reads as "nothing configured".
+        rows = self.rows if table == "agent_snapshots" else self.tables.get(table, [])
         for key, value in (filters or {}).items():
             if value.startswith("in."):
                 wanted = value[4:-1].split(",")
@@ -103,6 +149,25 @@ def row(document: dict[str, Any] | None = None, **overrides: Any) -> dict[str, A
     return base
 
 
+SETTINGS = Settings(
+    supabase_url="https://test.supabase.co",
+    supabase_anon_key="anon-key",
+    supabase_service_role_key="service-role-key",
+    api_key_pepper="test-pepper",
+    upstash_redis_rest_url="https://test-redis.upstash.io",
+    upstash_redis_rest_token="redis-token",
+    r2_account_id="account-id",
+    r2_access_key_id="access-key",
+    r2_secret_access_key="secret-key",
+    r2_s3_endpoint="https://account-id.r2.cloudflarestorage.com",
+    web_origin="http://localhost:3000",
+)
+
+
+def store(upload_body: AgentSnapshotUpload, db: Any):
+    return asyncio.run(agent_controller.store_snapshot(upload_body, USER, db, SETTINGS))
+
+
 def upload(**overrides: Any) -> AgentSnapshotUpload:
     return AgentSnapshotUpload(
         device_id=overrides.pop("device_id", "device-hash"),
@@ -125,7 +190,7 @@ def test_a_credential_value_supplied_by_a_client_never_reaches_the_database():
         ]
     )
     db = FakeDb()
-    asyncio.run(agent_controller.store_snapshot(upload(document=document), USER, db))
+    store(upload(document=document), db)
 
     stored = db.inserted[0]["snapshot"]
     assert "ghp_realsecrettokenvalue" not in str(stored)
@@ -139,7 +204,7 @@ def test_a_credential_value_supplied_by_a_client_never_reaches_the_database():
 
 def test_a_device_reporting_again_replaces_its_previous_row():
     db = FakeDb()
-    asyncio.run(agent_controller.store_snapshot(upload(), USER, db))
+    store(upload(), db)
     assert db.upsert_on == "user_id,device_id,agent_type"
     assert db.inserted[0]["user_id"] == USER
     assert db.inserted[0]["agent_type"] == "claude_code"
@@ -147,8 +212,8 @@ def test_a_device_reporting_again_replaces_its_previous_row():
 
 def test_a_device_without_a_machine_id_still_gets_one_stable_row():
     db = FakeDb()
-    asyncio.run(agent_controller.store_snapshot(upload(device_id=None), USER, db))
-    asyncio.run(agent_controller.store_snapshot(upload(device_id=None), USER, db))
+    store(upload(device_id=None), db)
+    store(upload(device_id=None), db)
     first, second = db.inserted
     assert first["device_id"] == second["device_id"]
     assert first["device_id"]  # derived from the hostname, never empty
@@ -157,7 +222,7 @@ def test_a_device_without_a_machine_id_still_gets_one_stable_row():
 def test_an_oversized_snapshot_is_refused():
     document = snapshot(skills=[{"name": "s" * 1000, "scope": "user", "source_path": "/x"} for _ in range(600)])
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(agent_controller.store_snapshot(upload(document=document), USER, FakeDb()))
+        store(upload(document=document), FakeDb())
     assert exc.value.status_code == 413
 
 
@@ -490,3 +555,43 @@ def test_a_machine_with_no_evidenced_path_reports_none():
         ],
     )
     assert asyncio.run(agent_controller.list_attack_paths(USER, FakeDb([row(document)]))) == []
+
+
+def test_one_upload_is_one_posture_scan_however_many_agents_it_carries(_patch_redis):
+    # Claude Code and Codex found by the same command are one
+    # `aevrin agent scan`, and billing two would charge for the tool being
+    # thorough.
+    codex = snapshot(kind="codex", agent={"type": "codex", "name": "Codex"})
+    body = AgentSnapshotUpload(
+        device_id="device-hash",
+        agents=[
+            DiscoveredAgent.model_validate(snapshot()),
+            DiscoveredAgent.model_validate(codex),
+        ],
+    )
+    db = FakeDb()
+    result = store(body, db)
+    assert result.stored == 2
+    assert sum(_patch_redis.values.values()) == 1
+
+
+def test_a_new_device_beyond_the_plan_allowance_is_refused_as_not_monitored():
+    db = FakeDb([row(device_id="already-here")], monitored_devices=1)
+    with pytest.raises(HTTPException) as exc:
+        store(upload(device_id="a-second-machine"), db)
+    assert exc.value.status_code == 402
+    # A limit is a gap in coverage, never a clean result.
+    assert "not monitored" in str(exc.value.detail)
+    assert "not the same as it being low risk" in str(exc.value.detail)
+
+
+def test_a_device_already_being_tracked_keeps_reporting_at_the_limit():
+    # A plan change must never silently stop watching a machine that was
+    # already being watched.
+    db = FakeDb([row(device_id="already-here")], monitored_devices=1)
+    assert store(upload(device_id="already-here"), db).stored == 1
+
+
+def test_an_unlimited_plan_admits_any_device():
+    db = FakeDb([row(device_id="a"), row(device_id="b")])
+    assert store(upload(device_id="c"), db).stored == 1

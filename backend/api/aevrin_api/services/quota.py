@@ -6,7 +6,7 @@ point checks *before* doing any real work. Postgres (`accounts`,
 itself remains the durable usage history the dashboard reads for charts.
 
 Redis key pattern: `aevrin:quota:{user_id}:{bucket}:{period_start}`, where
-`bucket` is one of `cli|hook|dashboard` and `period_start` is the ISO date of
+`bucket` is one of `cli|hook|dashboard|agent` and `period_start` is the ISO date of
 the most recent monthly anchor <= now, computed from the account's
 `signup_anchor_day`: a rolling reset from signup date, not the calendar
 month (explicit addendum requirement). The key's TTL is set to the exact
@@ -30,12 +30,13 @@ from aevrin_api.integrations.redis_client import with_redis
 
 logger = logging.getLogger("aevrin.quota")
 
-Bucket = Literal["cli", "hook", "dashboard"]
+Bucket = Literal["cli", "hook", "dashboard", "agent"]
 
 _BUCKET_TO_LIMIT_COLUMN: dict[Bucket, str] = {
     "cli": "cli_scans_per_month",
     "hook": "hook_scans_per_month",
     "dashboard": "dashboard_scans_per_month",
+    "agent": "agent_scans_per_month",
 }
 
 
@@ -179,6 +180,11 @@ _BUCKET_TO_SCAN_SOURCE: dict[Bucket, str] = {
     "cli": "cli",
     "hook": "hook",
     "dashboard": "dashboard",
+    # No entry for "agent": a posture upload writes no `scans` row, so there
+    # is no durable history to count it from. The lookup returns None, which
+    # callers already treat as "cannot verify, allow through" -- the same
+    # fail-open the other buckets take during a Redis outage, and the right
+    # trade for a check that runs no scanner and costs nothing to serve.
 }
 
 
@@ -292,15 +298,15 @@ def _counter_reader(key: str) -> Callable[[Any], Any]:
 
 
 async def get_usage(settings: Settings, db: SupabaseRest, user_id: str) -> list[BucketUsage]:
-    """Read-only; used by GET /account/usage for the dashboard's three
-    usage meters. Never increments."""
+    """Read-only; used by GET /account/usage for the dashboard's usage
+    meters. Never increments."""
     account = await get_or_create_account(db, user_id)
     now = datetime.now(UTC)
     period_start = _period_start(account["signup_anchor_day"], now)
     period_end = _add_month(period_start)
 
     results: list[BucketUsage] = []
-    for bucket in ("cli", "hook", "dashboard"):
+    for bucket in ("cli", "hook", "dashboard", "agent"):
         limit = await _tier_limit(db, account, bucket)
         used = 0
         reachable = True
