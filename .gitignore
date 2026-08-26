@@ -49,3 +49,4 @@ blob-report/
 .github-keys
 .supabase-keys
 .cloudflare-keys
+.npmjs-key
