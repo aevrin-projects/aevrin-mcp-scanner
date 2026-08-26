@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from aevrin_scanner_core import Finding
+from aevrin_scanner_core.agents.grade import grade_mcp_server
 from aevrin_scanner_core.agents.models import DiscoveredAgent
 from aevrin_scanner_core.agents.posture import assess_posture
 from fastapi import HTTPException, status
@@ -24,13 +26,19 @@ from aevrin_api.schemas.agents import (
     AgentSnapshotUpload,
     AgentSnapshotUploadResponse,
     AgentSummaryOut,
+    GradeFactorOut,
     McpServerInventoryOut,
+    McpTrustOut,
 )
 
 # A posture snapshot is configuration metadata: a few hundred kilobytes is
 # already a machine with an unusual number of skills. The cap is here so a
 # malformed or hostile client cannot push arbitrary volume into a jsonb column.
 MAX_SNAPSHOT_BYTES = 512 * 1024
+
+# How far back to look for a scan of a configured server. Bounded so the
+# inventory stays one query regardless of how much history an account has.
+GRADE_SCAN_LOOKBACK = 200
 
 
 def _device_id(upload: AgentSnapshotUpload, agent: DiscoveredAgent) -> str:
@@ -110,11 +118,72 @@ async def get_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> AgentDeta
     )
 
 
+async def _trust_by_target(targets: set[str], user_id: str, db: SupabaseRest) -> dict[str, McpTrustOut]:
+    """Grade each configured server that has actually been scanned.
+
+    Matched on the exact scanned target. A configured server and a scan are
+    only the same thing when the URL is the same string; guessing at a looser
+    match would attach one server's evidence to another, which is worse than
+    showing nothing.
+
+    stdio servers never match. They are a command on someone's machine, there
+    is no target for Aevrin to have scanned, and they are reported as
+    unscanned rather than assumed clean.
+    """
+    if not targets:
+        return {}
+
+    scans = await db.select(
+        "scans",
+        {"user_id": user_id, "target_type": "live_mcp_server"},
+        columns="id,target,score,status,created_at",
+        order="created_at.desc",
+        limit=GRADE_SCAN_LOOKBACK,
+    )
+    latest: dict[str, dict[str, Any]] = {}
+    for scan in scans:
+        target = scan["target"]
+        if target in targets and target not in latest and scan["status"] in ("completed", "incomplete"):
+            latest[target] = scan
+    if not latest:
+        return {}
+
+    ids = ",".join(scan["id"] for scan in latest.values())
+    rows = await db.select("findings", {"scan_id": f"in.({ids})", "user_id": user_id})
+    findings_by_scan: dict[str, list[Finding]] = {}
+    for row in rows:
+        findings_by_scan.setdefault(row["scan_id"], []).append(Finding.model_validate(row))
+
+    trust: dict[str, McpTrustOut] = {}
+    for target, scan in latest.items():
+        result = grade_mcp_server(
+            findings=findings_by_scan.get(scan["id"], []),
+            scan_score=scan["score"],
+            # A scan that did not finish cannot support the top of the scale,
+            # the same rule the CLI applies to the same grade.
+            coverage_complete=scan["status"] != "incomplete",
+            transport=target,
+        )
+        trust[target] = McpTrustOut(
+            scan_id=UUID(scan["id"]),
+            scanned_at=scan["created_at"],
+            scan_score=result.scan_score,
+            grade=result.grade.value,
+            label=result.label,
+            recommended_action=result.recommended_action,
+            factors=[GradeFactorOut(points=f.points, reason=f.reason) for f in result.factors],
+        )
+    return trust
+
+
 async def list_mcp_servers(user_id: str, db: SupabaseRest) -> list[McpServerInventoryOut]:
     rows = await db.select("agent_snapshots", {"user_id": user_id}, order="reported_at.desc")
     inventory: list[McpServerInventoryOut] = []
-    for row in rows:
-        agent = DiscoveredAgent.model_validate(row["snapshot"])
+    agents = [(row, DiscoveredAgent.model_validate(row["snapshot"])) for row in rows]
+    trust = await _trust_by_target(
+        {server.url for _, agent in agents for server in agent.mcp_servers if server.url}, user_id, db
+    )
+    for row, agent in agents:
         for server in agent.mcp_servers:
             inventory.append(
                 McpServerInventoryOut(
@@ -131,6 +200,7 @@ async def list_mcp_servers(user_id: str, db: SupabaseRest) -> list[McpServerInve
                     agent_name=agent.agent.name if agent.agent else agent.kind.value,
                     hostname=row["hostname"],
                     reported_at=row["reported_at"],
+                    trust=trust.get(server.url) if server.url else None,
                 )
             )
     inventory.sort(key=lambda s: (s.name.lower(), s.hostname))

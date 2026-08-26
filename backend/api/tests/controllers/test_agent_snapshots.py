@@ -25,8 +25,15 @@ USER = str(uuid4())
 class FakeDb:
     """Records what would be written, and replays what is read."""
 
-    def __init__(self, rows: list[dict[str, Any]] | None = None):
+    def __init__(
+        self,
+        rows: list[dict[str, Any]] | None = None,
+        *,
+        scans: list[dict[str, Any]] | None = None,
+        findings: list[dict[str, Any]] | None = None,
+    ):
         self.rows = rows or []
+        self.tables = {"scans": scans or [], "findings": findings or []}
         self.inserted: list[dict[str, Any]] = []
         self.upsert_on: str | None = None
         self.deleted: list[dict[str, str]] = []
@@ -37,9 +44,19 @@ class FakeDb:
         return []
 
     async def select(self, table: str, filters: dict[str, str] | None = None, **kwargs: Any) -> list[dict]:
-        rows = self.rows
+        rows = self.rows if table == "agent_snapshots" else self.tables[table]
         for key, value in (filters or {}).items():
-            rows = [r for r in rows if str(r.get(key)) == value]
+            if value.startswith("in."):
+                wanted = value[4:-1].split(",")
+                rows = [r for r in rows if str(r.get(key)) in wanted]
+            else:
+                rows = [r for r in rows if str(r.get(key)) == value]
+        # Honoured because the controller relies on it: "the newest scan of a
+        # target wins" is only true if the query really came back newest first.
+        order = kwargs.get("order")
+        if order:
+            column, _, direction = order.partition(".")
+            rows = sorted(rows, key=lambda r: str(r.get(column) or ""), reverse=direction == "desc")
         return rows
 
     async def delete(self, table: str, filters: dict[str, str]) -> None:
@@ -182,3 +199,106 @@ def test_deleting_an_agent_forgets_only_that_row():
     db = FakeDb([stored])
     asyncio.run(agent_controller.delete_agent(stored["id"], USER, db))
     assert db.deleted == [{"id": stored["id"], "user_id": USER}]
+
+
+def http_server_snapshot() -> dict[str, Any]:
+    return snapshot(
+        mcp_servers=[
+            {
+                "name": "context7",
+                "scope": "user",
+                "source_path": "/home/a/.claude.json",
+                "transport": "http",
+                "url": "https://mcp.context7.com/mcp",
+            }
+        ]
+    )
+
+
+def scan_row(scan_id: str, target: str, *, status: str = "completed", score: int = 100) -> dict[str, Any]:
+    return {
+        "id": scan_id,
+        "user_id": USER,
+        "target": target,
+        "target_type": "live_mcp_server",
+        "status": status,
+        "score": score,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def finding_row(scan_id: str, severity: str) -> dict[str, Any]:
+    return {
+        "id": str(uuid4()),
+        "scan_id": scan_id,
+        "user_id": USER,
+        "tool": "semgrep",
+        "owasp_category": "MCP01",
+        "severity": severity,
+        "title": "Example",
+        "description": "Example",
+        "remediation": "Fix it",
+        "triage_status": "open",
+    }
+
+
+def test_a_stdio_server_is_reported_unscanned_rather_than_assumed_clean():
+    # There is no target for Aevrin to have scanned. A grade here would be a
+    # claim about evidence that does not exist.
+    db = FakeDb([row()], scans=[scan_row(str(uuid4()), "https://example.com/mcp")])
+    servers = asyncio.run(agent_controller.list_mcp_servers(USER, db))
+    assert servers[0].transport == "stdio"
+    assert servers[0].trust is None
+
+
+def test_a_scanned_http_server_carries_the_grade_from_its_own_scan():
+    scan_id = str(uuid4())
+    db = FakeDb(
+        [row(http_server_snapshot())],
+        scans=[scan_row(scan_id, "https://mcp.context7.com/mcp", score=72)],
+        findings=[finding_row(scan_id, "high"), finding_row(scan_id, "medium")],
+    )
+    servers = asyncio.run(agent_controller.list_mcp_servers(USER, db))
+    trust = servers[0].trust
+    assert trust is not None
+    assert str(trust.scan_id) == scan_id
+    assert trust.scan_score == 72
+    assert trust.grade in {"B", "C", "D"}
+    # The letter arrives with the factors that produced it, or it is an
+    # opinion with better typography.
+    assert any("high-severity" in factor.reason for factor in trust.factors)
+
+
+def test_an_http_server_that_was_never_scanned_has_no_grade():
+    db = FakeDb([row(http_server_snapshot())], scans=[scan_row(str(uuid4()), "https://elsewhere/mcp")])
+    servers = asyncio.run(agent_controller.list_mcp_servers(USER, db))
+    assert servers[0].trust is None
+
+
+def test_an_incomplete_scan_cannot_produce_the_top_grade():
+    scan_id = str(uuid4())
+    db = FakeDb(
+        [row(http_server_snapshot())],
+        scans=[scan_row(scan_id, "https://mcp.context7.com/mcp", status="incomplete", score=100)],
+    )
+    trust = asyncio.run(agent_controller.list_mcp_servers(USER, db))[0].trust
+    assert trust is not None
+    assert trust.grade != "A"
+    assert any("incomplete" in factor.reason for factor in trust.factors)
+
+
+def test_the_newest_scan_of_a_target_wins():
+    older, newer = str(uuid4()), str(uuid4())
+    scans = [
+        scan_row(newer, "https://mcp.context7.com/mcp"),
+        scan_row(older, "https://mcp.context7.com/mcp"),
+    ]
+    # Listed oldest-first, so passing depends on the ordering, not the order
+    # they happen to be written here.
+    scans[0]["created_at"] = "2026-08-26T10:00:00+00:00"
+    scans[1]["created_at"] = "2026-08-20T10:00:00+00:00"
+    scans.reverse()
+    db = FakeDb([row(http_server_snapshot())], scans=scans)
+    trust = asyncio.run(agent_controller.list_mcp_servers(USER, db))[0].trust
+    assert trust is not None
+    assert str(trust.scan_id) == newer

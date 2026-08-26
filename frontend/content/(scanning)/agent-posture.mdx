@@ -127,7 +127,7 @@ Once a device has reported, the dashboard shows it under **AI security**:
 |---|---|
 | **Agents** | Every agent that has reported, its device, its posture risk and why |
 | An agent | Capabilities with their evidence, MCP servers, skills, plugins, hooks, permission rules, credentials in reach, and every file that was read |
-| **MCP servers** | Every MCP server configured across every device, with the scope it was configured at |
+| **MCP servers** | Every MCP server configured across every device, with the scope it was configured at and its trust grade |
 
 **The dashboard is read-only about your machines.** It cannot add, remove, disable or edit an MCP
 server, and it cannot change a permission. Those live in files on your machine and are changed
@@ -215,11 +215,21 @@ did not finish is exactly what was not established.
 Aevrin's grading is its own. It is not derived from, and does not claim to match, any other
 project's methodology.
 
+### Grades on the MCP servers page
+
+A grade appears there only when a scan of that exact target actually ran, matched on the URL. A
+server with no matching scan reads **Not scanned**, and the letter is absent rather than optimistic.
+
+Servers launched over stdio — a command on your machine, like
+`npx -y @modelcontextprotocol/server-github` — have no URL for Aevrin to reach, so they are always
+Not scanned. Scan the package's repository from **New scan** to grade one of those.
+
 ## Limitations
 
 - Only Claude Code is discovered today.
 - Discovery reads configuration. An agent's actual runtime behaviour is not observed.
-- MCP servers found on a machine are not automatically scanned; a trust grade requires a scan.
+- MCP servers found on a machine are not automatically scanned; a trust grade requires a scan of
+  that exact target, and servers launched over stdio have no target to scan.
 - Aevrin cannot change configuration on your machine from the dashboard. Adding, removing or
   disabling an MCP server happens on the machine itself.
 - Change history is not kept. Each upload replaces the previous snapshot for that machine.

@@ -121,6 +121,25 @@ export interface AgentDetail extends AgentSummary {
   snapshot: AgentSnapshot;
 }
 
+export type TrustGrade = "A" | "B" | "C" | "D";
+
+export interface GradeFactor {
+  points: number;
+  reason: string;
+}
+
+/** Present only when a scan of this exact target actually ran. A grade is a
+ *  claim about evidence, so there is no value here meaning "probably fine". */
+export interface McpTrust {
+  scan_id: string;
+  scanned_at: string;
+  scan_score: number | null;
+  grade: TrustGrade;
+  label: string;
+  recommended_action: string;
+  factors: GradeFactor[];
+}
+
 export interface McpServerInventoryItem {
   name: string;
   scope: ConfigScope;
@@ -135,4 +154,5 @@ export interface McpServerInventoryItem {
   agent_name: string;
   hostname: string;
   reported_at: string;
+  trust: McpTrust | null;
 }

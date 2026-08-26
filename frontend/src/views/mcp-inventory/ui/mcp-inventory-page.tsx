@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Blocks, ScanSearch } from "lucide-react";
 import { ApiError } from "@/shared/api";
-import { agentApi, AGENT_KIND_LABELS, ScopeBadge, SCOPE_LABELS } from "@/entities/agent";
+import { agentApi, AGENT_KIND_LABELS, ScopeBadge, SCOPE_LABELS, TrustGradeBadge } from "@/entities/agent";
 import type { ConfigScope, McpServerInventoryItem } from "@/entities/agent";
 import {
   EmptyState,
@@ -148,6 +148,7 @@ export function McpInventoryPage() {
               <THead>
                 <TR>
                   <TH>Server</TH>
+                  <TH>Trust</TH>
                   <TH>Scope</TH>
                   <TH>Transport</TH>
                   <TH>Agent</TH>
@@ -173,6 +174,23 @@ export function McpInventoryPage() {
                             Auto-approved
                           </Badge>
                         ) : null}
+                      </TD>
+                      <TD>
+                        {/* Never a letter without a scan behind it. "Not
+                            scanned" is the honest answer; a grade invented
+                            from configuration alone would be the one thing a
+                            security product cannot do. */}
+                        {server.trust ? (
+                          <Link href={`/scans/${server.trust.scan_id}`} className="inline-block">
+                            <TrustGradeBadge
+                              grade={server.trust.grade}
+                              label={server.trust.label}
+                              score={server.trust.scan_score}
+                            />
+                          </Link>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Not scanned</span>
+                        )}
                       </TD>
                       <TD>
                         <ScopeBadge scope={server.scope} />

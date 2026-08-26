@@ -8,13 +8,16 @@ export type {
   ConfigScope,
   CredentialRef,
   EffectiveCapability,
+  GradeFactor,
   HookRef,
   McpServerInventoryItem,
   McpServerRef,
+  McpTrust,
   PluginRef,
   PostureRisk,
   RawPermission,
   SkillRef,
+  TrustGrade,
 } from "./model/types";
 export {
   AGENT_KIND_LABELS,
@@ -26,5 +29,6 @@ export {
   SCOPE_LABELS,
 } from "./model/labels";
 export { agentApi } from "./api/agent-api";
+export { TrustGradeBadge } from "./ui/trust-grade-badge";
 export { RiskBadge } from "./ui/risk-badge";
 export { ScopeBadge } from "./ui/scope-badge";

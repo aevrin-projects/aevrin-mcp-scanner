@@ -49,6 +49,28 @@ class AgentDetailOut(AgentSummaryOut):
     snapshot: DiscoveredAgent
 
 
+class GradeFactorOut(BaseModel):
+    points: int
+    reason: str
+
+
+class McpTrustOut(BaseModel):
+    """The Aevrin trust grade for one MCP server, from a scan that actually ran.
+
+    Absent when no scan of that exact target exists. A grade is a claim about
+    evidence, so inventing one from configuration alone would be the one thing
+    a security product cannot do.
+    """
+
+    scan_id: UUID
+    scanned_at: datetime
+    scan_score: int | None
+    grade: str
+    label: str
+    recommended_action: str
+    factors: list[GradeFactorOut]
+
+
 class McpServerInventoryOut(BaseModel):
     """One MCP server as configured for one agent on one device.
 
@@ -70,3 +92,4 @@ class McpServerInventoryOut(BaseModel):
     agent_name: str
     hostname: str
     reported_at: datetime
+    trust: McpTrustOut | None = None
