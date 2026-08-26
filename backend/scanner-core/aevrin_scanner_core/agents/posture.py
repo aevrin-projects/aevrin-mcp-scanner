@@ -118,10 +118,6 @@ class PostureAssessment:
     coverage_complete: bool
     factors: list[PostureFactor] = field(default_factory=list)
 
-    @property
-    def reasons(self) -> list[str]:
-        return [factor.reason for factor in self.factors]
-
 
 def _level(agent: DiscoveredAgent, capability: Capability) -> Level:
     found = agent.capability(capability)

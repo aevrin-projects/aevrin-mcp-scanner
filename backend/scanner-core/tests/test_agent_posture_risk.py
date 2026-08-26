@@ -52,7 +52,7 @@ def test_a_config_with_no_elevated_capability_scores_full_marks() -> None:
     assert result.score == 100
     assert result.risk is PostureRisk.LOW
     assert result.confidence is Confidence.HIGH
-    assert result.reasons
+    assert result.factors
 
 
 def test_the_score_is_deterministic() -> None:
@@ -61,7 +61,7 @@ def test_the_score_is_deterministic() -> None:
         credentials=[credential()],
     )
     first, second = assess_posture(subject), assess_posture(subject)
-    assert (first.score, first.risk, first.reasons) == (second.score, second.risk, second.reasons)
+    assert (first.score, first.risk, first.factors) == (second.score, second.risk, second.factors)
 
 
 def test_every_deduction_arrives_with_the_sentence_that_earned_it() -> None:
@@ -101,7 +101,7 @@ def test_unrestricted_shell_with_a_reachable_credential_is_critical() -> None:
         agent(capabilities=[cap(Capability.SHELL, Level.FULL)], credentials=[credential()])
     )
     assert result.risk is PostureRisk.CRITICAL
-    assert any("credentials reachable" in reason for reason in result.reasons)
+    assert any("credentials reachable" in f.reason for f in result.factors)
 
 
 def test_a_credential_out_of_reach_of_any_shell_is_not_charged() -> None:
@@ -119,8 +119,8 @@ def test_auto_approved_servers_are_named_and_capped() -> None:
     result = assess_posture(
         agent(mcp_servers=[server("postgres", auto_approved=True), server("github")])
     )
-    assert any("postgres" in reason for reason in result.reasons)
-    assert not any("github" in reason for reason in result.reasons)
+    assert any("postgres" in f.reason for f in result.factors)
+    assert not any("github" in f.reason for f in result.factors)
 
     many = assess_posture(
         agent(mcp_servers=[server(f"s{i}", auto_approved=True) for i in range(10)])
@@ -133,7 +133,7 @@ def test_a_server_its_own_scan_graded_d_makes_the_agent_critical() -> None:
         agent(mcp_servers=[server("remote-admin")]), mcp_grades={"remote-admin": "D"}
     )
     assert result.risk is PostureRisk.CRITICAL
-    assert any("graded D" in reason for reason in result.reasons)
+    assert any("graded D" in f.reason for f in result.factors)
 
 
 def test_an_unscanned_server_is_not_treated_as_a_good_one() -> None:
@@ -141,7 +141,7 @@ def test_an_unscanned_server_is_not_treated_as_a_good_one() -> None:
     graded = assess_posture(agent(mcp_servers=[server("x")]), mcp_grades={"x": "C"})
     ungraded = assess_posture(agent(mcp_servers=[server("x")]))
     assert ungraded.score > graded.score
-    assert not any("graded" in reason for reason in ungraded.reasons)
+    assert not any("graded" in f.reason for f in ungraded.factors)
 
 
 def test_an_unknown_capability_costs_what_its_worst_grant_would() -> None:
@@ -149,7 +149,7 @@ def test_an_unknown_capability_costs_what_its_worst_grant_would() -> None:
     unknown = assess_posture(agent(capabilities=[cap(Capability.SHELL, Level.UNKNOWN)]))
     worst = assess_posture(agent(capabilities=[cap(Capability.SHELL, Level.FULL)]))
     assert unknown.score == worst.score
-    assert any("scored as if unrestricted" in reason for reason in unknown.reasons)
+    assert any("scored as if unrestricted" in f.reason for f in unknown.factors)
 
 
 def test_an_unreadable_config_never_outranks_a_fully_known_permissive_one() -> None:
