@@ -2,7 +2,6 @@ import {
   Blocks,
   Bot,
   Laptop,
-  Scale,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
@@ -48,7 +47,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/agents/skills", label: "Skills", icon: Sparkles },
       { href: "/agents/permissions", label: "Permissions", icon: ShieldCheck },
       { href: "/agents/attack-paths", label: "Attack paths", icon: ShieldAlert },
-      { href: "/agents/policies", label: "Policies", icon: Scale },
     ],
   },
   {

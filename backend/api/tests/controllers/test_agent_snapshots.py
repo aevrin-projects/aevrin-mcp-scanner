@@ -18,7 +18,7 @@ from fastapi import HTTPException
 
 from aevrin_api.config import Settings
 from aevrin_api.controllers import agent_controller
-from aevrin_api.schemas.agents import AgentSnapshotUpload, PoliciesUpdate
+from aevrin_api.schemas.agents import AgentSnapshotUpload
 
 USER = str(uuid4())
 
@@ -70,8 +70,6 @@ class FakeDb:
                 {"user_id": USER, "tier": "free", "paid_until": None, "signup_anchor_day": 1}
             ],
             # Unlimited by default: the tests that care about a limit set one.
-            "agent_policies": kwargs.pop("policies", []),
-            "agent_policy_audit": [],
             "tier_limits": [
                 {
                     "tier": "free",
@@ -597,76 +595,3 @@ def test_a_device_already_being_tracked_keeps_reporting_at_the_limit():
 def test_an_unlimited_plan_admits_any_device():
     db = FakeDb([row(device_id="a"), row(device_id="b")])
     assert store(upload(device_id="c"), db).stored == 1
-
-
-def policies(**flags: bool) -> list[dict[str, Any]]:
-    return [{"user_id": USER, **flags}]
-
-
-def test_no_decision_is_shown_until_a_policy_is_switched_on():
-    # A grade is a recommendation. Rendering "allowed" for an account with no
-    # policies would imply a review that never happened.
-    scan_id = str(uuid4())
-    db = FakeDb(
-        [row(http_server_snapshot())],
-        scans=[scan_row(scan_id, "https://mcp.context7.com/mcp", score=10)],
-        findings=[finding_row(scan_id, "critical")],
-    )
-    asset = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0]
-    assert asset.trust is not None and asset.trust.grade == "D"
-    assert asset.policy is None
-    assert asyncio.run(agent_controller.list_agents(USER, db))[0].policy is None
-
-
-def test_a_d_graded_server_is_blocked_once_the_policy_is_on():
-    scan_id = str(uuid4())
-    db = FakeDb(
-        [row(http_server_snapshot())],
-        scans=[scan_row(scan_id, "https://mcp.context7.com/mcp", score=10)],
-        findings=[finding_row(scan_id, "critical")],
-        policies=policies(block_grade_d=True),
-    )
-    asset = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0]
-    assert asset.policy is not None
-    assert asset.policy.decision == "blocked"
-    assert asset.policy.reasons == ["policy blocks servers graded D"]
-
-
-def test_an_unscanned_server_is_not_blocked_by_a_grade_policy():
-    db = FakeDb([row()], policies=policies(block_grade_d=True))
-    asset = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0]
-    assert asset.trust is None
-    assert asset.policy is not None
-    assert asset.policy.decision == "allowed"
-
-
-def test_changing_a_policy_writes_the_before_and_after():
-    db = FakeDb()
-    result = asyncio.run(
-        agent_controller.update_policies(
-            PoliciesUpdate(block_grade_d=True),
-            USER,
-            actor="alice@example.com",
-            db=db,
-            request_id="req-1",
-        )
-    )
-    assert result.block_grade_d is True
-    audit = [r for r in db.inserted if r.get("action") == "policies.update"]
-    assert len(audit) == 1
-    assert audit[0]["actor"] == "alice@example.com"
-    assert audit[0]["before"]["block_grade_d"] is False
-    assert audit[0]["after"]["block_grade_d"] is True
-    assert audit[0]["request_id"] == "req-1"
-
-
-def test_a_no_op_policy_update_records_nothing():
-    # An audit log padded with entries where nothing changed is one nobody
-    # reads.
-    db = FakeDb()
-    asyncio.run(
-        agent_controller.update_policies(
-            PoliciesUpdate(), USER, actor="alice@example.com", db=db, request_id=None
-        )
-    )
-    assert db.inserted == []

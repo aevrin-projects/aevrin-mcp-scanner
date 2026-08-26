@@ -9,7 +9,6 @@ import {
   AGENT_KIND_LABELS,
   CAPABILITY_LABELS,
   CAPABILITY_LEVEL_LABELS,
-  PolicyBadge,
   RiskBadge,
   ScopeBadge,
 } from "@/entities/agent";
@@ -118,7 +117,6 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
           <span className="flex items-center gap-3">
             <span className="text-lg font-semibold tabular-nums">{agent.posture_score}/100</span>
             <RiskBadge risk={agent.risk} />
-            <PolicyBadge policy={agent.policy} />
           </span>
         }
       />

@@ -95,7 +95,6 @@ THEIR_ROW = snapshot_row(THEIRS, "THEIR-BOX")
         agent_controller.list_skills,
         agent_controller.list_permissions,
         agent_controller.list_attack_paths,
-        agent_controller.list_policy_audit,
     ],
     ids=lambda fn: fn.__name__,
 )
@@ -126,6 +125,3 @@ def test_deleting_another_accounts_agent_is_not_found() -> None:
     assert exc.value.status_code == 404
 
 
-def test_policies_are_read_per_account() -> None:
-    db = StrictDb([{"_table": "agent_policies", "user_id": THEIRS, "block_grade_d": True}])
-    assert asyncio.run(agent_controller.get_policies(MINE, db)).block_grade_d is False

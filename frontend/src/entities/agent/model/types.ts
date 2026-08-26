@@ -133,8 +133,6 @@ export interface AgentSummary {
   plugin_count: number;
   hook_count: number;
   coverage_complete: boolean;
-  /** Absent when no policy is switched on. */
-  policy: PolicyOutcome | null;
 }
 
 export interface AgentDetail extends AgentSummary {
@@ -201,7 +199,6 @@ export interface McpAsset {
   enabled_everywhere: boolean;
   installations: McpInstallation[];
   trust: McpTrust | null;
-  policy: PolicyOutcome | null;
 }
 
 export interface Skill {
@@ -261,27 +258,3 @@ export interface AttackPath {
 
 /** All off until someone turns them on. A grade is a recommendation; this is
  *  where a person decides it should be enforcement. */
-export interface Policies {
-  block_grade_d: boolean;
-  require_approval_grade_c: boolean;
-  block_unattended_shell: boolean;
-  block_unrestricted_network: boolean;
-}
-
-export type PolicyDecision = "allowed" | "approval_required" | "blocked";
-
-/** Absent when no policy is switched on: rendering "allowed" for an account
- *  with no policies would imply a review that never happened. */
-export interface PolicyOutcome {
-  decision: PolicyDecision;
-  reasons: string[];
-}
-
-export interface PolicyAuditEntry {
-  id: number;
-  actor: string;
-  action: string;
-  before: Policies | null;
-  after: Policies | null;
-  created_at: string;
-}

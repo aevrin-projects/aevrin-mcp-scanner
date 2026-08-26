@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Bot, ChevronRight, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError } from "@/shared/api";
-import { agentApi, AGENT_KIND_LABELS, PolicyBadge, RiskBadge, RISK_ORDER } from "@/entities/agent";
+import { agentApi, AGENT_KIND_LABELS, RiskBadge, RISK_ORDER } from "@/entities/agent";
 import type { AgentSummary } from "@/entities/agent";
 import {
   EmptyState,
@@ -168,7 +168,6 @@ export function AgentsPage() {
                       <span className="flex items-center gap-2">
                         <span className="font-medium tabular-nums">{agent.posture_score}/100</span>
                         <RiskBadge risk={agent.risk} />
-                        <PolicyBadge policy={agent.policy} />
                       </span>
                       {/* Confidence sits beside the number rather than
                           inside it: a 90 from complete evidence and a 90 with
