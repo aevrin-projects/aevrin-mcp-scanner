@@ -20,6 +20,7 @@ from aevrin_api.routes import (
     findings,
     github,
     hook,
+    orgs,
     scans,
 )
 
@@ -38,6 +39,7 @@ ROUTERS: list[APIRouter] = [
     github.router,
     admin.router,
     agents.router,
+    orgs.router,
 ]
 
 __all__ = ["ROUTERS"]
