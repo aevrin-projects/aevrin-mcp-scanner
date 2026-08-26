@@ -319,6 +319,16 @@ def agent_scan(
             raise typer.Exit(code=2) from None
         noun = "Snapshot" if len(agents) == 1 else f"{len(agents)} snapshots"
         output.stderr_console.print(f"[green]{noun} sent to your dashboard.[/green]")
+    elif not json_output:
+        # Local-only is the right default -- this reads a machine's whole agent
+        # configuration, and sending that somewhere should be asked for. But
+        # the run said nothing about where the result went, so a full report
+        # printed here and an empty Agents page on the dashboard looked like a
+        # sync that had broken rather than one that was never requested.
+        output.stderr_console.print(
+            "[dim]This stayed on this machine. Run with --upload to see it on your "
+            "dashboard.[/dim]"
+        )
 
     raise typer.Exit(code=0)
 

@@ -1,3 +1,4 @@
+import json
 from importlib.metadata import version as pkg_version
 
 from helpers import plain
@@ -103,3 +104,29 @@ def test_the_hook_snippet_needs_no_shell_quoting_to_survive(capsys):
         # The path arrives whole, with no quoting for a shell to misread.
         assert "'" not in hook["args"][0]
         assert hook["timeout"] == 8
+
+
+def test_a_local_only_agent_scan_says_where_the_result_went(monkeypatch, tmp_path):
+    """A full report on screen and an empty Agents page on the dashboard read
+    as a sync that had broken, rather than one that was never asked for.
+    Local-only stays the default; it just no longer goes unmentioned.
+
+    Needs a real discovered agent: with none, the command reports that and
+    exits before it ever reaches this branch, so an empty list would make
+    both assertions below pass without testing anything.
+    """
+    from aevrin_scanner_core.agents.models import AgentKind, DiscoveredAgent
+
+    agent = DiscoveredAgent(kind=AgentKind.CLAUDE_CODE)
+    monkeypatch.setattr("aevrin_cli.main.discover_all", lambda project_root: [agent])
+
+    human = runner.invoke(app, ["agent", "scan", "--project", str(tmp_path)])
+    assert human.exit_code == 0
+    assert "--upload" in plain(human.stderr)
+
+    # Machine-readable mode stays silent: the hint is for a person reading a
+    # report, and a script asking for JSON did not ask for advice.
+    machine = runner.invoke(app, ["agent", "scan", "--project", str(tmp_path), "--json"])
+    assert machine.exit_code == 0
+    assert "--upload" not in plain(machine.stderr)
+    json.loads(machine.stdout)
