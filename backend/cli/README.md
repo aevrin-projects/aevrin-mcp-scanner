@@ -43,6 +43,7 @@ Target type is auto-detected: a `github.com` URL scans the full pipeline (static
 | `--json` | Machine-readable JSON on stdout instead of a formatted table. |
 | `--no-upload` | Skip saving the result to your Aevrin dashboard (on by default once logged in). Useful in CI, or for a purely local, ephemeral scan. |
 | `--fail-on <severity>` | Minimum severity that causes a non-zero exit code. One of `critical`, `high`, `medium`, `low`, `info`. Defaults to `high` (both `critical` and `high` findings fail the build). |
+| `--remote` | Scan a local folder on Aevrin's servers instead of this machine, so no Docker or scanner binary is needed locally. Local paths only. |
 
 ### Exit codes
 
@@ -75,11 +76,26 @@ Score:  62/100  Significant risk; do not deploy as-is
 └──────────┴──────────────────────┴──────────────────────────────────────┴─────────┘
 ```
 
+## Other commands
+
+```bash
+aevrin login / logout           # browser device-code login, credentials in ~/.aevrin
+aevrin agent scan               # what the AI coding agents on this machine may do
+aevrin agent scan --json        # versioned snapshot; never contains a credential value
+aevrin hook setup               # log in the Claude Code hook, print its settings snippet
+aevrin hook allow <target>      # short-lived override after a hook block
+aevrin findings triage <id> <status> [--reason ...]
+```
+
+`agent scan` reads configuration only: no agent is started and nothing from a config file is
+executed. Nothing leaves the machine without `--upload`. Full reference:
+<https://mcp.aevrin.net/docs/cli>.
+
 ## Development
 
 ```bash
 uv sync
 uv run pytest tests -v
 uv run ruff check .
-uv run mypy src
+uv run mypy aevrin_cli
 ```

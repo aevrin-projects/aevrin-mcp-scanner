@@ -2,16 +2,24 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
+import sys
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
 import httpx
 import typer
-from aevrin_scanner_core import Finding, Scan, ScanStage, ScanStatus, Severity, TargetType
+from aevrin_scanner_core import (
+    Finding,
+    Scan,
+    ScanStage,
+    ScanStatus,
+    Severity,
+    TargetType,
+    TriageStatus,
+)
 from aevrin_scanner_core.agents import codex_home, discover_all, managed_settings_path
-from aevrin_scanner_core.pipeline import PipelineConfig, run_pipeline
+from aevrin_scanner_core.pipeline import PipelineConfig, PipelineError, run_pipeline
 
 from .rendering import output
 from .rendering.agent_report import print_agent_report, print_no_agents
@@ -34,6 +42,10 @@ app = typer.Typer(
     help="Scan MCP servers for vulnerabilities using established open-source security tools.",
     no_args_is_help=True,
 )
+
+# Taken from the enum the API validates against rather than restated, so a
+# status can never be accepted here and rejected there.
+TRIAGE_STATUSES = tuple(s.value for s in TriageStatus)
 
 _SEVERITY_RANK: dict[Severity, int] = {
     Severity.INFO: 0,
@@ -182,14 +194,26 @@ def scan(
     def on_findings(findings: list[Finding]) -> None:
         pass  # collected on the returned Scan object; nothing to stream for the CLI
 
-    result = run_pipeline(
-        target_type=target_type,
-        target=normalized_target,
-        config=config,
-        on_stage=on_stage,
-        on_findings=on_findings,
-        scan_id=uuid4(),
-    )
+    try:
+        result = run_pipeline(
+            target_type=target_type,
+            target=normalized_target,
+            config=config,
+            on_stage=on_stage,
+            on_findings=on_findings,
+            scan_id=uuid4(),
+        )
+    except PipelineError as exc:
+        # scanner-core raises this when the scan could not start at all --
+        # a repo that will not clone being the common one. Uncaught, it
+        # reached the user as a traceback and Click exited 1, which in this
+        # CLI's contract means "findings at or above your threshold". A CI
+        # job reading that was told a mistyped repo URL was a security
+        # result, with an empty report.json beside it. 2 is the code for a
+        # scan that never ran. The message is scanner-core's own, already
+        # stripped of any clone token.
+        output.print_error(str(exc))
+        raise typer.Exit(code=2) from None
 
     if json_output:
         output.print_json_report(result)
@@ -369,24 +393,32 @@ def print_hook_settings_snippet() -> None:
     # needed for real users.
     from . import hook_script
 
-    # shlex.quote, an unquoted path breaks the moment it contains a space
-    # (e.g. some pipx/npm install prefixes), since Claude Code runs this
-    # `command` string through a shell: the path silently splits into
-    # multiple bogus arguments and the hook exits before it ever reads
-    # stdin, indistinguishable from the hook just not firing at all.
-    script_command = f"python3 {shlex.quote(str(Path(hook_script.__file__).resolve()))}"
+    # Exec form -- `command` plus `args` -- runs the interpreter directly with
+    # no shell in between. The shell form this used to print quoted the script
+    # path with shlex.quote, and cmd.exe does not treat POSIX single quotes as
+    # quoting: it passed them through as part of the filename, so every
+    # Windows install got `can't open file "'B:\...\hook_script.py'"` and a
+    # hook that never ran. Claude Code documents exec form as the way to avoid
+    # that whole class of quoting and tokenization problem, and it also
+    # settles the space-in-the-path case shlex.quote was there for.
+    #
+    # sys.executable rather than a bare `python3`: the interpreter running
+    # this command is by definition installed and on this machine, whereas
+    # `python3` on Windows is usually a Microsoft Store stub that opens the
+    # Store instead of running anything. hook_script is stdlib-only, so any
+    # interpreter would do -- this is the one we can name with certainty.
+    hook_entry = {
+        "type": "command",
+        "command": sys.executable,
+        "args": [str(Path(hook_script.__file__).resolve())],
+        "timeout": 8,
+    }
     snippet = json.dumps(
         {
             "hooks": {
                 "PreToolUse": [
-                    {
-                        "matcher": "Bash",
-                        "hooks": [{"type": "command", "command": script_command, "timeout": 8}],
-                    },
-                    {
-                        "matcher": "Write",
-                        "hooks": [{"type": "command", "command": script_command, "timeout": 8}],
-                    },
+                    {"matcher": "Bash", "hooks": [hook_entry]},
+                    {"matcher": "Write", "hooks": [hook_entry]},
                 ]
             }
         },
@@ -451,6 +483,16 @@ def findings_triage(
     """Update a finding's triage status, the "false report" action: mark a
     finding you've reviewed and believe is wrong as false_positive so it
     stops blocking installs and is excluded from future risk summaries."""
+    # Checked here for the same reason --fail-on is: the server's answer to a
+    # typo is a FastAPI validation document, and pasting that at someone is
+    # not telling them they misspelled "fixed". This also keeps a mistyped
+    # status from spending a network round-trip and an API key.
+    if triage_status not in TRIAGE_STATUSES:
+        output.print_error(
+            f"Invalid status '{triage_status}'. Expected one of: {', '.join(TRIAGE_STATUSES)}."
+        )
+        raise typer.Exit(code=2)
+
     if triage_status == "false_positive" and not (reason and reason.strip()):
         output.print_error("False-positive reports require --reason with your review evidence.")
         raise typer.Exit(code=2)

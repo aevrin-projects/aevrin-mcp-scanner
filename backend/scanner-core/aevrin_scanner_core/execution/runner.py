@@ -354,10 +354,34 @@ _SAFE_ENV_KEYS = frozenset(
     }
 )
 
+# The allowlist above is POSIX-shaped, and on Windows the omission that
+# matters is SYSTEMROOT: Winsock reads it during startup, so a subprocess
+# without it cannot resolve a hostname at all. `git clone` died with
+# "getaddrinfo() thread failed to start", which meant `aevrin scan
+# https://github.com/owner/repo` -- the first example in the documentation --
+# could never succeed on a Windows machine, while the same clone run by hand
+# worked fine. The rest are what CreateProcess and the C runtime expect to
+# find; PATHEXT in particular is how a bare "semgrep" resolves to semgrep.exe.
+#
+# Every name here is a fixed operating-system path, so this widens the
+# environment without putting a single secret or user value into it, which is
+# what the allowlist exists to prevent. Applied only on Windows, so the Linux
+# environment the API scans in is unchanged.
+_SAFE_WINDOWS_ENV_KEYS = frozenset(
+    {"SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "PATHEXT", "COMSPEC"}
+)
+
+
+def _safe_env_keys() -> frozenset[str]:
+    if os.name == "nt":
+        return _SAFE_ENV_KEYS | _SAFE_WINDOWS_ENV_KEYS
+    return _SAFE_ENV_KEYS
+
 
 def sanitized_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     """Do not leak API/database/payment credentials into scanner tools."""
-    safe = {key: value for key, value in os.environ.items() if key in _SAFE_ENV_KEYS}
+    allowed = _safe_env_keys()
+    safe = {key: value for key, value in os.environ.items() if key in allowed}
     safe.update(extra or {})
     return safe
 

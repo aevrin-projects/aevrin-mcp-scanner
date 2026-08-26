@@ -38,3 +38,61 @@ def test_false_positive_triage_requires_reason_before_auth_lookup():
     result = runner.invoke(app, ["findings", "triage", "finding-id", "false_positive"])
     assert result.exit_code == 2
     assert "require --reason" in plain(result.stderr)
+
+
+def test_an_unknown_triage_status_is_rejected_before_any_network_call():
+    """A typo used to be answered by the API's own validation document --
+    several hundred characters of JSON about uuid_parsing and value_error --
+    which does not tell anyone they wrote "fixxed". Rejecting it here also
+    keeps a mistyped status from spending a request and an API key."""
+    result = runner.invoke(app, ["findings", "triage", "finding-id", "fixxed"])
+    assert result.exit_code == 2
+    message = plain(result.stderr)
+    assert "Invalid status 'fixxed'" in message
+    # Names the alternatives, rather than leaving someone to guess them.
+    assert "open, fixed, false_positive" in message
+
+
+def test_the_accepted_statuses_are_the_ones_the_api_validates():
+    """Restating the list would let the CLI accept a status the server
+    rejects, which is the failure this check exists to prevent."""
+    from aevrin_scanner_core import TriageStatus
+
+    from aevrin_cli.main import TRIAGE_STATUSES
+
+    assert set(TRIAGE_STATUSES) == {s.value for s in TriageStatus}
+
+
+def test_the_hook_snippet_needs_no_shell_quoting_to_survive():
+    r"""It used to emit `python3 'C:\path\hook_script.py'` as one shell
+    string. cmd.exe does not treat POSIX single quotes as quoting, so it
+    passed them through as part of the filename and every Windows install got
+    a hook that never ran -- silently, since a hook that fails to start looks
+    exactly like a hook that decided not to object.
+
+    Exec form hands the path over as an argument, so no shell parses it.
+    """
+    import json
+    import sys
+    from pathlib import Path
+
+    result = runner.invoke(app, ["hook", "setup"])
+    assert result.exit_code == 0
+
+    snippet = json.loads(result.stdout)
+    entries = snippet["hooks"]["PreToolUse"]
+    assert [e["matcher"] for e in entries] == ["Bash", "Write"]
+
+    for entry in entries:
+        hook = entry["hooks"][0]
+        # The interpreter is named outright, not looked up on PATH. `python3`
+        # on Windows is usually the Microsoft Store stub, which opens the
+        # Store rather than running the script.
+        assert hook["command"] == sys.executable
+        assert len(hook["args"]) == 1
+        script = Path(hook["args"][0])
+        assert script.is_file(), "the snippet points at a script that ships with this package"
+        assert script.name == "hook_script.py"
+        # The path arrives whole, with no quoting for a shell to misread.
+        assert "'" not in hook["args"][0]
+        assert hook["timeout"] == 8

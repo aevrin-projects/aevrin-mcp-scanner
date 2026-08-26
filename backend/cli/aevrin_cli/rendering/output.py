@@ -6,6 +6,7 @@ used nowhere else), approximated in the 256-color terminal palette.
 from __future__ import annotations
 
 import json
+import sys
 from typing import Any
 
 from aevrin_scanner_core import (
@@ -21,6 +22,36 @@ from aevrin_scanner_core import (
 from aevrin_scanner_core.agents.grade import grade_mcp_server
 from rich.console import Console
 from rich.table import Table
+
+
+def _force_utf8(stream: Any) -> None:
+    """Make the stream able to carry this report's characters.
+
+    Python gives a *console* handle on Windows a UTF-8 wrapper, but a
+    redirected one gets the ANSI codepage instead -- cp1252 on most machines,
+    which has no mapping for the "⚠" the incomplete-scan warning leads with.
+    So `aevrin scan . > report.txt` died with a UnicodeEncodeError partway
+    through printing, and because that escaped before the exit code was
+    chosen, an *incomplete* scan exited 1 rather than 3: CI read "findings at
+    or above the threshold" from a scan whose scanners had never started.
+    Rich has no say in this; the encoding belongs to the file it writes to.
+
+    Setting UTF-8 is a no-op for a real console (already UTF-8) and for a
+    POSIX pipe under a UTF-8 locale, so this only changes the case that was
+    broken. Streams that cannot be reconfigured -- pytest's capture buffers,
+    a plain StringIO -- are left alone.
+    """
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is None:
+        return
+    try:
+        reconfigure(encoding="utf-8", errors="backslashreplace")
+    except (OSError, ValueError):  # pragma: no cover - stream already detached
+        pass
+
+
+_force_utf8(sys.stdout)
+_force_utf8(sys.stderr)
 
 stdout_console = Console()
 stderr_console = Console(stderr=True)

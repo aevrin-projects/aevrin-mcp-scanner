@@ -6,6 +6,26 @@ description: Every aevrin command, its flags, and its exit codes.
 All commands print human-readable status to stderr and results to stdout, so `aevrin scan ... >
 report.txt` captures just the report. Every command supports `--help`.
 
+## Every command at a glance
+
+| Command | JSON | Login | Network | Docker | Exit codes |
+|---|---|---|---|---|---|
+| [`scan`](#scan) | `--json` | required | required | recommended | 0 / 1 / 2 / 3 |
+| [`scan --remote`](#scan---remote) | `--json` | required | required | not used | 0 / 1 / 2 / 3 |
+| [`agent scan`](#agent-scan) | `--json` | only for `--upload` | only for `--upload` | not used | 0 / 2 |
+| [`login`](#login) | no | — | required | not used | 0 / 2 |
+| [`logout`](#logout) | no | not required | not used | not used | 0 |
+| [`version`](#version) | no | not required | not used | not used | 0 |
+| [`hook setup`](#hook-setup) | prints JSON | logs in | required | not used | 0 / 2 |
+| [`hook logout`](#hook-logout) | no | not required | not used | not used | 0 |
+| [`hook allow`](#hook-allow) | no | hook credential | required | not used | 0 / 2 |
+| [`findings triage`](#findings-triage) | no | required | required | not used | 0 / 2 |
+
+Docker is "recommended" rather than required for `scan` because the scan still runs without it —
+it just cannot run every scanner, which is reported as exit `3` and an **incomplete** result, never
+as a clean pass. `logout` is deliberately exit `0` whether or not you were logged in, so it is safe
+in a teardown script.
+
 ## `scan`
 
 ```bash
@@ -23,6 +43,7 @@ Runs the full scan pipeline against `TARGET` and prints a report.
 | `--json` | off | Machine-readable JSON output instead of the terminal report. |
 | `--upload` / `--no-upload` | `--upload` | Save the result to your dashboard. On by default when logged in. Pass `--no-upload` for a purely local, ephemeral scan (e.g. in CI, where you don't want scan history persisted). |
 | `--fail-on SEVERITY` | `high` | Minimum finding severity that causes a non-zero exit code. One of `critical`, `high`, `medium`, `low`, `info`. |
+| `--remote` | off | Scan a local folder on Aevrin's servers instead of this machine. Local paths only. See [`scan --remote`](#scan---remote). |
 
 **What gets checked depends on the target type:**
 
@@ -45,7 +66,7 @@ Runs the full scan pipeline against `TARGET` and prints a report.
 |---|---|
 | `0` | Scan completed; no findings at or above `--fail-on`. |
 | `1` | Scan completed; at least one finding at or above `--fail-on`. |
-| `2` | Could not run at all: not logged in, quota exceeded, unreachable API, or an invalid target or flag. |
+| `2` | Could not run at all: not logged in, quota exceeded, unreachable API, an invalid target or flag, or a target that could not be fetched (a repository that will not clone). Nothing is written to stdout, so a `--json` redirect leaves an empty file rather than a partial one. |
 | `3` | Scan ran but is **incomplete**: a required tool category failed to execute (Docker not running, a missing binary, no network). This fires regardless of `--fail-on`, because an incomplete scan is never treated as a pass. See [Concepts → Incomplete scans](/docs/concepts#incomplete-scans). |
 
 ```bash title="Fail a CI job only on unresolved criticals, keep local scan history out of the dashboard"

@@ -351,3 +351,43 @@ def test_discovery_is_deterministic(home, project, nowhere):
     second = _discover(home, project, nowhere).model_dump_json()
 
     assert first == second
+
+
+def test_an_mcp_servers_env_and_headers_never_reach_the_snapshot(home, project, nowhere):
+    """The same absolute rule, at the place it is easiest to break.
+
+    An MCP server's `env` and `headers` blocks are where people put the API
+    key the server authenticates with, and they sit directly beside `command`
+    and `args`, which the snapshot does carry. The guarantee here is
+    structural rather than a filter: McpServerRef has no field either one
+    could land in. That is worth pinning, because adding `env` for debugging
+    would look harmless in review and would start uploading live credentials.
+    """
+    _write(
+        home / ".claude.json",
+        {
+            "mcpServers": {
+                "billing": {
+                    "command": "npx",
+                    "args": ["-y", "billing-mcp"],
+                    "env": {"STRIPE_API_KEY": "MUST-NEVER-APPEAR-IN-A-SNAPSHOT-1"},
+                },
+                "search": {
+                    "type": "http",
+                    "url": "https://search.example.com/mcp",
+                    "headers": {"Authorization": "Bearer MUST-NEVER-APPEAR-IN-A-SNAPSHOT-2"},
+                },
+            }
+        },
+    )
+    _write(home / ".claude" / "settings.json", {"permissions": {"allow": ["Read"]}})
+
+    agent = _discover(home, project, nowhere)
+    snapshot = agent.model_dump_json()
+
+    assert {s.name for s in agent.mcp_servers} == {"billing", "search"}
+    assert "MUST-NEVER-APPEAR-IN-A-SNAPSHOT-1" not in snapshot
+    assert "MUST-NEVER-APPEAR-IN-A-SNAPSHOT-2" not in snapshot
+    # Not merely absent from these fixtures: absent from the schema, so no
+    # future config shape can smuggle a value through them either.
+    assert not {"env", "headers"} & set(agent.mcp_servers[0].model_dump())

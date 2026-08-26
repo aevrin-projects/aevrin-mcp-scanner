@@ -47,16 +47,23 @@ nothing reliable to scan before the edit.
         "PreToolUse": [
           {
             "matcher": "Bash",
-            "hooks": [{ "type": "command", "command": "python3 /path/to/hook_script.py", "timeout": 8 }]
+            "hooks": [{ "type": "command", "command": "/path/to/python", "args": ["/path/to/hook_script.py"], "timeout": 8 }]
           },
           {
             "matcher": "Write",
-            "hooks": [{ "type": "command", "command": "python3 /path/to/hook_script.py", "timeout": 8 }]
+            "hooks": [{ "type": "command", "command": "/path/to/python", "args": ["/path/to/hook_script.py"], "timeout": 8 }]
           }
         ]
       }
     }
     ```
+
+    Both paths are absolute and filled in for you, so paste the snippet as printed rather than
+    editing it. `command` and `args` are Claude Code's exec form: the interpreter runs directly
+    with no shell in between, which is what keeps a path containing a space or a backslash
+    intact. The interpreter named is the one your `aevrin` install already runs on, so there is
+    no dependency on `python3` resolving to anything useful on your `PATH` — on Windows it
+    usually resolves to a Microsoft Store stub.
   </Step>
   <Step>
     Try it. Ask Claude Code to add an MCP server. The hook checks it before the install runs.

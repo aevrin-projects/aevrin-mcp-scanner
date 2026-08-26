@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from aevrin_scanner_core.adapters.osv_scanner import OsvScannerAdapter
 from aevrin_scanner_core.adapters.trufflehog import TruffleHogAdapter
 from aevrin_scanner_core.execution.runner import (
@@ -21,6 +23,36 @@ def test_subprocess_environment_drops_application_secrets(monkeypatch) -> None:
     assert result["GITHUB_AUTH_TOKEN"] == "scanner-specific"
     assert "SUPABASE_SERVICE_ROLE_KEY" not in result
     assert "DEFECTDOJO_API_KEY" not in result
+
+
+def test_windows_subprocesses_keep_the_variables_winsock_needs(monkeypatch) -> None:
+    """Without SYSTEMROOT a Windows subprocess cannot resolve a hostname.
+
+    `git clone` failed with "getaddrinfo() thread failed to start", so
+    `aevrin scan https://github.com/owner/repo` could not succeed on any
+    Windows machine, while the same clone by hand worked -- which is what
+    made it look like a network problem rather than this allowlist.
+    """
+    monkeypatch.setattr("aevrin_scanner_core.execution.runner.os.name", "nt")
+    monkeypatch.setenv("SYSTEMROOT", r"C:\Windows")
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "database-secret")
+
+    result = sanitized_subprocess_env()
+
+    assert result["SYSTEMROOT"] == r"C:\Windows"
+    assert result["PATHEXT"] == ".COM;.EXE;.BAT"
+    # Widening the allowlist must not widen what secrets get through.
+    assert "SUPABASE_SERVICE_ROLE_KEY" not in result
+
+
+@pytest.mark.parametrize("name", ["SYSTEMROOT", "PATHEXT", "COMSPEC", "WINDIR", "SYSTEMDRIVE"])
+def test_the_windows_variables_stay_out_of_a_posix_environment(monkeypatch, name: str) -> None:
+    """The API scans on Linux. Nothing added for Windows should reach it."""
+    monkeypatch.setattr("aevrin_scanner_core.execution.runner.os.name", "posix")
+    monkeypatch.setenv(name, "leaked")
+
+    assert name not in sanitized_subprocess_env()
 
 
 def test_tool_error_redacts_likely_secret_values() -> None:

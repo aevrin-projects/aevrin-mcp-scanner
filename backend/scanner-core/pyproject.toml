@@ -1,6 +1,6 @@
 [project]
 name = "aevrin-scanner-core"
-version = "0.3.0"
+version = "0.4.0"
 description = "Shared scanning engine for Aevrin: models, OWASP MCP Top 10 mapping, scoring, and containerized scanner adapters. Imported by backend/api and backend/cli so findings never drift into different vocabularies."
 readme = "README.md"
 requires-python = ">=3.10"
