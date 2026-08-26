@@ -382,6 +382,8 @@ def discover_claude_code(
     if not (saw_any or agent.skills or agent.plugins):
         return None
 
+    agent.unattended = agent.default_permission_mode == _MODE_GRANTS_EVERYTHING
+
     # A hook is a shell command the agent runs, so it grants shell whatever
     # the permissions block says. Recorded after the loop so every hook from
     # every scope is accounted for.

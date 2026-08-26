@@ -27,6 +27,11 @@ class AgentSnapshotUploadResponse(BaseModel):
     stored: int
 
 
+class PostureFactorOut(BaseModel):
+    points: int
+    reason: str
+
+
 class AgentSummaryOut(BaseModel):
     id: UUID
     agent_type: AgentKind
@@ -36,8 +41,12 @@ class AgentSummaryOut(BaseModel):
     hostname: str
     platform: str | None
     reported_at: datetime
+    # Distinct from the MCP scan score and the MCP trust grade, and kept that
+    # way: this one answers how much the agent can already do here.
+    posture_score: int
     risk: str
-    risk_reasons: list[str]
+    confidence: str
+    risk_factors: list[PostureFactorOut]
     mcp_server_count: int
     skill_count: int
     plugin_count: int

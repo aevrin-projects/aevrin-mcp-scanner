@@ -87,7 +87,12 @@ export interface AgentSnapshot {
   kind: AgentKind;
   config_paths: string[];
   project_root: string | null;
+  /** Vendor wording: "bypassPermissions" for Claude Code,
+   *  "workspace-write/never" for Codex. */
   default_permission_mode: string | null;
+  /** True when nothing this agent does is put to a human first. Normalised by
+   *  the adapter, so nothing above it has to know each vendor's spelling. */
+  unattended: boolean;
   capabilities: EffectiveCapability[];
   mcp_servers: McpServerRef[];
   hooks: HookRef[];
@@ -99,6 +104,16 @@ export interface AgentSnapshot {
   unreadable_paths: string[];
 }
 
+export interface PostureFactor {
+  points: number;
+  reason: string;
+}
+
+/** How much the posture score itself can be relied on. Separate from the
+ *  score: a 90 from complete evidence and a 90 with half the config
+ *  unreadable are not the same claim. */
+export type Confidence = "high" | "medium" | "low";
+
 export interface AgentSummary {
   id: string;
   agent_type: AgentKind;
@@ -108,8 +123,11 @@ export interface AgentSummary {
   hostname: string;
   platform: string | null;
   reported_at: string;
+  /** Distinct from the MCP scan score and the MCP trust grade. */
+  posture_score: number;
   risk: PostureRisk;
-  risk_reasons: string[];
+  confidence: Confidence;
+  risk_factors: PostureFactor[];
   mcp_server_count: number;
   skill_count: number;
   plugin_count: number;

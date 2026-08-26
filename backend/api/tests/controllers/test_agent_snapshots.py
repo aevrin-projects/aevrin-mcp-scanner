@@ -173,7 +173,9 @@ def test_the_listed_summary_is_derived_from_the_stored_document():
     # Unrestricted shell with a credential in reach: the worst combination
     # the posture rules recognise.
     assert listed.risk == "critical"
-    assert listed.risk_reasons
+    assert listed.posture_score < 100
+    assert listed.confidence
+    assert [f.reason for f in listed.risk_factors]
 
 
 def test_the_mcp_inventory_keeps_the_agent_and_device_each_server_came_from():

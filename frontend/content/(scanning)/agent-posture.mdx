@@ -165,7 +165,7 @@ Once a device has reported, the dashboard shows it under **AI security**:
 
 | Page | What is on it |
 |---|---|
-| **Agents** | Every agent that has reported, its device, its posture risk and why |
+| **Agents** | Every agent that has reported, its device, its posture score and every deduction behind it |
 | An agent | Capabilities with their evidence, MCP servers, skills, plugins, hooks, permission rules, credentials in reach, and every file that was read |
 | **MCP servers** | Every MCP server across every device, one row per server, with its scopes and trust grade |
 
@@ -177,23 +177,55 @@ nothing would be worse than one that says so.
 **Forget a device** removes Aevrin's copy of what it reported. Nothing on the machine changes, and
 the next `--upload` from it reports it again.
 
-## Posture risk
+## Agent posture score
 
-Distinct from the MCP trust grade below, and answering a different question. The grade asks whether
-a particular server is safe to run, from scanner findings. Posture risk asks how much this agent can
-already do on this machine, from configuration alone — no scanner has to have run.
+Four numbers exist in Aevrin and they answer different questions. Keeping them apart is the point:
 
-| Risk | What puts an agent here |
+| Number | Question it answers |
 |---|---|
-| **Critical** | Permission checks bypassed, or unrestricted shell with a credential reachable from the same environment |
-| **High** | Unrestricted shell, or unrestricted file writes together with unrestricted network |
-| **Medium** | Shell limited to specific commands, MCP servers approved without a prompt, or configuration that could not be read |
-| **Low** | No elevated capability in the configuration that was read |
+| **MCP scan score** | How many problems does this server have? |
+| **MCP trust grade** (A–D) | Should I let this server run? |
+| **Agent posture score** | How much can this agent already do on this machine? |
+| **Blast radius** | What does that reach if it is misused? Surfaced as posture factors, not a fifth number. |
 
-Rules rather than a weighted total. An agent running with permission checks switched off is not a
-medium-risk agent because the rest of its config looks tidy, and adding numbers is how that fact gets
-averaged away. The same guard applies at the bottom of the scale as at the top of the grade:
-**configuration that could not be read is incomplete, not clean**, and can never be Low.
+Posture starts at 100 and every deduction arrives with the sentence that earned it:
+
+```text
+Claude Code
+Posture: 80/100  MEDIUM   confidence: high
+  -5   shell access, limited to specific commands
+  -15  credentials reachable from a shell this agent can use: aws_credentials_file, claude_code_credentials
+```
+
+The rubric, in one place so it can be argued with:
+
+| Deduction | Why |
+|---|---|
+| Unrestricted shell −15, command-scoped shell −5 | `Bash(npm run *)` is the most common safe setup there is |
+| Unrestricted file writes −10, workspace writes −4 | |
+| Unrestricted network −10, reads any file −3 | |
+| Nothing put to a human first −15 | Adds no capability; removes the check on every capability already there |
+| Credentials reachable from a shell −15 | The blast radius. The credential is not the risk, the combination is |
+| MCP servers auto-approved −5 each, capped at −15 | Their one human checkpoint is gone |
+| A server graded D −20, graded C −8 | Only ever from a grade a scan actually produced |
+| Hooks configured −5 | A hook runs commands with the agent's privileges |
+| Anything that could not be established | Costs what its **worst** grant would have cost |
+| Incomplete coverage −10 | |
+
+Score bands give the severity, except where one fact should outrank the arithmetic. **Unattended
+unrestricted shell is always critical**, so is **unrestricted shell with reachable credentials**,
+and so is **an agent wired to a server its own scan graded D**. And as with the trust grade's A,
+**incomplete coverage can never be low risk**.
+
+**Missing evidence never scores better than the bad case it might be hiding.** A capability that
+could not be read is charged as though it were unrestricted, because anything else would let a
+machine score better by being harder to read.
+
+**Confidence is reported beside the score, never folded into it.** A 90 established from complete
+evidence and a 90 with half the config unreadable are not the same claim.
+
+The score is computed in one place and read everywhere. The CLI prints it, the API stores it and
+the dashboard renders it; none of the three recomputes it.
 
 ## Credentials: presence only
 

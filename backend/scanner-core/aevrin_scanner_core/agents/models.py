@@ -208,7 +208,13 @@ class DiscoveredAgent(BaseModel):
     # Absolute paths actually read, so a report can be reproduced.
     config_paths: list[str] = Field(default_factory=list)
     project_root: str | None = None
+    # Vendor wording, kept for the report: "bypassPermissions" for Claude
+    # Code, "workspace-write/never" for Codex.
     default_permission_mode: str | None = None
+    # True when nothing this agent does is put to a human first. Normalised by
+    # the adapter rather than string-matched later, so the risk engine never
+    # has to know how each vendor spells it.
+    unattended: bool = False
     capabilities: list[EffectiveCapability] = Field(default_factory=list)
     mcp_servers: list[McpServerRef] = Field(default_factory=list)
     hooks: list[HookRef] = Field(default_factory=list)

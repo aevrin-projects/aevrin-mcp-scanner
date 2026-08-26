@@ -8,6 +8,7 @@ it, and the first question it provokes is the one it should have answered.
 from __future__ import annotations
 
 from aevrin_scanner_core.agents import Capability, DiscoveredAgent, Level
+from aevrin_scanner_core.agents.posture import PostureRisk, assess_posture
 from rich.table import Table
 
 from .output import stderr_console, stdout_console
@@ -33,11 +34,32 @@ _LEVEL_STYLE = {
 
 _AGENT_LABEL = {"claude_code": "Claude Code", "codex": "Codex", "cursor": "Cursor", "gemini_cli": "Gemini CLI"}
 
+_RISK_STYLE = {
+    PostureRisk.CRITICAL: "bold red",
+    PostureRisk.HIGH: "bold dark_orange",
+    PostureRisk.MEDIUM: "bold yellow",
+    PostureRisk.LOW: "bold green",
+}
+
 
 def print_agent_report(agent: DiscoveredAgent, *, verbose: bool) -> None:
     name = _AGENT_LABEL.get(agent.kind.value, agent.kind.value)
     stdout_console.print()
     stdout_console.print(f"[bold]{name}[/bold]")
+
+    # Computed by the shared engine, never here. The CLI, the API and the
+    # dashboard all read one rubric; three implementations would be three
+    # answers to one question.
+    posture = assess_posture(agent)
+    style = _RISK_STYLE[posture.risk]
+    stdout_console.print(
+        f"[bold]Posture:[/bold] [{style}]{posture.score}/100  {posture.risk.value.upper()}[/{style}]"
+        f"   [dim]confidence: {posture.confidence.value}[/dim]"
+    )
+    for factor in posture.factors:
+        marker = f"-{factor.points:<3}" if factor.points else "    "
+        stdout_console.print(f"  [dim]{marker}[/dim] {factor.reason}")
+    stdout_console.print()
 
     version = agent.agent.version if agent.agent else None
     stdout_console.print(f"[dim]Version:[/dim] {version or 'not established'}")

@@ -32,6 +32,7 @@ from aevrin_api.schemas.agents import (
     McpAssetOut,
     McpInstallationOut,
     McpTrustOut,
+    PostureFactorOut,
 )
 
 # A posture snapshot is configuration metadata: a few hundred kilobytes is
@@ -82,9 +83,9 @@ async def store_snapshot(
     return AgentSnapshotUploadResponse(stored=len(rows))
 
 
-def _summary(row: dict[str, Any]) -> AgentSummaryOut:
+def _summary(row: dict[str, Any], mcp_grades: dict[str, str] | None = None) -> AgentSummaryOut:
     agent = DiscoveredAgent.model_validate(row["snapshot"])
-    posture = assess_posture(agent)
+    posture = assess_posture(agent, mcp_grades=mcp_grades)
     return AgentSummaryOut(
         id=UUID(row["id"]),
         agent_type=agent.kind,
@@ -94,8 +95,12 @@ def _summary(row: dict[str, Any]) -> AgentSummaryOut:
         hostname=row["hostname"],
         platform=agent.device.platform if agent.device else None,
         reported_at=row["reported_at"],
+        posture_score=posture.score,
         risk=posture.risk.value,
-        risk_reasons=posture.reasons,
+        confidence=posture.confidence.value,
+        risk_factors=[
+            PostureFactorOut(points=f.points, reason=f.reason) for f in posture.factors
+        ],
         mcp_server_count=len(agent.mcp_servers),
         skill_count=len(agent.skills),
         plugin_count=len(agent.plugins),
@@ -104,9 +109,31 @@ def _summary(row: dict[str, Any]) -> AgentSummaryOut:
     )
 
 
+async def _grades_for_agents(
+    rows: list[dict[str, Any]], user_id: str, db: SupabaseRest
+) -> dict[str, dict[str, str]]:
+    """Per snapshot row, the trust grade of each server it configures.
+
+    Only grades a scan actually produced. An unscanned server is absent
+    rather than present-and-good, which is what keeps the posture engine from
+    crediting an agent for evidence nobody gathered.
+    """
+    servers: dict[str, list[tuple[str, str]]] = {}
+    for row in rows:
+        agent = DiscoveredAgent.model_validate(row["snapshot"])
+        servers[row["id"]] = [(s.name, mcp_identity(s).key) for s in agent.mcp_servers]
+
+    trust = await _trust_by_identity({key for pairs in servers.values() for _, key in pairs}, user_id, db)
+    return {
+        row_id: {name: trust[key].grade for name, key in pairs if key in trust}
+        for row_id, pairs in servers.items()
+    }
+
+
 async def list_agents(user_id: str, db: SupabaseRest) -> list[AgentSummaryOut]:
     rows = await db.select("agent_snapshots", {"user_id": user_id}, order="reported_at.desc")
-    return [_summary(row) for row in rows]
+    grades = await _grades_for_agents(rows, user_id, db)
+    return [_summary(row, grades.get(row["id"])) for row in rows]
 
 
 async def get_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> AgentDetailOut:
@@ -115,7 +142,8 @@ async def get_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> AgentDeta
     )
     if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found.")
-    summary = _summary(rows[0])
+    grades = await _grades_for_agents(rows, user_id, db)
+    summary = _summary(rows[0], grades.get(rows[0]["id"]))
     return AgentDetailOut(
         **summary.model_dump(), snapshot=DiscoveredAgent.model_validate(rows[0]["snapshot"])
     )

@@ -302,6 +302,7 @@ def discover_codex(home: str | None = None, project_root: str | None = None) -> 
     agent.default_permission_mode = (
         f"{sandbox_mode or 'unknown'}/{approval_policy or 'unknown'}"
     )
+    agent.unattended = approval_policy == _APPROVAL_NEVER
 
     agent.capabilities = [
         EffectiveCapability(

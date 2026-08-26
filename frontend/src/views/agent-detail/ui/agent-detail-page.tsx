@@ -113,38 +113,51 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
             Last reported {formatDateTime(agent.reported_at)}.
           </>
         }
-        actions={<RiskBadge risk={agent.risk} />}
+        actions={
+          <span className="flex items-center gap-3">
+            <span className="text-lg font-semibold tabular-nums">{agent.posture_score}/100</span>
+            <RiskBadge risk={agent.risk} />
+          </span>
+        }
       />
 
       {/* Why the risk is what it is, in the same words the CLI uses. A rating
           nobody can interrogate is an opinion with better typography. */}
       <Panel>
         <PanelHeader>
-          <PanelTitle>Why this rating</PanelTitle>
-          <PanelSubtitle>Derived from configuration alone. No scanner has to have run.</PanelSubtitle>
+          <PanelTitle>Agent posture score</PanelTitle>
+          <PanelSubtitle>
+            How much this agent can already do on this machine. Distinct from an MCP server&apos;s
+            scan score and its trust grade, which answer whether one server is safe to run.
+            Confidence in this number: <strong>{agent.confidence}</strong>.
+          </PanelSubtitle>
         </PanelHeader>
         <PanelBody>
           <ul className="flex flex-col gap-2">
-            {agent.risk_reasons.map((reason) => (
-              <li key={reason} className="flex gap-2 text-sm">
-                <span aria-hidden="true" className="text-muted-foreground">
-                  •
+            {agent.risk_factors.map((factor) => (
+              <li key={factor.reason} className="flex gap-3 text-sm">
+                <span className="w-10 shrink-0 text-right font-mono text-xs text-muted-foreground tabular-nums">
+                  {factor.points ? `-${factor.points}` : "—"}
                 </span>
-                {reason}
+                {factor.reason}
               </li>
             ))}
           </ul>
         </PanelBody>
       </Panel>
 
-      {snapshot.default_permission_mode === "bypassPermissions" ? (
+      {/* Reads the normalised flag, not a vendor string: Claude Code spells
+          this `bypassPermissions` and Codex spells it `approval_policy =
+          never`, and the page should not have to know either. */}
+      {snapshot.unattended ? (
         <Alert variant="destructive">
           <AlertTriangle className="size-4" />
-          <AlertTitle>Permission checks are switched off</AlertTitle>
+          <AlertTitle>Nothing is put to a human first</AlertTitle>
           <AlertDescription>
-            This agent runs with <code className="font-mono">bypassPermissions</code>, so nothing in its
-            permission rules is enforced. Every capability below is unrestricted regardless of what the
-            rules say.
+            This agent runs with{" "}
+            <code className="font-mono">{snapshot.default_permission_mode}</code>, so no action is
+            paused for approval. That does not widen what it can reach; it removes the check on
+            everything it can already reach.
           </AlertDescription>
         </Alert>
       ) : null}

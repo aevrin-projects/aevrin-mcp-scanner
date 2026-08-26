@@ -135,7 +135,7 @@ export function AgentsPage() {
                 <TR>
                   <TH>Agent</TH>
                   <TH>Device</TH>
-                  <TH>Risk</TH>
+                  <TH>Posture</TH>
                   <TH className="text-right">MCP</TH>
                   <TH className="text-right">Skills</TH>
                   <TH className="text-right">Hooks</TH>
@@ -165,10 +165,17 @@ export function AgentsPage() {
                       </span>
                     </TD>
                     <TD>
-                      <RiskBadge risk={agent.risk} />
-                      {!agent.coverage_complete ? (
-                        <span className="block text-xs text-muted-foreground">Incomplete coverage</span>
-                      ) : null}
+                      <span className="flex items-center gap-2">
+                        <span className="font-medium tabular-nums">{agent.posture_score}/100</span>
+                        <RiskBadge risk={agent.risk} />
+                      </span>
+                      {/* Confidence sits beside the number rather than
+                          inside it: a 90 from complete evidence and a 90 with
+                          half the config unreadable are not the same claim. */}
+                      <span className="block text-xs text-muted-foreground">
+                        {agent.coverage_complete ? "Complete coverage" : "Incomplete coverage"} ·{" "}
+                        {agent.confidence} confidence
+                      </span>
                     </TD>
                     <TD className="text-right tabular-nums">{agent.mcp_server_count}</TD>
                     <TD className="text-right tabular-nums">{agent.skill_count}</TD>
