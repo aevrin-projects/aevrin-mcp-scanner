@@ -31,6 +31,7 @@ from aevrin_api.schemas.admin import (
     PasswordResetIn,
     PlanChangeIn,
     ResetUsageIn,
+    SeatsIn,
     StatusChangeIn,
     TotpEnrolOut,
     TotpVerifyIn,
@@ -153,6 +154,12 @@ async def change_plan(
     A real paid upgrade still goes through the customer's own checkout.
     """
     return await admin_controller.change_plan(user_id, body, admin, db, settings)
+
+
+@router.post("/users/{user_id}/seats")
+async def set_seats(user_id: str, body: SeatsIn, admin: AdminDep, db: DbDep) -> dict[str, Any]:
+    """Grant or reduce the seats an account's workspace may fill."""
+    return await admin_controller.set_seats(user_id, body, admin, db)
 
 
 @router.post("/users/{user_id}/overrides")

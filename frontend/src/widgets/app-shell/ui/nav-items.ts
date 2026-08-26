@@ -9,6 +9,7 @@ import {
   CreditCard,
   History,
   KeyRound,
+  Users,
   LayoutDashboard,
   Plug,
   ScanSearch,
@@ -64,6 +65,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Account",
     items: [
       { href: "/usage", label: "Usage", icon: ChartNoAxesCombined },
+      { href: "/settings/team", label: "Workspace", icon: Users },
       { href: "/settings/api-keys", label: "API keys", icon: KeyRound },
       { href: "/settings/billing", label: "Billing", icon: CreditCard },
     ],

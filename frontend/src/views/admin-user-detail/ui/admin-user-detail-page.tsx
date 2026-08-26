@@ -4,7 +4,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, Gift, KeyRound, RotateCcw, ShieldOff, SlidersHorizontal, Trash2 } from "lucide-react";
+import { ArrowLeft, Gift, KeyRound, RotateCcw, ShieldOff, SlidersHorizontal, Trash2, Users } from "lucide-react";
 import { ApiError } from "@/shared/api";
 import { StatusPill, adminApi } from "@/entities/admin";
 import type { AdminUserDetail } from "@/entities/admin";
@@ -69,6 +69,7 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-6">
           <GrantPlan detail={detail} onDone={load} />
+          <GrantSeats detail={detail} onDone={load} />
           <QuotaOverrides detail={detail} onDone={load} />
           <DangerZone detail={detail} onDone={load} />
         </div>
@@ -230,6 +231,68 @@ function GrantPlan({ detail, onDone }: { detail: AdminUserDetail; onDone: () => 
 }
 
 /** Raise or lower a specific limit, independent of plan. */
+function GrantSeats({ detail, onDone }: { detail: AdminUserDetail; onDone: () => Promise<void> }) {
+  const [seats, setSeats] = useState(detail.seats);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function apply() {
+    setBusy(true);
+    try {
+      await adminApi.setSeats(detail.user_id, { seats, reason });
+      toast.success(`Workspace can now hold ${seats} ${seats === 1 ? "person" : "people"}.`);
+      setReason("");
+      await onDone();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not change the seats.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Panel title="Seats" icon={<Users className="size-4 text-brand-text" />}>
+      <p className="text-sm text-muted-foreground">
+        How many people this account&apos;s workspace may hold, owner included. The same number a
+        Team purchase writes, so granting and buying move one value rather than two. Lowering it
+        never removes anyone: it stops the next invitation.
+      </p>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="seat-count">Seats</Label>
+          <div className="flex gap-1.5">
+            {[1, 3, 5, 10, 25].map((n) => (
+              <Button
+                key={n}
+                type="button"
+                size="sm"
+                variant={seats === n ? "default" : "outline"}
+                onClick={() => setSeats(n)}
+              >
+                {n}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="seat-reason">Reason</Label>
+          <Input
+            id="seat-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Recorded in the audit log"
+          />
+        </div>
+      </div>
+
+      <Button disabled={busy || reason.trim().length < 3} onClick={() => void apply()}>
+        Set to {seats} seat{seats === 1 ? "" : "s"}
+      </Button>
+    </Panel>
+  );
+}
+
 function QuotaOverrides({ detail, onDone }: { detail: AdminUserDetail; onDone: () => Promise<void> }) {
   const [bucket, setBucket] = useState("cli");
   const [value, setValue] = useState(50);

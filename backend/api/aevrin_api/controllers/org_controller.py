@@ -87,6 +87,18 @@ async def require_membership(user_id: str, db: SupabaseRest) -> Membership:
     return membership
 
 
+async def _seat_limit(org: dict[str, Any], db: SupabaseRest) -> int:
+    """How many people this workspace may hold.
+
+    Read from the owner's account rather than stored on the workspace.
+    Billing already writes accounts.seats on every payment and an admin can
+    already change it there, so a copy here would be a second number to keep
+    in step with the one the customer actually paid for.
+    """
+    rows = await db.select("accounts", {"user_id": org["owner_id"]}, columns="seats", limit=1)
+    return int(rows[0]["seats"]) if rows and rows[0].get("seats") else 1
+
+
 async def _seats_used(org_id: str, db: SupabaseRest) -> int:
     """Members plus invites that are still open.
 
@@ -122,7 +134,7 @@ async def _organization_out(membership: Membership, db: SupabaseRest) -> Organiz
     return OrganizationOut(
         id=UUID(org["id"]),
         name=org["name"],
-        seats=org["seats"],
+        seats=await _seat_limit(org, db),
         seats_used=await _seats_used(org["id"], db),
         owner_id=UUID(org["owner_id"]),
         created_at=org["created_at"],
@@ -308,12 +320,13 @@ async def invite_member(
             detail="The Owner role cannot be handed out by invitation.",
         )
 
-    if await _seats_used(membership.org_id, db) >= membership.org["seats"]:
+    limit = await _seat_limit(membership.org, db)
+    if await _seats_used(membership.org_id, db) >= limit:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=(
-                f"All {membership.org['seats']} seats are taken, counting invites that "
-                "have not been accepted. Add seats or revoke an invite first."
+                f"All {limit} seat(s) are taken, counting invitations that have not been "
+                "accepted. Buy more seats on the billing page, or revoke an invitation."
             ),
         )
 
@@ -413,7 +426,7 @@ async def accept_invite(
 
     # Re-checked at the moment of joining, not only when the invite was sent:
     # seats can have been filled or reduced in the days since.
-    if await _seats_used(org["id"], db) > org["seats"]:
+    if await _seats_used(org["id"], db) > await _seat_limit(org, db):
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="That workspace has no seat free. Ask an owner to add one.",

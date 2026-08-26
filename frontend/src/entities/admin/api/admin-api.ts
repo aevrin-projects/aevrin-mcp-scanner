@@ -29,6 +29,13 @@ export const adminApi = {
       findings_deleted: number;
       payments_deleted: number;
     }>(`/admin/users/${id}`, { method: "DELETE", body: JSON.stringify(body) }),
+  /** Seats an account's workspace may fill. The same number a Team purchase
+   *  writes, so granting and buying move one value, not two. */
+  setSeats: (id: string, body: { seats: number; reason: string }) =>
+    request<{ seats: number }>(`/admin/users/${id}/seats`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   setOverride: (
     id: string,
     body: {

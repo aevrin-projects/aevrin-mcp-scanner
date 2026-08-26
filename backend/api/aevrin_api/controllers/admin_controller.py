@@ -31,6 +31,7 @@ from aevrin_api.schemas.admin import (
     PasswordResetIn,
     PlanChangeIn,
     ResetUsageIn,
+    SeatsIn,
     StatusChangeIn,
     TotpEnrolOut,
     TotpVerifyIn,
@@ -208,6 +209,7 @@ async def user_detail(user_id: str, admin: AdminIdentity, db: SupabaseRest, sett
         recent_scans=[dict(s) for s in scans],
         api_key_count=sum(1 for k in keys if not k.get("revoked_at")),
         github_connected=bool(installs),
+        seats=int(account.get("seats") or 1),
     )
 
 
@@ -268,6 +270,21 @@ async def change_plan(
         metadata={"from": before["tier"], "to": body.tier, "months": body.months, "comp": True},
     )
     return {"tier": body.tier, "paid_until": patch["paid_until"]}
+
+
+async def set_seats(
+    user_id: str, body: SeatsIn, admin: AdminIdentity, db: SupabaseRest
+) -> dict[str, Any]:
+    identity = await db.rpc("admin_user_identity", {"p_user_id": user_id})
+    target_email = identity[0].get("email") if identity else None
+    before = await db.select("accounts", {"user_id": user_id}, columns="seats", limit=1)
+    await db.update("accounts", {"user_id": user_id}, {"seats": body.seats})
+    await write_audit(
+        db, admin, "account.seats_change",
+        target_user_id=user_id, target_email=target_email, reason=body.reason,
+        metadata={"from": (before[0]["seats"] if before else None), "to": body.seats},
+    )
+    return {"seats": body.seats}
 
 
 async def set_override(

@@ -59,6 +59,8 @@ class AdminUserDetail(BaseModel):
     recent_scans: list[dict[str, Any]] = []
     api_key_count: int = 0
     github_connected: bool = False
+    # How many people this account's workspace may hold, owner included.
+    seats: int = 1
 
 class StatusChangeIn(BaseModel):
     status: Literal["active", "disabled", "blocked"]
@@ -72,6 +74,19 @@ class PlanChangeIn(BaseModel):
     # possible without a code change.
     months: int = Field(default=1, ge=1, le=36)
     totp_code: str | None = None
+
+class SeatsIn(BaseModel):
+    """How many people this account's workspace may hold.
+
+    The same accounts.seats a Team purchase writes, so an admin granting seats
+    and a customer buying them move the identical number. Lowering it never
+    removes anybody: it stops the next invitation, and a workspace that is
+    over its limit stays as it is until people leave.
+    """
+
+    seats: int = Field(ge=1, le=500)
+    reason: str = Field(min_length=3, max_length=500)
+
 
 class OverrideIn(BaseModel):
     bucket: Literal["cli", "hook", "dashboard"]

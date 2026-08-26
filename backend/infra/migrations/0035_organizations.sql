@@ -18,11 +18,10 @@ create table if not exists public.organizations (
   -- account belongs to, survives every role edit, and is the one member no
   -- permission change can lock out.
   owner_id uuid not null references auth.users (id) on delete cascade,
-  -- What the Team plan was already charging for. Enforced when adding a
-  -- member, not retroactively: reducing seats must never silently eject
-  -- somebody who is in the middle of their work.
-  seats integer not null default 3 check (seats between 1 and 500),
   created_at timestamptz not null default now()
+  -- No seats column. accounts.seats already records what the owner bought,
+  -- and billing already writes it on every payment; a second copy here would
+  -- be a number that drifts from the one the customer actually paid for.
 );
 
 create unique index if not exists organizations_owner_idx on public.organizations (owner_id);

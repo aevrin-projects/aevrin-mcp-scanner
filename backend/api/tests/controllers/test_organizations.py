@@ -58,7 +58,6 @@ class FakeDb:
     # never mentions `seats` still gets it back. A fake that omitted them
     # would fail on code that is correct against the real database.
     DEFAULTS: ClassVar[dict[str, dict[str, Any]]] = {
-        "organizations": {"seats": 3},
         "organization_roles": {"permissions": [], "is_owner_role": False},
     }
 
@@ -97,9 +96,14 @@ class FakeDb:
         raise AssertionError(f"unexpected rpc {fn}")
 
 
-def org_row(seats: int = 3) -> dict[str, Any]:
+def org_row() -> dict[str, Any]:
     return {"_table": "organizations", "id": ORG, "name": "Acme", "owner_id": OWNER,
-            "seats": seats, "created_at": datetime.now(UTC).isoformat()}
+            "created_at": datetime.now(UTC).isoformat()}
+
+
+def account_row(seats: int) -> dict[str, Any]:
+    """Seats live on the owner's account, which is what billing writes."""
+    return {"_table": "accounts", "user_id": OWNER, "seats": seats}
 
 
 def role_row(role_id: str, name: str, permissions: list[str], *, owner: bool = False,
@@ -116,7 +120,8 @@ def member_row(user_id: str, role_id: str, org_id: str = ORG) -> dict[str, Any]:
 
 def workspace(*, seats: int = 3, member_permissions: list[str] | None = None) -> FakeDb:
     return FakeDb([
-        org_row(seats),
+        org_row(),
+        account_row(seats),
         role_row(OWNER_ROLE, "Owner", sorted(perms.ALL_KEYS), owner=True),
         role_row(MEMBER_ROLE, "Member", member_permissions or [perms.SCANS_RUN]),
         member_row(OWNER, OWNER_ROLE),
@@ -377,3 +382,26 @@ def test_someone_in_no_workspace_is_told_so_rather_than_shown_an_empty_one():
     membership = run(org_controller.get_membership(OUTSIDER, "out@example.com", FakeDb()))
     assert membership.organization is None
     assert membership.pending_invites == []
+
+
+def test_the_seat_limit_is_the_one_the_owner_paid_for():
+    """Seats are not stored on the workspace.
+
+    accounts.seats is what billing writes on every payment and what an admin
+    changes; a copy on the workspace would be a second number to keep in step
+    with the one the customer actually bought.
+    """
+    db = workspace(seats=2)  # owner + one member already fills it
+    owner = membership_for(OWNER, db)
+    assert (run(org_controller.get_membership(OWNER, "o@example.com", db))).organization.seats == 2
+
+    with pytest.raises(HTTPException) as exc:
+        run(org_controller.invite_member(InviteIn(email="third@example.com", role_id=MEMBER_ROLE), owner, db))
+    assert exc.value.status_code == 402
+
+    # Buying a seat is the only change needed; nothing on the workspace moves.
+    for row in db.rows:
+        if row.get("_table") == "accounts":
+            row["seats"] = 5
+    invited = run(org_controller.invite_member(InviteIn(email="third@example.com", role_id=MEMBER_ROLE), owner, db))
+    assert invited.email == "third@example.com"

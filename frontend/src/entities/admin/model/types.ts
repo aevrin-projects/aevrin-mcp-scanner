@@ -55,6 +55,8 @@ export type AdminUserDetail = {
   recent_scans: Array<Record<string, unknown>>;
   api_key_count: number;
   github_connected: boolean;
+  /** People this account's workspace may hold, owner included. */
+  seats: number;
 };
 
 export type AdminAuditEntry = {

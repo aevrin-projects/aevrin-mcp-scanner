@@ -118,13 +118,15 @@ const TIERS: Tier[] = [
     aiRemediation: true,
     aiReviewPerScan: "200 findings / scan",
     cta: "Contact us",
+    // Only what a Team account actually gets. This list previously promised
+    // an org-wide hook policy console, SSO, and bring-your-own model key --
+    // none of which exist, and two of which were removed from the product.
     features: [
       "Everything in Pro, usage-based instead of fixed",
-      "Org-wide hook policy console: set the block threshold everyone's hook enforces",
-      "See everything blocked across the team in one place",
-      "SSO and audit log",
+      "A shared workspace: scans, agents and findings everyone can see",
+      "Invite colleagues by email and remove them again",
+      "Roles you define: choose what each one is allowed to do",
       "3-seat minimum, billed per seat",
-      "Bring your own model provider key: Aevrin bills the platform, not the tokens",
     ],
   },
 ];
@@ -203,7 +205,7 @@ const FAQ = [
   { q: "Is there a student or nonprofit rate?", a: "A separate student or nonprofit rate is not currently offered." },
   {
     q: "How does Team's per-seat pricing work?",
-    a: "Team is billed per seat with a 3-seat minimum. Seats are a billing quantity today, not yet a shared multi-user login, every seat purchased raises the account's usage-based limits.",
+    a: "Team is billed per seat with a 3-seat minimum, and a seat is a person. Buying seats sets how many people your workspace can hold; you invite them by email from Workspace, and each one signs in as themselves. An invitation nobody has accepted still holds its seat, so the limit cannot be raced.",
   },
 ];
 

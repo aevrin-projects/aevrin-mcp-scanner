@@ -111,8 +111,8 @@ export function BillingPage() {
     const monthly = pricing.tiers[`${tier}_monthly`];
     const annual = pricing.tiers[`${tier}_annual`];
     if (monthly === undefined || annual === undefined) return null;
-    const suffix = tier === "team" ? " per seat" : "";
-    return `${formatMoney(monthly, pricing.currency)} / ${formatMoney(Math.round(annual / 12), pricing.currency)}${suffix}`;
+    const each = tier === "team" ? " per seat" : "";
+    return `${formatMoney(monthly, pricing.currency)}${each} monthly, or ${formatMoney(Math.round(annual / 12), pricing.currency)}${each} monthly on the annual cycle`;
   })();
   const expired = subscription?.tier !== "free" && subscription?.effective_tier === "free";
 
@@ -186,6 +186,15 @@ export function BillingPage() {
                     ) : null}
                   </div>
                   <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">{plan?.body}</p>
+                  {subscription.effective_tier === "team" ? (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Seats are people.{" "}
+                      <Link href="/settings/team" className="font-medium underline">
+                        Open your workspace
+                      </Link>{" "}
+                      to invite them and choose what each one can do.
+                    </p>
+                  ) : null}
                 </div>
 
                 <Button nativeButton={false} render={<Link href="/pricing" />} className="shrink-0">
