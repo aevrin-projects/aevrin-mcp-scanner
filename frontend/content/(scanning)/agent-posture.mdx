@@ -12,10 +12,12 @@ is executed, and nothing is uploaded.
 
 ## What is supported today
 
-**Claude Code.** Codex, Cursor and Gemini CLI are not yet discovered; when they are, they will
+**Claude Code and Codex.** Cursor and Gemini CLI are not yet discovered; when they are, they will
 appear through the same normalised model rather than a parallel one.
 
-Everything below comes from Claude Code's published settings and MCP reference.
+Everything below comes from each vendor's own published configuration reference.
+
+### Claude Code
 
 | What | Where it is read from |
 |---|---|
@@ -27,6 +29,40 @@ Everything below comes from Claude Code's published settings and MCP reference.
 | MCP servers, project scope | `<project>/.mcp.json` |
 | Skills | `~/.claude/skills/<name>/SKILL.md` and `<project>/.claude/skills/<name>/SKILL.md` |
 | Plugin marketplaces | `~/.claude/plugins/` |
+
+### Codex
+
+| What | Where it is read from |
+|---|---|
+| Settings, MCP servers, project trust | `$CODEX_HOME/config.toml`, defaulting to `~/.codex/config.toml` |
+| Sign-in state | `$CODEX_HOME/auth.json` (presence only) |
+
+Codex differs from Claude Code in a way that is preserved rather than smoothed over: **there is no
+per-project settings file.** `approval_policy` and `sandbox_mode` are global and apply in every
+directory, and the only project-scoped setting is `trust_level`. Codex also has no project-level
+MCP file, so every Codex MCP server is global.
+
+What Codex can reach is decided by its sandbox, not by a permission list:
+
+| `sandbox_mode` | Filesystem read | Filesystem write | Shell | Network |
+|---|---|---|---|---|
+| `read-only` | Full — the whole filesystem, not just the workspace | None | Limited | None |
+| `workspace-write` | Full | Limited to the workspace | Limited | None unless `sandbox_workspace_write.network_access = true` |
+| `danger-full-access` | Full | Full | Full | Full |
+
+`approval_policy = never` does not widen the sandbox. It removes the human in front of what the
+sandbox already allows, which is the difference between a supervised shell and an unattended one,
+and it is recorded as evidence against every capability it affects.
+
+**An unset `sandbox_mode` is reported as unknown, not as none.** A config that does not say is not
+a config that grants nothing, and coverage names the gap. Codex profiles can override the sandbox,
+and which profile is active is a runtime argument rather than a file, so a config with profiles is
+reported as partial coverage too.
+
+A server with `enabled = false` is listed and marked disabled rather than dropped: it is still
+configured, and enabling it is one edit away.
+
+---
 
 Each discovered item keeps the file it came from and its scope, because the same permission means
 different things in different places: one an organisation pushed through managed policy is a
@@ -45,10 +81,14 @@ that was read:
 aevrin agent scan --project ./my-repo --verbose
 ```
 
-Output names each capability, the level it reaches, and the evidence behind it:
+Every configured agent is reported, each with its version, counts and coverage, then its
+capabilities with the evidence behind each one:
 
 ```text
 Claude Code
+Version: 2.1.220 (Claude Code)
+MCP: 8   Capabilities: 5   Permissions: 18   Skills: 1
+Coverage: complete
 
 Capability       Level    Evidence
 Filesystem read  LIMITED  permissions.additionalDirectories: ../shared-ui
@@ -226,7 +266,7 @@ Not scanned. Scan the package's repository from **New scan** to grade one of tho
 
 ## Limitations
 
-- Only Claude Code is discovered today.
+- Only Claude Code and Codex are discovered today.
 - Discovery reads configuration. An agent's actual runtime behaviour is not observed.
 - MCP servers found on a machine are not automatically scanned; a trust grade requires a scan of
   that exact target, and servers launched over stdio have no target to scan.

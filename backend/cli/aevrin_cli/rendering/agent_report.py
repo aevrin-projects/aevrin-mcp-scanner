@@ -39,6 +39,22 @@ def print_agent_report(agent: DiscoveredAgent, *, verbose: bool) -> None:
     stdout_console.print()
     stdout_console.print(f"[bold]{name}[/bold]")
 
+    version = agent.agent.version if agent.agent else None
+    stdout_console.print(f"[dim]Version:[/dim] {version or 'not established'}")
+    stdout_console.print(
+        f"[dim]MCP:[/dim] {len(agent.mcp_servers)}   "
+        f"[dim]Capabilities:[/dim] {len(agent.capabilities)}   "
+        f"[dim]Permissions:[/dim] {len(agent.permissions)}   "
+        f"[dim]Skills:[/dim] {len(agent.skills)}"
+    )
+    # Never "complete" when something could not be read. What was missed is
+    # named, so a thin report is not mistaken for a clean one.
+    if agent.coverage.complete:
+        stdout_console.print("[dim]Coverage:[/dim] complete")
+    else:
+        missed = ", ".join(agent.coverage.not_checked) or "unknown"
+        stdout_console.print(f"[dim]Coverage:[/dim] [yellow]partial[/yellow] (not established: {missed})")
+
     if agent.default_permission_mode:
         style = "bold red" if agent.default_permission_mode == "bypassPermissions" else "dim"
         stdout_console.print(
@@ -75,6 +91,7 @@ def print_agent_report(agent: DiscoveredAgent, *, verbose: bool) -> None:
         stdout_console.print("[bold]MCP servers configured[/bold]")
         for server in agent.mcp_servers:
             approved = " [red](auto-approved)[/red]" if server.auto_approved else ""
+            approved += "" if server.enabled else " [dim](disabled)[/dim]"
             where = server.url or " ".join(filter(None, [server.command, *server.args]))
             stdout_console.print(
                 f"  {server.name}  [dim]{server.scope.value} scope, {server.transport}[/dim]{approved}"
@@ -106,7 +123,7 @@ def print_agent_report(agent: DiscoveredAgent, *, verbose: bool) -> None:
 
 def print_no_agents(scanned_paths: list[str]) -> None:
     stderr_console.print(
-        "No supported AI coding agents found. Looked for Claude Code configuration in:"
+        "No supported AI coding agents found. Looked for Claude Code and Codex configuration in:"
     )
     for path in scanned_paths:
         stderr_console.print(f"  [dim]{path}[/dim]")

@@ -20,21 +20,18 @@ does not undo a broad one in another.
 
 from __future__ import annotations
 
-import json
 import os
 import platform
 import shutil
-import socket
 from typing import Any
 
+from .common import Accumulator, credentials, device_info, probe_version, read_json
 from .models import (
     AgentInfo,
     AgentKind,
     Capability,
     ConfigScope,
     Coverage,
-    CredentialRef,
-    DeviceInfo,
     DiscoveredAgent,
     EffectiveCapability,
     Evidence,
@@ -44,7 +41,6 @@ from .models import (
     PluginRef,
     RawPermission,
     SkillRef,
-    widest,
 )
 
 # Tool names as they appear in permission rules, mapped to what they actually
@@ -78,20 +74,6 @@ def managed_settings_path() -> str:
     return "/etc/claude-code/managed-settings.json"
 
 
-def _read_json(path: str) -> tuple[dict[str, Any] | None, bool]:
-    """(parsed, existed). A file that exists but will not parse returns
-    (None, True) so the caller can report it as unreadable rather than
-    absent -- an unparseable config is not an empty one."""
-    if not os.path.isfile(path):
-        return None, False
-    try:
-        with open(path, encoding="utf-8") as handle:
-            parsed = json.load(handle)
-    except (OSError, ValueError):
-        return None, True
-    return (parsed if isinstance(parsed, dict) else None), True
-
-
 def _rule_tool(rule: str) -> str:
     """"Bash(npm run *)" -> "Bash"; a bare "WebFetch" -> "WebFetch"."""
     return rule.split("(", 1)[0].strip()
@@ -121,20 +103,8 @@ def _mcp_server_from_rule(rule: str) -> str | None:
     return parts[1] if len(parts) >= 2 and parts[1] else None
 
 
-class _Accumulator:
-    def __init__(self) -> None:
-        self.levels: dict[Capability, Level] = {}
-        self.evidence: dict[Capability, list[Evidence]] = {}
-        self.mcp_tool_servers: dict[str, list[Evidence]] = {}
-
-    def grant(self, capability: Capability, level: Level, evidence: Evidence) -> None:
-        current = self.levels.get(capability, Level.NONE)
-        self.levels[capability] = widest(current, level)
-        self.evidence.setdefault(capability, []).append(evidence)
-
-
 def _apply_permissions(
-    acc: _Accumulator, settings: dict[str, Any], path: str, scope: ConfigScope
+    acc: Accumulator, settings: dict[str, Any], path: str, scope: ConfigScope
 ) -> str | None:
     permissions = settings.get("permissions")
     if not isinstance(permissions, dict):
@@ -270,43 +240,6 @@ def _mcp_servers_from(
     return servers
 
 
-# Environment variables and files whose *presence* tells you what an agent
-# with shell access could reach. The value is never read: knowing a GitHub
-# token is within reach is the finding, and the token itself only turns a
-# posture report into a breach if it leaks.
-_CREDENTIAL_ENV_VARS = {
-    "ANTHROPIC_API_KEY": "anthropic_api_key",
-    "GITHUB_TOKEN": "github_token",
-    "GH_TOKEN": "github_token",
-    "AWS_ACCESS_KEY_ID": "aws_access_key",
-    "AWS_SECRET_ACCESS_KEY": "aws_secret_key",
-    "OPENAI_API_KEY": "openai_api_key",
-    "DATABASE_URL": "database_url",
-}
-
-_CREDENTIAL_FILES = {
-    os.path.join(".aws", "credentials"): "aws_credentials_file",
-    os.path.join(".config", "gh", "hosts.yml"): "github_cli_credentials",
-    os.path.join(".claude", ".credentials.json"): "claude_code_credentials",
-}
-
-
-def _credentials(home: str) -> list[CredentialRef]:
-    found: list[CredentialRef] = []
-    for variable, kind in _CREDENTIAL_ENV_VARS.items():
-        if os.environ.get(variable):
-            found.append(
-                CredentialRef(
-                    kind=kind, present=True, source="environment", location=variable
-                )
-            )
-    for relative, kind in _CREDENTIAL_FILES.items():
-        path = os.path.join(home, relative)
-        if os.path.isfile(path):
-            found.append(CredentialRef(kind=kind, present=True, source="file", location=path))
-    return found
-
-
 def _skills(root: str, scope: ConfigScope) -> list[SkillRef]:
     """Skills live at <root>/skills/<name>/SKILL.md, per Claude Code's skills
     documentation. Only the frontmatter name and description are read; the
@@ -340,7 +273,7 @@ def _skills(root: str, scope: ConfigScope) -> list[SkillRef]:
 def _plugins(home: str) -> list[PluginRef]:
     """Marketplaces Claude Code knows about, from ~/.claude/plugins."""
     path = os.path.join(home, ".claude", "plugins", "known_marketplaces.json")
-    parsed, existed = _read_json(path)
+    parsed, existed = read_json(path)
     if not existed or not parsed:
         return []
     found: list[PluginRef] = []
@@ -361,25 +294,6 @@ def _plugins(home: str) -> list[PluginRef]:
     return found
 
 
-def _claude_version(executable: str | None) -> str | None:
-    """`claude --version`, a fixed argv with a short timeout -- not a shell,
-    and not a command taken from configuration. None when it cannot be
-    established, which the coverage block then reports rather than hiding."""
-    if not executable:
-        return None
-    import subprocess  # nosec B404 - fixed argv, no shell
-
-    try:
-        proc = subprocess.run(  # nosec B603
-            [executable, "--version"], capture_output=True, timeout=10, check=False
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if proc.returncode != 0:
-        return None
-    return proc.stdout.decode("utf-8", "replace").strip()[:80] or None
-
-
 def discover_claude_code(
     home: str | None = None,
     project_root: str | None = None,
@@ -396,7 +310,7 @@ def discover_claude_code(
     """
     home = home or os.path.expanduser("~")
     agent = DiscoveredAgent(kind=AgentKind.CLAUDE_CODE, project_root=project_root)
-    acc = _Accumulator()
+    acc = Accumulator()
     saw_any = False
 
     sources: list[tuple[str, ConfigScope]] = [
@@ -411,7 +325,7 @@ def discover_claude_code(
 
     auto_approve_project_mcp = False
     for path, scope in sources:
-        settings, existed = _read_json(path)
+        settings, existed = read_json(path)
         if not existed:
             continue
         saw_any = True
@@ -428,7 +342,7 @@ def discover_claude_code(
             auto_approve_project_mcp = True
 
     # MCP servers: user scope in ~/.claude.json, project scope in .mcp.json.
-    global_config, existed = _read_json(os.path.join(home, ".claude.json"))
+    global_config, existed = read_json(os.path.join(home, ".claude.json"))
     if existed:
         saw_any = True
         if global_config is None:
@@ -443,7 +357,7 @@ def discover_claude_code(
 
     if project_root:
         mcp_path = os.path.join(project_root, ".mcp.json")
-        project_mcp, existed = _read_json(mcp_path)
+        project_mcp, existed = read_json(mcp_path)
         if existed:
             saw_any = True
             if project_mcp is None:
@@ -497,20 +411,16 @@ def discover_claude_code(
         for server, evidence in sorted(acc.mcp_tool_servers.items())
     ]
 
-    agent.credentials = _credentials(home)
+    agent.credentials = credentials(home)
 
     executable = shutil.which("claude")
     agent.agent = AgentInfo(
         type=AgentKind.CLAUDE_CODE,
         name="Claude Code",
-        version=_claude_version(executable),
+        version=probe_version(executable),
         install_path=executable,
     )
-    agent.device = DeviceInfo(
-        hostname=socket.gethostname(),
-        platform=platform.system(),
-        platform_version=platform.release() or None,
-    )
+    agent.device = device_info()
 
     # Says what was established and what was not, so a thin report is never
     # mistaken for a clean one.

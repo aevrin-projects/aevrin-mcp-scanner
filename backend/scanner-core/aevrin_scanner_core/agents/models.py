@@ -114,6 +114,10 @@ class McpServerRef(BaseModel):
     url: str | None = None
     # True only when a setting approves servers without prompting.
     auto_approved: bool = False
+    # False when the configuration explicitly switches the server off. A
+    # disabled server is still worth listing: it is configured, and enabling
+    # it is one edit away.
+    enabled: bool = True
 
 
 class HookRef(BaseModel):

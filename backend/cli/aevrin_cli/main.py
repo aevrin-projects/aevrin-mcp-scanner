@@ -10,7 +10,7 @@ from uuid import uuid4
 import httpx
 import typer
 from aevrin_scanner_core import Finding, Scan, ScanStage, ScanStatus, Severity, TargetType
-from aevrin_scanner_core.agents import discover_claude_code, managed_settings_path
+from aevrin_scanner_core.agents import codex_home, discover_all, managed_settings_path
 from aevrin_scanner_core.pipeline import PipelineConfig, run_pipeline
 
 from .rendering import output
@@ -264,33 +264,37 @@ def agent_scan(
     snapshot carries no credential values.
     """
     project_root = os.path.abspath(project)
-    agent = discover_claude_code(project_root=project_root)
+    home = os.path.expanduser("~")
+    agents = discover_all(project_root=project_root)
 
-    if agent is None:
+    if not agents:
         if json_output:
             print(json.dumps({"agents": []}, indent=2))
         else:
             print_no_agents([
-                os.path.join(os.path.expanduser("~"), ".claude", "settings.json"),
-                os.path.join(os.path.expanduser("~"), ".claude.json"),
+                os.path.join(home, ".claude", "settings.json"),
+                os.path.join(home, ".claude.json"),
                 os.path.join(project_root, ".claude", "settings.json"),
                 os.path.join(project_root, ".mcp.json"),
                 managed_settings_path(),
+                os.path.join(codex_home(home), "config.toml"),
             ])
         raise typer.Exit(code=0)
 
     if json_output:
-        print(json.dumps({"agents": [agent.model_dump(mode="json")]}, indent=2))
+        print(json.dumps({"agents": [a.model_dump(mode="json") for a in agents]}, indent=2))
     else:
-        print_agent_report(agent, verbose=verbose)
+        for agent in agents:
+            print_agent_report(agent, verbose=verbose)
 
     if upload:
         try:
-            upload_agent_snapshot([agent])
+            upload_agent_snapshot(agents)
         except UploadError as exc:
             output.print_error(str(exc))
             raise typer.Exit(code=2) from None
-        output.stderr_console.print("[green]Snapshot sent to your dashboard.[/green]")
+        noun = "Snapshot" if len(agents) == 1 else f"{len(agents)} snapshots"
+        output.stderr_console.print(f"[green]{noun} sent to your dashboard.[/green]")
 
     raise typer.Exit(code=0)
 
