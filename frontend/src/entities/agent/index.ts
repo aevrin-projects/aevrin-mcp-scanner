@@ -8,6 +8,7 @@ export type {
   Confidence,
   ConfigScope,
   CredentialRef,
+  Device,
   EffectiveCapability,
   GradeFactor,
   HookRef,
@@ -17,9 +18,11 @@ export type {
   McpServerRef,
   McpTrust,
   PluginRef,
+  Permission,
   PostureFactor,
   PostureRisk,
   RawPermission,
+  Skill,
   SkillRef,
   TrustGrade,
 } from "./model/types";
@@ -34,5 +37,6 @@ export {
 } from "./model/labels";
 export { agentApi } from "./api/agent-api";
 export { TrustGradeBadge } from "./ui/trust-grade-badge";
+export { groupByDevice } from "./model/devices";
 export { RiskBadge } from "./ui/risk-badge";
 export { ScopeBadge } from "./ui/scope-badge";

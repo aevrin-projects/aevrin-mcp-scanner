@@ -130,3 +130,36 @@ class McpAssetOut(BaseModel):
     enabled_everywhere: bool
     installations: list[McpInstallationOut]
     trust: McpTrustOut | None = None
+
+
+class SkillOut(BaseModel):
+    """One skill, on one agent, on one device.
+
+    Not correlated the way MCP servers are: a skill is a folder of prose on a
+    machine, with no URL or package to pin it to, so two skills sharing a name
+    are not evidence of being the same skill.
+    """
+
+    name: str
+    description: str | None
+    scope: ConfigScope
+    source_path: str
+    agent_id: UUID
+    agent_type: AgentKind
+    hostname: str
+
+
+class PermissionOut(BaseModel):
+    """One vendor rule exactly as written, with where it came from.
+
+    The normalised capability is what the product reasons about; this is what
+    the person actually typed, and what they would edit to change it.
+    """
+
+    rule: str
+    effect: str
+    scope: ConfigScope
+    source_path: str
+    agent_id: UUID
+    agent_type: AgentKind
+    hostname: str

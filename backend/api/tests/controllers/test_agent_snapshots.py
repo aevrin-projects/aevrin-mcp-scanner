@@ -417,3 +417,37 @@ def test_a_scan_correlates_through_identity_not_the_raw_string():
     trust = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0].trust
     assert trust is not None
     assert str(trust.scan_id) == scan_id
+
+
+def test_skills_carry_the_agent_and_device_they_are_installed_on():
+    document = snapshot(
+        skills=[
+            {"name": "deploy", "scope": "user", "source_path": "/home/a/.claude/skills/deploy/SKILL.md",
+             "description": "Ships things"}
+        ]
+    )
+    skills = asyncio.run(agent_controller.list_skills(USER, FakeDb([row(document)])))
+    assert len(skills) == 1
+    assert skills[0].name == "deploy"
+    assert skills[0].hostname == "DEV-042"
+    assert skills[0].description == "Ships things"
+
+
+def test_permission_rules_are_listed_allow_first():
+    document = snapshot(
+        permissions=[
+            {"rule": "Read(**)", "effect": "deny", "scope": "user", "source_path": "/x"},
+            {"rule": "Bash(npm run *)", "effect": "allow", "scope": "user", "source_path": "/x"},
+            {"rule": "WebFetch", "effect": "ask", "scope": "user", "source_path": "/x"},
+        ]
+    )
+    rules = asyncio.run(agent_controller.list_permissions(USER, FakeDb([row(document)])))
+    # A rule that grants is what someone scanning this page needs to see.
+    assert [r.effect for r in rules] == ["allow", "ask", "deny"]
+    assert rules[0].hostname == "DEV-042"
+
+
+def test_an_agent_with_no_skills_or_rules_contributes_nothing():
+    db = FakeDb([row()])
+    assert asyncio.run(agent_controller.list_skills(USER, db)) == []
+    assert asyncio.run(agent_controller.list_permissions(USER, db)) == []

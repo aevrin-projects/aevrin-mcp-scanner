@@ -1,6 +1,9 @@
 import {
   Blocks,
   Bot,
+  Laptop,
+  ShieldCheck,
+  Sparkles,
   ChartNoAxesCombined,
   CreditCard,
   History,
@@ -38,7 +41,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "AI security",
     items: [
       { href: "/agents", label: "Agents", icon: Bot, exact: true },
+      { href: "/agents/devices", label: "Devices", icon: Laptop },
       { href: "/agents/mcp", label: "MCP servers", icon: Blocks },
+      { href: "/agents/skills", label: "Skills", icon: Sparkles },
+      { href: "/agents/permissions", label: "Permissions", icon: ShieldCheck },
     ],
   },
   {

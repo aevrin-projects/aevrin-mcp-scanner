@@ -167,7 +167,17 @@ Once a device has reported, the dashboard shows it under **AI security**:
 |---|---|
 | **Agents** | Every agent that has reported, its device, its posture score and every deduction behind it |
 | An agent | Capabilities with their evidence, MCP servers, skills, plugins, hooks, permission rules, credentials in reach, and every file that was read |
+| **Devices** | Every machine that has reported, rated by the least restricted agent on it |
 | **MCP servers** | Every MCP server across every device, one row per server, with its scopes and trust grade |
+| **Skills** | Every skill installed, one row per installation, with its scope and source file |
+| **Permissions** | Every rule across every device, exactly as written, with the file it lives in |
+
+A device is rated by its **worst** agent, not an average: averaging lets one tidy agent hide the
+one that can reach everything.
+
+Skills are listed one row per installation rather than correlated the way MCP servers are. A skill
+is a folder of prose on a machine with no URL or package to pin it to, so two skills sharing a name
+are not evidence of being the same skill.
 
 **The dashboard is read-only about your machines.** It cannot add, remove, disable or edit an MCP
 server, and it cannot change a permission. Those live in files on your machine and are changed

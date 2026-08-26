@@ -23,6 +23,8 @@ from aevrin_api.schemas.agents import (
     AgentSnapshotUploadResponse,
     AgentSummaryOut,
     McpAssetOut,
+    PermissionOut,
+    SkillOut,
 )
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -57,6 +59,18 @@ async def list_mcp_servers(user: CurrentUser, db: Db) -> list[McpAssetOut]:
     reached from two agents is one asset with two installations.
     """
     return await agent_controller.list_mcp_assets(user.id, db)
+
+
+@router.get("/skills", response_model=list[SkillOut])
+async def list_skills(user: CurrentUser, db: Db) -> list[SkillOut]:
+    """Every skill installed on every reported device."""
+    return await agent_controller.list_skills(user.id, db)
+
+
+@router.get("/permissions", response_model=list[PermissionOut])
+async def list_permissions(user: CurrentUser, db: Db) -> list[PermissionOut]:
+    """Every permission rule across every reported device, exactly as written."""
+    return await agent_controller.list_permissions(user.id, db)
 
 
 @router.get("/{agent_id}", response_model=AgentDetailOut)

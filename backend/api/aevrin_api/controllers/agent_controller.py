@@ -32,7 +32,9 @@ from aevrin_api.schemas.agents import (
     McpAssetOut,
     McpInstallationOut,
     McpTrustOut,
+    PermissionOut,
     PostureFactorOut,
+    SkillOut,
 )
 
 # A posture snapshot is configuration metadata: a few hundred kilobytes is
@@ -292,6 +294,51 @@ async def list_mcp_assets(user_id: str, db: SupabaseRest) -> list[McpAssetOut]:
         )
     assets.sort(key=lambda a: (a.name.lower(), a.identity_key))
     return assets
+
+
+async def list_skills(user_id: str, db: SupabaseRest) -> list[SkillOut]:
+    rows = await db.select("agent_snapshots", {"user_id": user_id}, order="reported_at.desc")
+    skills: list[SkillOut] = []
+    for row in rows:
+        agent = DiscoveredAgent.model_validate(row["snapshot"])
+        skills.extend(
+            SkillOut(
+                name=skill.name,
+                description=skill.description,
+                scope=skill.scope,
+                source_path=skill.source_path,
+                agent_id=UUID(row["id"]),
+                agent_type=agent.kind,
+                hostname=row["hostname"],
+            )
+            for skill in agent.skills
+        )
+    skills.sort(key=lambda s: (s.name.lower(), s.hostname))
+    return skills
+
+
+async def list_permissions(user_id: str, db: SupabaseRest) -> list[PermissionOut]:
+    rows = await db.select("agent_snapshots", {"user_id": user_id}, order="reported_at.desc")
+    permissions: list[PermissionOut] = []
+    for row in rows:
+        agent = DiscoveredAgent.model_validate(row["snapshot"])
+        permissions.extend(
+            PermissionOut(
+                rule=permission.rule,
+                effect=permission.effect,
+                scope=permission.scope,
+                source_path=permission.source_path,
+                agent_id=UUID(row["id"]),
+                agent_type=agent.kind,
+                hostname=row["hostname"],
+            )
+            for permission in agent.permissions
+        )
+    # Allow first: a rule that grants is what someone scanning this page needs
+    # to see, and a deny buried above it wastes the top of the screen.
+    order = {"allow": 0, "ask": 1, "deny": 2}
+    permissions.sort(key=lambda p: (order.get(p.effect, 3), p.rule.lower(), p.hostname))
+    return permissions
 
 
 async def delete_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> None:

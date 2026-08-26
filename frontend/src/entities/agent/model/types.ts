@@ -200,3 +200,36 @@ export interface McpAsset {
   installations: McpInstallation[];
   trust: McpTrust | null;
 }
+
+export interface Skill {
+  name: string;
+  description: string | null;
+  scope: ConfigScope;
+  source_path: string;
+  agent_id: string;
+  agent_type: AgentKind;
+  hostname: string;
+}
+
+export interface Permission {
+  rule: string;
+  effect: "allow" | "ask" | "deny";
+  scope: ConfigScope;
+  source_path: string;
+  agent_id: string;
+  agent_type: AgentKind;
+  hostname: string;
+}
+
+/** Derived from the agent list rather than fetched: a device is the machine
+ *  its agents were reported from, and a separate endpoint would be the same
+ *  rows grouped differently. */
+export interface Device {
+  device_id: string;
+  hostname: string;
+  platform: string | null;
+  agents: AgentSummary[];
+  worst_risk: PostureRisk;
+  lowest_score: number;
+  last_reported: string;
+}
