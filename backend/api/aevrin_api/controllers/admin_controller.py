@@ -25,7 +25,8 @@ from aevrin_api.schemas.admin import (
     AdminUserDetail,
     AdminUserPage,
     AdminUserRow,
-    GrantAddonIn,
+    DeleteUserIn,
+    DeleteUserResult,
     OverrideIn,
     PasswordResetIn,
     PlanChangeIn,
@@ -48,7 +49,7 @@ from aevrin_api.services.admin_auth import (
     write_audit,
 )
 from aevrin_api.services.quota import Bucket, get_or_create_account, get_usage
-from aevrin_api.utils.crypto import ByokUnavailable
+from aevrin_api.utils.crypto import EncryptionUnavailable
 
 logger = logging.getLogger("aevrin.admin.controller")
 
@@ -89,9 +90,9 @@ async def totp_enrol(
     secret = new_secret()
     try:
         await store_secret(db, settings, user.id, secret)
-    except ByokUnavailable as exc:
+    except EncryptionUnavailable as exc:
         # The TOTP secret is stored encrypted with the same Fernet key the
-        # BYOK path uses. Without it configured this raised straight out as
+        # admin TOTP secrets use. Without it configured this raised straight out as
         # an opaque 500; confirmed live on first enrolment. Say what is
         # actually wrong instead, since only an operator can fix it.
         logger.error("admin totp: cannot encrypt secret, %s", exc)
@@ -275,7 +276,7 @@ async def set_override(
     limit_value = None if body.unlimited else body.limit_value
     if not body.unlimited and limit_value is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Set a limit, or tick unlimited.",
         )
     await db.insert(
@@ -306,61 +307,58 @@ async def clear_override(user_id: str, bucket: str, admin: AdminIdentity, db: Su
     return {"bucket": bucket}
 
 
-async def grant_addon(
-    user_id: str, body: GrantAddonIn, admin: AdminIdentity, db: SupabaseRest, settings: Settings
-) -> dict[str, Any]:
-    account = await get_or_create_account(db, user_id)
-    result: dict[str, Any] = {"addon": body.addon}
+async def delete_user(
+    user_id: str,
+    body: DeleteUserIn,
+    admin: AdminIdentity,
+    db: SupabaseRest,
+    settings: Settings,
+) -> DeleteUserResult:
+    """Delete an account and everything that cascades from it.
 
-    if body.addon == "byok":
-        # Only flips entitlement. The key itself stays the customer's to
-        # supply through their own settings; an admin must never be able to
-        # set or see it.
-        await db.update("accounts", {"user_id": user_id}, {"byok_enabled": True})
-        result |= {"byok_enabled": True, "note": "The customer still supplies their own key."}
+    Irreversible, so it is gated three ways: an admin session, a fresh TOTP
+    code, and the account's own email typed back. The email check is the one
+    that catches the wrong-row click, which is the realistic failure here --
+    nobody deletes the wrong account on purpose.
+    """
+    await require_sudo(db, settings, admin, body.totp_code)
 
-    else:  # scan_credits
-        if not body.bucket:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Choose which scan bucket to top up.",
-            )
-        # Extra scan credits are not a separate counter in this product;
-        # they are a higher ceiling, which is exactly what a quota override
-        # is. Implemented on top of the plan's current limit so "grant 25
-        # more" means 25 more than they have now, not a flat 25.
-        from aevrin_api.services.quota import _tier_limit
+    identity = await db.rpc("admin_user_identity", {"p_user_id": user_id})
+    target_email = identity[0].get("email") if identity else None
+    if not target_email:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such user.")
 
-        base = await _tier_limit(db, account, body.bucket)
-        if base is None:
-            result |= {"note": "This account is already unlimited on that bucket; nothing to grant."}
-            await write_audit(
-                db, admin, "account.addon_grant", target_user_id=user_id,
-                target_resource=body.addon, reason=body.reason,
-                metadata={"bucket": body.bucket, "noop": True},
-            )
-            return result
-        new_limit = base + body.quantity
-        await db.insert(
-            "account_quota_overrides",
-            {
-                "user_id": user_id,
-                "bucket": body.bucket,
-                "limit_value": new_limit,
-                "expires_at": body.expires_at,
-                "reason": body.reason,
-                "created_by": admin.user_id,
-            },
-            upsert_on="user_id,bucket",
+    if body.confirm_email.strip().lower() != str(target_email).strip().lower():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="That email does not match this account. Nothing was deleted.",
         )
-        result |= {"bucket": body.bucket, "was": base, "now": new_limit}
 
+    # An admin cannot delete their own login out from under the panel, and
+    # cannot delete another admin: recovering from either means editing the
+    # allowlist and the database by hand.
+    if is_allowlisted(settings, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is on the admin allowlist. Remove it from ADMIN_USER_IDS first.",
+        )
+
+    # Written BEFORE the delete. The account row is about to vanish, and an
+    # audit entry that depends on reading it afterwards would record nothing.
     await write_audit(
-        db, admin, "account.addon_grant",
-        target_user_id=user_id, target_resource=body.addon, reason=body.reason,
-        metadata={"quantity": body.quantity, "bucket": body.bucket, "comp": True, **result},
+        db, admin, "account.delete",
+        target_user_id=user_id, target_email=str(target_email), reason=body.reason,
+        metadata={"irreversible": True},
     )
-    return result
+
+    rows = await db.rpc("admin_delete_user", {"p_user_id": user_id})
+    result = rows[0] if isinstance(rows, list) and rows else {}
+    return DeleteUserResult(
+        email=str(result.get("email") or target_email),
+        scans_deleted=int(result.get("scans_deleted") or 0),
+        findings_deleted=int(result.get("findings_deleted") or 0),
+        payments_deleted=int(result.get("payments_deleted") or 0),
+    )
 
 
 async def reset_usage(user_id: str, body: ResetUsageIn, admin: AdminIdentity, db: SupabaseRest, settings: Settings) -> dict[str, Any]:
@@ -391,7 +389,7 @@ async def send_password_reset(user_id: str, body: PasswordResetIn, admin: AdminI
     row = identity[0]
     if not row.get("has_password"):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="This account signs in with Google or GitHub and has no password to reset.",
         )
 

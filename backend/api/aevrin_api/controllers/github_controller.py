@@ -157,7 +157,9 @@ async def github_callback(
     code: str | None = None,
     setup_action: str | None = None,
 ) -> RedirectResponse:
-    settings_url = f"{settings.web_origin}/settings/billing"
+    # Integrations, not billing: connecting GitHub is an integration, and it
+    # used to be presented as a billing "add-on" priced "Included".
+    settings_url = f"{settings.web_origin}/integrations"
 
     if setup_action == "request":
         return RedirectResponse(f"{settings_url}?github=approval_pending")

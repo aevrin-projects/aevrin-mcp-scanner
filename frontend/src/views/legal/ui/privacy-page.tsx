@@ -57,9 +57,7 @@ export function PrivacyPage() {
               finding&apos;s title, description, and category (not your source code or repository
               contents) may be sent to a third-party language model provider to help
               explain and prioritize a result already produced by those tools. This review step is
-              fail-open: if it doesn&apos;t run or fails, the deterministic result is shown as-is. If
-              you bring your own LLM API key (BYOK), your key is encrypted at rest and used only to
-              call the provider you configured.
+              fail-open: if it doesn&apos;t run or fails, the deterministic result is shown as-is.
             </p>
           </section>
           <section>

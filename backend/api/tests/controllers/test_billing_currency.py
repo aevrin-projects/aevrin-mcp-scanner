@@ -15,8 +15,6 @@ from aevrin_api.controllers.billing_controller import (
     _DEFAULT_CURRENCY,
     _PRICE_CENTS,
     _PRICE_PAISE_INR,
-    _byok_addon_amount,
-    _byok_addon_cents,
     _tier_amount,
     resolve_currency,
 )
@@ -56,18 +54,6 @@ def test_annual_is_cheaper_than_twelve_months_in_both_currencies() -> None:
     for tier in ("hobby", "pro", "team"):
         for table in (_PRICE_CENTS, _PRICE_PAISE_INR):
             assert table[(tier, "annual")] < table[(tier, "monthly")] * 12
-
-
-def test_byok_addon_is_flat_three_dollars_per_month() -> None:
-    assert _byok_addon_cents("monthly") == 300
-    assert _byok_addon_cents("annual") == 3_600
-
-
-def test_addon_amounts_follow_the_resolved_currency() -> None:
-    assert _byok_addon_amount("monthly", "USD") == 300
-    assert _byok_addon_amount("annual", "USD") == 3_600
-    assert _byok_addon_amount("monthly", "INR") == 19_900
-    assert _byok_addon_amount("annual", "INR") == 238_800
 
 
 def test_tier_amount_selects_the_right_table() -> None:

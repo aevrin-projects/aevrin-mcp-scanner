@@ -82,10 +82,9 @@ class Settings(BaseSettings):
     deepseek_api_key: str | None = None
 
     # Fernet key (44-char urlsafe-base64, `Fernet.generate_key()`) used to
-    # encrypt a BYOK account's own model API key before it's stored in
-    # accounts.byok_key_encrypted; see crypto.py. None means BYOK key
-    # storage is disabled (accounts can still buy the add-on, just can't
-    # save a key yet), not an error.
+    # encrypt secrets this server holds on a user's behalf -- today only
+    # admin TOTP secrets; see crypto.py. None means secret storage is
+    # disabled, which is a refusal at the point of use, not an error here.
     byok_encryption_key: str | None = None
 
     # Admin panel. The allowlist is an explicit comma-separated list of

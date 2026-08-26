@@ -25,8 +25,6 @@ from aevrin_api.integrations.razorpay_client import (
     verify_webhook_signature,
 )
 from aevrin_api.schemas import (
-    ByokKeyRequest,
-    ByokStatusResponse,
     CheckoutRequest,
     CheckoutResponse,
     PaymentOut,
@@ -36,7 +34,6 @@ from aevrin_api.schemas import (
     VerifyPaymentResponse,
 )
 from aevrin_api.services.quota import effective_tier, get_or_create_account
-from aevrin_api.utils.crypto import ByokUnavailable, encrypt_byok_key
 
 logger = logging.getLogger("aevrin.billing")
 
@@ -63,15 +60,6 @@ _PRICE_CENTS: dict[tuple[str, str], int] = {
     ("team", "monthly"): 3_400,
     ("team", "annual"): 33_600,
 }
-# Flat platform fee, not a token markup (addendum §3), same $3/mo whichever
-# tier or provider. Charged for the same number of months as the base cycle
-# so an annual checkout pays 12 months of the add-on up front, matching how
-# the base tier price is itself annualized above.
-_BYOK_ADDON_CENTS_PER_MONTH = 300
-# +10 auto-fix PRs, Pro/Team only, never sold standalone (V5 prompt §5);
-# same "requires an active paid subscription" rule as the BYOK add-on above.
-# Flat one-time price, not seat-multiplied; mirrors how the BYOK add-on
-# above is also charged once per order regardless of body.seats.
 
 # India is priced for its own market rather than converted from USD. A
 # straight FX conversion (~x88) would put Pro at over Rs 2,900/month, which
@@ -93,7 +81,6 @@ _PRICE_PAISE_INR: dict[tuple[str, str], int] = {
     ("team", "monthly"): 159_900,
     ("team", "annual"): 1_599_900,
 }
-_BYOK_ADDON_PAISE_PER_MONTH_INR = 19_900
 
 _DEFAULT_CURRENCY = "USD"
 _INR = "INR"
@@ -133,14 +120,8 @@ def _tier_amount(tier: str, cycle: str, currency: str) -> int:
     return table[(tier, cycle)]
 
 
-def _byok_addon_amount(cycle: str, currency: str) -> int:
-    months = 12 if cycle == "annual" else 1
-    per_month = _BYOK_ADDON_PAISE_PER_MONTH_INR if currency == _INR else _BYOK_ADDON_CENTS_PER_MONTH
-    return per_month * months
 
 
-def _byok_addon_cents(cycle: str) -> int:
-    return _BYOK_ADDON_CENTS_PER_MONTH * (12 if cycle == "annual" else 1)
 
 
 def _paid_until(existing: str | None, cycle: str) -> datetime:
@@ -192,7 +173,6 @@ def get_pricing(country: str | None, currency: str | None = None) -> PricingResp
     return PricingResponse(
         currency=resolved,
         tiers={f"{tier}_{cycle}": amount for (tier, cycle), amount in table.items()},
-        byok_addon_per_month=_byok_addon_amount("monthly", resolved),
     )
 
 
@@ -206,8 +186,6 @@ async def create_checkout(
 ) -> CheckoutResponse:
     currency = resolve_currency(country, currency_preference)
     amount_paise = _tier_amount(body.tier, body.cycle, currency) * body.seats
-    if body.byok:
-        amount_paise += _byok_addon_amount(body.cycle, currency)
     try:
         client = RazorpayClient(settings)
     except RazorpayUnavailable as exc:
@@ -225,7 +203,6 @@ async def create_checkout(
             "tier": body.tier,
             "cycle": body.cycle,
             "seats": str(body.seats),
-            "byok": str(body.byok),
         },
     )
 
@@ -237,7 +214,6 @@ async def create_checkout(
             "tier": body.tier,
             "cycle": body.cycle,
             "seats": body.seats,
-            "byok": body.byok,
             "amount_paise": amount_paise,
             "currency": currency,
             "razorpay_order_id": order["id"],
@@ -247,55 +223,6 @@ async def create_checkout(
 
     return CheckoutResponse(
         order_id=order["id"], amount_paise=amount_paise, currency=currency, razorpay_key_id=settings.razorpay_key_id or ""
-    )
-
-
-async def create_byok_addon_checkout(
-    country: str | None, user_id: str, db: SupabaseRest, settings: Settings
-) -> CheckoutResponse:
-    account = await get_or_create_account(db, user_id)
-    if effective_tier(account) == "free":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Bring-your-own-key requires an active paid plan.",
-        )
-    if account.get("byok_enabled"):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Bring-your-own-key is already active on this account.",
-        )
-    try:
-        client = RazorpayClient(settings)
-    except RazorpayUnavailable as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing isn't configured yet.") from exc
-
-    currency = resolve_currency(country)
-    addon_amount = _byok_addon_amount("monthly", currency)
-
-    receipt = f"aevrin_{uuid.uuid4().hex}"
-    order = await _create_order_or_503(
-        client,
-        amount_paise=addon_amount,
-        currency=currency,
-        receipt=receipt,
-        notes={"aevrin_user_id": user_id, "tier": "byok_addon"},
-    )
-    await db.insert(
-        "payments",
-        {
-            "user_id": user_id,
-            "tier": "byok_addon",
-            "cycle": "monthly",
-            "seats": 1,
-            "byok": True,
-            "amount_paise": addon_amount,
-            "currency": currency,
-            "razorpay_order_id": order["id"],
-            "status": "created",
-        },
-    )
-    return CheckoutResponse(
-        order_id=order["id"], amount_paise=addon_amount, currency=currency, razorpay_key_id=settings.razorpay_key_id or ""
     )
 
 
@@ -324,11 +251,10 @@ async def verify_payment(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment signature mismatch")
 
     account = await get_or_create_account(db, user_id)
-    # "autofix_addon" is no longer sold, but rows for it are still in
-    # `payments` and a browser can re-verify one at any time. It has to stay
-    # recognised here: an add-on must never extend paid_until, and dropping
-    # the tier from this tuple would silently hand an old one-off purchase a
-    # month of Pro. It grants nothing now -- see the claim block below.
+    # Neither add-on is sold any more and both granted things that no longer
+    # exist. They stay recognised here purely as a safety property: an add-on
+    # must never extend paid_until, and dropping these tiers from the tuple
+    # would let a resurrected one-off row silently hand out a month of Pro.
     is_addon = payment["tier"] in ("autofix_addon", "byok_addon")
     existing_paid_until = account.get("paid_until")
     new_paid_until = (
@@ -353,12 +279,10 @@ async def verify_payment(
         },
     )
     if claimed:
-        if payment["tier"] == "byok_addon":
-            await db.update("accounts", {"user_id": user_id}, {"byok_enabled": True})
-        elif is_addon:
-            # A historical auto-fix add-on. What it topped up no longer
-            # exists, so there is nothing to credit; the row is still marked
-            # paid so it stops looking unsettled.
+        if is_addon:
+            # A historical add-on. What it granted no longer exists, so there
+            # is nothing to credit; the row is still marked paid so it stops
+            # looking unsettled.
             pass
         else:
             await db.update("accounts", {"user_id": user_id}, _account_update_for_payment(payment, new_paid_until))
@@ -413,12 +337,9 @@ async def razorpay_webhook(
 
     account = await get_or_create_account(db, payment["user_id"])
 
-    # Branch on the exact tier, not on "is this an add-on": an add-on leaves
-    # tier and paid_until alone, and collapsing the cases would let a
-    # historical auto-fix row fall through and extend a subscription.
-    if payment["tier"] == "byok_addon":
-        await db.update("accounts", {"user_id": payment["user_id"]}, {"byok_enabled": True})
-    elif payment["tier"] == "autofix_addon":
+    # A historical add-on leaves tier and paid_until alone. Collapsing this
+    # into the general case would let such a row extend a subscription.
+    if payment["tier"] in ("autofix_addon", "byok_addon"):
         pass  # No longer sold and nothing left to credit; see /verify above.
     else:
         new_paid_until = _paid_until(account.get("paid_until"), payment["cycle"])
@@ -435,8 +356,6 @@ def _account_update_for_payment(payment: dict[str, object], new_paid_until: date
         "paid_until": new_paid_until.isoformat(),
         "seats": payment.get("seats", 1),
     }
-    if payment.get("byok"):
-        update["byok_enabled"] = True
     return update
 
 
@@ -450,33 +369,3 @@ async def get_subscription(user_id: str, db: SupabaseRest) -> SubscriptionRespon
 async def list_payments(user_id: str, db: SupabaseRest) -> list[PaymentOut]:
     rows = await db.select("payments", {"user_id": user_id}, order="created_at.desc", limit=100)
     return [PaymentOut(**row) for row in rows]
-
-
-async def get_byok_status(user_id: str, db: SupabaseRest) -> ByokStatusResponse:
-    account = await get_or_create_account(db, user_id)
-    return ByokStatusResponse(
-        enabled=bool(account.get("byok_enabled")),
-        provider=account.get("byok_provider"),
-        has_key=bool(account.get("byok_key_encrypted")),
-    )
-
-
-async def set_byok_key(
-    body: ByokKeyRequest, user_id: str, db: SupabaseRest, settings: Settings
-) -> ByokStatusResponse:
-    account = await get_or_create_account(db, user_id)
-    if not account.get("byok_enabled"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Buy the BYOK add-on before saving a key.")
-    try:
-        encrypted = encrypt_byok_key(settings, body.api_key)
-    except ByokUnavailable as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="BYOK key storage isn't configured yet.") from exc
-    await db.update(
-        "accounts", {"user_id": user_id}, {"byok_provider": body.provider, "byok_key_encrypted": encrypted}
-    )
-    return ByokStatusResponse(enabled=True, provider=body.provider, has_key=True)
-
-
-async def clear_byok_key(user_id: str, db: SupabaseRest) -> dict[str, str]:
-    await db.update("accounts", {"user_id": user_id}, {"byok_provider": None, "byok_key_encrypted": None})
-    return {"status": "ok"}

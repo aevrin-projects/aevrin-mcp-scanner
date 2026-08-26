@@ -36,7 +36,7 @@ from fastapi import HTTPException, Request, status
 from aevrin_api.config import Settings
 from aevrin_api.core.security import AuthenticatedUser
 from aevrin_api.db import SupabaseRest
-from aevrin_api.utils.crypto import decrypt_byok_key, encrypt_byok_key
+from aevrin_api.utils.crypto import decrypt_secret, encrypt_secret
 
 logger = logging.getLogger("aevrin.admin")
 
@@ -92,7 +92,7 @@ def new_secret() -> str:
 async def store_secret(db: SupabaseRest, settings: Settings, user_id: str, secret: str) -> None:
     await db.insert(
         "admin_totp",
-        {"user_id": user_id, "encrypted_secret": encrypt_byok_key(settings, secret), "confirmed_at": None},
+        {"user_id": user_id, "encrypted_secret": encrypt_secret(settings, secret), "confirmed_at": None},
         upsert_on="user_id",
     )
 
@@ -116,7 +116,7 @@ async def verify_code(
     row = await _load_totp_row(db, user_id)
     if not row:
         return False
-    secret = decrypt_byok_key(settings, str(row["encrypted_secret"]))
+    secret = decrypt_secret(settings, str(row["encrypted_secret"]))
     if not secret:
         logger.error("admin totp: secret for %s could not be decrypted", user_id)
         return False

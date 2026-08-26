@@ -1,18 +1,17 @@
-"""Razorpay Standard Checkout, plans, add-ons, and BYOK."""
+"""Razorpay Standard Checkout, plans and payments."""
 
 from __future__ import annotations
 
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class CheckoutRequest(BaseModel):
     tier: str
     cycle: str
     seats: int = 1
-    byok: bool = False
 
     @field_validator("tier")
     @classmethod
@@ -48,7 +47,6 @@ class PricingResponse(BaseModel):
 
     currency: str
     tiers: dict[str, int]
-    byok_addon_per_month: int
 
 
 class CheckoutResponse(BaseModel):
@@ -81,27 +79,8 @@ class PaymentOut(BaseModel):
     tier: str
     cycle: str
     seats: int = 1
-    byok: bool = False
     amount_paise: int
     currency: str
     status: str
     created_at: datetime
     verified_at: datetime | None = None
-
-
-class ByokStatusResponse(BaseModel):
-    enabled: bool  # whether the account has purchased the BYOK add-on
-    provider: str | None = None
-    has_key: bool  # whether a key has actually been saved yet
-
-
-class ByokKeyRequest(BaseModel):
-    provider: str
-    api_key: str = Field(min_length=8, max_length=500)
-
-    @field_validator("provider")
-    @classmethod
-    def _valid_provider(cls, v: str) -> str:
-        if v not in {"anthropic", "google"}:
-            raise ValueError("provider must be one of ['anthropic', 'google']")
-        return v

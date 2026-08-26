@@ -2,8 +2,9 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, Gift, KeyRound, RotateCcw, ShieldOff, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, Gift, KeyRound, RotateCcw, ShieldOff, SlidersHorizontal, Trash2 } from "lucide-react";
 import { ApiError } from "@/shared/api";
 import { StatusPill, adminApi } from "@/entities/admin";
 import type { AdminUserDetail } from "@/entities/admin";
@@ -67,7 +68,7 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-6">
-          <GrantAddons detail={detail} onDone={load} />
+          <GrantPlan detail={detail} onDone={load} />
           <QuotaOverrides detail={detail} onDone={load} />
           <DangerZone detail={detail} onDone={load} />
         </div>
@@ -116,102 +117,112 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
   );
 }
 
-/** Comp an add-on the customer would otherwise pay for. */
-function GrantAddons({ detail, onDone }: { detail: AdminUserDetail; onDone: () => Promise<void> }) {
-  const [addon, setAddon] = useState<"byok" | "scan_credits">("byok");
-  const [quantity, setQuantity] = useState(10);
-  const [bucket, setBucket] = useState("cli");
+/** Comp a plan the customer would otherwise pay for. */
+function GrantPlan({ detail, onDone }: { detail: AdminUserDetail; onDone: () => Promise<void> }) {
+  const [tier, setTier] = useState("pro");
+  const [months, setMonths] = useState(12);
   const [reason, setReason] = useState("");
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function grant() {
     setBusy(true);
     try {
-      const result = await adminApi.grantAddon(detail.user_id, {
-        addon,
-        quantity,
-        bucket: addon === "scan_credits" ? bucket : undefined,
-        reason,
-      });
-      toast.success(`Granted. ${result.note ?? ""}`);
+      await adminApi.setPlan(detail.user_id, { tier, reason, months, totp_code: code });
+      toast.success(
+        tier === "free"
+          ? "Moved to Free."
+          : `Granted ${tier} for ${months} month${months === 1 ? "" : "s"}.`,
+      );
       setReason("");
+      setCode("");
       await onDone();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Could not grant that add-on.");
+      toast.error(err instanceof ApiError ? err.message : "Could not change the plan.");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Panel title="Grant an add-on" icon={<Gift className="size-4 text-brand-text" />}>
+    <Panel title="Grant a plan" icon={<Gift className="size-4 text-brand-text" />}>
       <p className="text-sm text-muted-foreground">
-        Comped add-ons are indistinguishable from purchased ones at the point of use; the product reads the same
-        state either way.
+        Entitlement only, with no payment object. A comped plan is indistinguishable from a purchased
+        one at the point of use, because the entitlement <em>is</em> tier plus paid-until.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="addon">Add-on</Label>
+          <Label htmlFor="plan-tier">Plan</Label>
           <Select
-            id="addon"
+            id="plan-tier"
             className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
-            value={addon}
-            onChange={(e) => setAddon(e.target.value as typeof addon)}
+            value={tier}
+            onChange={(e) => setTier(e.target.value)}
           >
-            <option value="byok">Bring your own API key</option>
-            <option value="scan_credits">Extra scan credits</option>
+            <option value="hobby">Hobby</option>
+            <option value="pro">Pro</option>
+            <option value="team">Team</option>
+            <option value="free">Free (revoke)</option>
           </Select>
         </div>
 
-        {addon !== "byok" ? (
+        {tier !== "free" ? (
           <div className="space-y-1.5">
-            <Label htmlFor="qty">Extra scans</Label>
-            <Input
-              id="qty"
-              type="number"
-              min={1}
-              value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
-            />
-          </div>
-        ) : null}
-
-        {addon === "scan_credits" ? (
-          <div className="space-y-1.5">
-            <Label htmlFor="bucket">Bucket</Label>
-            <Select
-              id="bucket"
-              className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
-              value={bucket}
-              onChange={(e) => setBucket(e.target.value)}
-            >
-              <option value="cli">CLI scans</option>
-              <option value="hook">Hook auto-scans</option>
-              <option value="dashboard">Dashboard scans</option>
-            </Select>
+            <Label htmlFor="plan-months">Length</Label>
+            {/* Buttons rather than a number field: these are the four grants
+                anyone actually makes, and a year is one click. */}
+            <div className="flex gap-1.5">
+              {[1, 3, 6, 12].map((n) => (
+                <Button
+                  key={n}
+                  type="button"
+                  size="sm"
+                  variant={months === n ? "default" : "outline"}
+                  onClick={() => setMonths(n)}
+                >
+                  {n === 12 ? "1 year" : `${n}mo`}
+                </Button>
+              ))}
+            </div>
           </div>
         ) : null}
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="grant-reason">Reason (goes to the audit log)</Label>
+        <Label htmlFor="plan-reason">Reason (goes to the audit log)</Label>
         <Input
-          id="grant-reason"
+          id="plan-reason"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="e.g. goodwill after the scan outage"
+          placeholder="e.g. design partner for the first year"
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="plan-code">Authentication code</Label>
+        <Input
+          id="plan-code"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="123456"
         />
       </div>
 
       <Button disabled={busy || reason.trim().length < 3} onClick={() => void grant()}>
-        {busy ? "Granting…" : "Grant add-on"}
+        {busy
+          ? "Applying…"
+          : tier === "free"
+            ? "Move to Free"
+            : `Grant ${tier} for ${months === 12 ? "1 year" : months + " months"}`}
       </Button>
 
-      {addon === "byok" ? (
+      {detail.paid_until ? (
         <p className="text-xs text-muted-foreground">
-          This only enables the entitlement. The customer still supplies their own key; an admin can never set or
-          see it.
+          A grant replaces the current paid-until date rather than extending it. Currently{" "}
+          {new Date(detail.paid_until).toLocaleDateString()}.
         </p>
       ) : null}
     </Panel>
@@ -351,9 +362,50 @@ function QuotaOverrides({ detail, onDone }: { detail: AdminUserDetail; onDone: (
 
 /** Actions that need the second factor presented with the request. */
 function DangerZone({ detail, onDone }: { detail: AdminUserDetail; onDone: () => Promise<void> }) {
+  const router = useRouter();
   const [reason, setReason] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmEmail, setConfirmEmail] = useState("");
+
+  // The realistic failure is the wrong row, not malice: a legitimate session,
+  // a valid code, and the wrong account open. Typing the email back is the
+  // check that catches it, and the server enforces it too.
+  // An account without an email (an OAuth identity that never supplied one)
+  // cannot be confirmed this way, so deletion stays disabled rather than
+  // falling back to a weaker check.
+  const emailMatches =
+    Boolean(detail.email) &&
+    confirmEmail.trim().toLowerCase() === (detail.email ?? "").trim().toLowerCase();
+
+  async function deleteAccount() {
+    if (
+      !window.confirm(
+        `Permanently delete ${detail.email}?
+
+` +
+          "This removes the login and every scan, finding, API key, agent snapshot and payment " +
+          "record belonging to it. It cannot be undone.",
+      )
+    )
+      return;
+
+    setBusy(true);
+    try {
+      const result = await adminApi.deleteUser(detail.user_id, {
+        confirm_email: confirmEmail,
+        reason,
+        totp_code: code,
+      });
+      toast.success(
+        `Deleted ${result.email}: ${result.scans_deleted} scans, ${result.findings_deleted} findings, ${result.payments_deleted} payments.`,
+      );
+      router.push("/admin/users");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not delete the account.");
+      setBusy(false);
+    }
+  }
 
   async function setStatus(next: "active" | "disabled" | "blocked") {
     const consequence =
@@ -448,6 +500,34 @@ function DangerZone({ detail, onDone }: { detail: AdminUserDetail; onDone: () =>
           This account signs in with {detail.auth_providers.join(" / ") || "OAuth"} and has no password to reset.
         </p>
       ) : null}
+
+      <div className="mt-2 space-y-3 rounded-lg border border-severity-critical/40 bg-severity-critical/5 p-3">
+        <div>
+          <p className="text-sm font-medium text-severity-critical">Delete this account</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Removes the login and every scan, finding, API key, agent snapshot and payment record
+            belonging to it. There is no undo and no export first. Blocking is the reversible option.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="dz-confirm">Type {detail.email ?? "this account’s email"} to confirm</Label>
+          <Input
+            id="dz-confirm"
+            value={confirmEmail}
+            onChange={(e) => setConfirmEmail(e.target.value)}
+            placeholder={detail.email ?? ""}
+            autoComplete="off"
+          />
+        </div>
+        <Button
+          variant="destructive"
+          disabled={busy || !emailMatches || reason.trim().length < 3 || code.trim().length < 6}
+          onClick={() => void deleteAccount()}
+        >
+          <Trash2 className="size-3.5" />
+          {busy ? "Deleting…" : "Delete permanently"}
+        </Button>
+      </div>
     </Panel>
   );
 }

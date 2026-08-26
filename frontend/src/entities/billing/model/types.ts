@@ -13,7 +13,6 @@ export interface Payment {
   tier: "hobby" | "pro" | "team" | "autofix_addon";
   cycle: "monthly" | "annual";
   seats: number;
-  byok: boolean;
   amount_paise: number;
   currency: string;
   status: "created" | "paid" | "failed";

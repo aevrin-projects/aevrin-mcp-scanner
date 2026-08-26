@@ -1,10 +1,18 @@
-"""Envelope encryption for BYOK model API keys (accounts.byok_key_encrypted).
+"""Envelope encryption for secrets this server holds on a user's behalf.
+
+Today that is exactly one thing: admin TOTP secrets. It was written for
+bring-your-own-key model credentials, which no longer exist.
 
 Fernet, not a bespoke scheme: it's authenticated (tamper-evident) symmetric
 encryption from a well-reviewed library, which is all this needs: one
-server-held key (BYOK_ENCRYPTION_KEY), one column of ciphertext per account.
-No key rotation support here, matching every other single-secret env var in
-this codebase (config.py); add rotation if/when that's actually needed.
+server-held key, one column of ciphertext. No key rotation support here,
+matching every other single-secret env var in this codebase (config.py).
+
+The env var is still called BYOK_ENCRYPTION_KEY. Renaming it is not a
+cosmetic change: the admin TOTP secrets in production are encrypted under
+that value, and a rename that failed to carry the value across would lock
+every admin out of their own panel. The name is wrong; breaking sign-in to
+fix a name is worse.
 """
 
 from __future__ import annotations
@@ -14,20 +22,21 @@ from cryptography.fernet import Fernet, InvalidToken
 from aevrin_api.config import Settings
 
 
-class ByokUnavailable(Exception):
+class EncryptionUnavailable(Exception):
     pass
 
 
-def encrypt_byok_key(settings: Settings, plaintext_key: str) -> str:
+def encrypt_secret(settings: Settings, plaintext: str) -> str:
     if not settings.byok_encryption_key:
-        raise ByokUnavailable("BYOK_ENCRYPTION_KEY is not configured")
-    return Fernet(settings.byok_encryption_key.encode()).encrypt(plaintext_key.encode()).decode()
+        raise EncryptionUnavailable("BYOK_ENCRYPTION_KEY is not configured")
+    return Fernet(settings.byok_encryption_key.encode()).encrypt(plaintext.encode()).decode()
 
 
-def decrypt_byok_key(settings: Settings, ciphertext: str) -> str | None:
-    """None on any failure (bad/rotated key, corrupt data); a BYOK call
-    that can't decrypt its key must fail open to the pooled key, exactly
-    like every other triage failure mode in triage.py, not 500."""
+def decrypt_secret(settings: Settings, ciphertext: str) -> str | None:
+    """None on any failure (bad/rotated key, corrupt data), never a 500.
+
+    The caller decides what an undecryptable secret means. For admin TOTP it
+    means the code cannot be verified, which is a refusal, not a bypass."""
     if not settings.byok_encryption_key:
         return None
     try:

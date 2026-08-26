@@ -25,7 +25,8 @@ from aevrin_api.schemas.admin import (
     AdminSessionOut,
     AdminUserDetail,
     AdminUserPage,
-    GrantAddonIn,
+    DeleteUserIn,
+    DeleteUserResult,
     OverrideIn,
     PasswordResetIn,
     PlanChangeIn,
@@ -166,11 +167,16 @@ async def clear_override(user_id: str, bucket: str, admin: AdminDep, db: DbDep) 
     return await admin_controller.clear_override(user_id, bucket, admin, db)
 
 
-@router.post("/users/{user_id}/addons")
-async def grant_addon(
-    user_id: str, body: GrantAddonIn, admin: AdminDep, db: DbDep, settings: SettingsDep
-) -> dict[str, Any]:
-    return await admin_controller.grant_addon(user_id, body, admin, db, settings)
+@router.delete("/users/{user_id}", response_model=DeleteUserResult)
+async def delete_user(
+    user_id: str,
+    body: DeleteUserIn,
+    admin: AdminDep,
+    db: DbDep,
+    settings: SettingsDep,
+) -> DeleteUserResult:
+    """Delete an account and every row that cascades from it. Irreversible."""
+    return await admin_controller.delete_user(user_id, body, admin, db, settings)
 
 
 @router.post("/users/{user_id}/reset-usage")

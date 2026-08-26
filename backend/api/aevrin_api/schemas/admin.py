@@ -68,6 +68,8 @@ class StatusChangeIn(BaseModel):
 class PlanChangeIn(BaseModel):
     tier: Literal["free", "hobby", "pro", "team"]
     reason: str = Field(min_length=3, max_length=500)
+    # 1, 3, 6 or 12 in the UI; the bound stays wider so a longer comp is
+    # possible without a code change.
     months: int = Field(default=1, ge=1, le=36)
     totp_code: str | None = None
 
@@ -79,20 +81,22 @@ class OverrideIn(BaseModel):
     expires_at: str | None = None
     reason: str = Field(min_length=3, max_length=500)
 
-class GrantAddonIn(BaseModel):
-    """Comp an add-on the customer would otherwise buy.
+class DeleteUserIn(BaseModel):
+    """Deleting an account is irreversible, so the request has to prove intent
+    three ways: an admin session, a fresh TOTP code, and the account's own
+    email typed back. The email is the one that catches the wrong-row click."""
 
-    Each maps onto state the product already reads, so a granted add-on is
-    indistinguishable from a purchased one at the point of use, no parallel
-    "was this comped" branch anywhere in the product code.
-    """
-
-    addon: Literal["byok", "scan_credits"]
-    quantity: int = Field(default=10, ge=1, le=1000)
-    # scan_credits: which bucket to raise, and by how much over the plan.
-    bucket: Literal["cli", "hook", "dashboard"] | None = None
-    expires_at: str | None = None
+    confirm_email: str = Field(min_length=3, max_length=320)
     reason: str = Field(min_length=3, max_length=500)
+    totp_code: str | None = None
+
+
+class DeleteUserResult(BaseModel):
+    email: str
+    scans_deleted: int
+    findings_deleted: int
+    payments_deleted: int
+
 
 class ResetUsageIn(BaseModel):
     bucket: Literal["cli", "hook", "dashboard"]

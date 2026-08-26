@@ -22,10 +22,16 @@ export const adminApi = {
     request<{ status: string }>(`/admin/users/${id}/status`, { method: "POST", body: JSON.stringify(body) }),
   setPlan: (id: string, body: { tier: string; reason: string; months: number; totp_code: string }) =>
     request<{ tier: string }>(`/admin/users/${id}/plan`, { method: "POST", body: JSON.stringify(body) }),
-  grantAddon: (
+  deleteUser: (
     id: string,
-    body: { addon: string; quantity?: number; bucket?: string; expires_at?: string | null; reason: string },
-  ) => request<Record<string, unknown>>(`/admin/users/${id}/addons`, { method: "POST", body: JSON.stringify(body) }),
+    body: { confirm_email: string; reason: string; totp_code: string },
+  ) =>
+    request<{
+      email: string;
+      scans_deleted: number;
+      findings_deleted: number;
+      payments_deleted: number;
+    }>(`/admin/users/${id}`, { method: "DELETE", body: JSON.stringify(body) }),
   setOverride: (
     id: string,
     body: {

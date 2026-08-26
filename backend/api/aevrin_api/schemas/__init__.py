@@ -17,8 +17,6 @@ from aevrin_api.schemas.api_keys import (
     ApiKeyOut,
 )
 from aevrin_api.schemas.billing import (
-    ByokKeyRequest,
-    ByokStatusResponse,
     CheckoutRequest,
     CheckoutResponse,
     PaymentOut,
@@ -66,8 +64,6 @@ __all__ = [
     "ApiKeyCreatedResponse",
     "ApiKeyOut",
     "BucketUsageOut",
-    "ByokKeyRequest",
-    "ByokStatusResponse",
     "CheckoutRequest",
     "CheckoutResponse",
     "CliUploadFinding",

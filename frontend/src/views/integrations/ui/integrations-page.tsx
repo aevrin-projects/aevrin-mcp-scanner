@@ -6,6 +6,7 @@ import { PageHeader, SectionCard } from "@/shared/ui";
 import { Card, CardContent } from "@/shared/ui/card";
 import { CLI_INSTALL_COMMANDS, CLI_VERIFY_COMMANDS } from "@/shared/config/cli-commands";
 import { HOOK_PROMPT_CARD, INSTALL_PROMPT_CARD, PromptCard } from "@/shared/ui/prompt-card";
+import { GithubConnectionCard } from "@/features/github-connection";
 
 export function IntegrationsPage() {
   return (
@@ -13,8 +14,10 @@ export function IntegrationsPage() {
       <PageHeader
         pretitle="Setup"
         title="Integrations"
-        description="Install the CLI, verify sign-in, and configure the Claude Code hook with the exact flows the current product supports."
+        description="Connect GitHub, install the CLI, verify sign-in, and configure the Claude Code hook with the exact flows the current product supports."
       />
+
+      <GithubConnectionCard />
 
       <div className="grid min-w-0 gap-6 2xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
         <SectionCard

@@ -16,13 +16,13 @@ export const billingApi = {
     cycle: "monthly" | "annual",
     // `currency` is a preference, not a decision: the API re-derives it and
     // only honours this when it does not lower the price.
-    options?: { seats?: number; byok?: boolean; currency?: string | null },
+    options?: { seats?: number; currency?: string | null },
   ) =>
     request<CheckoutOrder>(
       `/billing/checkout${options?.currency ? `?currency=${encodeURIComponent(options.currency)}` : ""}`,
       {
         method: "POST",
-        body: JSON.stringify({ tier, cycle, seats: options?.seats ?? 1, byok: options?.byok ?? false }),
+        body: JSON.stringify({ tier, cycle, seats: options?.seats ?? 1 }),
       },
     ),
   /** Public: the pricing page has to render for signed-out visitors, so this
@@ -31,21 +31,10 @@ export const billingApi = {
     publicRequest<{
       currency: string;
       tiers: Record<string, number>;
-      byok_addon_per_month: number;
     }>(`/billing/pricing${currency ? `?currency=${encodeURIComponent(currency)}` : ""}`),
   verifyPayment: (razorpay_order_id: string, razorpay_payment_id: string, razorpay_signature: string) =>
     request<{ status: string; tier: string; paid_until: string }>("/billing/verify", {
       method: "POST",
       body: JSON.stringify({ razorpay_order_id, razorpay_payment_id, razorpay_signature }),
     }),
-  createByokAddonCheckout: () =>
-    request<CheckoutOrder>("/billing/addon/byok/checkout", { method: "POST" }),
-  getByokStatus: () =>
-    request<{ enabled: boolean; provider: "anthropic" | "google" | null; has_key: boolean }>("/billing/byok"),
-  setByokKey: (provider: "anthropic" | "google", api_key: string) =>
-    request<{ enabled: boolean; provider: string | null; has_key: boolean }>("/billing/byok", {
-      method: "POST",
-      body: JSON.stringify({ provider, api_key }),
-    }),
-  clearByokKey: () => request<{ status: string }>("/billing/byok", { method: "DELETE" }),
 };

@@ -14,7 +14,6 @@ import { Reveal } from "@/shared/ui/reveal";
 type TierId = "free" | "hobby" | "pro" | "team";
 
 const TEAM_MIN_SEATS = 3;
-const BYOK_ADDON_MONTHLY = 3;
 
 interface Tier {
   id: TierId;
@@ -203,10 +202,6 @@ const FAQ = [
   },
   { q: "Is there a student or nonprofit rate?", a: "A separate student or nonprofit rate is not currently offered." },
   {
-    q: "What does bring-your-own-key change?",
-    a: "BYOK is a flat monthly platform fee, not a token markup; it never changes your scan limits or feature access, only who pays for the model calls. It can be added at checkout or later from your account settings. Team includes it at no extra charge.",
-  },
-  {
     q: "How does Team's per-seat pricing work?",
     a: "Team is billed per seat with a 3-seat minimum. Seats are a billing quantity today, not yet a shared multi-user login, every seat purchased raises the account's usage-based limits.",
   },
@@ -238,7 +233,6 @@ function loadRazorpayScript(): Promise<void> {
 type Pricing = {
   currency: string;
   tiers: Record<string, number>;
-  byok_addon_per_month: number;
 };
 
 /** Minor units (cents/paise) to a whole-unit amount for display. */
@@ -264,7 +258,6 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
   const [pricing, setPricing] = useState<Pricing | null>(null);
   const [loadingTier, setLoadingTier] = useState<TierId | null>(null);
   const [teamSeats, setTeamSeats] = useState(TEAM_MIN_SEATS);
-  const [byok, setByok] = useState<Record<TierId, boolean>>({ free: false, hobby: false, pro: false, team: false });
   const Heading = headingLevel;
 
   useEffect(() => {
@@ -297,7 +290,6 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
     return forAnnual ? majorUnits(amount) / 12 : majorUnits(amount);
   }
 
-  const byokMonthly = pricing ? majorUnits(pricing.byok_addon_per_month) : BYOK_ADDON_MONTHLY;
 
   function savingsFor(tier: Tier): number {
     return (priceFor(tier, false) - priceFor(tier, true)) * 12;
@@ -324,7 +316,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
       const { order_id, amount_paise, currency: orderCurrency, razorpay_key_id } = await billingApi.createCheckout(
         tier.id as "hobby" | "pro",
         cycle,
-        { seats: 1, byok: byok[tier.id] },
+        { seats: 1 },
       );
       await loadRazorpayScript();
       type RazorpaySuccess = { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string };
@@ -390,8 +382,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
         {TIERS.map((tier, i) => {
           const price = priceFor(tier, annual);
           const seats = tier.id === "team" ? teamSeats : 1;
-          const addonMonthly = tier.id !== "free" && tier.id !== "team" && byok[tier.id] ? byokMonthly : 0;
-          const totalMonthlyEquivalent = price * seats + addonMonthly;
+          const totalMonthlyEquivalent = price * seats;
           return (
             <Reveal key={tier.id} delay={i * 80} className="h-full">
               <div
@@ -471,19 +462,6 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
                           setTeamSeats(Math.max(TEAM_MIN_SEATS, Number(e.target.value) || TEAM_MIN_SEATS))
                         }
                         className="w-16 rounded-md border border-input bg-background px-2 py-1 text-right"
-                      />
-                    </div>
-                  )}
-                  {(tier.id === "hobby" || tier.id === "pro") && (
-                    <div className="flex items-center justify-between rounded-lg ring-1 ring-border px-3 py-2 text-sm">
-                      <label htmlFor={`byok-${tier.id}`} className="text-muted-foreground">
-                        Bring your own key (+{fmt(byokMonthly)}/mo)
-                      </label>
-                      <Switch
-                        id={`byok-${tier.id}`}
-                        checked={byok[tier.id]}
-                        onCheckedChange={(checked) => setByok((prev) => ({ ...prev, [tier.id]: checked }))}
-                        aria-label={`Bring your own key for ${tier.name}`}
                       />
                     </div>
                   )}

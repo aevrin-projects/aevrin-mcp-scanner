@@ -23,8 +23,6 @@ from aevrin_api.db import SupabaseRest
 from aevrin_api.integrations.geo import country_for_request
 from aevrin_api.routes.deps import get_current_user, get_db
 from aevrin_api.schemas import (
-    ByokKeyRequest,
-    ByokStatusResponse,
     CheckoutRequest,
     CheckoutResponse,
     PaymentOut,
@@ -66,22 +64,6 @@ async def create_checkout(
     )
 
 
-@router.post("/addon/byok/checkout", response_model=CheckoutResponse)
-async def create_byok_addon_checkout(
-    request: Request, user: CurrentUser, db: Db, settings: Config
-) -> CheckoutResponse:
-    """Buy BYOK on its own, without repurchasing a plan cycle.
-
-    Previously the only way to get BYOK was to set the flag while buying a
-    plan, so anyone already subscribed had to buy another cycle to add it.
-    `accounts.byok_enabled` is a flag with no expiry, so a one-time purchase
-    of the flat platform fee matches how it already behaves.
-    """
-    return await billing_controller.create_byok_addon_checkout(
-        await country_for_request(request), user.id, db, settings
-    )
-
-
 @router.post("/verify", response_model=VerifyPaymentResponse)
 async def verify_payment(
     body: VerifyPaymentRequest, user: CurrentUser, db: Db, settings: Config
@@ -118,23 +100,3 @@ async def list_payments(user: CurrentUser, db: Db) -> list[PaymentOut]:
     recent first, including failed/abandoned ones so a person can see why a
     charge they expected never completed rather than just a gap."""
     return await billing_controller.list_payments(user.id, db)
-
-
-@router.get("/byok", response_model=ByokStatusResponse)
-async def get_byok_status(user: CurrentUser, db: Db) -> ByokStatusResponse:
-    return await billing_controller.get_byok_status(user.id, db)
-
-
-@router.post("/byok", response_model=ByokStatusResponse)
-async def set_byok_key(
-    body: ByokKeyRequest, user: CurrentUser, db: Db, settings: Config
-) -> ByokStatusResponse:
-    """Same limits, different biller (addendum §3): this only stores a key
-    for an account that has already bought the add-on; it never changes
-    what the account is allowed to do."""
-    return await billing_controller.set_byok_key(body, user.id, db, settings)
-
-
-@router.delete("/byok")
-async def clear_byok_key(user: CurrentUser, db: Db) -> dict[str, str]:
-    return await billing_controller.clear_byok_key(user.id, db)

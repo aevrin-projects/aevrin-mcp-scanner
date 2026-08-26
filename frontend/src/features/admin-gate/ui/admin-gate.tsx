@@ -113,7 +113,7 @@ function Enrol({ onDone }: { onDone: () => Promise<void> }) {
   return (
     <Shell title="Set up two-factor authentication" icon={<ShieldCheck className="size-5 text-brand-text" />}>
       <p className="text-sm leading-relaxed text-muted-foreground">
-        The admin panel can block accounts, change plans, and grant add-ons. It requires a second factor with no
+        The admin panel can block accounts, change plans, and delete accounts outright. It requires a second factor with no
         skip path. Add this to your authenticator app, then enter a code to confirm.
       </p>
 

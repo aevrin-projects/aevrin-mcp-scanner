@@ -28,7 +28,6 @@ def _payment(**overrides: object) -> dict[str, Any]:
         "tier": "pro",
         "cycle": "monthly",
         "seats": 1,
-        "byok": False,
         "amount_paise": 3400,
         "currency": "USD",
         "razorpay_order_id": f"order_{uuid4().hex[:8]}",
@@ -200,22 +199,22 @@ async def test_only_the_first_claim_of_a_payment_grants_anything():
     assert len(db.account_updates) == 1
 
 
-def test_the_two_addons_grant_different_things():
-    """Both leave tier and paid_until alone, which makes it tempting to
-    handle them together. They must not be: collapsing them had a BYOK
-    purchase hand out ten auto-fix pull requests."""
-    import re
+def test_a_legacy_addon_row_can_never_extend_a_subscription():
+    """Neither add-on is sold any more, and both granted things that no longer
+    exist. The reason the tiers stay recognised is narrower than it looks: an
+    add-on must never move paid_until, and dropping them from the check would
+    let a resurrected one-off row silently hand out a month of Pro."""
     from pathlib import Path
 
     import aevrin_api
 
-    # Located through the package, not by counting directories up from
-    # this file: the previous form broke the moment the test moved.
+    # Located through the package, not by counting directories up from this
+    # file: the previous form broke the moment the test moved.
     source = Path(aevrin_api.__file__).parent / "controllers" / "billing_controller.py"
     text = source.read_text()
 
-    # Every branch that grants something must test the exact tier rather
-    # than a shared "is this an add-on" flag.
-    grant_blocks = re.findall(r'if payment\["tier"\] == "byok_addon":\s*\n\s*await db\.update\(\s*\n?\s*"accounts",', text)
-    assert len(grant_blocks) == 2, "both /verify and the webhook must grant BYOK explicitly"
-    assert 'if is_addon:\n        await db.update(\n            "accounts",' not in text
+    assert 'is_addon = payment["tier"] in ("autofix_addon", "byok_addon")' in text
+    # And nothing grants BYOK any more: the entitlement column is gone from
+    # this module entirely.
+    assert "byok_enabled" not in text
+

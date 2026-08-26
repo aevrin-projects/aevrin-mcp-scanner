@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from aevrin_api.schemas import ByokKeyRequest, CheckoutRequest, CreateScanRequest, TriageRequest
+from aevrin_api.schemas import CheckoutRequest, CreateScanRequest, TriageRequest
 from aevrin_api.services.targets import stored_target as _stored_target
 
 
@@ -84,14 +84,3 @@ def test_checkout_request_rejects_multiple_seats_on_non_team_tiers():
         CheckoutRequest(tier="hobby", cycle="monthly", seats=2)
     with pytest.raises(ValidationError):
         CheckoutRequest(tier="pro", cycle="annual", seats=5)
-
-
-def test_byok_key_request_rejects_unknown_provider():
-    with pytest.raises(ValidationError):
-        ByokKeyRequest(provider="openai", api_key="sk-fakefakefake")
-
-
-def test_byok_key_request_accepts_known_providers():
-    for provider in ("anthropic", "google"):
-        req = ByokKeyRequest(provider=provider, api_key="a-fake-but-long-enough-key")
-        assert req.provider == provider
