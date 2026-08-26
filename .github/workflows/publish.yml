@@ -64,6 +64,25 @@ jobs:
         # installs inside this workspace).
         run: uv build --no-sources
 
+      - name: Wait for scanner-core on the index
+        # publish-scanner-core finishing is not the same as PyPI serving it.
+        # The verify step below resolves the dependency from the real index,
+        # and on the 0.4.0 release it ran 14 seconds after the upload and was
+        # offered a version list ending at the previous release, so the whole
+        # publish failed on a race rather than on anything being wrong.
+        run: |
+          version=$(grep -m1 '^version = ' backend/scanner-core/pyproject.toml | cut -d'"' -f2)
+          for attempt in $(seq 1 30); do
+            if python -m pip index versions aevrin-scanner-core 2>/dev/null | grep -q "$version"; then
+              echo "aevrin-scanner-core $version is on the index"
+              exit 0
+            fi
+            echo "waiting for aevrin-scanner-core $version (attempt $attempt)"
+            sleep 10
+          done
+          echo "::error::aevrin-scanner-core $version never appeared on the index"
+          exit 1
+
       - name: Verify pip installation
         run: |
           python -m venv "${RUNNER_TEMP}/aevrin-pip-verify"
@@ -73,7 +92,7 @@ jobs:
           # Assert the commands are actually registered, not just that the app
           # starts. A stray decorator once left `scan` unregistered while
           # --help still exited 0, so the CLI shipped without its main command.
-          for cmd in scan login logout version hook findings; do
+          for cmd in scan login logout version agent hook findings; do
             "${RUNNER_TEMP}/aevrin-pip-verify/bin/aevrin" "$cmd" --help >/dev/null               || { echo "::error::aevrin $cmd is missing from the published wheel"; exit 1; }
           done
 
