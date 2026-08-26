@@ -9,21 +9,18 @@ import { ApiError } from "@/shared/api";
 import { billingApi } from "@/entities/billing";
 import { findingApi } from "@/entities/finding";
 import { scanApi } from "@/entities/scan";
-import type { Finding, Severity } from "@/entities/finding";
+import type { Finding } from "@/entities/finding";
 import type { Scan, ScanDiff, ScanStage } from "@/entities/scan";
-import { OWASP_CATEGORY_LABELS } from "@/entities/finding";
 import { STAGE_LABELS, STAGE_ORDER } from "@/entities/scan";
 import { summarizeFindings } from "@/entities/finding";
-import { SCAN_SOURCE_LABELS, TARGET_TYPE_LABELS, summarizeCoverage, verdictLabel } from "@/entities/scan";
-import { formatDateTime, formatDuration } from "@/shared/lib/format";
+import { SCAN_SOURCE_LABELS } from "@/entities/scan";
 import { PageHeader, SectionCard, EmptyState } from "@/shared/ui";
+import { FindingRow } from "./finding-row";
+import { ReportMasthead } from "./report-masthead";
 import { Select } from "@/shared/ui/select";
-import { StatusBadge } from "@/entities/scan";
-import { SeverityBadge } from "@/entities/finding";
 import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Input } from "@/shared/ui/input";
-import { Card, CardContent } from "@/shared/ui/card";
 import { Skeleton } from "@/shared/ui/skeleton";
 
 const POLL_INTERVAL_MS = 2000;
@@ -161,17 +158,17 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
     );
   }
 
-  const coverage = summarizeCoverage(stages);
   const counts = summarizeFindings(openFindings);
   const limitations = findings.filter((finding) => finding.not_tested);
-  const resultSummary = verdictLabel(scan, counts);
 
   return (
     <div className="space-y-6">
+      {/* The masthead below is the report's title. This row is only the
+          actions, so the page opens on the verdict rather than on the words
+          "Scan result", which never told anyone anything. */}
       <PageHeader
         pretitle="Scan"
-        title="Scan result"
-        description="Review the target, actual coverage, score, urgent findings, and the limitations that still need separate verification."
+        title={SCAN_SOURCE_LABELS[scan.source]}
         actions={
           <>
             {scan.target_type === "local_path" ? (
@@ -205,46 +202,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
         }
       />
 
-      <Card className="bg-card/80">
-        <CardContent className="grid gap-6 pt-6 lg:grid-cols-[minmax(0,1.3fr)_300px]">
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge status={scan.status} />
-              <span className="text-sm text-muted-foreground">{TARGET_TYPE_LABELS[scan.target_type]}</span>
-              <span className="text-sm text-muted-foreground">{SCAN_SOURCE_LABELS[scan.source]}</span>
-            </div>
-            <div className="break-all text-2xl font-semibold tracking-tight">{scan.target}</div>
-            <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{resultSummary}</p>
-
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <MetaBlock label="Scanned at" value={formatDateTime(scan.completed_at ?? scan.created_at)} />
-              <MetaBlock label="Duration" value={formatDuration(scan.created_at, scan.completed_at)} />
-              <MetaBlock label="Score" value={scan.score === null ? "Not available" : `${scan.score}/100`} />
-              <MetaBlock label="Coverage" value={`${coverage.completed}/${stages.length || 6} stages complete`} />
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border bg-background/70 p-5">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Active findings</p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-              <CountRow severity="critical" count={counts.critical} />
-              <CountRow severity="high" count={counts.high} />
-              <CountRow severity="medium" count={counts.medium} />
-              <CountRow severity="low" count={counts.low} />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {scan.status === "incomplete" ? (
-        <Alert variant="destructive">
-          <AlertTriangle className="size-4" />
-          <AlertTitle>Partial scan coverage</AlertTitle>
-          <AlertDescription>
-            Required scanners did not complete for {scan.unreliable_stages.map((stage) => STAGE_LABELS[stage]).join(", ")}. The score reflects only the checks that actually ran.
-          </AlertDescription>
-        </Alert>
-      ) : null}
+      <ReportMasthead scan={scan} stages={stages} counts={counts} openCount={openFindings.length} />
 
       {/* Distinct from the incomplete banner above: the scanners all ran and
           every finding is listed, only the AI second opinion was capped.
@@ -405,76 +363,16 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                 icon="attention"
               />
             ) : (
-              <div className="space-y-3">
+              <div className="-mx-3">
                 {filteredFindings.map((finding) => {
                   const params = new URLSearchParams(searchParams.toString());
                   const returnTo = params.toString() ? `${pathname}?${params.toString()}` : pathname;
                   return (
-                    <div
+                    <FindingRow
                       key={finding.id}
-                      className="flex items-start gap-2 rounded-xl border border-border bg-background/80 transition-colors hover:bg-muted/30"
-                    >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        router.push(
-                          `/scans/${scan.id}/findings/${finding.id}?returnTo=${encodeURIComponent(returnTo)}`,
-                        )
-                      }
-                      className="min-w-0 flex-1 rounded-xl p-4 text-left"
-                    >
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <SeverityBadge severity={finding.severity} />
-                            {finding.in_kev ? (
-                              <span className="rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
-                                KEV
-                              </span>
-                            ) : null}
-                            {finding.epss_score !== null ? (
-                              <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
-                                EPSS {(finding.epss_score * 100).toFixed(finding.epss_score < 0.01 ? 2 : 0)}%
-                              </span>
-                            ) : null}
-                            <span className="text-sm text-muted-foreground">
-                              {OWASP_CATEGORY_LABELS[finding.owasp_category] ?? finding.owasp_category}
-                            </span>
-                          </div>
-                          <p className="text-base font-medium">{finding.title}</p>
-                          {finding.file_path ? (
-                            <p className="font-mono text-[12px] text-brand-text">
-                              {finding.file_path}
-                              {finding.line_start ? `:${finding.line_start}` : ""}
-                            </p>
-                          ) : null}
-                          <p className="text-sm leading-6 text-muted-foreground line-clamp-2">
-                            {finding.description}
-                          </p>
-                          {/* Only surfaced in the list when the AI disagreed
-                              with the scanner. "AI agrees" on every row would
-                              be noise on the one screen that has to stay
-                              scannable; the full review is on the detail
-                              page either way. */}
-                          {finding.llm_classification === "likely_false_positive" ? (
-                            <p className="flex items-center gap-1.5 text-xs text-chart-1">
-                              <Sparkles className="size-3" />
-                              AI review: likely a false positive
-                            </p>
-                          ) : finding.llm_severity && finding.llm_severity !== finding.severity ? (
-                            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                              <Sparkles className="size-3" />
-                              AI review suggests {finding.llm_severity}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="space-y-1 text-right text-sm text-muted-foreground">
-                          <div>{finding.tool}</div>
-                          <div>{finding.file_path ? `${finding.file_path}${finding.line_start ? `:${finding.line_start}` : ""}` : finding.manifest_field ?? "Location unavailable"}</div>
-                        </div>
-                      </div>
-                    </button>
-                    </div>
+                      finding={finding}
+                      href={`/scans/${scan.id}/findings/${finding.id}?returnTo=${encodeURIComponent(returnTo)}`}
+                    />
                   );
                 })}
               </div>
@@ -543,20 +441,4 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
   );
 }
 
-function MetaBlock({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-background/70 p-4">
-      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
-      <p className="mt-2 text-sm font-medium text-foreground">{value}</p>
-    </div>
-  );
-}
 
-function CountRow({ severity, count }: { severity: Severity; count: number }) {
-  return (
-    <div className="flex items-center justify-between rounded-xl border border-border bg-background/80 px-3 py-2.5">
-      <SeverityBadge severity={severity} />
-      <span className="text-lg font-semibold">{count}</span>
-    </div>
-  );
-}
