@@ -9,7 +9,9 @@ from fastapi import APIRouter
 from aevrin_api.routes import (
     account,
     admin,
+    admin_marketplace,
     agents,
+    ai,
     api_keys,
     auth_lookup,
     billing,
@@ -20,8 +22,10 @@ from aevrin_api.routes import (
     findings,
     github,
     hook,
+    marketplace,
     orgs,
     scans,
+    scheduler,
 )
 
 ROUTERS: list[APIRouter] = [
@@ -40,6 +44,10 @@ ROUTERS: list[APIRouter] = [
     admin.router,
     agents.router,
     orgs.router,
+    marketplace.router,
+    ai.router,
+    admin_marketplace.router,
+    scheduler.router,
 ]
 
 __all__ = ["ROUTERS"]

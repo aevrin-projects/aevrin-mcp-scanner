@@ -80,6 +80,8 @@ class SupabaseRest:
         columns: str = "*",
         order: str | None = None,
         limit: int | None = None,
+        offset: int | None = None,
+        or_filter: str | None = None,
     ) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"select": columns}
         for k, v in (filters or {}).items():
@@ -88,10 +90,19 @@ class SupabaseRest:
             # callers can express ranges without every filter needing to be
             # equality. Bare values keep the previous eq. behaviour.
             params[k] = v if _HAS_OPERATOR.match(v) else f"eq.{v}"
+        if or_filter:
+            # PostgREST's `or=(a.eq.1,b.eq.2)`. Separate from `filters` because
+            # it is one parameter holding a whole expression rather than a
+            # column/value pair, and because callers must construct it
+            # deliberately: everything inside it is OR'd, so folding it in with
+            # the AND filters above would silently widen a query.
+            params["or"] = or_filter
         if order:
             params["order"] = order
         if limit:
             params["limit"] = str(limit)
+        if offset:
+            params["offset"] = str(offset)
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(f"{self._base_url}/{table}", headers=self._headers, params=params)
         if resp.status_code >= 400:

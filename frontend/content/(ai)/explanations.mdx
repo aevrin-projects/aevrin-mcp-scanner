@@ -1,0 +1,94 @@
+---
+title: AI explanations
+description: What the AI layer does, what it is structurally prevented from doing, and what data it receives.
+---
+
+An AI explanation turns a security finding into plain language. It is interpretation, never
+detection.
+
+## The contract
+
+**The scanners decide what is true.** Semgrep, Bandit, Gitleaks, TruffleHog, OSV, Trivy, Scorecard,
+mcp-shield and Aevrin's own manifest rules produce the evidence. The model explains it.
+
+**The AI cannot produce a finding.** It cannot create, alter, or remove one; it cannot move a score;
+it cannot change a grade. Nothing in the AI layer writes to the scans, findings, or version tables.
+
+**A failure changes nothing.** If no provider is configured, or a vendor is down, the interface
+shows a quiet line of text next to a finding that remains entirely valid. The API returns a normal
+200 with `available: false`, deliberately. Returning an error would make an AI outage look like a
+scanner outage.
+
+**It is always labelled.** Explanations render in a visually distinct panel marked "AI explanation",
+carrying the provider and model that produced it. A verified finding and a model's prose are
+different kinds of claim and are never presentable as the same thing.
+
+## Where explanations appear
+
+- On an MCP trust grade, as "Why is this grade C?"
+- On an individual finding
+- On a scan result
+- On a marketplace listing's security position
+
+There is no AI button on decorative elements.
+
+## What the model receives
+
+A structured evidence document, and nothing else. It is not given the repository, the environment,
+your configuration, or your conversation.
+
+Included: findings (title, severity, OWASP category, file path, line, remediation), the trust grade
+and its factors, declared MCP tools and capabilities, permission types, credential *metadata*,
+attack paths, and coverage.
+
+Excluded, by construction:
+
+- **The scanner's raw payload.** TruffleHog and Gitleaks put the credential they found in it.
+- **Any credential value.** Credential metadata carries kind, source and presence, never a value.
+- **Source code, environment variables, and full file contents.**
+- **Anything matching a credential pattern**, in any field. Tokens, keys, JWTs and private-key
+  headers are stripped before the document is built, including from fields that "should not"
+  contain them, which is exactly where secrets keep turning up.
+
+Every free-text field is length-bounded, so a hostile README cannot push the real evidence out of
+the context window.
+
+## Coverage is always stated
+
+If a scan had incomplete coverage, the document says so and the system prompt instructs the model to
+report unscanned categories as unknown rather than safe.
+
+Without this, a model reading zero findings in a category would explain that the category is clean,
+which is the precise failure this product exists to prevent.
+
+## Prompt injection
+
+MCP tool descriptions and READMEs are attacker-controlled text, and a hostile one can certainly
+*contain* instructions. Three things limit what that achieves:
+
+1. The text arrives as a JSON value under a named key, presented as evidence to be explained rather
+   than as instructions to follow.
+2. It is length-bounded.
+3. The model has no tools, no write access, and no ability to alter a finding. The worst outcome is
+   a misleading paragraph beside a finding that is itself unchanged, which is why the finding, not
+   the explanation, is what the interface treats as authoritative.
+
+## Caching
+
+Explanations are cached against a hash of the exact evidence shown to the model.
+
+Two people looking at the same public listing genuinely are asking the same question, and one answer
+serves both. Evidence built from a private scan hashes differently, so nothing crosses a tenant
+boundary. When a rescan changes the evidence the hash changes and the next reader gets a fresh
+explanation; there is nothing to invalidate by hand.
+
+A forced rescan additionally clears cached explanations for that subject.
+
+## Cost control
+
+- A hard ceiling on output tokens, independent of what you configure
+- A hard ceiling on input size
+- Identical evidence is never paid for twice
+- Only the cache-bypassing refresh path is rate limited; a cached read costs nothing and is not
+  throttled
+- Per-plan monthly limits through the existing usage system

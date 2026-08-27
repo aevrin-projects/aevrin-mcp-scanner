@@ -1,0 +1,10 @@
+{
+  "pages": [
+    "overview",
+    "search",
+    "security-grades",
+    "install",
+    "submit",
+    "admin"
+  ]
+}

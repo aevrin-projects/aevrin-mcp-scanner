@@ -1,0 +1,70 @@
+---
+title: Installing from the marketplace
+description: What Aevrin does and deliberately does not do when you install an MCP server.
+---
+
+## Aevrin prepares; you apply
+
+Pressing **Install** does not install anything. It produces the exact configuration your client
+needs, alongside the security grade, the declared capabilities and every warning that applies.
+
+This is deliberate. Aevrin never writes to your machine's configuration, never runs a server's
+install command, and never executes a package's postinstall hooks to find out what it does. The
+decision is made by a person who has seen both the grade and the capabilities.
+
+## What the install plan shows
+
+**The grade**, with its scan state, at the top.
+
+**The agent and scope.** Only clients the server's own metadata supports are offered. If it
+declares no transport Aevrin recognises, there is no install option — speaking MCP in principle is
+not the same as being installable.
+
+**Declared capabilities.** Read from the server's environment variables and transport. "Holds
+credentials", "runs as a local process", "connects to a remote endpoint". These describe what the
+server asks for, not what it has been observed doing.
+
+**Warnings**, which may include:
+
+- A secret-valued environment variable, named so you know what to set
+- No pinned version, meaning the launcher fetches whatever is current at run time — while the grade
+  shown was earned by a specific version
+- A remote server, whose operator can change its behaviour without changing anything visible locally
+- An unscanned, stale, or partially covered scan
+
+**The configuration**, with secret values left blank. Aevrin has no business supplying a credential,
+and a config that arrived pre-filled would be a config carrying somebody's token through a
+marketplace.
+
+## Organisation policy
+
+If your workspace has an install policy, it is applied here.
+
+| Grade | Default action |
+| --- | --- |
+| A | Allow |
+| B | Allow |
+| C | Require approval |
+| D | Block |
+| Unscanned | Require approval |
+
+A blocked grade stops the flow with the reason, rather than letting you copy a config your
+organisation has decided against.
+
+A grade earned under incomplete coverage is escalated one step: an "allow" becomes "require
+approval", because the same letter under partial coverage is a weaker claim.
+
+Unscanned has its own setting rather than falling back to a grade default. Defaulting "no evidence"
+to "allow" would make the least-known state the most permissive one.
+
+## After installing
+
+Apply the configuration, then run a scan of your machine so the server appears in your inventory
+with its posture:
+
+```bash
+aevrin scan --agents
+```
+
+The MCP server is then correlated with the agents that use it, and any capability it grants shows up
+in your permission surface.

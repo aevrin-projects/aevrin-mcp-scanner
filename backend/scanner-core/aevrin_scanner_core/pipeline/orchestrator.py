@@ -12,7 +12,6 @@ SKIPPED, not silently absent.
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 
@@ -37,11 +36,14 @@ from ..adapters import (
 )
 from ..adapters.mcp_shield import build_mcp_config
 from ..analysis.manifest_rules import (
+    ToolDescriptor,
     TransportInfo,
     check_audit_logging_presence,
     check_dangerous_launch_command,
+    check_excessive_agency,
     check_weak_auth,
 )
+from ..analysis.mcp_detection import detect_mcp_server, discover_tools
 from ..analysis.remote_mcp import inspect_remote_signatures
 from ..analysis.rug_pull import PinnedSignature, diff_signatures
 from ..classification.scoring import compute_score
@@ -183,12 +185,18 @@ def run_pipeline(
 
         # A live-server URL or a pasted mcp.json *is* MCP by construction;
         # only a repo/local-path target is actually ambiguous.
-        scan.mcp_detected = (
-            _detect_mcp_sdk_usage(repo_dir) if repo_dir and target_type in (TargetType.GITHUB_REPO, TargetType.LOCAL_PATH) else True
-        )
+        if repo_dir and target_type in (TargetType.GITHUB_REPO, TargetType.LOCAL_PATH):
+            detection = detect_mcp_server(repo_dir)
+            scan.mcp_detected = detection.is_mcp_server
+            scan.mcp_detection_confidence = detection.confidence
+            scan.mcp_detection_evidence = [f"{s.kind}: {s.detail}" for s in detection.signals[:10]]
+        else:
+            scan.mcp_detected = True
+            scan.mcp_detection_confidence = "high"
+            scan.mcp_detection_evidence = ["target_type: the target is an MCP server by construction"]
 
         _run_tool_description_stage(
-            scan_id, target_type, target, repo_dir, config, stage_by_name[StageName.TOOL_DESCRIPTION_CHECK], on_stage, emit, errors
+            scan, target_type, target, repo_dir, config, stage_by_name[StageName.TOOL_DESCRIPTION_CHECK], on_stage, emit, errors
         )
 
         _mark(stage_by_name[StageName.AGGREGATING], StageStatus.RUNNING, on_stage)
@@ -211,47 +219,6 @@ def run_pipeline(
         return scan
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
-
-
-_MCP_MANIFEST_FILENAMES = frozenset({
-    "package.json", "pyproject.toml", "requirements.txt", "requirements-dev.txt",
-    "setup.py", "setup.cfg", "Pipfile", "go.mod", "Cargo.toml",
-})
-_MCP_DEPENDENCY_RE = re.compile(
-    r"@modelcontextprotocol/sdk"
-    r"|\bfastmcp\b"
-    r"|\bmcp[-_]server[-_][\w-]+"
-    r"|\bmcp\s*[><=~^!]",  # bare "mcp" (the official PyPI SDK name) as a dependency line
-    re.IGNORECASE,
-)
-_MCP_SCAN_DIR_EXCLUDES = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"})
-
-
-def _detect_mcp_sdk_usage(repo_dir: str, max_depth: int = 3) -> bool:
-    """Best-effort: does this repo actually depend on an MCP SDK anywhere?
-    Confirmed live: matches modelcontextprotocol/servers (`"mcp>=1.0.0"` in
-    pyproject.toml, `"@modelcontextprotocol/sdk"` in package.json) and
-    correctly finds zero matches in pallets/flask. A stronger signal than
-    _discover_mcp_entries's committed-client-config check below, which
-    doesn't even catch modelcontextprotocol/servers itself, a server's own
-    repo has no reason to check in a *client* config referencing itself."""
-    root_depth = repo_dir.rstrip("/").count("/")
-    for dirpath, dirnames, filenames in os.walk(repo_dir):
-        if dirpath.rstrip("/").count("/") - root_depth > max_depth:
-            dirnames[:] = []
-            continue
-        dirnames[:] = [d for d in dirnames if d not in _MCP_SCAN_DIR_EXCLUDES]
-        for filename in filenames:
-            if filename not in _MCP_MANIFEST_FILENAMES:
-                continue
-            try:
-                with open(os.path.join(dirpath, filename), encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-            except OSError:
-                continue
-            if _MCP_DEPENDENCY_RE.search(content):
-                return True
-    return False
 
 
 _CLONE_URL_TOKEN_RE = re.compile(r"://x-access-token:[^@\s]+@")
@@ -474,8 +441,46 @@ def _probe_remote_servers(
         shutil.rmtree(config_dir, ignore_errors=True)
 
 
+def _run_source_mcp_analysis(
+    scan: Scan, repo_dir: str, emit: OnFindings
+) -> bool:
+    """MCP-specific analysis of a repository that *is* an MCP server.
+
+    This is the half of the pipeline that used to be missing. A server's own
+    repository has no reason to commit a client config pointing at itself, so
+    `_discover_mcp_entries` finds nothing there and the whole MCP stage was
+    skipped -- meaning the most important target in the product, an actual MCP
+    server, received generic code-security analysis and no MCP analysis at all.
+
+    Everything here reads declarations out of source. Nothing is imported,
+    executed, or connected to, which is what makes it safe to run against a
+    repository nobody has vetted. The cost of that restraint is real and is
+    reported rather than hidden: a tool registered through indirection this
+    cannot parse is a tool that does not appear below.
+
+    Returns whether any MCP surface was actually read, so the caller can tell
+    "checked, found nothing" apart from "could not check".
+    """
+    tools = discover_tools(repo_dir)
+    scan.mcp_tools_declared = [tool.name for tool in tools]
+    if not tools:
+        return False
+
+    # The same manifest rule the runtime path uses, fed from source instead of
+    # from a live handshake. One rule, one vocabulary, two sources of tools.
+    emit(
+        check_excessive_agency(
+            scan.id, [ToolDescriptor(tool.name, tool.description) for tool in tools]
+        )
+    )
+    # Audit logging is a property of the code, so it was always answerable for
+    # a repository; it simply never got the chance to run.
+    emit(check_audit_logging_presence(scan.id, repo_dir))
+    return True
+
+
 def _run_tool_description_stage(
-    scan_id: UUID,
+    scan: Scan,
     target_type: TargetType,
     target: str,
     repo_dir: str | None,
@@ -486,10 +491,34 @@ def _run_tool_description_stage(
     errors: list[str],
 ) -> None:
     _mark(stage, StageStatus.RUNNING, on_stage)
+    scan_id = scan.id
     tool_errors: list[str] = []
+
+    # Source-derived MCP analysis runs first and independently of any runtime
+    # probe, because it is the only MCP check available for the common case of
+    # a repository that ships a server rather than a config that consumes one.
+    source_analysis_ran = False
+    if repo_dir and scan.mcp_detected:
+        source_analysis_ran = _run_source_mcp_analysis(scan, repo_dir, emit)
 
     mcp_entries = _discover_mcp_entries(target_type, target, repo_dir)
     if not mcp_entries:
+        if source_analysis_ran:
+            # The MCP surface *was* examined, just statically. Marking this
+            # DONE rather than SKIPPED matters: SKIPPED feeds the "coverage
+            # incomplete" signal, and claiming no coverage when a repository's
+            # tools were read and checked would understate a real result.
+            _mark(
+                stage,
+                StageStatus.DONE,
+                on_stage,
+                error=(
+                    f"Tool descriptions were read from source ({len(scan.mcp_tools_declared)} "
+                    "declared). Runtime probing was not applicable: no reachable endpoint "
+                    "is declared in this repository."
+                ),
+            )
+            return
         # This is an applicability limitation, not a scanner crash. Source
         # repositories commonly contain an MCP SDK without committing a
         # runnable client configuration, and executing arbitrary project code
@@ -519,7 +548,10 @@ def _run_tool_description_stage(
     if not safe_remote_entries:
         _mark(
             stage,
-            StageStatus.SKIPPED,
+            # Same distinction as above: if the repository's own tools were
+            # read from source, this category was covered, and only the
+            # runtime probe was declined.
+            StageStatus.DONE if source_analysis_ran else StageStatus.SKIPPED,
             on_stage,
             error=(
                 "Runtime tool-description checks were not run because no safe public HTTPS "

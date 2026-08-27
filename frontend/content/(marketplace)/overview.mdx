@@ -1,0 +1,70 @@
+---
+title: MCP Marketplace
+description: How Aevrin's marketplace relates to the official MCP Registry, what it adds, and what it deliberately does not claim.
+---
+
+The marketplace is a catalogue of MCP servers with an Aevrin security scan attached to each one.
+It exists so that the question "should I install this" has an answer before you install it, rather
+than after.
+
+## Where the listings come from
+
+Aevrin is a downstream aggregator of the [official MCP Registry](https://registry.modelcontextprotocol.io).
+The registry publishes server metadata — name, description, version, repository, packaging — and
+its own documentation describes marketplaces like this one as its intended consumers.
+
+Aevrin does not fork the registry, mirror it as authoritative, or replace it. It reads the public
+API, stores what it reads, and adds three things the registry deliberately leaves out: a security
+scan, curation, and ranking.
+
+Every listing shows its provenance:
+
+| Source | Meaning |
+| --- | --- |
+| Official MCP Registry | Published to the registry by its author, whose namespace the registry verifies via DNS or GitHub |
+| Submitted by a user | Proposed by an Aevrin user, scanned, and reviewed before publication |
+| Added by Aevrin | Added by an administrator, scanned, and reviewed before publication |
+
+Listing a server is not an endorsement of it. A listing means Aevrin knows the server exists and
+has published what it found.
+
+## What the marketplace adds
+
+**A security grade.** Every listing carries an A/B/C/D trust grade from a real Aevrin scan, or says
+plainly that it has not been scanned. See [Security grades](/docs/security-grades).
+
+**Separated signals.** Security and popularity are shown apart, always. A server with 25,000 stars
+can be graded D. Stars measure attention; the grade measures evidence. Neither substitutes for the
+other, and the interface is built so that they cannot be mistaken for each other.
+
+**Transparent ranking.** "Recommended" is a fixed formula over signals you can see, not a model.
+Security is weighted at 45%, popularity at 20%, maintenance 15%, community 10%, documentation 10%.
+
+**Curation.** Categories, tags and descriptions are maintained. An administrator can correct
+metadata or feature a listing; an administrator cannot change a grade.
+
+## What it does not do
+
+- It does not process payments for third-party servers. A paid server links to its publisher's own
+  pricing page and nothing more.
+- It does not claim compatibility a server has not declared. If a server declares no transport
+  Aevrin recognises, no install option is offered.
+- It does not state that a server is free unless its licence and packaging establish that. Anything
+  else reads "Not stated".
+- It does not install anything on your machine. See [Installing](/docs/install).
+
+## Update schedule
+
+A scheduled job runs roughly weekly and:
+
+1. Pulls servers changed since the last successful run from the registry.
+2. Records any new versions, which start unscanned.
+3. Refreshes GitHub and npm metadata for the listings whose data is oldest.
+4. Recomputes ranking scores.
+
+If the registry is unreachable the marketplace stays online and stays correct. It just stops
+growing until the next run. If GitHub is unreachable, the previously stored star count is kept
+rather than being overwritten with zero.
+
+Unchanged servers are not rescanned on a timer. A rescan is triggered by evidence: a new version, a
+changed source hash, or an administrator forcing one.

@@ -70,3 +70,87 @@ export const adminApi = {
   },
   getLoginAttempts: () => request<AdminLoginAttempt[]>("/admin/login-attempts"),
 };
+
+/**
+ * Marketplace administration.
+ *
+ * Mounted under the same `/admin` prefix as everything else here, so it goes
+ * through the same admin-session and TOTP checks. There is deliberately no
+ * method below that writes a grade, a score, or a coverage flag: those come
+ * from scans, and an admin who could type a better letter could make an unsafe
+ * server look safe.
+ */
+export const marketplaceAdminApi = {
+  summary: () =>
+    request<{
+      total: number;
+      scanned: number;
+      unscanned: number;
+      stale_scans: number;
+      partial_coverage: number;
+      grades: Record<string, number>;
+      statuses: Record<string, number>;
+      open_reports: number;
+      pending_submissions: number;
+    }>("/admin/marketplace/summary"),
+
+  list: (params: {
+    status?: string;
+    grade?: string;
+    unscanned?: boolean;
+    q?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const search = new URLSearchParams();
+    if (params.status) search.set("status", params.status);
+    if (params.grade) search.set("grade", params.grade);
+    if (params.unscanned) search.set("unscanned", "true");
+    if (params.q) search.set("q", params.q);
+    if (params.limit) search.set("limit", String(params.limit));
+    if (params.offset) search.set("offset", String(params.offset));
+    return request<Record<string, unknown>[]>(`/admin/marketplace/mcp?${search.toString()}`);
+  },
+
+  create: (body: { source_url: string; visibility?: string; org_id?: string | null }) =>
+    request<Record<string, unknown>>("/admin/marketplace/mcp", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  patch: (id: string, body: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/admin/marketplace/mcp/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  setStatus: (id: string, status: string, reason?: string) =>
+    request<Record<string, unknown>>(`/admin/marketplace/mcp/${id}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status, reason: reason ?? null }),
+    }),
+
+  scan: (id: string, force: boolean) =>
+    request<{ reused: boolean; scan_id: string; reason: string }>(
+      `/admin/marketplace/mcp/${id}/scan`,
+      { method: "POST", body: JSON.stringify({ force, version_id: null }) },
+    ),
+
+  submissions: (status = "review") =>
+    request<Record<string, unknown>[]>(`/admin/marketplace/submissions?status=${status}`),
+
+  decideSubmission: (id: string, decision: "approved" | "rejected", reason?: string) =>
+    request<Record<string, unknown>>(`/admin/marketplace/submissions/${id}/decision`, {
+      method: "POST",
+      body: JSON.stringify({ decision, reason: reason ?? null }),
+    }),
+
+  reports: (status = "open") =>
+    request<Record<string, unknown>[]>(`/admin/marketplace/reports?status=${status}`),
+
+  resolveReport: (id: string, status: string, note?: string) =>
+    request<Record<string, unknown>>(`/admin/marketplace/reports/${id}/decision`, {
+      method: "POST",
+      body: JSON.stringify({ status, note: note ?? null }),
+    }),
+};

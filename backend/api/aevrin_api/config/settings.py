@@ -92,6 +92,34 @@ class Settings(BaseSettings):
     admin_user_ids: str | None = None
     admin_session_idle_minutes: int = 30
 
+    # ---------------------------------------------------------------- marketplace
+    # The Supabase user id catalogue scans are attributed to. A marketplace
+    # scan has no customer: it is Aevrin scanning a public server once so
+    # every user can read the result. Attributing it to a real customer would
+    # put a catalogue scan in their history and against their quota, so a
+    # dedicated account is used instead. None disables catalogue scanning,
+    # which is a refusal at the point of use rather than an error here.
+    marketplace_scan_user_id: str | None = None
+    # Token protecting the scheduled-job endpoints. The weekly sync and
+    # provider refresh are triggered by an external scheduler (EventBridge,
+    # cron, a container task) rather than by a signed-in human, so they
+    # authenticate with this rather than with a session.
+    scheduler_token: str | None = None
+
+    # ---------------------------------------------------------------- AI providers
+    # Aevrin's own provider credentials, used *only* to refresh the public
+    # model catalogue. Every one of the four providers requires a key to list
+    # models -- none of them publish that list anonymously -- and borrowing a
+    # customer's key for Aevrin's own bookkeeping would bill them for it.
+    #
+    # All optional. A provider with no catalogue key simply is not refreshed:
+    # its previously synced models keep working and the admin page shows why
+    # the sync did not run. It never wipes what it cannot re-fetch.
+    groq_catalog_api_key: str | None = None
+    openai_catalog_api_key: str | None = None
+    anthropic_catalog_api_key: str | None = None
+    gemini_catalog_api_key: str | None = None
+
     # CORS
     web_origin: str = "http://localhost:3000"
 

@@ -1,0 +1,72 @@
+---
+title: Searching the marketplace
+description: What search covers, how the filters work, and what "Recommended" actually means.
+---
+
+## Search
+
+The search box matches across a server's name, title, description, publisher, categories and tags.
+It handles quoted phrases and multi-word queries the way a search box is expected to.
+
+## Filters
+
+| Filter | What it does |
+| --- | --- |
+| Category | One of seventeen categories, inferred from the publisher's own text and correctable by an administrator |
+| Minimum grade | "Grade B or better" includes A and B. Servers with no grade are excluded, because "at least B" is a claim about evidence |
+| Pricing | Open source, free, freemium, or paid |
+| Client | Only servers that actually declare a transport the client supports |
+
+The grade filter sits beside the category filter and has the same visual weight. A marketplace that
+lets you narrow by "database" but not by "at least a B" has decided which of those questions
+matters more.
+
+## Sorting
+
+| Sort | Order |
+| --- | --- |
+| Recommended | The weighted ranking score, described below |
+| Security | Grade first (A before D), then score. Unscanned servers sort last |
+| Popular | GitHub stars, highest first. Servers with no star data sort last, not as zero |
+| Recently updated | By the registry's own update timestamp |
+| Recently added | When Aevrin first listed it |
+| A–Z | Title |
+
+## What "Recommended" means
+
+A fixed, inspectable formula. No model, no learned weights, nothing that cannot be explained to the
+publisher whose listing ranked third.
+
+| Component | Weight |
+| --- | --- |
+| Security | 45% |
+| Popularity | 20% |
+| Maintenance | 15% |
+| Community | 10% |
+| Documentation | 10% |
+
+Some details worth knowing:
+
+- **Unscanned scores zero on security**, not "average". Treating no evidence as a middling result
+  would let a server outrank a scanned C by never having been examined — an incentive pointing the
+  wrong way.
+- **A grade earned under partial coverage counts for less** than the same letter earned under full
+  coverage, because it is a weaker claim.
+- **Popularity uses the best available signal, not the sum.** Stars and downloads are each placed on
+  a logarithmic curve and the higher of the two is taken. Adding them would reward having more
+  kinds of metric available rather than more actual use.
+- **Missing metadata scores zero, and means "unknown".** A repository whose data could not be
+  fetched is not being called unpopular.
+- **Documentation is measured by presence, not quality.** Whether a README exists, not whether it is
+  any good. A scoring function that quietly rates prose is one nobody can audit.
+
+The weights live in one dictionary in the API and can be changed without a migration.
+
+## Categories
+
+Developer Tools · Databases · Cloud · Search · Productivity · Communication · Business · Finance ·
+Analytics · DevOps · Security · Browser / Web · Files / Storage · Marketing · AI / ML · Research ·
+Other
+
+A server can belong to several. Categories are inferred from vocabulary the publisher actually
+wrote; when nothing matches, the answer is "Other" rather than a guess.

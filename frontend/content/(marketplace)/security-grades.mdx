@@ -1,0 +1,103 @@
+---
+title: Security grades
+description: What A, B, C and D mean, what a stale or partial scan means, and why an unscanned server is never shown as safe.
+---
+
+Every marketplace listing carries a trust grade, or says it has none. The grade comes from the same
+`grade_mcp_server` function the CLI and the agent posture view use, computed from the same scan the
+dashboard reads. There is no marketplace-specific rubric.
+
+## The letters
+
+| Grade | Label | Recommended action |
+| --- | --- | --- |
+| A | Trusted | Allow |
+| B | Generally safe | Allow with caution |
+| C | Caution | Require approval |
+| D | High risk | Block |
+
+The numeric score beside the letter is Aevrin's scan score, 0–100. Two numbers on purpose: the
+score is the technical detail, the letter is the decision.
+
+## What moves a grade
+
+Findings, weighted by severity, plus a small number of properties that are evidence in themselves:
+
+- Incomplete scan coverage
+- No authentication in front of a live server, or authentication that could not be established
+- Plaintext HTTP transport
+- Declared command-execution tools
+- Declared write-capable tools
+
+Two facts override the arithmetic entirely:
+
+- **Any open critical finding is a D.** A pile of good properties does not offset it.
+- **Unauthenticated command execution is a D.** That is remote code execution with a friendlier
+  name.
+
+An unknown always counts against a grade, never for it. "We could not establish whether this is
+authenticated" is not treated as "it is authenticated".
+
+## Scan states
+
+The letter alone is never the whole answer. Every grade is shown with the state of the scan behind
+it, and the four states mean different things.
+
+**Complete.** The scan finished, every core stage ran, and the version scanned is the version
+currently published. This is the only state where the grade is drawn in colour.
+
+**Partial coverage.** The scan finished but at least one core scanner stage did not run — a tool
+was missing, Docker was down, the network was unreachable. The findings are real. The *absence* of
+findings in the stages that did not run proves nothing, so a partial scan is never presented as
+clean.
+
+**Outdated.** The grade was earned by an older version than the one currently published. Aevrin
+shows which version the grade covers and which version is current, and does not apply the old
+letter to the new release.
+
+**Not yet scanned.** There is no evidence. This is not a statement that the server is unsafe, and
+it is emphatically not a statement that it is safe. It means Aevrin has not looked.
+
+## Why security belongs to a version
+
+A grade is stored against a specific version string, never against the listing in general. When a
+publisher releases v1.5.0, that version is recorded immediately as unscanned; v1.4.2's B does not
+transfer to it.
+
+This is the single most important structural decision in the marketplace. A catalogue that showed
+last month's grade beside this week's release would be publishing a claim it had no evidence for.
+
+## Sub-scores
+
+A listing shows three scores alongside the overall grade:
+
+- **Code security** — Semgrep, Bandit, and secret findings in the server's own source
+- **MCP security** — tool descriptions, poisoning, auth, audit logging, capability surface
+- **Dependencies** — OSV, Trivy, and OpenSSF Scorecard on the supply chain
+
+"Overall C" is not actionable. "MCP surface D, dependencies A" tells you where to look.
+
+A sub-score of "Not assessed" means no findings landed in that bucket. Combined with partial
+coverage, that is not the same as clean, which is why the two are always shown together.
+
+## Badges
+
+| Badge | Meaning |
+| --- | --- |
+| Aevrin scanned | A real scan produced this grade |
+| Grade A / Grade B | Scanned, fully covered, current version |
+| Needs review | Graded C or D |
+| Partial coverage | A scanner stage did not run |
+| Outdated scan | The grade covers an older version |
+| Unscanned | No security evidence |
+
+There is deliberately no "Aevrin Verified" badge. Verification would need documented criteria, and
+a trust badge whose criteria nobody has written down is a claim the product cannot stand behind.
+
+## Grades are not popularity
+
+Stars, forks and download counts are shown in a separate panel, in muted type, below the grade.
+They are labelled for exactly what they measure — "GitHub stars", never "users". A download count
+includes every CI run that ever installed the package.
+
+None of them is a security signal, and none of them can raise a grade.

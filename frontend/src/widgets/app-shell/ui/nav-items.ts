@@ -7,6 +7,10 @@ import {
   Sparkles,
   ChartNoAxesCombined,
   CreditCard,
+  Heart,
+  PackagePlus,
+  Sparkle,
+  Store,
   History,
   KeyRound,
   Users,
@@ -51,6 +55,14 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: "Marketplace",
+    items: [
+      { href: "/marketplace", label: "Discover", icon: Store, exact: true },
+      { href: "/marketplace/saved", label: "Saved", icon: Heart },
+      { href: "/marketplace/submit", label: "Submit a server", icon: PackagePlus },
+    ],
+  },
+  {
     label: "Scanning",
     items: [
       { href: "/scans/new", label: "New scan", icon: ScanSearch },
@@ -65,6 +77,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Account",
     items: [
       { href: "/usage", label: "Usage", icon: ChartNoAxesCombined },
+      { href: "/settings/ai-providers", label: "AI providers", icon: Sparkle },
       { href: "/settings/team", label: "Workspace", icon: Users },
       { href: "/settings/api-keys", label: "API keys", icon: KeyRound },
       { href: "/settings/billing", label: "Billing", icon: CreditCard },

@@ -1,0 +1,84 @@
+---
+title: AI providers
+description: Configuring Groq, Gemini, Anthropic or OpenAI for explanations, how your key is stored, and how the model catalogue stays current.
+---
+
+AI explanations are optional. Aevrin's scanners work identically whether or not a provider is
+configured, and every security result is complete without one.
+
+Configure a provider at **Settings → AI providers**.
+
+## Supported providers
+
+| Provider | Where to get a key |
+| --- | --- |
+| Groq | [console.groq.com](https://console.groq.com/keys) |
+| Google Gemini | [aistudio.google.com](https://aistudio.google.com/apikey) |
+| Anthropic | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
+| OpenAI | [platform.openai.com](https://platform.openai.com/api-keys) |
+
+Aevrin makes no claim about what any of these cost. Free tiers, rate limits and developer
+allowances change without notice, and a security tool that told you an API was free when it had
+started charging would have created a real problem for no benefit. Check the provider's own pricing
+page.
+
+## How your key is stored
+
+- **Encrypted at rest** with the same envelope encryption used for admin TOTP secrets. There is no
+  plaintext column and no code path that creates one.
+- **Never returned to the browser.** Not on save, not on read, not in an error message. What the
+  dashboard shows is "key present" and its last four characters. The API has no endpoint that
+  returns a key, so the settings page could not display one even if it tried.
+- **Never logged.** Provider errors are constructed without the request body, because a body can
+  echo request content and request content is one careless log line away from being the key.
+- **Decrypted only in-process**, at the moment of a call.
+
+Rotating a key replaces it in place. There is never an old key lying around that nobody remembers
+granting.
+
+Calls are made from the Aevrin backend. Your key never reaches a browser, yours or anyone else's.
+
+## Choosing a model
+
+The model dropdown is populated from Aevrin's own synced catalogue, not from a list hardcoded in the
+frontend. When a vendor ships a new model it appears here without anyone editing code or
+redeploying.
+
+Deprecated and withdrawn models are excluded from the dropdown. Offering one would invite you to
+select something that will stop working, and the failure would arrive later, at the moment you
+actually needed an explanation.
+
+If a provider shows no models, Aevrin has not been able to sync its catalogue. See below.
+
+## Fallback
+
+Providers are tried in the order you set: primary first, then each fallback.
+
+Fallback is deliberately shallow, meaning try the next one in your order and stop. There is no
+health scoring and no automatic reordering, because "which vendor saw my infrastructure details" is
+a question that has to have a predictable answer.
+
+Every explanation records which provider and model actually produced it, and the interface shows it.
+Switching vendor has billing and privacy consequences, so it is never silent.
+
+## How the model catalogue is kept current
+
+A scheduled job runs roughly weekly and asks each provider for its current model list.
+
+- New models are added and become selectable.
+- Changed metadata is updated and a change event recorded.
+- Withdrawn models are marked, **never deleted**. Existing explanations reference the model that
+  produced them, and that reference has to keep resolving.
+
+**A correction worth stating plainly:** all four providers require an API key to list models. None
+of them serve a model list anonymously. So Aevrin uses its own catalogue credentials, configured by
+an administrator via environment variables, and never a customer's key. Borrowing your key for
+Aevrin's own bookkeeping would bill you for it.
+
+If a provider has no catalogue credential configured, its models are simply not refreshed. If a
+refresh fails, the previous catalogue keeps working. A failed sync never empties a dropdown: it
+records the error, keeps the last known-good list, and leaves the last successful sync timestamp
+pointing at the last time it genuinely worked.
+
+Administrators can see per-provider status, model counts, last successful sync and any error in the
+admin panel.

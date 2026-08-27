@@ -1,0 +1,69 @@
+---
+title: Marketplace administration
+description: What an administrator can curate, what they cannot change, and what gets audited.
+---
+
+Administration lives at `/admin/marketplace`, behind the same admin session and TOTP checks as the
+rest of the admin panel.
+
+## What an administrator can do
+
+- Add a server by URL
+- Edit title, description, categories, tags, pricing metadata, licence, homepage
+- Feature a listing
+- Change visibility (public, unlisted, private)
+- Publish, suspend, reject
+- Force a rescan
+- Review submissions
+- Review and action reports
+
+## What an administrator cannot do
+
+**Change a grade, a score, or a coverage flag.** There is no code path, no API field, and no form
+input that writes them. They are produced by `grading.py` from a scan and nothing else.
+
+An administrator who disagrees with a grade forces a rescan and gets a new one from evidence. They
+cannot type a better letter. This is enforced by an allowlist of editable fields rather than by a
+denylist, so a column added later cannot become writable by being forgotten.
+
+Two further refusals:
+
+- **Publishing an unscanned server is refused.** Both for direct publication and for approving a
+  submission.
+- **A listing owned by an organisation cannot be made public**, and a public listing cannot be made
+  private without one. Either would expose or orphan an internal server.
+
+## Force rescan
+
+Force rescan creates a real scan: a real pipeline run, real findings, real scanner versions, a new
+timestamp, a recalculated grade, and invalidation of any cached AI explanation of the evidence it
+replaces.
+
+The response says whether a scan actually ran or an existing result of the same source was reused.
+An administrator who pressed rescan and silently got a cached answer would draw the wrong conclusion
+from an unchanged grade.
+
+## Audit trail
+
+Consequential changes are recorded on the listing's own public timeline, not in a private log:
+visibility, status, pricing, licence, featured status, categories. Each entry carries the actor, the
+before and after values, the reason, and the time.
+
+Suppressing or overriding something is therefore visible to the people the listing is shown to.
+
+## The dashboard
+
+| Metric | Meaning |
+| --- | --- |
+| Listings | Total in every state |
+| Unscanned | No security evidence at all |
+| Stale scans | The grade covers an older version than the current release |
+| Grade C or D | Listings a user would be warned about |
+
+Plus counts of pending submissions and open reports.
+
+## Scan queue
+
+There is no distributed queue. The set of unscanned versions is a query — derivable from the data at
+any moment — exposed at `GET /scheduler/scan-queue`. Storing it separately would only create
+something that could disagree with reality.

@@ -1,0 +1,59 @@
+---
+title: Submitting a server
+description: How to propose an MCP server for the marketplace, and what happens to it afterwards.
+---
+
+Any signed-in user can submit an MCP server at [/marketplace/submit](/marketplace/submit).
+
+## You supply a URL. Aevrin derives the rest.
+
+The form has one required field: a public GitHub repository URL, or a public HTTPS MCP endpoint.
+
+Everything else — name, description, licence, stars, README, packaging, categories — is read from
+the source. You are not asked to type metadata about software, because a form that accepted typed
+metadata would accept whatever anyone chose to claim about software they do not own.
+
+## What is refused, and why
+
+- **Anything that is not HTTPS.** No `http://`, no `file://`, no `javascript:`.
+- **Anything internal.** Loopback, private ranges, link-local, `.internal`, `.local`, and cloud
+  metadata endpoints. Submitted URLs go through the same SSRF guard the live-target scanner uses,
+  so a URL that could not be scanned safely cannot be submitted either.
+- **Credentials in the URL.** `https://user:password@host` is rejected.
+- **Duplicates.** If the server is already listed, report a problem with the existing listing
+  instead.
+
+Nothing you submit is executed. Aevrin clones and reads; it does not run install scripts, postinstall
+hooks, or MCP commands.
+
+## The flow
+
+```
+Submitted
+   ↓
+Metadata derived from the source
+   ↓
+Aevrin security scan
+   ↓
+Administrator review
+   ↓
+Published, with its grade
+```
+
+**Nothing is published without a scan.** Approval is refused for a server that has no security
+evidence, because a listing in the catalogue implies Aevrin has looked at it, and that implication
+has to be true.
+
+## Status
+
+Your submissions are listed on the same page with their state:
+
+| Status | Meaning |
+| --- | --- |
+| In review | Waiting on a scan and a decision |
+| Scanning | A scan is running |
+| Published | Live in the catalogue |
+| Not accepted | Rejected, with the reviewer's reason shown |
+
+A rejection always carries a reason. A decision delivered without one is not a decision anyone can
+act on.

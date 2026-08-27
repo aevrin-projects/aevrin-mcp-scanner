@@ -5,7 +5,20 @@ import { createClient } from "@/shared/lib/supabase/client";
 import { AuthenticatedAppShell } from "@/widgets/app-shell";
 import { PublicNavbar } from "@/widgets/public-navbar";
 
-const APP_ROUTE_PREFIXES = ["/dashboard", "/scans", "/settings", "/integrations", "/usage", "/agents"];
+// `/marketplace` is here even though it is publicly browsable, and the
+// distinction is handled below rather than by the list: a signed-in visitor
+// gets the sidebar, a signed-out one gets the marketing navbar, because the
+// guard is `email && isAppRoute`. That is the right split for a catalogue
+// that has to be readable without an account and navigable with one.
+const APP_ROUTE_PREFIXES = [
+  "/dashboard",
+  "/scans",
+  "/settings",
+  "/integrations",
+  "/usage",
+  "/agents",
+  "/marketplace",
+];
 
 // Onboarding is a focused, single-decision flow: it carries its own logo,
 // progress indicator, and Skip control, so the marketing navbar on top of it

@@ -215,6 +215,21 @@ class Scan(BaseModel):
     # relation) produced a full scored report with MCP-labeled OWASP
     # categories and no indication anywhere that this wasn't an MCP server.
     mcp_detected: bool | None = None
+    # How sure that answer is, and on what evidence. "high" | "medium" |
+    # "low" | "none". A bare boolean was enough to caption a report, but not
+    # to decide whether to run MCP-specific analysis against a repository:
+    # that decision needs to know whether the answer came from a declared SDK
+    # dependency or from one suggestive import.
+    mcp_detection_confidence: str | None = None
+    # Short human-readable evidence lines, e.g. "sdk_dependency: depends on
+    # fastmcp". Shown in the report so the claim can be checked rather than
+    # taken on trust.
+    mcp_detection_evidence: list[str] = Field(default_factory=list)
+    # Tools read out of the repository's own registration sites. Empty for a
+    # repo that registers none, and for one whose registrations this could
+    # not parse -- which is why an empty list is never reported as "exposes
+    # nothing", only as "none found".
+    mcp_tools_declared: list[str] = Field(default_factory=list)
     # Names of stages (static_analysis, secrets, dependencies) where every
     # tool in that category failed to execute, e.g. Docker down, a binary
     # missing, network unreachable. Non-empty means the findings/score above

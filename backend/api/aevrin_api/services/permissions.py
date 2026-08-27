@@ -25,6 +25,14 @@ MEMBERS_MANAGE: Final = "members.manage"
 ROLES_MANAGE: Final = "roles.manage"
 BILLING_MANAGE: Final = "billing.manage"
 ORG_MANAGE: Final = "org.manage"
+# Marketplace. Browsing and reading a security grade need no permission at
+# all: the public catalogue is public, and a member who cannot see why a
+# server is risky is a member who will install it anyway.
+MARKETPLACE_SUBMIT: Final = "marketplace.submit"
+MARKETPLACE_PUBLISH: Final = "marketplace.publish"
+MCP_INVENTORY_MANAGE: Final = "mcp.manage"
+AI_PROVIDERS_MANAGE: Final = "ai_providers.manage"
+POLICY_MANAGE: Final = "policy.manage"
 
 
 @dataclass(frozen=True)
@@ -41,6 +49,11 @@ CATALOGUE: Final[tuple[Permission, ...]] = (
     Permission(SCANS_DELETE, "Delete scans", "Remove a scan and its findings from the workspace."),
     Permission(FINDINGS_TRIAGE, "Triage findings", "Mark a finding fixed or a false positive."),
     Permission(AGENTS_DELETE, "Remove agents", "Forget a reported machine and its posture snapshot."),
+    Permission(MARKETPLACE_SUBMIT, "Submit MCP servers", "Propose a server for the public marketplace."),
+    Permission(MCP_INVENTORY_MANAGE, "Manage private MCP servers", "Add and edit the workspace's own internal MCP servers."),
+    Permission(MARKETPLACE_PUBLISH, "Publish marketplace listings", "Approve and publish a submitted server."),
+    Permission(POLICY_MANAGE, "Manage MCP policy", "Decide which trust grades may be installed."),
+    Permission(AI_PROVIDERS_MANAGE, "Manage AI providers", "Add and rotate the API keys used for AI explanations."),
     Permission(MEMBERS_MANAGE, "Manage members", "Invite people, remove them, and change their role."),
     Permission(ROLES_MANAGE, "Manage roles", "Create roles and choose what each one may do."),
     Permission(BILLING_MANAGE, "Manage billing", "Change the plan and the number of seats."),
@@ -52,8 +65,29 @@ ALL_KEYS: Final[frozenset[str]] = frozenset(p.key for p in CATALOGUE)
 # The roles a new workspace starts with. The owner role is special and is
 # created separately; these are ordinary roles the owner can edit or delete.
 DEFAULT_ROLES: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
-    ("Admin", (SCANS_RUN, SCANS_DELETE, FINDINGS_TRIAGE, AGENTS_DELETE, MEMBERS_MANAGE)),
-    ("Member", (SCANS_RUN, FINDINGS_TRIAGE)),
+    (
+        "Admin",
+        (
+            SCANS_RUN, SCANS_DELETE, FINDINGS_TRIAGE, AGENTS_DELETE, MEMBERS_MANAGE,
+            MARKETPLACE_SUBMIT, MARKETPLACE_PUBLISH, MCP_INVENTORY_MANAGE,
+            AI_PROVIDERS_MANAGE, POLICY_MANAGE,
+        ),
+    ),
+    # A security admin decides what may be installed and reads every finding,
+    # but holds nothing that changes the shape of the workspace: no member
+    # management, no billing, no roles.
+    (
+        "Security Admin",
+        (
+            SCANS_RUN, FINDINGS_TRIAGE, MARKETPLACE_SUBMIT, MCP_INVENTORY_MANAGE,
+            POLICY_MANAGE,
+        ),
+    ),
+    ("Member", (SCANS_RUN, FINDINGS_TRIAGE, MARKETPLACE_SUBMIT)),
+    # Viewer holds nothing. Membership alone grants read access, which is what
+    # a shared workspace means; a viewer is someone who can see the findings
+    # and change nothing.
+    ("Viewer", ()),
 )
 
 OWNER_ROLE_NAME: Final = "Owner"
