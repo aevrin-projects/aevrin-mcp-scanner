@@ -589,3 +589,73 @@
      its final offset applied directly or the arc renders empty. */
   .gauge-sweep { stroke-dashoffset: var(--gauge-offset); }
 }
+
+/* ---------------------------------------------------------------------------
+   Marketing surface.
+
+   Scoped to `.marketing` on purpose. The tokens above are the product's
+   dark-first system and the dashboard depends on every one of them, so the
+   landing page gets its own palette here rather than by editing theirs.
+   Nothing in this block reaches a signed-in page.
+
+   The palette and type are measured from the reference design rather than
+   guessed: DM Sans throughout with headlines at weight 500, DM Mono for the
+   uppercase eyebrows, ink #1B3139, deepest section #0B2026, warm panel
+   #EEEDE9, and radii of 2 to 4px so almost nothing looks rounded.
+
+   The one thing deliberately not copied is the red accent. In this product
+   red already means a critical finding, on every badge, chart and exported
+   report, so spending it on branding would blunt the one colour that has to
+   keep meaning danger. Aevrin's blue carries the accent instead.
+--------------------------------------------------------------------------- */
+.marketing {
+  --mk-ink: oklch(0.3 0.028 224);
+  --mk-deep: oklch(0.21 0.023 220);
+  --mk-panel: oklch(0.938 0.004 85);
+  --mk-cream: oklch(0.972 0.004 85);
+  --mk-muted: oklch(0.68 0.021 231);
+  --mk-onDark: oklch(0.95 0.006 240);
+  --mk-accent: oklch(0.55 0.15 246.66);
+  --mk-accent-bright: oklch(0.72 0.14 246.66);
+  --mk-line: oklch(0.88 0.004 85);
+
+  font-family: var(--font-marketing), ui-sans-serif, system-ui, sans-serif;
+  background: #fff;
+  color: var(--mk-ink);
+  letter-spacing: -0.003em;
+}
+.marketing ::selection { background: var(--mk-accent); color: #fff; }
+
+/* Headlines. Weight 500 rather than 700: the reference sets its 60px h1 at
+   medium, which is what keeps a large type size from shouting. */
+.marketing .mk-display {
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: -0.021em;
+  font-size: clamp(2.5rem, 5.2vw, 3.75rem);
+}
+.marketing .mk-h2 {
+  font-weight: 500;
+  line-height: 1.13;
+  letter-spacing: -0.017em;
+  font-size: clamp(1.875rem, 3.4vw, 2.625rem);
+}
+.marketing .mk-h3 { font-weight: 500; letter-spacing: -0.01em; }
+
+/* Eyebrow: mono, uppercase, wide. Used once per section as the label. */
+.marketing .mk-eyebrow {
+  font-family: var(--font-marketing-mono), ui-monospace, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mk-accent);
+}
+.marketing .mk-mono {
+  font-family: var(--font-marketing-mono), ui-monospace, monospace;
+}
+
+/* The dotted field behind the hero. */
+.marketing .mk-dots {
+  background-image: radial-gradient(currentColor 1px, transparent 1px);
+  background-size: 22px 22px;
+}
