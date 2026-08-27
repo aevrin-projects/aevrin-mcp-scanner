@@ -8,6 +8,16 @@ set -euo pipefail
 SRC=/home/ec2-user/aevrin
 ENV_FILE=/opt/aevrin/api.env
 
+# `tee -a` appends bytes after whatever is already in the file, with no
+# newline of its own. If ENV_FILE's last byte isn't already a newline, the
+# next append lands on the end of the previous line instead of starting a
+# new one -- silently merging two variables into one unrecognisable key and
+# losing the appended one entirely, with no error anywhere. Both append
+# sites below (overrides, and the encryption-key mint) depend on this.
+if [ -s "$ENV_FILE" ] && [ "$(sudo tail -c1 "$ENV_FILE" | wc -l)" -eq 0 ]; then
+  printf '\n' | sudo tee -a "$ENV_FILE" >/dev/null
+fi
+
 # Environment values shipped by the deploy, one KEY=VALUE per line, written
 # by the workflow from a repository secret. Applied before anything reads the
 # file so the container below starts with them.
