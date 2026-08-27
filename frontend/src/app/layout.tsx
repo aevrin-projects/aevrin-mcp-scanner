@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { DM_Mono, DM_Sans, Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
+import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
 import { ThemeProvider } from "@/features/theme";
@@ -25,21 +25,6 @@ const instrumentSerif = Instrument_Serif({
   subsets: ["latin"],
   weight: "400",
   style: ["normal", "italic"],
-});
-
-// The marketing face. Loaded here because next/font has to be called at
-// module scope, but applied only inside .marketing, so the dashboard keeps
-// Geist and nothing about the signed-in product changes.
-const dmSans = DM_Sans({
-  variable: "--font-marketing",
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
-});
-
-const dmMono = DM_Mono({
-  variable: "--font-marketing-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
@@ -73,7 +58,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} ${dmSans.variable} ${dmMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="min-h-full bg-background text-foreground">
