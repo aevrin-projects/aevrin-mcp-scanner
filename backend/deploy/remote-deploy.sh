@@ -50,6 +50,10 @@ if [ -f "$OVERRIDES" ]; then
   echo "env overrides applied: ${applied} key(s)"
 fi
 
+# Key names only, never values -- visibility into what's actually configured
+# without risking a value in the deploy log.
+echo "env file now defines: $(sudo grep -oE '^[A-Z_]+=' "$ENV_FILE" | sed 's/=$//' | tr '\n' ' ')"
+
 # The API stores two things encrypted with one Fernet key: customer BYOK
 # provider keys, and admin TOTP secrets. It was documented under the BYOK
 # feature and never set here, so /admin could not enrol an authenticator at
