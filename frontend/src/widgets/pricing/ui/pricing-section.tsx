@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import NumberFlow from "@number-flow/react";
 import { Switch } from "@/shared/ui/switch";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/shared/ui/accordion";
 import { Check } from "lucide-react";
@@ -132,24 +133,33 @@ const TIERS: Tier[] = [
 ];
 
 /* A tick alone tells a screen reader nothing, so inclusion carries a real text
-   label. The glyph is decorative and hidden from the accessibility tree. */
+   label. The glyph is decorative and hidden from the accessibility tree.
+ *
+ * The `relative` wrapper is load-bearing. `sr-only` is `position: absolute`,
+ * and with no positioned ancestor these spans resolved their containing block
+ * to the initial one, which put them outside the comparison table's
+ * `overflow-x-auto` scroller and 620px down the page. That widened the
+ * document by 231px on a 390px viewport, on this page and on every page
+ * embedding it, while `body.scrollWidth` still read a healthy 390 because the
+ * escape happened at the `html` level. Positioning the wrapper keeps them
+ * inside the scroller where they belong. */
 function Included() {
   return (
-    <>
+    <span className="relative inline-flex items-center">
       <Check className="size-4 text-foreground" aria-hidden="true" />
       <span className="sr-only">Included</span>
-    </>
+    </span>
   );
 }
 
 function NotIncluded() {
   return (
-    <>
+    <span className="relative inline-flex items-center">
       <span aria-hidden="true" className="text-muted-foreground">
         -
       </span>
       <span className="sr-only">Not included</span>
-    </>
+    </span>
   );
 }
 
@@ -390,28 +400,54 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
               <div
                 className={
                   tier.popular
-                    ? "plan-card plan-card-featured flex h-full flex-col"
+                    ? "plan-card plan-card-featured relative flex h-full flex-col overflow-hidden"
                     : "plan-card flex h-full flex-col"
                 }
               >
-                <div className="flex items-center justify-between gap-3">
+                {/* Layered subscription glass, the featured tier's signature:
+                    a blurred green wash under a rotated translucent
+                    pane, both behind the content. Purely atmospheric, and
+                    never used to encode a severity. */}
+                {tier.popular && (
+                  <>
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 bg-gradient-to-br from-emerald-500/25 via-emerald-400/10 to-transparent opacity-60 blur-3xl"
+                    />
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute -right-16 -bottom-24 size-56 rotate-12 rounded-3xl border border-white/10 bg-white/[0.06] backdrop-blur-md"
+                    />
+                  </>
+                )}
+
+                <div className="relative z-10 flex items-center justify-between gap-3">
                   <h3 className="plan-name">{tier.name}</h3>
                   {tier.popular && (
-                    <span className="shrink-0 rounded-full bg-brand px-2.5 py-1 text-[11px] font-semibold tracking-[0.08em] text-brand-foreground uppercase">
+                    <span className="shrink-0 rounded-full bg-white/10 px-3 py-1 text-[10px] font-bold tracking-wider text-white uppercase backdrop-blur-md">
                       Most popular
                     </span>
                   )}
                 </div>
 
-                <div className="mt-6 flex items-baseline gap-1.5">
-                  <span className="plan-price">{fmt(totalMonthlyEquivalent)}</span>
+                <div className="relative z-10 mt-6 flex items-baseline gap-1.5">
+                  {/* Animated between billing cycles and seat counts. The
+                      locale and currency come from the same resolved values
+                      `fmt` uses, so the displayed figure cannot drift from the
+                      amount the checkout is created for. */}
+                  <NumberFlow
+                    className="plan-price"
+                    value={totalMonthlyEquivalent}
+                    locales={currency === "INR" ? "en-IN" : "en-US"}
+                    format={{ style: "currency", currency, maximumFractionDigits: 0 }}
+                  />
                   <span className="text-[15px] text-muted-foreground">
                     /month{tier.id === "team" ? ` (${seats} seats)` : ""}
                   </span>
                 </div>
                 {/* Fixed slot so every card's button starts from the same line
                     whether or not the tier shows a billing note. */}
-                <div className="mt-1.5 min-h-9">
+                <div className="relative z-10 mt-1.5 min-h-9">
                   {annual && tier.id !== "free" && (
                     <p className="text-[13px] text-muted-foreground">
                       {fmt(totalMonthlyEquivalent * 12)} billed today for one year, save{" "}
@@ -449,7 +485,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
                   )}
                 </div>
 
-                <div className="mt-6 flex flex-1 flex-col gap-4">
+                <div className="relative z-10 mt-6 flex flex-1 flex-col gap-4">
                   {tier.id === "team" && (
                     <div className="flex items-center justify-between rounded-lg ring-1 ring-border px-3 py-2 text-sm">
                       <label htmlFor="team-seats" className="text-muted-foreground">

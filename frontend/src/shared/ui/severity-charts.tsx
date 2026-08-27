@@ -84,12 +84,32 @@ export function ScoreGauge({ score, size = 132 }: { score: number | null; size?:
         />
       </svg>
 
+      {/* The label stack scales with the ring. These sizes were fixed at
+          32/10/11px whatever `size` was, so the three lines came to ~63px
+          inside a 56px opening once the gauge was rendered smaller than its
+          default, and the score sat on top of the arc. Ratios are taken from
+          the default size so the dashboard's own gauge is unchanged. */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-[32px] leading-none font-semibold tracking-tight tabular-nums text-foreground">
+        <span
+          className="leading-none font-semibold tracking-tight tabular-nums text-foreground"
+          style={{ fontSize: `${(32 / 132) * size}px` }}
+        >
           {score ?? "-"}
         </span>
-        <span className="mt-1 text-[10px] text-muted-foreground">out of 100</span>
-        <span className="mt-1.5 text-[11px] font-medium" style={{ color: band.color }}>
+        <span
+          className="text-muted-foreground"
+          style={{ fontSize: `${(10 / 132) * size}px`, marginTop: `${(4 / 132) * size}px` }}
+        >
+          out of 100
+        </span>
+        <span
+          className="font-medium"
+          style={{
+            color: band.color,
+            fontSize: `${(11 / 132) * size}px`,
+            marginTop: `${(6 / 132) * size}px`,
+          }}
+        >
           {band.label}
         </span>
       </div>
@@ -220,10 +240,20 @@ export function SeverityDonut({
   counts,
   total,
   size = 116,
+  displayTotal,
 }: {
   counts: SeverityCounts;
   total: number;
   size?: number;
+  /**
+   * The figure shown in the middle, when it needs to differ from the
+   * denominator the segments are measured against. The marketing preview
+   * draws the ring in progressively by scaling `counts` while holding `total`
+   * at its final value, and needs the centre number to count up with the
+   * ring rather than sit at the end state. Defaults to `total`, so the
+   * dashboard is unaffected.
+   */
+  displayTotal?: number;
 }) {
   const radius = size / 2 - 8;
   const circumference = 2 * Math.PI * radius;
@@ -265,7 +295,9 @@ export function SeverityDonut({
         ))}
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-xl font-semibold tabular-nums text-foreground">{total}</span>
+        <span className="text-xl font-semibold tabular-nums text-foreground">
+          {displayTotal ?? total}
+        </span>
         <span className="text-[10px] text-muted-foreground">open</span>
       </div>
     </div>

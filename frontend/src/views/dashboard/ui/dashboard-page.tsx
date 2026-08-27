@@ -46,7 +46,7 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
-import { ScoreGauge, SeverityDonut, SeverityTrendChart, type TrendPoint } from "./dashboard-charts";
+import { ScoreGauge, SeverityDonut, SeverityTrendChart, type TrendPoint } from "@/shared/ui/severity-charts";
 
 type ScanSummary = {
   scan: Scan;

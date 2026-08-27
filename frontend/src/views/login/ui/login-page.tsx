@@ -22,7 +22,8 @@ import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Separator } from "@/shared/ui/separator";
-import { AuthPreviewVisual } from "./auth-preview-visual";
+import { BrandIcon } from "@/shared/ui/brand-icon";
+import { DashboardPreview } from "@/widgets/dashboard-preview";
 
 const idleState: LoginState = { status: "idle" };
 const idleResetState: ResetState = { status: "idle" };
@@ -37,26 +38,16 @@ function stripNonDigits(e: ChangeEvent<HTMLInputElement>) {
   e.currentTarget.value = e.currentTarget.value.replace(/\D/g, "").slice(0, OTP_LENGTH);
 }
 
+/* Brand marks come from `thesvg` rather than path data copied into this file:
+   the previous Google glyph was a single-path monochrome approximation, not
+   the actual four-colour mark. GitHub's near-black brand colour is recoloured
+   to the current text colour by BrandIcon, so it survives both themes. */
 function GoogleIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-4" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 16.25 5 12c0-4.1 3.2-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.17-1.81-.17-1.81Z"
-      />
-    </svg>
-  );
+  return <BrandIcon name="google" className="size-4" />;
 }
 
 function GitHubIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-4" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M12 2C6.48 2 2 6.58 2 12.24c0 4.52 2.87 8.36 6.84 9.71.5.1.68-.22.68-.5 0-.24-.01-1.04-.01-1.89-2.78.62-3.37-1.22-3.37-1.22-.46-1.19-1.11-1.51-1.11-1.51-.91-.64.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.31.1-2.72 0 0 .84-.27 2.75 1.05a9.3 9.3 0 0 1 5 0c1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.46.1 2.72.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.8-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.6.69.5A10.03 10.03 0 0 0 22 12.24C22 6.58 17.52 2 12 2Z"
-      />
-    </svg>
-  );
+  return <BrandIcon name="github" className="size-4" />;
 }
 
 // Site chrome (navbar) stays mounted around this page, the sign-in flow
@@ -104,12 +95,16 @@ function AuthShell({ children }: { children: React.ReactNode }) {
             Every finding comes with evidence and a fix.
           </h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            A score you can act on, the exact file and line, and a pull request that&apos;s re-verified by the
-            scanner before it&apos;s opened.
+            A score you can act on, the exact file and line that raised it, the scanner behind it,
+            and a remediation written against that code.
           </p>
         </div>
 
-        <AuthPreviewVisual />
+        {/* Wider than its column and clipped by the panel, so the dashboard
+            runs off the right edge rather than ending in an awkward margin. */}
+        <div className="w-[min(118%,940px)]">
+          <DashboardPreview className="rounded-r-none border-r-0" />
+        </div>
       </div>
     </div>
   );

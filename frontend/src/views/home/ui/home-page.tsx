@@ -1,42 +1,28 @@
 import Link from "next/link";
 import { headers } from "next/headers";
-import { ArrowRight, Eye, FileWarning, KeyRound, PackageOpen, TerminalSquare } from "lucide-react";
-import { buttonVariants } from "@/shared/ui/button";
+import { ArrowRight } from "lucide-react";
 import { PricingSection } from "@/widgets/pricing";
-import { InstallDocsSection } from "@/widgets/install-docs";
-import { ResultPreviewSection } from "@/widgets/result-preview";
 import { SiteFooter } from "@/widgets/site-footer";
-import { Reveal } from "@/shared/ui/reveal";
+import { Hero } from "./hero";
+import { ProductFacts } from "./product-facts";
+import { Capabilities } from "./capabilities";
+import { RiskSection } from "./risk-section";
 
-// The concrete reasons an MCP server is worth reviewing before install. Each
-// maps to a real OWASP MCP category the scanner actually checks; this is a
-// risk explanation, not a feature list.
-const RISKS = [
-  {
-    icon: Eye,
-    title: "It ships a description the model obeys",
-    body: "A tool description is instructions to your agent. Text hidden inside it can redirect behaviour without ever touching your code.",
-    tag: "MCP02 · Tool poisoning",
-  },
-  {
-    icon: KeyRound,
-    title: "It runs with your credentials",
-    body: "Servers routinely hold tokens for the systems they reach. A leaked or over-scoped credential inherits everything you granted.",
-    tag: "MCP01 · Token mismanagement",
-  },
-  {
-    icon: TerminalSquare,
-    title: "It executes on your machine",
-    body: "A stdio server is a local process. An unescaped argument reaching a shell is command execution on the host.",
-    tag: "MCP05 · Command injection",
-  },
-  {
-    icon: PackageOpen,
-    title: "It can change after you trust it",
-    body: "Tool definitions can drift after install, and dependencies carry their own known vulnerabilities.",
-    tag: "MCP04 · Rug pull",
-  },
-];
+/**
+ * The landing page.
+ *
+ * Design language is taken from the reference site rather than invented: a
+ * display serif at light weight with -0.03em tracking, a grotesque body at
+ * weight 500 with the same tracking, warm off-white paper against near-black
+ * ink, square buttons for real actions and full pills reserved for chips.
+ * Those tokens live in the `.marketing` block in `globals.css`, scoped so the
+ * signed-in app is untouched, and defined for both themes so the header's
+ * theme toggle keeps working here.
+ *
+ * Sections are ports of the ui-layouts and tailark block sets, rewritten
+ * around this product's own data. Nothing on this page describes a capability
+ * that does not exist.
+ */
 
 export async function LandingPage() {
   const headersList = await headers();
@@ -44,106 +30,48 @@ export async function LandingPage() {
   const primaryHref = signedIn ? "/dashboard" : "/login";
 
   return (
-    <div className="bg-background">
-      {/* Hero, single column and centred. The previous version stacked a
-          giant "AEVRIN" wordmark (already present in the navbar) above the
-          headline and paired it with a mock product panel; both competed
-          with the real product output now shown directly below. */}
-      <section className="relative overflow-hidden border-b border-border">
-        <div className="absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(circle_at_50%_0%,rgba(121,192,255,0.10),transparent_60%)]" />
+    <div className="marketing">
+      <Hero primaryHref={primaryHref} signedIn={signedIn} />
 
-        <div className="relative mx-auto max-w-3xl px-6 pt-24 pb-20 text-center lg:pt-32 lg:pb-28">
-          <Reveal>
-            <h1 className="display-xl">
-              Know what an MCP server can do before you install it.
-            </h1>
-          </Reveal>
+      <RiskSection />
 
-          <Reveal delay={70}>
-            <p className="lede mx-auto mt-7">
-              Aevrin scans a repository, a live server, or a pasted config with established open-source
-              security tools, then tells you what it found, what it couldn&apos;t check, and how to fix it.
-            </p>
-          </Reveal>
+      <ProductFacts />
 
-          <Reveal delay={130}>
-            <div className="mt-10 flex flex-col justify-center gap-3 sm:flex-row">
-              <Link href={primaryHref} className={buttonVariants({ size: "lg", className: "h-11 px-6" })}>
-                {signedIn ? "Open the dashboard" : "Start free"}
-                <ArrowRight className="size-4" />
-              </Link>
-              <Link
-                href="#install"
-                className={buttonVariants({ size: "lg", variant: "outline", className: "h-11 px-6" })}
-              >
-                Install the CLI
-              </Link>
-            </div>
-          </Reveal>
+      <Capabilities />
 
-          <Reveal delay={190}>
-            <p className="mt-7 text-xs text-muted-foreground">
-              Free plan needs no card. Nothing renews automatically.
-            </p>
-          </Reveal>
-        </div>
+      <PricingSection />
 
-      </section>
-
-      {/* Why this matters, concrete risk, each tied to a real category the
-          scanner checks, rather than abstract "why teams adopt it" copy. */}
-      <section className="border-b border-border">
-        <div className="mx-auto max-w-[1500px] px-6 py-24 lg:px-10 xl:px-14">
-          <Reveal className="max-w-3xl">
-            <span className="text-xs font-medium tracking-wide text-brand-text uppercase">The risk</span>
-            <h2 className="display-md mt-3">
-              An MCP server is code, credentials, and instructions your agent trusts.
-            </h2>
-            <p className="mt-3 text-muted-foreground">
-              Installing one grants real capability on your machine and in the systems it reaches. These are the
-              failure modes Aevrin looks for.
-            </p>
-          </Reveal>
-
-          <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {RISKS.map((risk, index) => (
-              <Reveal key={risk.title} delay={index * 60}>
-                <div className="flex h-full flex-col rounded-xl border border-border bg-card p-5">
-                  <risk.icon className="size-4 text-brand-text" aria-hidden="true" />
-                  <h3 className="mt-3 text-[15px] font-medium text-balance">{risk.title}</h3>
-                  <p className="mt-2 flex-1 text-[13px] leading-relaxed text-muted-foreground">{risk.body}</p>
-                  <span className="mt-4 font-mono text-[11px] text-muted-foreground">{risk.tag}</span>
-                </div>
-              </Reveal>
-            ))}
+      {/* Closing action, on the inverted ground the reference uses for its
+          final band. */}
+      <section
+        className="px-6 py-24 lg:py-32"
+        style={{ background: "var(--mk-invert-bg)", color: "var(--mk-invert-fg)" }}
+      >
+        <div className="mx-auto max-w-3xl text-center">
+          <h2 className="mk-h2">Scan the next one before you install it.</h2>
+          <p className="mk-lede mx-auto mt-5" style={{ color: "var(--mk-invert-muted)" }}>
+            Five CLI scans a month on the free plan, no card, nothing that renews on its own.
+          </p>
+          <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
+            <Link
+              href={primaryHref}
+              className="mk-btn"
+              style={{ background: "var(--mk-invert-fg)", color: "var(--mk-invert-bg)" }}
+            >
+              {signedIn ? "Open dashboard" : "Start scanning free"}
+              <ArrowRight className="size-4" />
+            </Link>
+            <Link
+              href="/docs"
+              className="mk-btn"
+              style={{ border: "1px solid var(--mk-invert-line)", color: "var(--mk-invert-fg)" }}
+            >
+              Read the docs
+            </Link>
           </div>
         </div>
       </section>
 
-      <ResultPreviewSection />
-
-      {/* Honest-coverage promise, the product's actual differentiator, so it
-          gets its own moment rather than being one bullet in a feature grid. */}
-      <section className="border-b border-border">
-        <div className="mx-auto max-w-[1500px] px-6 py-24 lg:px-10 xl:px-14">
-          <Reveal>
-            <div className="mx-auto flex max-w-3xl flex-col items-center gap-4 text-center">
-              <FileWarning className="size-5 text-brand-text" aria-hidden="true" />
-              <h2 className="display-md">
-                A clean result never quietly means &ldquo;we didn&apos;t look&rdquo;.
-              </h2>
-              <p className="text-muted-foreground">
-                If a scanner fails, a stage is skipped, or a target type can&apos;t be source-scanned, the result
-                says so, on the page, in the CLI, and in the exported report. Partial coverage stays labelled
-                partial instead of being rounded up to a passing score.
-              </p>
-            </div>
-          </Reveal>
-        </div>
-      </section>
-
-      <PricingSection />
-      <InstallDocsSection />
       <SiteFooter />
     </div>
   );

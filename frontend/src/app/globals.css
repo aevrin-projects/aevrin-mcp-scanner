@@ -256,31 +256,8 @@
     text-wrap: pretty;
   }
 
-  /* Pricing card treatment: borderless, softly shadowed, and more rounded than
-     the rest of the app on purpose. Separation comes from elevation instead of
-     a hairline, which is what stops four dense feature lists reading as a wall
-     of boxes. In dark mode a shadow is invisible, so the border comes back and
-     does the same job. */
-  .plan-card {
-    background: var(--card);
-    border-radius: 16px;
-    border: 1px solid transparent;
-    padding: 28px 28px 32px;
-    box-shadow:
-      0 1px 3px rgb(0 0 0 / 0.06),
-      0 4px 12px rgb(0 0 0 / 0.04);
-  }
-  .dark .plan-card {
-    border-color: var(--border);
-    box-shadow: none;
-  }
-  .plan-card-featured {
-    border-color: var(--brand);
-    box-shadow:
-      0 1px 3px rgb(0 0 0 / 0.08),
-      0 8px 24px rgb(0 0 0 / 0.08);
-  }
-
+  /* The card surface itself is defined further down, in the layered
+     subscription glass block. Only the type scale lives here. */
   .plan-name {
     font-size: 1.75rem;
     font-weight: 400;
@@ -294,15 +271,6 @@
     letter-spacing: -0.03em;
     font-variant-numeric: tabular-nums;
   }
-  .plan-cta {
-    width: 100%;
-    border-radius: 10px;
-    padding: 14px 16px;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    line-height: 1.5;
-  }
-
   /* FAQ rows as filled panels rather than divider-separated lines. Each answer
      is then a self-contained block, which is easier to scan than a ruled list
      when the answers differ a lot in length. */
@@ -588,4 +556,266 @@
   /* The gauge is drawn with a dash offset, so with the animation off it needs
      its final offset applied directly or the arc renders empty. */
   .gauge-sweep { stroke-dashoffset: var(--gauge-offset); }
+}
+
+/* ==========================================================================
+   Marketing surface
+   --------------------------------------------------------------------------
+   Scoped to `.marketing` so the signed-in app keeps its own tokens untouched.
+   Measured from the reference rather than guessed: paper #FDFFF8, ink #151414,
+   muted #5A5A5A, a pale panel at #F3F7EB and hairlines at #D1DECD. The two
+   details that carry most of the character are the square button (the
+   reference sets radius 0 on every real action and reserves the full pill for
+   chips) and the tight -0.03em tracking on body text at weight 500.
+
+   Both themes are defined here because the header keeps its theme toggle: the
+   dark side inverts to ink-as-ground, which is what the reference itself does
+   for its full-bleed dark sections.
+   ========================================================================== */
+.marketing {
+  --mk-paper: #fdfff8;
+  --mk-ink: #151414;
+  --mk-muted: #5a5a5a;
+  --mk-panel: #f3f7eb;
+  --mk-raise: #ffffff;
+  --mk-line: #d1decd;
+  --mk-line-soft: #e4ebdf;
+  /* Inverse pair, for the deliberately dark bands inside a light page. */
+  --mk-invert-bg: #151414;
+  --mk-invert-fg: #fdfff8;
+  --mk-invert-muted: #9a9a94;
+  --mk-invert-line: #2e2d2c;
+  /* Section marker. The block set uses orange-600; this product's mark is
+     green, so the accent is green and orange appears nowhere. --mk-accent is
+     the solid fill (hover tiles, rails) and always carries
+     --mk-accent-contrast on top of it; --mk-accent-chart is the series colour,
+     tuned per theme so it reads on --mk-panel either way. */
+  --mk-accent: #15803d;
+  --mk-accent-contrast: #ffffff;
+  --mk-accent-chart: #2f9e68;
+
+  background: var(--mk-paper);
+  color: var(--mk-ink);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+.dark .marketing {
+  --mk-paper: #151414;
+  --mk-ink: #fdfff8;
+  --mk-muted: #9a9a94;
+  --mk-panel: #1c1b1b;
+  --mk-raise: #201f1f;
+  --mk-line: #2e2d2c;
+  --mk-line-soft: #232222;
+  /* Inverted again, so a band that is dark-on-light in the light theme
+     becomes light-on-dark here instead of disappearing into the page. */
+  --mk-invert-bg: #f3f7eb;
+  --mk-invert-fg: #151414;
+  --mk-invert-muted: #5a5a5a;
+  --mk-invert-line: #d1decd;
+  --mk-accent: #34d399;
+  --mk-accent-contrast: #0a0a0a;
+  --mk-accent-chart: #34d399;
+}
+
+@layer components {
+  /* Display face. The reference sets its headline at 64px / weight 300 with
+     -0.03em; Instrument Serif is a touch lighter on the page at 400, so the
+     weight stays there and only the tracking is matched. */
+  .mk-display {
+    font-family: var(--font-display), ui-serif, Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(2.5rem, 5.6vw, 4rem);
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+  .mk-h2 {
+    font-family: var(--font-display), ui-serif, Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(2rem, 3.6vw, 3.25rem);
+    line-height: 1.04;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+  .mk-h3 {
+    font-family: var(--font-display), ui-serif, Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(1.35rem, 1.8vw, 1.75rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+  .mk-lede {
+    font-size: 1.125rem;
+    line-height: 1.4;
+    letter-spacing: -0.03em;
+    color: var(--mk-muted);
+    text-wrap: pretty;
+  }
+
+  /* Square, 14px, weight 600: the reference's one true action. */
+  .mk-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem 1.1rem 1rem 1.3rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    border-radius: 0;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+  }
+  .mk-btn-solid {
+    background: var(--mk-ink);
+    color: var(--mk-paper);
+  }
+  .mk-btn-solid:hover { opacity: 0.85; }
+  .mk-btn-ghost {
+    border: 1px solid var(--mk-line);
+    color: var(--mk-ink);
+  }
+  .mk-btn-ghost:hover { background: var(--mk-panel); }
+
+  /* Chips are the one place the reference goes fully round. */
+  .mk-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 9999px;
+    padding: 0.4rem 0.9rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+  }
+
+  .mk-mono {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--mk-muted);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Pricing: layered subscription glass
+   --------------------------------------------------------------------------
+   From the `subscription-details` block. Plans are distinguished by surface
+   rather than outline: unfeatured tiers sit on a soft panel behind a 2px
+   dashed border, and the featured tier is a solid ink slab carrying the
+   blurred orange-to-pink glow, a rotated translucent pane and the layered
+   sm-to-2xl shadow stack. The glow and pane are rendered in the component
+   itself, since they are elements rather than paint.
+
+   Applied globally, not scoped to `.marketing`: the pricing section is the
+   same section on `/` and on `/pricing`, and giving it two different designs
+   depending on which page it was mounted on is worse than either design.
+   -------------------------------------------------------------------------- */
+.plan-card {
+  background: var(--muted);
+  border: 2px dashed var(--border);
+  border-radius: 1rem;
+  padding: 28px 28px 32px;
+  box-shadow: none;
+}
+.dark .plan-card {
+  border-color: var(--input);
+}
+
+.plan-card-featured {
+  /* Ink in both themes, as the source has it. In the dark theme the glow and
+     the shadow stack are what separate it from the page. */
+  background: #0a0a0a;
+  color: #ffffff;
+  border: 0;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.08),
+    0 4px 8px rgb(0 0 0 / 0.10),
+    0 10px 20px rgb(0 0 0 / 0.12),
+    0 20px 44px rgb(0 0 0 / 0.18);
+}
+.dark .plan-card-featured {
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.08),
+    0 20px 44px rgb(0 0 0 / 0.55);
+}
+
+/* Inside the ink slab the muted and border tokens have to flip, or every
+   secondary line falls to roughly 1.5:1 against it. */
+.plan-card-featured :where(.text-muted-foreground) {
+  color: oklch(0.75 0 0) !important;
+}
+.plan-card-featured :where(svg) {
+  color: #ffffff;
+}
+.plan-card-featured :where(.border-border, hr) {
+  border-color: rgb(255 255 255 / 0.18) !important;
+}
+
+/* The card's own action inverts with it: ink slab, paper button. The button
+   is styled with utilities rather than a `.plan-cta` class, so this targets
+   the element; left alone it renders `bg-primary`, which in the light theme
+   is the same ink as the slab it sits on. */
+.plan-card-featured :where(button, a) {
+  background: #ffffff !important;
+  color: #0a0a0a !important;
+  --tw-ring-color: transparent;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.25);
+}
+.plan-card-featured :where(button, a):active {
+  scale: 0.97;
+}
+
+.marketing .plan-card {
+  background: var(--mk-panel);
+  border-color: var(--mk-line);
+  color: var(--mk-ink);
+}
+/* Needed because the rule above is one class more specific than
+   `.plan-card-featured`, so without it the marketing panel repainted the ink
+   slab and the featured card came back light, taking its white pill and white
+   button with it. */
+.marketing .plan-card-featured {
+  background: #0a0a0a;
+  color: #ffffff;
+  border: 0;
+}
+.marketing .plan-name,
+.marketing .plan-price {
+  font-family: var(--font-display), ui-serif, Georgia, serif;
+}
+
+/* NumberFlow renders its own inline-block wrapper; without this the price
+   baseline drifts away from the "/month" beside it. */
+.plan-price {
+  display: inline-block;
+  vertical-align: baseline;
+}
+
+/* The dashboard preview, scrubbed by scroll rather than played on a clock.
+ *
+ * The bars keep their existing keyframes and are paused, with a negative
+ * animation-delay selecting the frame: at --reveal 0 the delay is 0 and the
+ * bar sits at scaleY(0), and at 1 it is past the end and the bar is full. The
+ * per-column stagger is preserved by keeping its term in the same expression,
+ * and the 0.75s span is wide enough to hold all six columns' offsets.
+ *
+ * The gauge and the donut need no scrub: their arcs are computed from the
+ * score and counts, which are themselves derived from the reveal, so they
+ * follow it directly. Their own entrance animation is switched off here so it
+ * cannot fight the scroll.
+ *
+ * Reduced motion still wins: that rule sets `animation: none` and applies the
+ * gauge's final offset, and the caller passes a reveal of 1. */
+.preview-scrub .bar-grow-y {
+  animation-play-state: paused;
+  animation-delay: calc((var(--i, 0) * 35ms) - (var(--reveal, 1) * 0.75s));
+}
+
+.preview-scrub .gauge-sweep {
+  animation: none;
+  stroke-dashoffset: var(--gauge-offset);
 }
