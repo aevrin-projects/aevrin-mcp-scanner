@@ -39,6 +39,7 @@ if [ -f "$OVERRIDES" ]; then
     case "$line" in
       [A-Z]*=*)
         key="${line%%=*}"
+        echo "override line matched, key=${key}, line length=${#line}"
         sudo sed -i "/^${key}=/d" "$ENV_FILE"
         echo "$line" | sudo tee -a "$ENV_FILE" >/dev/null
         applied=$((applied + 1))
