@@ -29,7 +29,8 @@ JWT) unless noted.
 | `/marketplace` | `marketplace.py` | `GET /mcp`, `GET /categories`, `GET /mcp/{slug}`, `POST /mcp/{slug}/install-plan`, `POST /submissions`, `GET /submissions`, `POST /mcp/{id}/report`, `PUT /mcp/{id}/favorite`, `GET /favorites`, `GET /policy`, `PUT /policy` |
 | `/orgs` | `orgs.py` | `GET /permissions`, `GET /me`, `POST ""`, `PATCH ""`, `POST /leave`, `GET /members`, `PATCH /members/{id}`, `DELETE /members/{id}`, `GET /invites`, `POST /invites`, `DELETE /invites/{id}`, `POST /invites/{id}/accept`, `GET /roles`, `POST /roles`, `PATCH /roles/{id}`, `DELETE /roles/{id}` |
 | `/scans` | `scans.py` | `POST ""`, `POST /upload` (`X-API-Key`), `GET /{id}/diff`, `GET ""`, `DELETE ""`, `GET /{id}`, `DELETE /{id}`, `GET /{id}/stages`, `GET /{id}/findings` |
-| `/scheduler` | `scheduler.py` | `POST /registry-sync`, `POST /provider-sync`, `GET /scan-queue` - all gated by `require_scheduler_token` (HMAC comparison against `SCHEDULER_TOKEN`, fails closed if unconfigured), not a user session |
+| `/scheduler` | `scheduler.py` | `POST /registry-sync`, `POST /provider-sync`, `POST /uptime-check`, `GET /scan-queue` - all gated by `require_scheduler_token` (HMAC comparison against `SCHEDULER_TOKEN`, fails closed if unconfigured), not a user session |
+| `/status` | `status.py` | `GET /history` - **unauthenticated by design**: it is the data behind the public status page, which has to stay readable when nobody can sign in. Carries no user, org, or scan data. |
 
 `GET /health` is registered directly in `main.py`, outside `ROUTERS`.
 

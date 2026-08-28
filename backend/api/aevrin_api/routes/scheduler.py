@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from aevrin_api.config import Settings, get_settings
 from aevrin_api.db import SupabaseRest
 from aevrin_api.routes.deps import get_db
+from aevrin_api.services import status as status_service
 from aevrin_api.services.ai.provider_sync import sync_all_providers
 from aevrin_api.services.marketplace.sync import listings_needing_scan, run_weekly_sync
 
@@ -89,6 +90,25 @@ async def provider_sync(
     """
     report = await sync_all_providers(db, settings)
     return report.as_dict()
+
+
+@router.post("/uptime-check", dependencies=[Depends(require_scheduler_token)])
+async def uptime_check(
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Any:
+    """Record one availability sample for each service, and prune old ones.
+
+    Intended hourly. Called more often it simply records more samples, which
+    is why the status page publishes the recorded-check count alongside any
+    uptime figure rather than implying a fixed cadence.
+
+    Note what an outage looks like from here: this endpoint is *on* the API,
+    so when the API is down this call fails and nothing is written at all.
+    The gap is the signal, and `services/status.py` reports a day with no
+    checks as `no_data` rather than folding it into an uptime percentage.
+    """
+    return await status_service.run_checks(db, settings)
 
 
 @router.get("/scan-queue", dependencies=[Depends(require_scheduler_token)])

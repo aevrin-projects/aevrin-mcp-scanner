@@ -552,3 +552,93 @@ this distinction.
 credential is stored either way, and a vendor being briefly unreachable must
 not read as a rejected key. One extra outbound call is added to a save, on a
 path a user takes rarely.
+
+## ADR-013: GitHub Actions is the external scheduler, and a gap in the uptime record is never counted as uptime
+
+**Status:** implemented.
+
+**Context:** two problems that turned out to have one shape.
+
+The `/scheduler/*` endpoints were written for "whatever is already
+scheduling things on AWS" and deliberately shipped with no scheduler inside
+the application: the platform has one, and a second would be a second thing
+to operate. But nothing was ever wired to them. `ROADMAP.md` recorded the
+blocker honestly: provisioning an EventBridge rule needs an IAM
+access key/secret pair, and the only AWS credentials this repository holds
+are GitHub Actions secrets, which are write-only by GitHub's own design and
+unreadable outside a workflow run. So the weekly registry sync and the AI
+catalogue refresh had been ready and idle since they were written, which is
+also why marketplace rows kept serving a registry link that had already been
+fixed in code.
+
+Separately, the status page had no history. It said so rather than
+estimating a figure, which was right, but "we do not measure this" is a poor
+permanent answer for a security product's own availability page.
+
+**Decision (scheduler):** `.github/workflows/scheduler.yml`, using
+`on: schedule`. Hourly `POST /scheduler/uptime-check`; weekly
+`POST /scheduler/registry-sync` then `POST /scheduler/provider-sync`.
+
+The blocker dissolves rather than being worked around: Actions secrets are
+unreadable *outside* a workflow run, and a workflow run is the only place
+this needs them. It also keeps the cadence in code review beside the
+endpoints it calls instead of in a console nobody diffs. This does not
+reverse the "no scheduler inside the application" rule from the endpoints'
+own docstring: the scheduler is still external, it is simply external in a
+place this repository already owns.
+
+The cost is that GitHub's scheduled runs are best-effort and can be delayed
+or dropped under load. Nothing here is damaged by that. Every endpoint is
+idempotent and safe to call late or twice, the registry sync is incremental
+against its own watermark, and the uptime job publishes the count of samples
+actually recorded rather than assuming a cadence.
+
+**Decision (uptime):** `service_checks` (migration `0039`) stores one row
+per service per sample. **A day with no recorded checks is reported as
+`no_data`, rendered as a distinct neutral bar, and excluded from the uptime
+percentage entirely.**
+
+This is the load-bearing part, and it is not a display preference. The
+recording job reaches Aevrin over the network, so when the API is down the
+job fails and writes *nothing* rather than writing a row that says "down".
+A rollup computing `ok / recorded` would therefore report a total outage as
+100% uptime. That inversion is silent, entirely plausible-looking, and
+appears on precisely the page someone loads when they suspect an outage. The
+absence of a row has to carry meaning, so the published figure is scoped out
+loud as "of N recorded checks" and the per-service card states how many days
+in the window had none.
+
+This is the same rule the product already applies to itself elsewhere,
+reached from a different direction: an unscanned marketplace listing scores
+zero on security rather than a neutral default, and `GradeBadge` refuses to
+render a letter without its scan state. An unknown counts against a claim,
+never for it.
+
+**Alternatives considered:**
+
+- *Probe from the workflow and POST the results.* A genuinely external
+  vantage point, and it would let an API outage be recorded as a failure
+  instead of a gap. Rejected for now: it moves real logic into YAML, and the
+  gap is already handled honestly. Worth revisiting if the "days without
+  checks" count turns out to be routinely non-zero in practice.
+- *A third-party uptime service.* Solves it properly and needs no code, but
+  adds a vendor, an account, and a second place the truth lives, for a
+  four-service status page.
+- *Compute uptime against an expected sample count* (24/day) rather than
+  recorded ones. Rejected: it converts GitHub's own best-effort scheduling
+  into reported downtime, which would make Aevrin look broken every time
+  Actions was busy. Reporting a gap as a gap is the honest form.
+
+**Consequences:** an unbounded append-only table would be a slow leak, so
+the job prunes past 35 days on every run. Building that revealed a real bug
+in `SupabaseRest.delete`, which force-prefixed `eq.` onto every filter and
+so turned a `lt.` range into `eq.lt.<value>` - matching nothing, reporting
+success, and pruning zero rows forever. `select` already had the operator
+pass-through; `delete` now shares it.
+
+One manual step remains and cannot be automated from here: the workflow
+needs a `SCHEDULER_TOKEN` repository secret matching the value deployed
+through `AEVRIN_ENV_OVERRIDES`. That secret is environment-scoped and
+write-only, so its contents cannot be read to copy the token across, and
+rewriting it blind would destroy the other keys it carries. The workflow
+fails with an explicit message rather than a bare 401 until it is set.

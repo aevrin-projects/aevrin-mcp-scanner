@@ -188,6 +188,41 @@ Runs on every push/PR, needs no secret (so it runs for forks too):
 repository without Code Scanning enabled - it's a CI gate, not a dashboard
 feed.
 
+## Scheduled jobs (`.github/workflows/scheduler.yml`)
+
+The `/scheduler/*` endpoints were written for "whatever is already
+scheduling things on AWS", and for a long time nothing was: an EventBridge
+rule needs an IAM credential in someone's hands, and the only AWS
+credentials this repository holds are write-only Actions secrets, readable
+inside a workflow run and nowhere else. GitHub Actions `on: schedule` is a
+scheduler that needs nothing which is not already here, and it keeps the
+cadence in code review next to the endpoints it calls rather than in a
+console.
+
+| Job | Cron (UTC) | Calls |
+|---|---|---|
+| `uptime` | `0 * * * *` (hourly) | `POST /scheduler/uptime-check` |
+| `weekly` | `15 3 * * 0` (Sun 03:15) | `POST /scheduler/registry-sync`, then `POST /scheduler/provider-sync` |
+
+Both jobs read a `SCHEDULER_TOKEN` **repository** secret and send it as
+`X-Scheduler-Token`. It must match the `SCHEDULER_TOKEN` deployed in the
+API's environment (which is set through the `AEVRIN_ENV_OVERRIDES`
+environment secret - a separate, write-only store, so the value has to be
+put in both places by whoever holds it). The workflow fails with an
+explicit message rather than a confusing 401 when the secret is absent.
+
+GitHub's scheduled runs are best-effort and can be delayed or dropped under
+load. Nothing here is damaged by that: every endpoint is idempotent, the
+registry sync is incremental against its own watermark, and the uptime job
+publishes the count of checks actually recorded rather than assuming a
+cadence - a missed run appears as a gap the status page reports as "no
+data", never as uptime. The `weekly` job's provider step runs `if: always()`
+so an MCP-registry outage does not also skip the AI catalogue refresh.
+
+The `uptime` step fails the run when the API does not answer. That is
+deliberate: an unreachable API is exactly the gap the status page will show,
+and a green run for a missed sample would hide it.
+
 ## Publishing pipelines (three, independent)
 
 | Pipeline | Workflow | Trigger | What it publishes |

@@ -20,20 +20,52 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ## [Unreleased]
 
+### Added
+
+- **Availability history.** `service_checks` (migration `0039`) records one
+  sample per service, written hourly by a new
+  `POST /scheduler/uptime-check` and read by a new public
+  `GET /status/history`. The status page now shows a real 30-day strip and
+  uptime percentage instead of stating that it had none.
+  The rule the whole feature is built around: **a gap is not uptime.** The
+  recording job reaches Aevrin over the network, so an API outage writes
+  nothing rather than writing a failure, and computing uptime as
+  `ok / recorded` would have scored a total outage as 100%. A day with no
+  checks is reported as `no_data`, rendered as a distinct neutral bar,
+  excluded from the percentage, and counted in a "N days without checks"
+  note. The percentage is labelled "of N recorded checks" rather than
+  presented as coverage.
+- **The `/scheduler/*` endpoints now actually run on a schedule**
+  (`.github/workflows/scheduler.yml`): hourly uptime samples, and the
+  weekly registry and AI-catalogue syncs that had been ready but unwired
+  since they were written. GitHub Actions rather than EventBridge because
+  provisioning an EventBridge rule needs an IAM credential nobody holds
+  outside a workflow run, while a cron in this repository needs nothing
+  that is not already here. Needs a `SCHEDULER_TOKEN` repository secret
+  matching the deployed value. See `DECISIONS.md` ADR-013.
+
+### Fixed
+
+- `SupabaseRest.delete` force-prefixed `eq.` onto every filter value, so a
+  range filter became `eq.lt.<value>` and matched nothing: the delete
+  reported success while removing no rows. `select` already had the
+  operator pass-through this needed; `delete` now shares it. Nothing had
+  depended on the broken behaviour (every existing caller passes bare uuids
+  or short enum values), but a retention sweep written against it would
+  have silently never pruned anything.
+
 ### Changed
 
 - The status page (`mcp.aevrin.net/status`) is now a detailed service view:
-  an overall state badge, a metrics row (services tracked, operational now,
-  slowest response), and a per-service card carrying its group, description,
-  and the round-trip time actually measured for that check. It reports
-  latency as a measurement, never as a "degraded" verdict, since one sample
-  from one visitor's network cannot support that claim. A 30-day uptime
-  percentage, per-day history strip, and incident timeline were considered
-  and deliberately left out: Aevrin runs no uptime monitoring and stores no
-  availability history, so every one of those numbers would have been
-  invented. The page states that absence in an "Availability history: not
-  recorded" panel rather than omitting the section. See
-  `docs/architecture/FRONTEND.md`.
+  an overall state badge, a metrics row, and a per-service card carrying its
+  group, description, and the round-trip time actually measured for that
+  check. It reports latency as a measurement, never as a "degraded" verdict,
+  since one sample from one visitor's network cannot support that claim.
+  It shipped first with no uptime history, stating that absence rather than
+  estimating a figure; the availability history above then made the real
+  numbers available, and the page now shows them. There is still no incident
+  timeline: incidents are human-authored and Aevrin has nowhere to author
+  them. See `docs/architecture/FRONTEND.md`.
 
 ### Fixed
 
@@ -66,6 +98,14 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   the broken link indefinitely. `registry_server_url()` is now the single
   implementation and is applied on read, correcting stored rows without
   waiting for a re-sync.
+- Google/GitHub sign-in bounced silently to `mcp.aevrin.net` (the marketing
+  site) instead of reaching the dashboard, a gap left by the domain
+  cutover below: Supabase's `site_url` still pointed at the old app
+  domain, and that's what GoTrue's own OAuth callback handler redirects
+  to on any internal hiccup, bypassing the app's `redirect_to` entirely.
+  Password sign-in was unaffected (confirmed via a real login and a
+  magic-link round trip before this fix landed). Set `site_url` to
+  `https://app.mcp.aevrin.net`; see `DECISIONS.md` ADR-011.
 - The AI provider model dropdown was empty for every provider. The
   catalogue is populated only by a sync job needing Aevrin's own
   `*_CATALOG_API_KEY`, which this deployment has never had, so
@@ -85,14 +125,6 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   brand mark and then the category icon, so a tile never renders blank or
   broken. See `docs/architecture/FRONTEND.md`.
 
-- Google/GitHub sign-in bounced silently to `mcp.aevrin.net` (the marketing
-  site) instead of reaching the dashboard, a gap left by the domain
-  cutover below: Supabase's `site_url` still pointed at the old app
-  domain, and that's what GoTrue's own OAuth callback handler redirects
-  to on any internal hiccup, bypassing the app's `redirect_to` entirely.
-  Password sign-in was unaffected (confirmed via a real login and a
-  magic-link round trip before this fix landed). Set `site_url` to
-  `https://app.mcp.aevrin.net`; see `DECISIONS.md` ADR-011.
 
 ### Changed
 

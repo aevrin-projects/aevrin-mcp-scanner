@@ -26,6 +26,7 @@ from aevrin_api.routes import (
     orgs,
     scans,
     scheduler,
+    status,
 )
 
 ROUTERS: list[APIRouter] = [
@@ -48,6 +49,7 @@ ROUTERS: list[APIRouter] = [
     ai.router,
     admin_marketplace.router,
     scheduler.router,
+    status.router,
 ]
 
 __all__ = ["ROUTERS"]

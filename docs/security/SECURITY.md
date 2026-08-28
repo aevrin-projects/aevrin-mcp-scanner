@@ -77,6 +77,15 @@ must keep passing for this boundary to mean anything.
   evidence), carries kind/source/presence only - never a value. This is
   enforced by a fixed-key allow-list, not by hoping nobody adds a `value`
   field later.
+- **`service_checks` is deliberately world-readable.** It is the only table
+  with a public select policy besides `mcp_categories`, and it holds exactly
+  what the status page publishes: which of Aevrin's own services answered,
+  and how quickly. No user, organisation, scan, or listing data reaches it,
+  and its `detail` column stores a short reason ("timeout", "status 502")
+  rather than a response body, since a body can echo request content and
+  request content is one careless write away from being a credential. There
+  is no insert or update policy at all, so writes go only through the API's
+  service-role key.
 - **Never logged**: provider errors are constructed without the request
   body, since a body can echo request content back and request content is
   one careless log line away from being the key.

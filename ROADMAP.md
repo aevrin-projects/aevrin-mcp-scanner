@@ -36,16 +36,19 @@ marketplace/AI/admin/providers work is fully live)
       worth setting - they keep the catalogue current for providers nobody
       has configured yet, and refresh it on a schedule rather than only
       when somebody saves a key.
-- [ ] Wire an external scheduler (EventBridge, a cron container, or
-      equivalent) to call `POST /scheduler/registry-sync` and
-      `POST /scheduler/provider-sync` on a weekly cadence. Verified
-      commands ready (`docs/architecture/DEPLOYMENT.md` and the session
-      that produced them) but not run - this account's only available
-      credential for the EC2 host is an SSH key, not an AWS IAM
-      access key/secret pair, and those exist solely as GitHub Actions
-      secrets (write-only, unreadable outside a workflow run). Needs
-      either an IAM credential provided directly, or the commands run by
-      whoever holds one.
+- [x] **Wire an external scheduler.** Done, as
+      `.github/workflows/scheduler.yml`: hourly `POST /scheduler/uptime-check`,
+      and `POST /scheduler/registry-sync` + `POST /scheduler/provider-sync`
+      weekly on Sundays. GitHub Actions rather than EventBridge, which
+      dissolves the blocker recorded here previously: an EventBridge rule
+      needs an IAM credential in someone's hands, while Actions secrets are
+      readable inside a workflow run, which is the only place they are
+      needed. **One manual step remains**: add a `SCHEDULER_TOKEN`
+      repository secret matching the value deployed through
+      `AEVRIN_ENV_OVERRIDES`. That secret is environment-scoped and
+      write-only, so its value cannot be copied across automatically; the
+      workflow fails with an explicit message until it is set. See
+      `DECISIONS.md` ADR-013.
 - [x] **Cut over the `frontend`/`frontend-public` domain split.** Done:
       `frontend/` is `app.mcp.aevrin.net`, `frontend-public/` is
       `mcp.aevrin.net`, `frontend-docs/` is unaffected. Measured after the
@@ -56,18 +59,6 @@ marketplace/AI/admin/providers work is fully live)
       sequence in `DECISIONS.md` ADR-011.
 
 ## Known gaps
-
-- **No uptime monitoring, so the status page has no history to show.** The
-  status page measures each service live when a visitor loads it, and
-  nothing retains those results. That is why it carries no 30-day uptime
-  figure, per-day history strip, or incident timeline: publishing any of
-  them without monitoring behind it would be a claim with no evidence, and
-  the page says so rather than filling the space. Closing this needs three
-  things, in order: somewhere to store check results over time, something
-  that runs the checks on a schedule (the existing `/scheduler/*` pattern
-  fits, but see the unwired-scheduler item above), and a public read route
-  for the history. Worth doing only as that whole chain - a table with
-  nothing writing to it would be worse than the honest gap.
 
 - **Agent discovery covers Claude Code and Codex only.** Other AI coding
   agents/IDE extensions with their own configuration format aren't

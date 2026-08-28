@@ -111,7 +111,15 @@ class SupabaseRest:
         return result
 
     async def delete(self, table: str, filters: dict[str, str]) -> None:
-        params = {k: f"eq.{v}" for k, v in filters.items()}
+        # Same operator pass-through as select() above, and for a sharper
+        # reason: forcing eq. onto a value that already carried an operator
+        # produced "eq.lt.2026-08-01", which PostgREST matches against
+        # nothing. The delete then succeeded while removing no rows -- a
+        # silent no-op, which for a retention sweep means the table simply
+        # grows forever with nothing to show that it is not being pruned.
+        params = {
+            k: (v if _HAS_OPERATOR.match(v) else f"eq.{v}") for k, v in filters.items()
+        }
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.delete(f"{self._base_url}/{table}", headers=self._headers, params=params)
         if resp.status_code >= 400:

@@ -74,6 +74,14 @@ enabled, so it never tries to push to a dashboard that doesn't exist).
   bounded and inside a data field. **These tests must never be deleted or
   weakened to make a refactor pass** - they encode the product's actual
   security promises, not incidental behavior.
+  `services/test_status_history.py` belongs in the same category: it pins the
+  status feed's one load-bearing rule, that a day with no recorded checks is
+  reported as `no_data` and left out of the uptime percentage rather than
+  counted as a passing day. The recording job reaches Aevrin over the
+  network, so an outage produces a gap rather than a failure row, and the
+  inversion it guards against (a total outage scoring 100%) is silent and
+  plausible-looking on exactly the page someone consults when they suspect
+  an outage.
   `routes/test_cors_methods.py` is worth knowing about for the same reason
   in a different direction: it derives the expected CORS method set from the
   OpenAPI schema rather than a fixed list, because the bug it exists for

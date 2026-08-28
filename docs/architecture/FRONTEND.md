@@ -151,17 +151,31 @@ per check (the Navigation Timing API for the document itself, `performance.now()
 around each `fetch` for the rest). Every figure on it is counted or measured
 during that page load.
 
-What it deliberately omits is what a conventional status page leads with: a
-30-day uptime percentage, a per-day history strip, and an incident timeline.
-Aevrin runs no uptime monitoring and stores no availability history, so all
-three would have to be fabricated. The page states that absence in an
-"Availability history: not recorded" panel rather than dropping the section,
-because a missing section reads as "nothing to report" while the absence of
-monitoring is itself what a reader needs in order to judge the page. Latency
-is likewise reported as a measurement ("412 ms, this check") and never
+It also renders a 30-day availability strip and an uptime percentage, from
+`GET /status/history` - real samples recorded hourly by
+`POST /scheduler/uptime-check`, not an estimate. Two properties of that data
+are carried through to the UI rather than smoothed over:
+
+- **A gap is not uptime.** The recording job reaches Aevrin over the
+  network, so an API outage writes nothing at all instead of writing a
+  failure. A day with no checks renders as a distinct neutral bar, is
+  labelled "no checks recorded", and is excluded from the percentage. The
+  card also states how many days in the window had no checks. Counting gaps
+  as successes would report a total outage as a perfect score.
+- **The percentage is scoped out loud.** It reads "of N recorded checks",
+  never as a coverage guarantee, and before the first scheduled run the page
+  says nothing has been recorded yet rather than showing an empty strip that
+  looks like a rendering fault.
+
+Latency is still reported as a measurement ("412 ms, this check") and never
 converted into a "degraded" verdict, since one sample from one visitor's
-network cannot support that claim. Adding any of the omitted elements means
-adding real monitoring first; see `ROADMAP.md`.
+network cannot support that claim. There is deliberately no incident
+timeline: incidents are a human-authored artefact and Aevrin has nowhere to
+author them, so the page would have nothing true to put there.
+
+The day bars use a native `title` attribute rather than a tooltip component.
+This app's design system has no `Tooltip`, and adding one for a hover hint on
+a static page would not earn the dependency.
 
 ## The docs site is a separate app
 

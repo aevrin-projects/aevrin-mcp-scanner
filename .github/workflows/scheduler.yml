@@ -1,0 +1,119 @@
+name: Scheduled jobs
+
+# The external scheduler the `/scheduler/*` endpoints were always written for.
+#
+# It is GitHub Actions rather than EventBridge for one practical reason: the
+# only AWS credential this repository holds is a pair of write-only Actions
+# secrets, readable inside a workflow run and nowhere else. Provisioning an
+# EventBridge rule needs an IAM credential in someone's hands; a cron in this
+# file needs nothing that is not already here. It also keeps the schedule in
+# code review alongside the endpoints it calls, instead of in a console.
+#
+# What this trades away, and why it is acceptable: GitHub's scheduled runs are
+# best-effort and can be delayed or dropped under load. Nothing here is
+# damaged by that. Every endpoint is idempotent and safe to call late or
+# twice, the marketplace sync is incremental against its own watermark, and
+# the uptime job publishes the count of checks it actually recorded rather
+# than assuming a fixed cadence -- a missed run shows up as a gap that is
+# reported as "no data", never as uptime.
+
+on:
+  schedule:
+    # Hourly availability sample, on the hour.
+    - cron: "0 * * * *"
+    # Weekly catalogue refresh, Sunday 03:15 UTC. Offset off the hour so it
+    # does not contend with the uptime run.
+    - cron: "15 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Which job to run when triggered by hand
+        type: choice
+        options: [uptime, weekly, both]
+        default: both
+
+concurrency:
+  group: scheduled-jobs
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  API: https://api.mcp.aevrin.net
+
+jobs:
+  uptime:
+    name: Record availability sample
+    runs-on: ubuntu-latest
+    # Hourly cron, or a manual run that asked for it.
+    if: >-
+      github.event.schedule == '0 * * * *' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.job == 'uptime' || inputs.job == 'both'))
+    steps:
+      - name: Record one check per service
+        env:
+          SCHEDULER_TOKEN: ${{ secrets.SCHEDULER_TOKEN }}
+        run: |
+          if [ -z "${SCHEDULER_TOKEN}" ]; then
+            echo "::error::SCHEDULER_TOKEN is not set. Add it as an Actions secret; it must match the value deployed in the API's environment."
+            exit 1
+          fi
+          code="$(curl -sS -o response.json -w '%{http_code}' -X POST \
+            -H "X-Scheduler-Token: ${SCHEDULER_TOKEN}" \
+            --max-time 60 \
+            "${API}/scheduler/uptime-check")"
+          echo "HTTP ${code}"
+          cat response.json || true
+          echo
+          # A failure here is itself a signal: the API was unreachable, which
+          # is exactly the gap the status page reports as "no data". Fail the
+          # run so it is visible, rather than exiting 0 on a missed sample.
+          [ "$code" = "200" ]
+
+  weekly:
+    name: Registry and provider sync
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.schedule == '15 3 * * 0' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (inputs.job == 'weekly' || inputs.job == 'both'))
+    steps:
+      - name: Sync the MCP registry
+        env:
+          SCHEDULER_TOKEN: ${{ secrets.SCHEDULER_TOKEN }}
+        run: |
+          if [ -z "${SCHEDULER_TOKEN}" ]; then
+            echo "::error::SCHEDULER_TOKEN is not set. Add it as an Actions secret; it must match the value deployed in the API's environment."
+            exit 1
+          fi
+          code="$(curl -sS -o registry.json -w '%{http_code}' -X POST \
+            -H "X-Scheduler-Token: ${SCHEDULER_TOKEN}" \
+            --max-time 900 \
+            "${API}/scheduler/registry-sync")"
+          echo "HTTP ${code}"
+          cat registry.json || true
+          echo
+          [ "$code" = "200" ]
+
+      - name: Refresh the AI model catalogue
+        # Runs even if the registry sync failed: they are independent jobs
+        # against different upstreams, and skipping the catalogue because the
+        # MCP registry was down would compound one outage into two.
+        if: always()
+        env:
+          SCHEDULER_TOKEN: ${{ secrets.SCHEDULER_TOKEN }}
+        run: |
+          if [ -z "${SCHEDULER_TOKEN}" ]; then
+            echo "::error::SCHEDULER_TOKEN is not set."
+            exit 1
+          fi
+          code="$(curl -sS -o providers.json -w '%{http_code}' -X POST \
+            -H "X-Scheduler-Token: ${SCHEDULER_TOKEN}" \
+            --max-time 300 \
+            "${API}/scheduler/provider-sync")"
+          echo "HTTP ${code}"
+          cat providers.json || true
+          echo
+          [ "$code" = "200" ]

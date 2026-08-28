@@ -22,33 +22,48 @@ import { Metric } from "@/shared/ui/metric";
 const DEFECTDOJO_URL = process.env.NEXT_PUBLIC_DEFECTDOJO_URL;
 
 /**
- * Live checks, run from the visitor's own browser rather than the server:
- * this is a static export with no server to run them from, and a check from
- * the actual visitor's network is arguably the more honest signal anyway
- * (fewer false "up" reports from a healthy path that only Cloudflare's edge
- * can reach). See DECISIONS.md ADR-011.
+ * Two sources, deliberately kept distinct on the page:
  *
- * What this page deliberately does NOT show, and why it matters here more
- * than on most status pages: a 30-day uptime percentage, a per-day history
- * strip, and an incident timeline. Aevrin runs no uptime monitoring and
- * stores no availability history, so every one of those numbers would have
- * to be invented. On a security vendor's own status page that is the single
- * most damaging inaccuracy available, and it is the same rule the product
- * applies to itself everywhere else: an unscanned listing scores zero rather
- * than a neutral default, a grade never outlives the version it describes.
- * The "Availability history" panel below states the absence plainly instead.
+ * - **Now**: live checks run from the visitor's own browser. This is a static
+ *   export with no server to run them from, and a check from the visitor's
+ *   own network is the more honest signal anyway (fewer false "up" reports
+ *   from a path only Cloudflare's edge can reach). See DECISIONS.md ADR-011.
+ * - **History**: `GET /status/history`, recorded hourly by a scheduled job.
+ *
+ * The history's central caveat is carried through to the UI rather than
+ * smoothed over: the recording job calls the API, so an API outage writes
+ * nothing at all instead of writing a failure. A day with no checks is
+ * therefore `no_data` -- rendered as a distinct neutral bar and excluded from
+ * the uptime figure -- never as a passing day. The uptime percentage is
+ * labelled "of N recorded checks" for the same reason: it is a real number
+ * about real samples, not a coverage guarantee.
  */
 
 type ServiceState = "operational" | "down" | "checking";
 
-type Service = {
+type LiveService = {
   id: string;
   name: string;
   description: string;
   group: string;
   state: ServiceState;
-  /** Round-trip time actually measured for this check, in ms. */
   latencyMs: number | null;
+};
+
+type HistoryDay = {
+  date: string;
+  status: "operational" | "degraded" | "down" | "no_data";
+  checks: number;
+  ok: number;
+  uptime: number | null;
+};
+
+type HistoryService = {
+  id: string;
+  days: HistoryDay[];
+  uptime: number | null;
+  checks_recorded: number;
+  days_with_data: number;
 };
 
 const STATE_CONFIG: Record<
@@ -70,6 +85,16 @@ const STATE_CONFIG: Record<
     icon: Activity,
     badge: "border-border bg-muted text-muted-foreground",
   },
+};
+
+// A no_data bar is visually distinct from every real outcome on purpose: it
+// is the one value that means "we do not know", and letting it read as a
+// quiet success is the failure this whole feature is built to avoid.
+const DAY_BAR: Record<HistoryDay["status"], { className: string; label: string }> = {
+  operational: { className: "bg-brand", label: "All checks passed" },
+  degraded: { className: "bg-severity-medium", label: "Some checks failed" },
+  down: { className: "bg-severity-critical", label: "All checks failed" },
+  no_data: { className: "bg-border", label: "No checks recorded" },
 };
 
 type Probe = { ok: boolean; ms: number | null };
@@ -97,22 +122,23 @@ async function probe(url: string, headers?: HeadersInit): Promise<Probe> {
 function documentLatency(): number | null {
   try {
     const [nav] = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[];
-    if (!nav || !nav.responseEnd || !nav.requestStart) return null;
+    if (!nav?.responseEnd || !nav.requestStart) return null;
     return Math.round(nav.responseEnd - nav.requestStart);
   } catch {
     return null;
   }
 }
 
-const PENDING: Service[] = [
+const PENDING: LiveService[] = [
   { id: "web", name: "Web", description: "Marketing site and documentation.", group: "Platform", state: "checking", latencyMs: null },
   { id: "api", name: "API", description: "Scan orchestration, marketplace, and billing.", group: "Platform", state: "checking", latencyMs: null },
   { id: "auth", name: "Authentication", description: "Sign-in, sessions, and CLI device pairing.", group: "Identity", state: "checking", latencyMs: null },
 ];
 
 export function StatusPage() {
-  const [services, setServices] = useState<Service[]>(PENDING);
+  const [services, setServices] = useState<LiveService[]>(PENDING);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
+  const [history, setHistory] = useState<HistoryService[] | null>(null);
   const reducedMotion = useReducedMotion();
 
   useEffect(() => {
@@ -128,16 +154,9 @@ export function StatusPage() {
     ]).then(([api, auth, defectDojo]) => {
       if (cancelled) return;
       setServices([
-        {
-          ...PENDING[0],
-          state: "operational",
-          latencyMs: documentLatency(),
-        },
+        { ...PENDING[0], state: "operational", latencyMs: documentLatency() },
         { ...PENDING[1], state: api.ok ? "operational" : "down", latencyMs: api.ms },
         { ...PENDING[2], state: auth.ok ? "operational" : "down", latencyMs: auth.ms },
-        // Listed only when it is actually deployed. Reporting a component
-        // nobody configured as "down" would make a healthy system look
-        // degraded.
         ...(defectDojo === null
           ? []
           : [
@@ -154,6 +173,18 @@ export function StatusPage() {
       setCheckedAt(new Date());
     });
 
+    // Independent of the live checks: the history is still worth showing when
+    // the API is unreachable right now, and an unreachable API is exactly when
+    // someone wants to see whether this has been happening.
+    fetch(`${apiUrl}/status/history?days=30`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled) setHistory(data?.services ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setHistory([]);
+      });
+
     return () => {
       cancelled = true;
     };
@@ -162,8 +193,16 @@ export function StatusPage() {
   const settled = checkedAt !== null;
   const operational = services.filter((s) => s.state === "operational").length;
   const anyDown = services.some((s) => s.state === "down");
-  const measured = services.map((s) => s.latencyMs).filter((ms): ms is number => ms !== null);
-  const slowest = measured.length > 0 ? Math.max(...measured) : null;
+  const byId = new Map((history ?? []).map((h) => [h.id, h]));
+  const anyHistory = (history ?? []).some((h) => h.checks_recorded > 0);
+
+  // Across every service, of recorded checks only.
+  const totalChecks = (history ?? []).reduce((n, h) => n + h.checks_recorded, 0);
+  const totalOk = (history ?? []).reduce(
+    (n, h) => n + h.days.reduce((m, d) => m + d.ok, 0),
+    0,
+  );
+  const overallUptime = totalChecks > 0 ? (totalOk / totalChecks) * 100 : null;
 
   const overall = !settled ? "checking" : anyDown ? "down" : "operational";
   const overallConfig = STATE_CONFIG[overall];
@@ -183,14 +222,12 @@ export function StatusPage() {
               <div>
                 <CardTitle className="text-2xl">Status</CardTitle>
                 <CardDescription className="mt-1 text-sm">
-                  Live endpoint checks for Aevrin&apos;s public services, run from your own browser.
+                  Live checks run from your own browser, with the availability Aevrin has recorded
+                  over the last 30 days.
                 </CardDescription>
               </div>
               <CardAction className="static col-auto row-auto justify-self-start sm:justify-self-end">
-                <Badge
-                  variant="outline"
-                  className={`h-7 gap-1.5 px-3 ${overallConfig.badge}`}
-                >
+                <Badge variant="outline" className={`h-7 gap-1.5 px-3 ${overallConfig.badge}`}>
                   <OverallIcon className="size-3.5" aria-hidden="true" />
                   {overallSummary}
                 </Badge>
@@ -198,8 +235,6 @@ export function StatusPage() {
             </CardHeader>
 
             <CardContent className="space-y-4">
-              {/* Every figure here is counted or measured on this page load.
-                  None of them is a stored or historical value. */}
               <div className="grid gap-4 sm:grid-cols-3">
                 <Metric label="Services tracked" value={services.length} />
                 <Metric
@@ -209,10 +244,15 @@ export function StatusPage() {
                   tone={settled && !anyDown ? "success" : anyDown ? "critical" : "default"}
                 />
                 <Metric
-                  label="Slowest response"
-                  value={slowest ?? "-"}
-                  suffix={slowest !== null ? "ms" : undefined}
-                  detail="Measured from your browser"
+                  label="30 day uptime"
+                  value={overallUptime !== null ? overallUptime.toFixed(2) : "-"}
+                  suffix={overallUptime !== null ? "%" : undefined}
+                  detail={
+                    totalChecks > 0
+                      ? `Of ${totalChecks.toLocaleString()} recorded checks`
+                      : "No checks recorded yet"
+                  }
+                  tone={overallUptime !== null && overallUptime >= 99.9 ? "success" : "default"}
                 />
               </div>
 
@@ -236,6 +276,7 @@ export function StatusPage() {
             {services.map((service, index) => {
               const config = STATE_CONFIG[service.state];
               const StatusIcon = config.icon;
+              const record = byId.get(service.id);
 
               return (
                 <motion.div
@@ -263,7 +304,12 @@ export function StatusPage() {
                       <CardAction className="static col-auto row-auto justify-self-start sm:justify-self-end">
                         <div className="text-left sm:text-right">
                           <div className="inline-flex items-baseline gap-1 text-2xl font-semibold tabular-nums">
-                            {service.latencyMs !== null ? (
+                            {record?.uptime !== null && record?.uptime !== undefined ? (
+                              <>
+                                {record.uptime.toFixed(2)}
+                                <span className="text-sm font-normal text-muted-foreground">%</span>
+                              </>
+                            ) : service.latencyMs !== null ? (
                               <>
                                 {service.latencyMs}
                                 <span className="text-sm font-normal text-muted-foreground">ms</span>
@@ -273,39 +319,92 @@ export function StatusPage() {
                             )}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            {service.latencyMs !== null ? "This check" : "No timing"}
+                            {record && record.checks_recorded > 0
+                              ? `${record.checks_recorded.toLocaleString()} checks recorded`
+                              : service.latencyMs !== null
+                                ? "This check"
+                                : "No timing"}
                           </div>
                         </div>
                       </CardAction>
                     </CardHeader>
+
+                    {record && record.days.length > 0 ? (
+                      <CardContent className="space-y-2">
+                        <div
+                          className="flex h-10 items-stretch gap-[3px] overflow-hidden rounded-lg bg-muted/30 p-1.5"
+                          role="img"
+                          aria-label={
+                            record.checks_recorded > 0
+                              ? `30 day availability for ${service.name}: ${record.uptime?.toFixed(2)} percent of ${record.checks_recorded} recorded checks passed, across ${record.days_with_data} days with data.`
+                              : `No availability recorded for ${service.name}.`
+                          }
+                        >
+                          {record.days.map((day) => {
+                            const bar = DAY_BAR[day.status];
+                            return (
+                              <span
+                                key={day.date}
+                                className={`min-w-[2px] flex-1 rounded-[2px] ${bar.className}`}
+                                // Native title rather than a tooltip component:
+                                // there is no Tooltip in this app's design
+                                // system, and adding one for a hover hint on a
+                                // static page is not worth the dependency.
+                                title={`${day.date}: ${bar.label}${
+                                  day.checks > 0 ? ` (${day.ok}/${day.checks})` : ""
+                                }`}
+                              />
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>30 days ago</span>
+                          {record.days_with_data < record.days.length ? (
+                            <span>
+                              {record.days.length - record.days_with_data} days without checks
+                            </span>
+                          ) : null}
+                          <span>Today</span>
+                        </div>
+                      </CardContent>
+                    ) : null}
                   </Card>
                 </motion.div>
               );
             })}
           </div>
 
-          {/* Stated, not omitted. Silently dropping the history section would
-              read as "nothing to report"; the absence of monitoring is itself
-              the thing a reader needs to know when judging this page. */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Availability history</CardTitle>
-              <CardDescription>Not recorded.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/20 p-4">
-                <Gauge className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <p className="text-sm leading-6 text-muted-foreground">
-                  Aevrin does not currently run uptime monitoring or store availability history, so
-                  there is no 30-day uptime figure, per-day history, or incident timeline to show.
-                  The checks above are a single measurement taken when this page loaded, and they are
-                  not retained. Publishing an uptime percentage without monitoring behind it would be
-                  a claim with no evidence for it, which is the one thing a security product&apos;s
-                  own status page must not do.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Stated, not omitted. Before the first scheduled run there is
+              genuinely nothing recorded, and saying so is more useful than an
+              empty strip that looks like a rendering fault. */}
+          {history !== null && !anyHistory ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Availability history</CardTitle>
+                <CardDescription>Nothing recorded yet.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/20 p-4">
+                  <Gauge className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    Availability is sampled hourly and kept for 30 days, but no samples have been
+                    recorded yet. Until they have, the checks above are a single measurement taken
+                    when this page loaded. An uptime figure will appear here once there is data
+                    behind it, rather than being estimated in the meantime.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {anyHistory ? (
+            <p className="px-1 text-xs leading-5 text-muted-foreground">
+              Uptime covers the checks actually recorded, sampled hourly and kept for 30 days. A day
+              with no checks is shown as a neutral bar and left out of the percentage: the recording
+              job reaches Aevrin over the network, so an outage leaves a gap rather than a failed
+              sample, and counting gaps as successes would report an outage as a perfect score.
+            </p>
+          ) : null}
         </section>
       </div>
       <SiteFooter />

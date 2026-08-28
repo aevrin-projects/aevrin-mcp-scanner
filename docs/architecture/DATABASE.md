@@ -83,6 +83,18 @@ API's own ownership check (`controllers/ai_controller.py::_owned_scan`)
 must not be bypassable by querying PostgREST directly with a valid
 session).
 
+**Availability history** (`0039_service_checks.sql`)
+`service_checks` - one row per service per sample, written hourly by
+`POST /scheduler/uptime-check` and pruned past 35 days. Public select
+policy (it is exactly what the status page publishes); no insert or
+update policy, so writes go only through the API's service-role key.
+The property that shapes every reader of this table: **a gap is not
+evidence of uptime.** The recording job calls the API, so an API outage
+writes no row at all rather than a row saying "down"; computing uptime
+as `ok / recorded` would score a total outage as 100%. `services/status.py`
+reports a day with no checks as `no_data` and excludes it from the
+percentage entirely.
+
 ## Conventions worth knowing before adding a table
 
 - **`visibility`/`org_id` pairing**: a private-scoped row must have both
