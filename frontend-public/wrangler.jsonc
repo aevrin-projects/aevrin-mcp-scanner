@@ -11,13 +11,15 @@
     "directory": "out",
     "not_found_handling": "404-page"
   },
-  // No `routes` yet, deliberately: this app is meant to take over
-  // `mcp.aevrin.net` from `frontend/`'s Worker (`aevrin-web`), which cannot
-  // happen until every OAuth provider's redirect URI is updated to
-  // `app.mcp.aevrin.net` first (see DECISIONS.md ADR-011 and
-  // docs/architecture/DEPLOYMENT.md) -- an external, account-holder-only
-  // step. Until that cutover, this deploys to its own
-  // `aevrin-public.<subdomain>.workers.dev` URL for verification.
+  // Takes over mcp.aevrin.net from frontend/'s Worker (`aevrin-web`), which
+  // moved to app.mcp.aevrin.net in the same cutover -- see DECISIONS.md
+  // ADR-011. A custom domain can only point at one Worker at a time, so
+  // deploying this reassigns the domain away from aevrin-web automatically;
+  // deploy frontend/ (claiming app.mcp.aevrin.net) first, so there is no
+  // window where neither domain resolves.
+  "routes": [
+    { "pattern": "mcp.aevrin.net", "custom_domain": true }
+  ],
   "observability": {
     "enabled": true
   }
