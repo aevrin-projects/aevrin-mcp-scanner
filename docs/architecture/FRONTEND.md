@@ -141,6 +141,28 @@ found to need a real server (Server Actions, a session check, or
 build-time-unknowable paths) and stay here permanently, not just until
 cutover - see `DECISIONS.md` ADR-011 for the reasoning behind each.
 
+## The status page shows only what it measures
+
+`frontend-public/src/views/status/` is the one page where the "never invent
+a fact" rule has a visible cost, so the reasoning is recorded here rather
+than left to be re-litigated. It renders a per-service card grid with an
+overall state badge, a counted metrics row, and a round-trip time measured
+per check (the Navigation Timing API for the document itself, `performance.now()`
+around each `fetch` for the rest). Every figure on it is counted or measured
+during that page load.
+
+What it deliberately omits is what a conventional status page leads with: a
+30-day uptime percentage, a per-day history strip, and an incident timeline.
+Aevrin runs no uptime monitoring and stores no availability history, so all
+three would have to be fabricated. The page states that absence in an
+"Availability history: not recorded" panel rather than dropping the section,
+because a missing section reads as "nothing to report" while the absence of
+monitoring is itself what a reader needs in order to judge the page. Latency
+is likewise reported as a measurement ("412 ms, this check") and never
+converted into a "degraded" verdict, since one sample from one visitor's
+network cannot support that claim. Adding any of the omitted elements means
+adding real monitoring first; see `ROADMAP.md`.
+
 ## The docs site is a separate app
 
 `docs.mcp.aevrin.net` is `frontend-docs/`, not part of this app - its own

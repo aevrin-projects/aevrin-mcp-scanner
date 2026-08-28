@@ -20,6 +20,21 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ## [Unreleased]
 
+### Changed
+
+- The status page (`mcp.aevrin.net/status`) is now a detailed service view:
+  an overall state badge, a metrics row (services tracked, operational now,
+  slowest response), and a per-service card carrying its group, description,
+  and the round-trip time actually measured for that check. It reports
+  latency as a measurement, never as a "degraded" verdict, since one sample
+  from one visitor's network cannot support that claim. A 30-day uptime
+  percentage, per-day history strip, and incident timeline were considered
+  and deliberately left out: Aevrin runs no uptime monitoring and stores no
+  availability history, so every one of those numbers would have been
+  invented. The page states that absence in an "Availability history: not
+  recorded" panel rather than omitting the section. See
+  `docs/architecture/FRONTEND.md`.
+
 ### Fixed
 
 - **Marketplace browse cards rendered with no title at all.** `GradeBadge`'s

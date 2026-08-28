@@ -57,6 +57,18 @@ marketplace/AI/admin/providers work is fully live)
 
 ## Known gaps
 
+- **No uptime monitoring, so the status page has no history to show.** The
+  status page measures each service live when a visitor loads it, and
+  nothing retains those results. That is why it carries no 30-day uptime
+  figure, per-day history strip, or incident timeline: publishing any of
+  them without monitoring behind it would be a claim with no evidence, and
+  the page says so rather than filling the space. Closing this needs three
+  things, in order: somewhere to store check results over time, something
+  that runs the checks on a schedule (the existing `/scheduler/*` pattern
+  fits, but see the unwired-scheduler item above), and a public read route
+  for the history. Worth doing only as that whole chain - a table with
+  nothing writing to it would be worse than the honest gap.
+
 - **Agent discovery covers Claude Code and Codex only.** Other AI coding
   agents/IDE extensions with their own configuration format aren't
   recognized. See `docs/features/AGENT_POSTURE.md#limitations`.
