@@ -61,13 +61,14 @@ marketplace/AI/admin/providers work is fully live)
 - **Agent discovery covers Claude Code and Codex only.** Other AI coding
   agents/IDE extensions with their own configuration format aren't
   recognized. See `docs/features/AGENT_POSTURE.md#limitations`.
-- **`apply_completed_scan` (marketplace scanning) has no automatic
-  trigger on background scan completion.** It's idempotent and callable,
-  but a marketplace scan only gets its grade recorded when triggered
-  synchronously by the sync job or an admin-forced rescan - wiring it into
-  the general scan-completion path (`services/scan.py`) so any completed
-  scan of a tracked listing's version updates the marketplace grade
-  automatically is a small, well-scoped next step.
+- **A catalogue scan is lost if the API restarts while it is running.** The
+  scan is a `BackgroundTasks` job, so a restart mid-run drops it and leaves
+  the listing parked in the transient `scanning` status, where browse does
+  not show it. Same exposure the ordinary user scan path has always had (a
+  lost task leaves a scan `queued`), now reachable for the catalogue too
+  since admin scans actually run. A sweep that returns anything stuck in
+  `scanning` past a threshold would close it; the `/scheduler/*` pattern is
+  the obvious home for one.
 - **No finer split on `billing.manage`** than "can change plan and seats" -
   see `docs/features/BILLING.md#limitations`.
 - **Runtime/dynamic MCP tool behavior is not exercised** - scanning is

@@ -60,6 +60,22 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **An admin could not scan a catalogue server at all.** Two defects, either
+  one sufficient. `_start_scan` awaited the pipeline *inside the request*,
+  though `start_scan`'s own docstring says it is called via `BackgroundTasks`:
+  a repository scan clones and runs several analysers, so the admin's HTTP
+  call stayed open for the whole thing and was cut off by the edge long before
+  it returned. And `apply_completed_scan` - the step that turns a finished
+  scan into a grade - **had no caller anywhere in the codebase**, so even a
+  scan that did finish left its version exactly as unscanned as it started.
+  The evidence in production: 20,000 listing versions, every one with a null
+  `scan_status`, and not a single scan ever attributed to the marketplace
+  account. The scan is now handed to `BackgroundTasks` and graded when it
+  finishes, whatever the outcome - a partial result is graded as partial,
+  which the catalogue already renders honestly. Grading unconditionally also
+  releases the listing from the transient `scanning` status it is parked in,
+  which is what would otherwise have made a scanned listing vanish from browse
+  permanently.
 - **A saved marketplace listing did not come back saved.** The favourite
   persisted correctly; the read that should have shown it was anonymous.
   Browse and listing detail used `publicRequest`, which never sends

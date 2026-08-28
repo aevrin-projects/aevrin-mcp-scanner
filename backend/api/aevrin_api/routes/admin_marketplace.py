@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
 
 from aevrin_api.config import Settings, get_settings
 from aevrin_api.controllers import marketplace_controller as ctl
@@ -130,6 +130,7 @@ async def set_status(
 async def scan_listing(
     listing_id: str,
     body: ScanRequest,
+    background: BackgroundTasks,
     db: Annotated[SupabaseRest, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     admin: Annotated[AdminIdentity, Depends(admin_identity)],
@@ -147,6 +148,10 @@ async def scan_listing(
         version_id=body.version_id,
         force=body.force,
         actor_id=admin.user_id,
+        # The pipeline clones a repository and runs several analysers. Awaited
+        # inside the request it outlives the edge's timeout every time, which
+        # is why no catalogue scan had ever completed.
+        schedule=background.add_task,
     )
 
 

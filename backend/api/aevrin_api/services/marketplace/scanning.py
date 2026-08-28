@@ -22,6 +22,7 @@ about the same repository.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -86,8 +87,17 @@ async def scan_listing_version(
     version_id: str,
     actor_id: str | None = None,
     force: bool = False,
+    schedule: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """Ensure this version has a security result, and return what happened.
+
+    `schedule` hands the actual pipeline run to the caller's background-task
+    mechanism (`BackgroundTasks.add_task`). It is not optional in practice: a
+    repository scan clones and runs several analysers, so awaiting it inside
+    the request means the admin's HTTP call stays open for the whole thing and
+    is cut off by the edge long before it finishes. Left unset the scan is
+    awaited inline, which is what tests want and what production must never
+    do.
 
     Returns a dict carrying `reused` so the caller can be honest with the
     admin about whether a scan actually ran. An admin who pressed "Force
@@ -140,7 +150,9 @@ async def scan_listing_version(
                 "reason": "an existing scan of this source was reused",
             }
 
-    scan_id = await _start_scan(db, settings, listing=listing, actor_id=actor_id)
+    scan_id = await _start_scan(
+        db, settings, listing=listing, actor_id=actor_id, schedule=schedule
+    )
 
     # A forced rescan replaces the evidence, so any cached explanation of the
     # old evidence must go. Strictly the hash would differ and the stale row
@@ -163,15 +175,14 @@ async def _start_scan(
     *,
     listing: dict[str, Any],
     actor_id: str | None,
+    schedule: Callable[..., Any] | None = None,
 ) -> str:
     """Create the scan row and hand it to the existing scan service.
 
-    Imported here rather than at module scope: services/scan.py pulls in the
-    whole scanner-core pipeline, and the catalogue read path has no business
-    paying that import cost.
+    Imported inside `_scan_then_grade` rather than at module scope:
+    services/scan.py pulls in the whole scanner-core pipeline, and the
+    catalogue read path has no business paying that import cost.
     """
-    from aevrin_api.services.scan import start_scan
-
     # A scan row needs an owner, and a catalogue scan has no customer. It is
     # attributed to the configured marketplace account rather than to whoever
     # happened to trigger it, so a public listing's scan never lands in a
@@ -200,15 +211,63 @@ async def _start_scan(
         },
     )
 
-    await start_scan(
-        scan_id,
-        owner_id,
-        TargetType.GITHUB_REPO,
-        listing["repository_url"],
-        settings,
-    )
+    if schedule is not None:
+        schedule(
+            _scan_then_grade,
+            db,
+            settings,
+            scan_id,
+            owner_id,
+            listing["repository_url"],
+            actor_id,
+        )
+    else:
+        # Inline, for tests and any caller that genuinely wants to block.
+        await _scan_then_grade(
+            db, settings, scan_id, owner_id, listing["repository_url"], actor_id
+        )
     logger.info("mcp_scan_started listing=%s scan=%s", listing["slug"], scan_id)
     return str(scan_id)
+
+
+async def _scan_then_grade(
+    db: SupabaseRest,
+    settings: Settings,
+    scan_id: UUID,
+    owner_id: str,
+    repository_url: str,
+    actor_id: str | None,
+) -> None:
+    """Run the pipeline, then write the grade it produced onto the version.
+
+    The second half is the part that was missing entirely: `apply_completed_scan`
+    existed and had no caller anywhere, so a marketplace scan could complete and
+    leave the version exactly as unscanned as it started. Grading is what makes a
+    scan visible in the catalogue at all.
+
+    It runs whatever the outcome. A failed or partial scan still yields an
+    honest result -- `_apply_scan_to_version` marks coverage incomplete unless
+    the scan finished cleanly, and the catalogue renders that as "partial", not
+    as clean. Leaving the version ungraded instead would show "not yet scanned"
+    forever, which is the one reading that is definitely wrong once a scan has
+    actually run.
+    """
+    # Deferred for the reason given in _start_scan: importing services/scan
+    # drags in the whole scanner-core pipeline, which the read path never wants.
+    from aevrin_api.services.scan import start_scan
+
+    try:
+        await start_scan(scan_id, owner_id, TargetType.GITHUB_REPO, repository_url, settings)
+    except Exception:
+        # Never re-raised: this runs detached from any request, so an exception
+        # here would be swallowed by the task runner and lost. Logged, and then
+        # graded anyway on whatever the pipeline managed to persist.
+        logger.exception("mcp_scan_failed scan=%s", scan_id)
+
+    try:
+        await apply_completed_scan(db, scan_id=str(scan_id), actor_id=actor_id)
+    except Exception:
+        logger.exception("mcp_scan_grade_failed scan=%s", scan_id)
 
 
 async def apply_completed_scan(

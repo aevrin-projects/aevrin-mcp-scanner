@@ -8,6 +8,7 @@ nothing else: the rules live in services/marketplace/.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -372,6 +373,7 @@ async def admin_scan(
     version_id: str | None,
     force: bool,
     actor_id: str,
+    schedule: Callable[..., Any],
 ) -> dict[str, Any]:
     """Run or reuse a scan for a listing.
 
@@ -402,6 +404,7 @@ async def admin_scan(
             version_id=version_id,
             actor_id=actor_id,
             force=force,
+            schedule=schedule,
         )
     except scanning.ScanNotPossible as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

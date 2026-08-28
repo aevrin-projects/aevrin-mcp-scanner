@@ -99,7 +99,14 @@ snippet with blank secrets (never a real value). Admins moderate via
 - **`scanning.py`** - reuses a prior scan when one already covers the
   exact version and wasn't `INCOMPLETE`; otherwise runs a real scan
   attributed to `MARKETPLACE_SCAN_USER_ID` (never a customer's account or
-  quota).
+  quota). The run is handed to the caller's `BackgroundTasks` rather than
+  awaited: a repository scan clones and runs several analysers, and awaiting
+  it inside the request meant the admin's call was cut off by the edge every
+  time. `_scan_then_grade` pairs the run with `apply_completed_scan`, because
+  a scan that is never graded leaves the version as unscanned as it started -
+  and leaves the listing parked in the transient `scanning` status, where
+  browse does not show it. Grading runs whatever the outcome, so a partial
+  scan is graded as partial rather than left invisible.
 - **`submissions.py`** - validates the source URL (HTTPS only, GitHub
   classified before DNS resolution, otherwise the same
   `network_safety.py` SSRF check used by live-server scanning), creates
