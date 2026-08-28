@@ -9,4 +9,6 @@ export const apiKeyApi = {
       body: JSON.stringify({ name }),
     }),
   revokeApiKey: (id: number) => request<void>(`/api-keys/${id}`, { method: "DELETE" }),
+  deleteRevokedApiKeys: () =>
+    request<{ deleted: number }>("/api-keys/revoked", { method: "DELETE" }),
 };

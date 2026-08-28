@@ -32,6 +32,14 @@ async def list_api_keys(user: CurrentUser, db: Db) -> list[ApiKeyOut]:
     return await api_key_controller.list_api_keys(user.id, db)
 
 
+@router.delete("/revoked")
+async def delete_revoked_api_keys(user: CurrentUser, db: Db) -> dict[str, int]:
+    """Hard-delete all revoked keys for the calling user. The keys are already
+    useless (revoked_at is checked in the auth chain) so this is a housekeeping
+    action, not a security one."""
+    return await api_key_controller.delete_revoked_api_keys(user.id, db)
+
+
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_api_key(key_id: int, user: CurrentUser, db: Db) -> None:
     await api_key_controller.revoke_api_key(key_id, user.id, db)

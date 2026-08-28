@@ -25,6 +25,7 @@ export function ApiKeysPage() {
   const [creating, setCreating] = useState(false);
   const [justCreated, setJustCreated] = useState<string | null>(null);
   const [pendingRevoke, setPendingRevoke] = useState<ApiKey | null>(null);
+  const [clearingRevoked, setClearingRevoked] = useState(false);
 
   function refresh() {
     apiKeyApi
@@ -66,6 +67,19 @@ export function ApiKeysPage() {
       refresh();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not revoke the API key.");
+    }
+  }
+
+  async function clearRevoked() {
+    setClearingRevoked(true);
+    try {
+      const { deleted } = await apiKeyApi.deleteRevokedApiKeys();
+      toast.success(deleted === 0 ? "No revoked keys to clear." : `Cleared ${deleted} revoked key${deleted === 1 ? "" : "s"}.`);
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not clear revoked keys.");
+    } finally {
+      setClearingRevoked(false);
     }
   }
 
@@ -152,6 +166,18 @@ export function ApiKeysPage() {
       <SectionCard
         title="Existing keys"
         description="Only real backend fields are shown below."
+        action={
+          keys && keys.some((k) => k.revoked_at) ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={clearingRevoked}
+              onClick={() => void clearRevoked()}
+            >
+              {clearingRevoked ? "Clearing…" : "Clear revoked"}
+            </Button>
+          ) : undefined
+        }
       >
         <div className="space-y-3">
           {keys === null ? (

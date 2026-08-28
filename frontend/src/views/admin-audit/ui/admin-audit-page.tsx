@@ -13,12 +13,13 @@ export function AdminAuditPage() {
   const [attempts, setAttempts] = useState<AdminLoginAttempt[] | null>(null);
   const [action, setAction] = useState("");
   const [target, setTarget] = useState("");
+  const [since, setSince] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const [log, logins] = await Promise.all([
-        adminApi.getAudit({ action: action || undefined, target: target || undefined }),
+        adminApi.getAudit({ action: action || undefined, target: target || undefined, since: since || undefined }),
         adminApi.getLoginAttempts(),
       ]);
       setEntries(log);
@@ -27,7 +28,7 @@ export function AdminAuditPage() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load the audit log.");
     }
-  }, [action, target]);
+  }, [action, target, since]);
 
   useEffect(() => {
     const id = window.setTimeout(() => void load(), 250);
@@ -41,8 +42,8 @@ export function AdminAuditPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Audit log</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Append-only. Rows cannot be edited or deleted, the database refuses both, including for the
-          service role.
+          Append-only. Rows cannot be edited or deleted — a database trigger blocks both, including
+          for the service role. Use the filters below to narrow the view.
         </p>
       </div>
 
@@ -53,9 +54,16 @@ export function AdminAuditPage() {
         </p>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Input value={action} onChange={(e) => setAction(e.target.value)} placeholder="Filter by action" aria-label="Filter by action" />
         <Input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="Filter by target user id" aria-label="Filter by target user id" />
+        <Input
+          type="date"
+          value={since}
+          onChange={(e) => setSince(e.target.value)}
+          aria-label="Show entries on or after this date"
+          title="Show entries on or after this date"
+        />
       </div>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}

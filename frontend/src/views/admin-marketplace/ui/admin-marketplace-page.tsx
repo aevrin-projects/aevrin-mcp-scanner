@@ -316,7 +316,7 @@ export function AdminMarketplacePage() {
                 <EmptyState title="No listings match" body="Try clearing the filters." />
               </div>
             ) : (
-              <ScrollArea className="max-h-[520px]" viewportClassName="scroll-fade">
+              <ScrollArea viewportClassName="max-h-[520px] overflow-y-auto scroll-fade">
                 <div className="divide-y divide-border">
                   <AnimatePresence initial={false}>
                     {rows.map((row) => {
@@ -456,7 +456,7 @@ export function AdminMarketplacePage() {
                   <EmptyState title="Nothing waiting" body="Submitted servers appear here." />
                 </div>
               ) : (
-                <ScrollArea className="max-h-[360px]" viewportClassName="scroll-fade">
+                <ScrollArea viewportClassName="max-h-[360px] overflow-y-auto scroll-fade">
                   <div className="divide-y divide-border">
                     {submissions.map((submission) => {
                       const id = String(submission.id);
@@ -541,7 +541,7 @@ export function AdminMarketplacePage() {
                   <EmptyState title="No open reports" body="Reports from users appear here." />
                 </div>
               ) : (
-                <ScrollArea className="max-h-[360px]" viewportClassName="scroll-fade">
+                <ScrollArea viewportClassName="max-h-[360px] overflow-y-auto scroll-fade">
                   <div className="divide-y divide-border">
                     {reports.map((report) => {
                       const id = String(report.id);

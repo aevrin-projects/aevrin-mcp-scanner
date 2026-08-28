@@ -16,7 +16,7 @@ JWT) unless noted.
 | `/admin/marketplace` | `admin_marketplace.py` | `GET /summary`, `GET /mcp`, `POST /mcp`, `PATCH /mcp/{listing_id}`, `POST /mcp/{listing_id}/status`, `POST /mcp/{listing_id}/scan`, `GET /submissions`, `POST /submissions/{id}/decision`, `GET /reports`, `POST /reports/{id}/decision` |
 | `/agents` | `agents.py` | `POST /snapshots`, `GET ""`, `GET /mcp-servers`, `GET /skills`, `GET /permissions`, `GET /attack-paths`, `GET /{id}`, `DELETE /{id}` |
 | `/ai` | `ai.py` | `GET /providers`, `PUT /providers`, `PATCH /providers/{provider}`, `DELETE /providers/{provider}`, `GET /models`, `POST /explain` |
-| `/api-keys` | `api_keys.py` | `POST ""`, `GET ""`, `DELETE /{key_id}` |
+| `/api-keys` | `api_keys.py` | `POST ""`, `GET ""`, `DELETE /revoked`, `DELETE /{key_id}` |
 | `/auth` | `auth_lookup.py` | `GET /lookup` |
 | `/billing` | `billing.py` | `GET /pricing`, `POST /checkout`, `POST /verify`, `POST /webhook`, `GET /subscription`, `GET /payments` |
 | `/cli` | `cli.py` | `GET /precheck` (`X-API-Key`), `POST /upload` (`X-API-Key`) |

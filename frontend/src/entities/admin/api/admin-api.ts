@@ -61,10 +61,11 @@ export const adminApi = {
 
   getAnalytics: (days: number) => request<Record<string, unknown>>(`/admin/analytics?days=${days}`),
   getAccountUsage: () => request<Array<Record<string, unknown>>>("/admin/account-usage"),
-  getAudit: (params: { target?: string; action?: string; limit?: number }) => {
+  getAudit: (params: { target?: string; action?: string; since?: string; limit?: number }) => {
     const search = new URLSearchParams();
     if (params.target) search.set("target", params.target);
     if (params.action) search.set("action", params.action);
+    if (params.since) search.set("since", params.since);
     search.set("limit", String(params.limit ?? 100));
     return request<AdminAuditEntry[]>(`/admin/audit?${search.toString()}`);
   },

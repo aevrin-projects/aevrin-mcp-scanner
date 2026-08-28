@@ -35,3 +35,11 @@ async def revoke_api_key(key_id: int, user_id: str, db: SupabaseRest) -> None:
         {"id": str(key_id), "user_id": user_id},
         {"revoked_at": datetime.now(UTC).isoformat()},
     )
+
+
+async def delete_revoked_api_keys(user_id: str, db: SupabaseRest) -> dict[str, int]:
+    rows = await db.select("api_keys", {"user_id": user_id, "revoked_at": "not.is.null"})
+    if not rows:
+        return {"deleted": 0}
+    await db.delete("api_keys", {"user_id": user_id, "revoked_at": "not.is.null"})
+    return {"deleted": len(rows)}

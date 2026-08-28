@@ -45,6 +45,23 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   of `AEVRIN_ENV_OVERRIDES`, which is write-only outside a workflow run but
   readable inside one. See `DECISIONS.md` ADR-013.
 
+### Added
+
+- **Admin marketplace catalogue now scrolls.** The `ScrollArea` height
+  constraint moved from the outer wrapper to the viewport element so the
+  scrollable region has a definite height and the custom scrollbar appears.
+  Submissions and reports panels fixed the same way.
+- **Audit log date filter.** The admin audit page has a "since" date input
+  alongside the existing action and target filters. The backend already
+  accepted the `since` parameter; the frontend entity and UI now pass it
+  through. Deletion of audit entries remains impossible by design — a
+  database trigger enforces append-only at the Postgres level, including
+  for the service role.
+- **Clear revoked API keys.** `DELETE /api-keys/revoked` hard-deletes all
+  revoked keys for the calling user (RLS allows user-scoped deletes). The
+  Settings → API keys page shows a "Clear revoked" button whenever any
+  revoked keys exist.
+
 ### Changed
 
 - **Admin marketplace page redesigned.** Filters and search now work
