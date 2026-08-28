@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from aevrin_scanner_core.models import Finding, ScanStatus, TargetType
+from aevrin_scanner_core.models import Finding, ScanStatus, TargetType, TriageStatus
 
 from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest
@@ -333,7 +333,7 @@ async def _load_findings(db: SupabaseRest, scan_id: str) -> list[Finding]:
                     verified=row.get("verified"),
                     not_tested=bool(row.get("not_tested")),
                     excluded_path=bool(row.get("excluded_path")),
-                    triage_status=row.get("triage_status") or "open",
+                    triage_status=TriageStatus(row.get("triage_status") or "open"),
                 )
             )
         except Exception:

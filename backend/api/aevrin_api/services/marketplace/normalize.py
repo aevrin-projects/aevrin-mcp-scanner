@@ -177,7 +177,8 @@ def build_installation(server: RegistryServer) -> dict[str, Any]:
     """
     packages = []
     for package in server.packages[:10]:
-        transport = package.get("transport") if isinstance(package.get("transport"), dict) else {}
+        maybe_transport = package.get("transport")
+        transport = maybe_transport if isinstance(maybe_transport, dict) else {}
         environment = []
         for variable in (package.get("environmentVariables") or [])[:40]:
             if not isinstance(variable, dict) or not isinstance(variable.get("name"), str):

@@ -465,7 +465,11 @@ async def set_policy(
         return await admin_service.set_policy(
             db,
             org_id=org_id,
-            grade_actions=dict(body.grade_actions),
+            # dict's invariance means dict[Literal[...], Literal[...]] (the
+            # Pydantic model field's type) isn't accepted where dict[str, str]
+            # is expected, even though every key/value is a str at runtime.
+            # The str() calls give mypy a concrete dict[str, str] to infer.
+            grade_actions={str(k): str(v) for k, v in body.grade_actions.items()},
             unscanned_action=body.unscanned_action,
             actor_id=user_id,
         )

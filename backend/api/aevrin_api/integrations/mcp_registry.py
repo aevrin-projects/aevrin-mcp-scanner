@@ -106,8 +106,19 @@ def _parse_server(raw: Any) -> RegistryServer | None:
     # The list endpoint nests the server document under "server" and puts
     # registry bookkeeping alongside it under "_meta". Tolerate both shapes so
     # a response-envelope change does not silently yield zero servers.
-    document = raw.get("server") if isinstance(raw.get("server"), dict) else raw
-    meta = raw.get("_meta") if isinstance(raw.get("_meta"), dict) else document.get("_meta", {})
+    #
+    # Each isinstance check binds its own variable first, then narrows that
+    # variable, rather than calling .get(...) a second time inside the
+    # ternary: mypy cannot carry an isinstance narrowing across two separate
+    # calls to the same method, even though they return the same value here,
+    # so a repeated raw.get("server") in the ternary's true branch stayed
+    # typed as "possibly None" and every document.get(...) below inherited
+    # that.
+    maybe_document = raw.get("server")
+    document: dict[str, Any] = maybe_document if isinstance(maybe_document, dict) else raw
+
+    maybe_meta = raw.get("_meta")
+    meta = maybe_meta if isinstance(maybe_meta, dict) else document.get("_meta", {})
     if not isinstance(meta, dict):
         meta = {}
 

@@ -429,6 +429,12 @@ def _extract_completion(provider: str, payload: Any) -> tuple[str, int | None, i
     if not isinstance(payload, dict):
         return "", None, None
 
+    # Every `x if isinstance(x, dict) else default` below binds x to a local
+    # first, then narrows that local, rather than checking isinstance on one
+    # call to .get(...) and reading a second, separate call to .get(...) in
+    # the ternary's true branch: mypy cannot carry a narrowing across two
+    # calls to the same method, even though they return the same value here.
+
     if provider == "anthropic":
         blocks = payload.get("content")
         text = ""
@@ -436,18 +442,22 @@ def _extract_completion(provider: str, payload: Any) -> tuple[str, int | None, i
             text = "".join(
                 b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text"
             )
-        usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+        maybe_usage = payload.get("usage")
+        usage = maybe_usage if isinstance(maybe_usage, dict) else {}
         return text.strip(), _positive_int(usage.get("input_tokens")), _positive_int(usage.get("output_tokens"))
 
     if provider == "gemini":
         candidates = payload.get("candidates")
         text = ""
         if isinstance(candidates, list) and candidates:
-            content = candidates[0].get("content") if isinstance(candidates[0], dict) else None
+            first = candidates[0]
+            maybe_content = first.get("content") if isinstance(first, dict) else None
+            content = maybe_content if isinstance(maybe_content, dict) else None
             parts = content.get("parts") if isinstance(content, dict) else None
             if isinstance(parts, list):
                 text = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
-        usage = payload.get("usageMetadata") if isinstance(payload.get("usageMetadata"), dict) else {}
+        maybe_usage = payload.get("usageMetadata")
+        usage = maybe_usage if isinstance(maybe_usage, dict) else {}
         return (
             text.strip(),
             _positive_int(usage.get("promptTokenCount")),
@@ -460,7 +470,8 @@ def _extract_completion(provider: str, payload: Any) -> tuple[str, int | None, i
         message = choices[0].get("message")
         if isinstance(message, dict):
             text = str(message.get("content") or "")
-    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+    maybe_usage = payload.get("usage")
+    usage = maybe_usage if isinstance(maybe_usage, dict) else {}
     return (
         text.strip(),
         _positive_int(usage.get("prompt_tokens")),
