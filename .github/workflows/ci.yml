@@ -76,7 +76,7 @@ jobs:
           # well, so a wrong value here cannot reach a deployed page; they
           # exist only so the production build can complete.
           NEXT_PUBLIC_API_URL: https://api.mcp.aevrin.net
-          NEXT_PUBLIC_SITE_URL: https://mcp.aevrin.net
+          NEXT_PUBLIC_SITE_URL: https://app.mcp.aevrin.net
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: placeholder
 

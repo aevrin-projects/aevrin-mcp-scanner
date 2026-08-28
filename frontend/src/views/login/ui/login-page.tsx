@@ -75,7 +75,9 @@ function AuthShell({ children }: { children: React.ReactNode }) {
           tall at every size. Form first in DOM and visual order: it's the
           only thing anyone came here to do, so it gets the first tab stop. */}
       <div className="relative z-10 flex min-h-svh flex-col overflow-y-auto px-5 py-6 sm:px-8 lg:px-12">
-        <Link href="/" className="inline-flex w-fit items-center gap-2.5 text-sm font-semibold tracking-[0.14em] uppercase">
+        {/* The marketing home page moved to frontend-public/ (DECISIONS.md
+            ADR-011) - this app no longer has a "/" route of its own. */}
+        <Link href="https://mcp.aevrin.net" className="inline-flex w-fit items-center gap-2.5 text-sm font-semibold tracking-[0.14em] uppercase">
           <Image src="/logo.png" alt="" width={22} height={24} priority />
           Aevrin
         </Link>
@@ -369,11 +371,11 @@ function LoginForm() {
           {mode === "signup" && (
             <p className="text-center text-xs text-muted-foreground">
               By continuing with Google or GitHub, you agree to the{" "}
-              <Link href="/terms" target="_blank" className="underline underline-offset-2 hover:text-foreground">
+              <Link href="https://mcp.aevrin.net/terms" target="_blank" className="underline underline-offset-2 hover:text-foreground">
                 Terms of Service
               </Link>{" "}
               and{" "}
-              <Link href="/privacy" target="_blank" className="underline underline-offset-2 hover:text-foreground">
+              <Link href="https://mcp.aevrin.net/privacy" target="_blank" className="underline underline-offset-2 hover:text-foreground">
                 Privacy Policy
               </Link>
               .
@@ -433,11 +435,11 @@ function LoginForm() {
                 />
                 <Label htmlFor="accept-terms" className="text-xs font-normal leading-relaxed text-muted-foreground">
                   I agree to the{" "}
-                  <Link href="/terms" target="_blank" className="underline underline-offset-2 hover:text-foreground">
+                  <Link href="https://mcp.aevrin.net/terms" target="_blank" className="underline underline-offset-2 hover:text-foreground">
                     Terms of Service
                   </Link>{" "}
                   and{" "}
-                  <Link href="/privacy" target="_blank" className="underline underline-offset-2 hover:text-foreground">
+                  <Link href="https://mcp.aevrin.net/privacy" target="_blank" className="underline underline-offset-2 hover:text-foreground">
                     Privacy Policy
                   </Link>
                   .

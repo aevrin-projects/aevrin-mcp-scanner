@@ -10,17 +10,20 @@
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   // Attaching the hostname here means `wrangler deploy` creates and keeps the
   // DNS record itself, instead of anyone hand-editing it in the dashboard.
-  // It previously pointed at a Railway service that no longer exists, so that
-  // CNAME record had to be deleted once before the first deploy could claim
-  // the name.
   //
   // docs.mcp.aevrin.net used to be served by this same Worker (middleware.ts
   // rewrote that host onto /docs); it now has its own Worker in
   // frontend-docs/, split out because the combined bundle exceeded
-  // Cloudflare's free-plan Worker size limit -- see DECISIONS.md. A /docs/*
-  // link on this domain gets a 308 redirect to the new domain instead.
+  // Cloudflare's free-plan Worker size limit -- see DECISIONS.md ADR-009. A
+  // /docs/* link on this domain gets a 308 redirect to the new domain instead.
+  //
+  // app.mcp.aevrin.net, not mcp.aevrin.net: DECISIONS.md ADR-011 moved this
+  // app's public marketing routes to frontend-public/, which took over the
+  // root domain -- a custom domain can only point at one Worker at a time.
+  // What's left here (dashboard, admin, settings, billing, auth) is the
+  // "app," not the marketing site, hence the subdomain.
   "routes": [
-    { "pattern": "mcp.aevrin.net", "custom_domain": true }
+    { "pattern": "app.mcp.aevrin.net", "custom_domain": true }
   ],
   "assets": {
     "binding": "ASSETS",

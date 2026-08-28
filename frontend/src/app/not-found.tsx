@@ -15,7 +15,9 @@ export default function NotFound() {
           This route does not exist. Return to the product overview or start a new security scan.
         </p>
         <div className="mt-7 flex flex-wrap justify-center gap-3">
-          <Link href="/" className={buttonVariants({ variant: "outline" })}>
+          {/* The marketing home page moved to frontend-public/ (DECISIONS.md
+              ADR-011) - this app no longer has a "/" route of its own. */}
+          <Link href="https://mcp.aevrin.net" className={buttonVariants({ variant: "outline" })}>
             <ArrowLeft className="size-4" />
             Home
           </Link>

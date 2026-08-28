@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://mcp.aevrin.net").replace(/\/$/, "");
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://app.mcp.aevrin.net").replace(/\/$/, "");
 
 /**
  * Disallow list mirrors PROTECTED_PATH_PREFIXES in lib/supabase/proxy.ts:

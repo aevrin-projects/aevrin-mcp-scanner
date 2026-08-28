@@ -8,6 +8,11 @@ import { buttonVariants } from "@/shared/ui/button";
 
 const AUTH_PREFIXES = ["/auth"];
 
+// The marketing home page and /status moved to frontend-public/, at the
+// root domain (DECISIONS.md ADR-011) - this app (now at app.mcp.aevrin.net)
+// no longer has either route itself.
+const MARKETING_ORIGIN = "https://mcp.aevrin.net";
+
 export function PublicNavbar({ signedIn }: { signedIn: boolean }) {
   const pathname = usePathname();
 
@@ -19,7 +24,7 @@ export function PublicNavbar({ signedIn }: { signedIn: boolean }) {
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur-sm">
       <div className="mx-auto grid h-[4.5rem] w-full max-w-[1600px] grid-cols-[auto_1fr_auto] items-center gap-3 px-4 sm:gap-6 sm:px-6 lg:px-10 xl:px-14">
         <Link
-          href={signedIn ? "/dashboard" : "/"}
+          href={signedIn ? "/dashboard" : MARKETING_ORIGIN}
           aria-label={signedIn ? "Open Aevrin dashboard" : "Aevrin home"}
           className="flex items-center gap-3 font-semibold"
         >
@@ -30,7 +35,7 @@ export function PublicNavbar({ signedIn }: { signedIn: boolean }) {
         </Link>
 
         <nav className="flex min-w-0 items-center justify-center gap-3 text-sm text-muted-foreground sm:gap-6" aria-label="Primary navigation">
-          <Link href="/" className="hover:text-foreground">
+          <Link href={MARKETING_ORIGIN} className="hover:text-foreground">
             Home
           </Link>
           <Link href="/pricing" className="hidden hover:text-foreground md:inline">
@@ -39,7 +44,7 @@ export function PublicNavbar({ signedIn }: { signedIn: boolean }) {
           <Link href="https://docs.mcp.aevrin.net" className="hover:text-foreground">
             Docs
           </Link>
-          <Link href="/status" className="hidden hover:text-foreground lg:inline">
+          <Link href={`${MARKETING_ORIGIN}/status`} className="hidden hover:text-foreground lg:inline">
             Status
           </Link>
         </nav>

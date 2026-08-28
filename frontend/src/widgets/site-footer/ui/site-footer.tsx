@@ -3,6 +3,11 @@ import Link from "next/link";
 import { Mail } from "lucide-react";
 import { buttonVariants } from "@/shared/ui/button";
 
+// /cli, /status, /terms, /privacy, /refund, and /contact moved to
+// frontend-public/, at the root domain (DECISIONS.md ADR-011) - this app
+// (now at app.mcp.aevrin.net) no longer has any of them itself.
+const MARKETING_ORIGIN = "https://mcp.aevrin.net";
+
 const SOCIAL_LINKS = [
   { label: "GitHub", href: "https://github.com/AkashaPrasad", icon: GitHubIcon },
   { label: "LinkedIn", href: "https://www.linkedin.com/in/akasha-a-prasad-639547344/", icon: LinkedInIcon },
@@ -79,29 +84,29 @@ export function SiteFooter() {
             <Link href="https://docs.mcp.aevrin.net" className="text-muted-foreground hover:text-foreground">
               Docs
             </Link>
-            <Link href="/cli" className="text-muted-foreground hover:text-foreground">
+            <Link href={`${MARKETING_ORIGIN}/cli`} className="text-muted-foreground hover:text-foreground">
               CLI setup
             </Link>
-            <Link href="/status" className="text-muted-foreground hover:text-foreground">
+            <Link href={`${MARKETING_ORIGIN}/status`} className="text-muted-foreground hover:text-foreground">
               Status
             </Link>
           </div>
 
           <div className="flex flex-col gap-2 text-sm">
             <span className="font-medium text-foreground">Legal</span>
-            <Link href="/terms" className="text-muted-foreground hover:text-foreground">
+            <Link href={`${MARKETING_ORIGIN}/terms`} className="text-muted-foreground hover:text-foreground">
               Terms of Service
             </Link>
-            <Link href="/privacy" className="text-muted-foreground hover:text-foreground">
+            <Link href={`${MARKETING_ORIGIN}/privacy`} className="text-muted-foreground hover:text-foreground">
               Privacy Policy
             </Link>
             {/* Both are required to be directly linkable, not buried inside
                 the terms: payment providers check for them during merchant
                 review, and a customer chasing a charge looks in the footer. */}
-            <Link href="/refund" className="text-muted-foreground hover:text-foreground">
+            <Link href={`${MARKETING_ORIGIN}/refund`} className="text-muted-foreground hover:text-foreground">
               Refunds &amp; Cancellation
             </Link>
-            <Link href="/contact" className="text-muted-foreground hover:text-foreground">
+            <Link href={`${MARKETING_ORIGIN}/contact`} className="text-muted-foreground hover:text-foreground">
               Contact
             </Link>
           </div>

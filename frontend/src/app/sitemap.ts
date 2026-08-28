@@ -6,7 +6,7 @@ import path from "node:path";
 // login/actions.ts; this file can't import a shared helper because those
 // live in "use server" modules, so the constant is duplicated deliberately
 // rather than pulling server-action code into a route this trivial.
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://mcp.aevrin.net").replace(/\/$/, "");
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://app.mcp.aevrin.net").replace(/\/$/, "");
 
 /**
  * Real last-edit date from git history, not the filesystem mtime. A CI
@@ -29,24 +29,17 @@ function lastCommitDate(absoluteFilePath: string): Date | undefined {
   }
 }
 
-// Only the routes that are genuinely public, unique, and meant to rank.
-// docs.mcp.aevrin.net is a separate Worker (frontend-docs/) with its own
-// sitemap now, not part of this one. Everything under /dashboard, /scans,
-// /settings, /integrations, /usage, /onboarding requires a signed-in
-// session and redirects to /login for everyone else, indexing a login wall
-// wastes crawl budget and Google explicitly downranks sites that submit
-// pages behind auth. /login and /device are functional, not content: no
-// unique copy to rank on. /error is never a real destination.
-const STATIC_ROUTES = [
-  "src/app/page.tsx",
-  "src/app/pricing/page.tsx",
-  "src/app/cli/page.tsx",
-  "src/app/status/page.tsx",
-  "src/app/terms/page.tsx",
-  "src/app/privacy/page.tsx",
-  "src/app/refund/page.tsx",
-  "src/app/contact/page.tsx",
-] as const;
+// Only the routes genuinely public, unique, and meant to rank. `/`, `/cli`,
+// `/status`, `/terms`, `/privacy`, `/refund`, `/contact` moved to
+// frontend-public/ at the root domain (DECISIONS.md ADR-011) - they have
+// their own sitemap now, not this one. docs.mcp.aevrin.net (frontend-docs/)
+// likewise. Everything under /dashboard, /scans, /settings, /integrations,
+// /usage, /onboarding requires a signed-in session and redirects to /login
+// for everyone else, indexing a login wall wastes crawl budget and Google
+// explicitly downranks sites that submit pages behind auth. /login and
+// /device are functional, not content: no unique copy to rank on. /error is
+// never a real destination.
+const STATIC_ROUTES = ["src/app/pricing/page.tsx"] as const;
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return STATIC_ROUTES.map((file) => {

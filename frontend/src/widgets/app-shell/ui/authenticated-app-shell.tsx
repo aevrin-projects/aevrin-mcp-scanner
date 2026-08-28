@@ -166,7 +166,8 @@ export function AuthenticatedAppShell({
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem>
-                    <Link href="/status" className="flex w-full items-center gap-2">
+                    {/* /status moved to frontend-public/ (DECISIONS.md ADR-011). */}
+                    <Link href="https://mcp.aevrin.net/status" className="flex w-full items-center gap-2">
                       <MoonStar className="size-4" />
                       Status
                     </Link>
