@@ -28,9 +28,13 @@ app = FastAPI(title="Aevrin API", version="0.1.0")
 # CORSMiddleware, letting its 500 responses pick up CORS headers on the way out.
 app.add_middleware(CatchUnhandledErrorsMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+_cors_origins = [settings.web_origin]
+if settings.public_web_origin:
+    _cors_origins.append(settings.public_web_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.web_origin],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key"],

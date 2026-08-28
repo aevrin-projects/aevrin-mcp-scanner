@@ -30,7 +30,8 @@ frontend/CI-only variables.
 | `MARKETPLACE_SCAN_USER_ID` | no | no | Supabase user ID that catalogue (marketplace) scans are attributed to, so they don't land in a real customer's history/quota. Unset disables catalogue scanning. |
 | `SCHEDULER_TOKEN` | no (required for `/scheduler/*` to function) | **yes** | Bearer token protecting the scheduled-job endpoints; those routes fail closed without it. |
 | `GROQ_CATALOG_API_KEY` / `OPENAI_CATALOG_API_KEY` / `ANTHROPIC_CATALOG_API_KEY` / `GEMINI_CATALOG_API_KEY` | no | **yes** | Aevrin's own credentials for refreshing the public AI-model catalogue - never a customer's key. A provider with no key here just isn't refreshed. |
-| `WEB_ORIGIN` | no (default `http://localhost:3000`) | no | The only allowed CORS origin. |
+| `WEB_ORIGIN` | no (default `http://localhost:3000`) | no | The authenticated app's own origin (`frontend/`) - allowed for CORS, and also the base URL for links this API constructs back into that app (device-pairing verification URLs, quota-exceeded upgrade links, the GitHub App post-install redirect). |
+| `PUBLIC_WEB_ORIGIN` | no | no | An additional allowed CORS origin for the public marketing site (`frontend-public/`), which calls this API (status checks, pageview tracking) from a different origin than `WEB_ORIGIN`. Never used to construct a link - see `docs/architecture/DEPLOYMENT.md`. |
 | `SCANS_PER_USER_PER_HOUR` / `SCANS_PER_IP_PER_HOUR` / `CLI_UPLOADS_PER_KEY_PER_HOUR` | no (sane defaults) | no | Rate limits. |
 | `PORT` | no (default `8000`) | no | Listen port. |
 

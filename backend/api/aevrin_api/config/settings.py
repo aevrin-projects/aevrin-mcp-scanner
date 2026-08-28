@@ -120,8 +120,16 @@ class Settings(BaseSettings):
     anthropic_catalog_api_key: str | None = None
     gemini_catalog_api_key: str | None = None
 
-    # CORS
+    # CORS. `web_origin` is also used to build links *back into* the
+    # authenticated app (device-pairing URLs, quota-exceeded upgrade links,
+    # the GitHub App post-install redirect) - it means "the app's own
+    # origin," not "every origin CORS should allow." `public_web_origin` is
+    # purely additive: the public marketing site (frontend-public/) calls
+    # this API too (status-page health checks, pageview tracking) from a
+    # different origin, and needs CORS to allow it without ever being where
+    # an app-internal link points.
     web_origin: str = "http://localhost:3000"
+    public_web_origin: str | None = None
 
     # Rate limits
     scans_per_user_per_hour: int = 10
