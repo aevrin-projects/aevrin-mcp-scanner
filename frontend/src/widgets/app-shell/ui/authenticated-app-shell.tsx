@@ -107,7 +107,11 @@ export function AuthenticatedAppShell({
               >
                 <Menu className="size-4" />
               </DialogTrigger>
-              <DialogContent className="top-0 left-0 flex h-full max-w-[300px] translate-x-0 translate-y-0 flex-col items-stretch gap-0 rounded-none border-r border-border p-0">
+              {/* `w-full` is explicit because DialogContent's default width is
+                  the centred-dialog gutter (`calc(100% - 2rem)`); this is a
+                  flush edge-anchored drawer, which wants the full width its
+                  own max-width caps. */}
+              <DialogContent className="top-0 left-0 flex h-full w-full max-w-[300px] translate-x-0 translate-y-0 flex-col items-stretch gap-0 rounded-none border-r border-border p-0">
                 <DialogHeader className="shrink-0 border-b border-border px-5 py-4">
                   <DialogTitle className="flex items-center gap-3">
                     <Image src="/logo.png" alt="" width={22} height={24} />

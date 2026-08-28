@@ -47,6 +47,23 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **Dialogs ignored their own width override, and overflowed.** `DialogContent`
+  carried `max-w-[calc(100%-2rem)] sm:max-w-sm` in its base classes, which
+  `cn`'s tailwind-merge could not reconcile with a caller's `max-w-2xl`: the
+  viewport guard was in the same utility group so it was deleted outright,
+  while `sm:max-w-sm` carried a modifier so it survived and, sitting in a
+  later media query, then beat the override. Measured, not deduced: the
+  install dialog rendered edge to edge with no gutter at 520px, and **384px
+  rather than the intended 672px above 640px**. The gutter is now expressed as
+  a width, which leaves the `max-w-*` group free for callers to use.
+  Separately, the popup is a grid whose implicit column resolves to
+  max-content, so the config block's long server URL stretched the column past
+  the dialog and dragged the footer's negative margins with it - and the
+  block's own `overflow-auto` never engaged, because sized to max-content it
+  had nothing to overflow. `grid-cols-[minmax(0,1fr)]` lets the column shrink,
+  which is what makes the inner scroller work. The install dialog also caps its
+  height now: it is centred by transform, so content past the viewport was
+  unreachable rather than merely below the fold.
 - **The whole marketplace was broken for any user in an organisation.**
   Browse, listing detail, and the install plan all failed; users with no
   organisation were unaffected, which is why it survived testing.

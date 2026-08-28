@@ -103,6 +103,29 @@ parsed with `URL` and an exact host check, never a substring match, since
 that it is http(s). A failed image load falls through to the brand mark and
 then the category icon, so the tile never renders blank or broken.
 
+## One sharp edge in `shared/ui`: `cn` deletes conflicting utilities
+
+`cn` runs tailwind-merge, which resolves conflicts by *removing* the earlier
+utility in a group. That is what makes overrides work, and it is also a trap
+for a base component that bakes in a constraint it needs to keep. Both halves
+showed up in `DialogContent` at once:
+
+- `max-w-[calc(100%-2rem)]` (a viewport guard) and a caller's `max-w-2xl` are
+  the same group, so the guard was silently deleted and the dialog ran edge to
+  edge on narrow screens. A constraint the caller must not be able to remove
+  belongs in a *different* group - here, expressed as a width.
+- `sm:max-w-sm` carries a modifier, so tailwind-merge treated it as unrelated
+  and kept it. Being in a later media query it then won above 640px, and the
+  caller's override was ignored on desktop. A responsive default in a base
+  component is not overridable by an unprefixed class.
+
+The rule: in a base component, express a guard in a group the caller will not
+reach for, and give defaults without a modifier so an override can replace
+them. When neither is possible (a full-height drawer that must escape a height
+cap), scope the constraint to the callers that want it rather than making one
+caller fight the base - `max-h-none` does not reliably beat an arbitrary
+`max-h-[...]`, since both survive the merge and stylesheet order decides.
+
 ## Entities (business domain)
 
 `admin`, `agent`, `ai-provider`, `api-key`, `billing`, `device`, `finding`,

@@ -51,7 +51,40 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // The width utilities here are split across two groups on purpose,
+          // because `cn` runs tailwind-merge and a caller's `className` has to
+          // be able to widen this dialog without silently deleting its
+          // viewport guard.
+          //
+          // This previously read `w-full max-w-[calc(100%-2rem)] sm:max-w-sm`.
+          // A caller passing `max-w-2xl` (the install dialog does) collided
+          // with `max-w-[calc(100%-2rem)]` -- same utility group -- so
+          // tailwind-merge dropped the viewport guard entirely and the dialog
+          // rendered edge to edge with no gutter on any screen narrower than
+          // 42rem. `sm:max-w-sm` carries a modifier so it was *not* replaced,
+          // and being in a later media query it then beat `max-w-2xl` above
+          // 640px: the same override was ignored on desktop, pinning the
+          // dialog to 24rem. Both measured, not deduced.
+          //
+          // Expressing the gutter as a *width* leaves the `max-w-*` group free
+          // for the caller, and a plain `max-w-sm` default is something an
+          // override can actually replace.
+          "fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // A grid's implicit column is `auto`, which resolves to max-content:
+          // one long unbreakable line (the install dialog's config block puts a
+          // whole server URL on one) stretched the column past the dialog and
+          // took the footer's negative margins with it. The `overflow-auto` on
+          // that block never engaged, because being sized to max-content it had
+          // nothing to overflow. `minmax(0,1fr)` lets the column shrink below
+          // its content, which is what makes the inner scroller work at all.
+          "grid-cols-[minmax(0,1fr)]",
+          // A height cap deliberately is *not* set here. It belongs to the
+          // dialogs whose content can actually get tall (the install dialog
+          // sets its own), because the one edge-anchored caller is a full
+          // height nav drawer and `max-h-none` does not reliably beat an
+          // arbitrary `max-h-[...]` through tailwind-merge: both survive, and
+          // which one wins then depends on stylesheet order rather than on
+          // anything the caller wrote.
           className
         )}
         {...props}

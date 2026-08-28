@@ -73,7 +73,11 @@ export function InstallDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      {/* This dialog is the tall one: a plan carries capabilities, warnings,
+          and a config block of whatever length the server declares. Centred by
+          transform, so anything past the viewport is unreachable rather than
+          merely below the fold - hence its own height cap and scroller. */}
+      <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Install {listing.title}</DialogTitle>
           <DialogDescription>
