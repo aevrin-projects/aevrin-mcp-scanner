@@ -4,11 +4,13 @@ import azure from "thesvg/azure";
 import claude from "thesvg/claude";
 import discord from "thesvg/discord";
 import docker from "thesvg/docker";
+import gemini from "thesvg/google-gemini";
 import github from "thesvg/github";
 import gitlab from "thesvg/gitlab";
 import google from "thesvg/google";
 import googleCloud from "thesvg/google-cloud";
 import graphql from "thesvg/graphql";
+import groq from "thesvg/groq";
 import jira from "thesvg/jira";
 import kubernetes from "thesvg/kubernetes";
 import mongodb from "thesvg/mongodb";
@@ -58,10 +60,12 @@ const BRANDS = {
   discord,
   docker,
   gcp: googleCloud,
+  gemini,
   github,
   gitlab,
   google,
   graphql,
+  groq,
   jira,
   kubernetes,
   mongodb,

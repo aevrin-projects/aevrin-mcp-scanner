@@ -1,1 +1,1 @@
-export { ApiError, API_URL, request, publicRequest } from "./client";
+export { ApiError, API_URL, request, publicRequest, optionalAuthRequest } from "./client";

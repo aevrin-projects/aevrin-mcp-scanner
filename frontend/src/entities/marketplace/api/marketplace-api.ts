@@ -1,6 +1,6 @@
 "use client";
 
-import { publicRequest, request } from "@/shared/api";
+import { optionalAuthRequest, publicRequest, request } from "@/shared/api";
 import type {
   Category,
   InstallPlan,
@@ -16,10 +16,15 @@ import type {
 /**
  * Marketplace transport.
  *
- * Browse and detail go through `publicRequest`: the catalogue is public, and
- * a signed-out visitor must be able to read a security grade before deciding
- * whether Aevrin is worth signing up for. Everything that writes, or that
- * could surface an organisation's private servers, uses `request`.
+ * Browse and detail go through `optionalAuthRequest`: the catalogue is public,
+ * and a signed-out visitor must be able to read a security grade before
+ * deciding whether Aevrin is worth signing up for - but both responses carry
+ * `is_favorited`, which is the caller's own relationship to a listing rather
+ * than a property of it. They used `publicRequest`, which never sends
+ * credentials, so that field came back false for everyone: saving a listing
+ * worked and then appeared not to, because the read that would have shown it
+ * was anonymous. Everything that writes, or that could surface an
+ * organisation's private servers, uses `request`.
  *
  * The mapping functions exist because the API speaks snake_case and the app
  * speaks camelCase. They are explicit rather than a generic converter so that
@@ -139,7 +144,10 @@ function toQuery(params: BrowseParams): string {
 }
 
 export async function browseListings(params: BrowseParams = {}): Promise<ListingPage> {
-  const raw = await publicRequest<{
+  // optionalAuth, not public: the response carries `is_favorited`, which is
+  // the caller's own relationship to each listing and is silently false for
+  // an anonymous read.
+  const raw = await optionalAuthRequest<{
     items: RawListing[];
     page: number;
     page_size: number;
@@ -156,7 +164,11 @@ export async function browseListings(params: BrowseParams = {}): Promise<Listing
 }
 
 export async function getListing(slug: string): Promise<ListingDetail> {
-  const raw = await publicRequest<RawListing>(`/marketplace/mcp/${encodeURIComponent(slug)}`);
+  // optionalAuth for the same reason as browseListings: readable signed out,
+  // but `is_favorited` needs to know who is asking.
+  const raw = await optionalAuthRequest<RawListing>(
+    `/marketplace/mcp/${encodeURIComponent(slug)}`,
+  );
   const base = toListing(raw);
   return {
     ...base,

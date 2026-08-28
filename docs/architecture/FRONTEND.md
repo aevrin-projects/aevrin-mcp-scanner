@@ -103,6 +103,22 @@ parsed with `URL` and an exact host check, never a substring match, since
 that it is http(s). A failed image load falls through to the brand mark and
 then the category icon, so the tile never renders blank or broken.
 
+## Three request modes in `shared/api`, not two
+
+`request` requires a session and throws 401 without one; `publicRequest`
+sends no credentials at all. A route that is **readable anonymously but
+returns a per-user field** fits neither, and that gap was a real bug: the
+marketplace's browse and detail endpoints carry `is_favorited`, went through
+`publicRequest`, and so reported "not saved" to everyone, however many times
+they had saved it. The write worked; the read was anonymous.
+
+`optionalAuthRequest` is that third mode, and mirrors the API's own
+`optional_user` dependency: credentials when a session exists, none when it
+does not. Reach for it whenever a response mixes public content with
+something scoped to the caller. If a response is purely public
+(`/marketplace/categories`), `publicRequest` is still right - sending a token
+where it changes nothing only widens what a request carries.
+
 ## One sharp edge in `shared/ui`: `cn` deletes conflicting utilities
 
 `cn` runs tailwind-merge, which resolves conflicts by *removing* the earlier

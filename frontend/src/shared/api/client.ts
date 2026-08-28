@@ -60,3 +60,26 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export async function publicRequest<T>(path: string, init?: RequestInit): Promise<T> {
   return send<T>(path, init, {});
 }
+
+/**
+ * Public to read, but personalised when there is somebody to personalise for.
+ *
+ * The mirror of the API's own `optional_user` dependency, and the missing
+ * third case: `request` refuses to send anything while signed out, and
+ * `publicRequest` refuses to send credentials even when they exist. A route
+ * that is readable anonymously *and* returns a per-user field had no correct
+ * client for it, so the marketplace used `publicRequest` and every listing
+ * came back with `is_favorited: false` -- saving worked and then looked like
+ * it had not, because the read that would have shown it was anonymous.
+ */
+export async function optionalAuthRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const supabase = createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  return send<T>(
+    path,
+    init,
+    session ? { Authorization: `Bearer ${session.access_token}` } : {},
+  );
+}

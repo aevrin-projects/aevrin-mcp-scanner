@@ -45,8 +45,31 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   of `AEVRIN_ENV_OVERRIDES`, which is write-only outside a workflow run but
   readable inside one. See `DECISIONS.md` ADR-013.
 
+### Changed
+
+- **Settings → AI providers is a roster rather than four open forms.** Each
+  provider is one row with its own brand mark (`thesvg`, via `BrandIcon` -
+  Groq and Gemini added), what it is, and whether it is connected;
+  configuration moved into a Connect dialog. The dialog asks for the API key
+  **first** and offers the model **second**, which is the order the data
+  becomes available rather than a preference: this deployment has no
+  catalogue credential of its own, so a provider's model list is only
+  knowable after a key exists to ask with (`DECISIONS.md` ADR-012). The old
+  layout put an empty model dropdown in front of the key that would have
+  filled it.
+
 ### Fixed
 
+- **A saved marketplace listing did not come back saved.** The favourite
+  persisted correctly; the read that should have shown it was anonymous.
+  Browse and listing detail used `publicRequest`, which never sends
+  credentials, so `is_favorited` was computed for nobody and came back false
+  every time. Both now use a new `optionalAuthRequest`, the missing third
+  case in the API client and the mirror of the backend's own `optional_user`
+  dependency: credentials when there is a session, none when there is not, so
+  the routes stay readable signed out. Verified against production - the same
+  saved listing returns `is_favorited: true` authenticated and `false`
+  anonymously.
 - **Dialogs ignored their own width override, and overflowed.** `DialogContent`
   carried `max-w-[calc(100%-2rem)] sm:max-w-sm` in its base classes, which
   `cn`'s tailwind-merge could not reconcile with a caller's `max-w-2xl`: the
