@@ -37,7 +37,7 @@ async def save_provider(
 ) -> dict[str, Any]:
     org_id = await _org_for(db, user_id)
     try:
-        return await credentials.save_credential(
+        saved = await credentials.save_credential(
             db,
             settings,
             user_id=user_id,
@@ -52,6 +52,30 @@ async def save_provider(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    # Populate the model catalogue with the key that was just saved.
+    #
+    # Without this the model dropdown is empty for every provider until an
+    # operator sets a *_CATALOG_API_KEY, which this deployment has never had --
+    # so "add a provider, then pick a model" dead-ended at the second step
+    # with nothing to pick and no explanation. Aevrin's own credential is
+    # still preferred when one exists (sync_provider falls back to it); this
+    # only covers the case where there is none.
+    #
+    # Deliberately not allowed to fail the request: the credential is stored,
+    # which is what the caller asked for, and sync_provider records its own
+    # error state for the admin page. A vendor being briefly unreachable must
+    # not look like a rejected key.
+    report = await provider_sync.sync_provider(
+        db, settings, body.provider, api_key=body.api_key
+    )
+    if not report.ok:
+        logger.info(
+            "model catalogue refresh after save failed for %s: %s",
+            body.provider,
+            report.error,
+        )
+    return saved
 
 
 async def update_provider(

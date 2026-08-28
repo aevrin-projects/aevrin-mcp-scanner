@@ -59,7 +59,14 @@ snippet with blank secrets (never a real value). Admins moderate via
 
 `backend/api/aevrin_api/services/marketplace/`:
 
-- **`normalize.py`** - registry `server.json` → a listing row. Categories
+- **`normalize.py`** - registry `server.json` → a listing row.
+  `registry_server_url()` is the single implementation of the "Listed via
+  Official MCP Registry" link, used at ingestion and again at read time.
+  The registry exposes no `GET /v0.1/servers/{name}` - only
+  `/versions` and `/versions/{version}` - and the server name contains a
+  literal `/` that must be percent-encoded or the registry's router reads
+  it as a path separator. Getting either wrong produces the same 404, and
+  both were wrong initially. Categories
   and tags are inferred from the publisher's own vocabulary (a keyword
   table, 17 seeded categories, `["other"]` fallback) - never invented.
   Install targets are derived only from declared transports; environment
@@ -80,7 +87,11 @@ snippet with blank secrets (never a real value). Admins moderate via
   view counts. Explicit column lists (`LIST_COLUMNS`/`DETAIL_COLUMNS`),
   never `select *`. Deliberately has **no "Verified" badge** - a
   verification claim needs documented criteria, and none exist, so the
-  badge doesn't either.
+  badge doesn't either. `decorate()` recomputes `registry_url` from
+  `normalize.registry_server_url()` rather than returning the stored
+  column: the URL is derived data, and rows written before the format was
+  corrected would otherwise keep serving a link that 404s until a re-sync
+  that nothing currently schedules.
 - **`sync.py`** - the weekly job (`POST /scheduler/registry-sync`):
   incremental pull since the last successful sync (a watermark, minus a
   one-hour overlap margin), new versions recorded unscanned, metadata

@@ -260,6 +260,30 @@ def _safe_public_url(raw: str | None) -> str | None:
     return raw.strip()[:500]
 
 
+def registry_server_url(registry_name: str | None, version: str | None) -> str | None:
+    """The canonical registry record for one published version.
+
+    The registry has no `GET /v0.1/servers/{name}` endpoint -- only
+    `/versions` and `/versions/{version}` -- so a link built without the
+    version segment 404s. The name also contains a literal "/" (the namespace
+    separator) which must be percent-encoded, or the registry's own router
+    reads it as an extra path segment and the lookup misses. Both were wrong
+    in the first version of this link, and both produce the same 404.
+
+    Kept as a function, and called at read time as well as at ingestion
+    (`catalog.decorate`), because the stored column is derived data: the rows
+    written before this was corrected kept serving the broken URL, and only a
+    full re-sync would have rewritten them. Deriving it on the way out means
+    there is one implementation and nothing to go stale against it.
+    """
+    if not registry_name or not version:
+        return None
+    return (
+        "https://registry.modelcontextprotocol.io/v0.1/servers/"
+        f"{quote(registry_name, safe='')}/versions/{quote(version, safe='')}"
+    )
+
+
 def registry_server_to_listing(server: RegistryServer) -> dict[str, Any]:
     """The listing row for one registry entry.
 
@@ -280,17 +304,7 @@ def registry_server_to_listing(server: RegistryServer) -> dict[str, Any]:
         "description": server.description[:4000],
         "repository_url": repository_url,
         "homepage_url": _safe_public_url(server.website_url),
-        # The registry has no `GET /v0.1/servers/{name}` endpoint -- only
-        # `/versions` and `/versions/{version}` -- so a link built without the
-        # version segment 404s. The name also contains a literal "/" (the
-        # namespace separator) that must be percent-encoded, or the
-        # registry's own router treats it as an extra path segment instead of
-        # part of the name -- the same encoding `fetch_server_version` above
-        # already does for the same reason.
-        "registry_url": (
-            "https://registry.modelcontextprotocol.io/v0.1/servers/"
-            f"{quote(server.name, safe='')}/versions/{quote(server.version, safe='')}"
-        ),
+        "registry_url": registry_server_url(server.name, server.version),
         # The verified namespace, which is the closest the registry gets to an
         # authenticated publisher identity.
         "publisher": server.namespace or None,

@@ -101,13 +101,24 @@ async def sync_all_providers(db: SupabaseRest, settings: Settings) -> SyncAllRep
 
 
 async def sync_provider(
-    db: SupabaseRest, settings: Settings, provider: str
+    db: SupabaseRest, settings: Settings, provider: str, *, api_key: str | None = None
 ) -> ProviderSyncReport:
-    """One provider. Never raises, never deletes."""
+    """One provider. Never raises, never deletes.
+
+    `api_key` overrides Aevrin's own catalogue credential for this one call.
+    The scheduled job never passes it -- borrowing a customer's key for
+    Aevrin's routine bookkeeping is exactly what the module docstring rules
+    out. It exists for the opposite case: somebody has just saved their own
+    key and is waiting to choose a model with it. That call is user-initiated,
+    uses their key for their own dropdown, and happens once rather than
+    weekly, so none of the objections to background polling apply. The model
+    names it learns are public catalogue facts, not the customer's data, which
+    is why they can land in the shared catalogue at all.
+    """
     result = ProviderSyncReport(provider=provider)
     now = datetime.now(UTC).isoformat()
 
-    api_key = catalog_key(settings, provider)
+    api_key = api_key or catalog_key(settings, provider)
     if not api_key:
         result.error = (
             f"No catalogue credential configured for {SPECS[provider].label}. "

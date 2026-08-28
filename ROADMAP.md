@@ -30,7 +30,12 @@ marketplace/AI/admin/providers work is fully live)
 - [ ] Optionally set `GROQ_CATALOG_API_KEY` / `OPENAI_CATALOG_API_KEY` /
       `ANTHROPIC_CATALOG_API_KEY` / `GEMINI_CATALOG_API_KEY` to enable
       automatic AI-model catalogue refresh - needs real vendor keys, not
-      yet obtained.
+      yet obtained. **No longer blocks the feature**: saving a provider key
+      now refreshes that provider's catalogue with that key (`DECISIONS.md`
+      ADR-012), so the model dropdown works without these. They remain
+      worth setting - they keep the catalogue current for providers nobody
+      has configured yet, and refresh it on a schedule rather than only
+      when somebody saves a key.
 - [ ] Wire an external scheduler (EventBridge, a cron container, or
       equivalent) to call `POST /scheduler/registry-sync` and
       `POST /scheduler/provider-sync` on a weekly cadence. Verified

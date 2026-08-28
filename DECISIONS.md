@@ -464,6 +464,26 @@ before the next):**
    no middleware to do what `frontend/`'s used to. Fixed with a
    `public/_redirects` file (Cloudflare's static-redirect mechanism).
 
+**A gap in that cutover, found afterward from a real bug report ("login
+bounces to the home page instead of the dashboard"):** step 1 updated
+Supabase's `uri_allow_list` but missed `site_url`, which stayed
+`https://mcp.aevrin.net`. That field only matters as GoTrue's own
+fallback: reading `supabase/auth`'s source (`external_oauth.go`,
+`loadFlowState`), any failure while processing an external-provider
+callback - an expired or not-found OAuth flow state, not the normal path
+- redirects the browser straight to `SITE_URL` with the error in the
+query string, bypassing the app's own `redirect_to` (and therefore its
+`/error` page) entirely. Landing on `mcp.aevrin.net` - now a static
+marketing site with no session code - looks exactly like "sign-in
+silently returned me to the home page," and only for Google/GitHub,
+since password sign-in never goes through GoTrue's external-provider
+path. Confirmed live: password login and a magic-link round trip (same
+Route Handler cookie-setting code as `/auth/callback`) both correctly
+reached `/dashboard`/`/onboarding` on `app.mcp.aevrin.net` before this
+fix, isolating the bug to this one field rather than the cutover's cookie
+or domain wiring in general. Fixed by setting `site_url` to
+`https://app.mcp.aevrin.net` via the same Management API used in step 1.
+
 One more `package.json`/lockfile to keep dependency versions aligned by
   hand (same trade-off ADR-009 already accepted for `frontend-docs/`).
 - `globals.css` is now duplicated a second time (`frontend-public/` copied
@@ -471,3 +491,64 @@ One more `package.json`/lockfile to keep dependency versions aligned by
   subset) rather than shared through a package - deliberate, to avoid a
   third risky manual trim in one sitting; worth revisiting if the three
   copies drift.
+
+## ADR-012: A customer's provider key may refresh the model catalogue, on save only
+
+**Status:** implemented.
+
+**Context:** ADR-004 and `provider_sync.py` establish that Aevrin's weekly
+model-catalogue sync uses Aevrin's own `*_CATALOG_API_KEY` credentials and
+"never reads `ai_provider_credentials` at all" - because all four vendors
+require a key to list models, and borrowing a customer's for Aevrin's
+routine bookkeeping would bill them for it and leak Aevrin's polling
+schedule into their usage dashboard. That reasoning is sound and stands.
+
+What it did not account for is the case where Aevrin has **no** catalogue
+credential. This deployment never obtained one (an open `ROADMAP.md` item),
+so `ai_provider_models` was never populated at all, and the AI provider
+settings page offered an empty model dropdown with no explanation. The
+`provider_sync.py` docstring already names this exact outcome as the thing
+it must never cause - "a failed sync must never leave a user with an empty
+model dropdown" - but that rule only ever protected a *previously* synced
+catalogue from being emptied. It could not conjure a first one.
+
+**Decision:** `sync_provider()` takes an optional `api_key` that overrides
+the catalogue credential for one call, and `save_provider` passes the key
+the user just supplied. The scheduled job never passes it.
+
+The distinction being drawn is **who initiated the call**, not which key was
+nearer to hand:
+
+- A weekly background poll is Aevrin's own bookkeeping. Using a customer's
+  key for it is what ADR-004 rules out, and still is.
+- A model-list call made because that customer just saved that key, to fill
+  the dropdown they are looking at, is theirs. It happens once, at their
+  request, for their benefit, against the vendor they chose.
+
+The model names learned are public catalogue facts about the vendor, not the
+customer's data, which is why they can be written to the shared
+`ai_provider_models` table rather than scoped per user. Rows are marked
+`from_provider_api = true`, the flag the schema already defined for exactly
+this distinction.
+
+**Alternatives considered:**
+
+- *Seed a static catalogue by migration.* Rejected. It requires writing
+  model IDs by hand, which is precisely the "never invent a fact about
+  someone else's software" failure mode `normalize.py` is built to avoid -
+  a wrong or retired ID becomes a selectable option that fails at the moment
+  someone uses it. It also goes stale by construction, which is what the
+  sync job exists to prevent.
+- *Explain the empty dropdown in the UI instead.* Honest, but it leaves the
+  feature unusable for every self-hosted deployment without vendor
+  credentials, and the credential needed to fix it is already in hand.
+- *Obtain `*_CATALOG_API_KEY` credentials.* Still worth doing, and still on
+  `ROADMAP.md` - it is what keeps the catalogue current for providers nobody
+  has configured yet. This change makes the feature work without it rather
+  than replacing it; `sync_provider` prefers Aevrin's own credential
+  whenever one exists.
+
+**Consequences:** the refresh is best-effort and never fails the save - the
+credential is stored either way, and a vendor being briefly unreachable must
+not read as a rejected key. One extra outbound call is added to a save, on a
+path a user takes rarely.

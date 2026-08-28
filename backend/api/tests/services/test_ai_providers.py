@@ -231,3 +231,71 @@ def test_every_provider_has_a_catalog_key_setting():
     settings_fields = Settings.model_fields
     for provider in PROVIDER_KEYS:
         assert f"{provider}_catalog_api_key" in settings_fields
+
+
+# --------------------------------------------------------------------------
+# Catalogue refresh with an explicitly supplied key
+#
+# The dropdown was empty for every provider because this deployment has never
+# had a *_CATALOG_API_KEY, so nothing ever populated ai_provider_models and
+# "add a provider, then pick a model" dead-ended at step two. Saving a key now
+# refreshes the catalogue with that key.
+
+
+class _CatalogDb:
+    """Enough of SupabaseRest for sync_provider's write path."""
+
+    def __init__(self) -> None:
+        self.inserted: list[dict] = []
+        self.updated: list[tuple[str, dict]] = []
+
+    async def select(self, table: str, filters=None, **kwargs):
+        return []
+
+    async def insert(self, table: str, rows, **kwargs):
+        if table == "ai_provider_models":
+            self.inserted.append(rows)
+        return [rows] if isinstance(rows, dict) else rows
+
+    async def update(self, table: str, filters, patch, **kwargs):
+        self.updated.append((table, patch))
+        return []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_an_explicit_key_populates_the_catalogue_without_a_catalog_credential(
+    settings_with_key,
+):
+    from aevrin_api.services.ai.provider_sync import sync_provider
+
+    respx.get("https://api.openai.com/v1/models").mock(
+        return_value=httpx.Response(
+            200, json={"data": [{"id": "gpt-4o-mini"}, {"id": "gpt-4o"}]}
+        )
+    )
+
+    db = _CatalogDb()
+    # settings_with_key deliberately has no openai_catalog_api_key, so without
+    # the explicit key this would report "no catalogue credential" and write
+    # nothing -- which is exactly the state that produced the empty dropdown.
+    report = await sync_provider(db, settings_with_key, "openai", api_key="sk-user-key")
+
+    assert report.ok, report.error
+    assert {row["model_id"] for row in db.inserted} == {"gpt-4o-mini", "gpt-4o"}
+    # Learned from a real provider call, not seeded, so the admin page can
+    # tell the difference.
+    assert all(row["from_provider_api"] is True for row in db.inserted)
+
+
+@pytest.mark.asyncio
+async def test_without_any_key_the_catalogue_is_left_alone(settings_with_key):
+    """The failure must be recorded, never turned into an empty catalogue."""
+    from aevrin_api.services.ai.provider_sync import sync_provider
+
+    db = _CatalogDb()
+    report = await sync_provider(db, settings_with_key, "openai")
+
+    assert not report.ok
+    assert "CATALOG_API_KEY" in (report.error or "")
+    assert db.inserted == []

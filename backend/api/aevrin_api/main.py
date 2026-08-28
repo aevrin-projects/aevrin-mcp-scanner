@@ -32,11 +32,19 @@ _cors_origins = [settings.web_origin]
 if settings.public_web_origin:
     _cors_origins.append(settings.public_web_origin)
 
+# Every method the routers actually register must be listed. PUT was missing,
+# and the failure mode was invisible from the server side: the browser's
+# preflight succeeded, saw PUT absent from access-control-allow-methods, and
+# refused to send the real request, so nothing reached the API to be logged.
+# The client saw only a rejected fetch, which it reports as "Could not reach
+# the Aevrin API" -- a connectivity message for what was actually a policy
+# refusal. That took out all three PUT routes: saving a marketplace favourite,
+# adding an AI provider key, and setting an organisation's install policy.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
 

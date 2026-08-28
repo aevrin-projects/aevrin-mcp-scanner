@@ -213,3 +213,58 @@ def test_slug_is_stable_and_readable():
 
     server = RegistryServer(name="io.github.modelcontextprotocol/everything", description="x", version="1")
     assert slug_for(server) == "modelcontextprotocol-everything"
+
+
+def test_registry_url_targets_a_version_and_encodes_the_name():
+    """The "Listed via Official MCP Registry" link must actually resolve.
+
+    Two independent mistakes produced the same 404 in production, so both are
+    pinned here: the registry exposes no `GET /servers/{name}`, only
+    `/versions/{version}`, and the name carries a literal "/" that the
+    registry's router reads as a path separator unless it is percent-encoded.
+    """
+    from aevrin_api.services.marketplace.normalize import registry_server_url
+
+    url = registry_server_url("ai.com.mcp/skills-search", "1.0.0")
+    assert url == (
+        "https://registry.modelcontextprotocol.io/v0.1/servers/"
+        "ai.com.mcp%2Fskills-search/versions/1.0.0"
+    )
+    # The separator survives as an escape, never as a bare slash.
+    assert "ai.com.mcp/skills-search" not in url
+
+    # Nothing to point at without both halves; a link to a versionless path
+    # would 404, so None is the honest answer.
+    assert registry_server_url("ai.com.mcp/skills-search", None) is None
+    assert registry_server_url(None, "1.0.0") is None
+
+
+def test_decorate_repairs_a_stale_stored_registry_url():
+    """Rows written before the format was fixed still hold the broken URL.
+
+    `decorate` recomputes it rather than trusting the column, so those rows
+    are corrected on read instead of waiting for a re-sync that the scheduler
+    is not yet wired to run.
+    """
+    from aevrin_api.services.marketplace.catalog import decorate
+
+    stale = {
+        "registry_name": "ai.com.mcp/skills-search",
+        "latest_version": "1.0.0",
+        "registry_url": (
+            "https://registry.modelcontextprotocol.io/v0.1/servers/ai.com.mcp/skills-search"
+        ),
+    }
+    assert decorate(stale)["registry_url"] == (
+        "https://registry.modelcontextprotocol.io/v0.1/servers/"
+        "ai.com.mcp%2Fskills-search/versions/1.0.0"
+    )
+
+    # A user submission has no registry identity; its own stored URL is the
+    # only one there is, and must survive untouched.
+    submission = {
+        "registry_name": None,
+        "latest_version": None,
+        "registry_url": "https://example.test/my-server",
+    }
+    assert decorate(submission)["registry_url"] == "https://example.test/my-server"

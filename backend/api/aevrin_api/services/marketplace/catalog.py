@@ -20,6 +20,7 @@ import logging
 from typing import Any
 
 from aevrin_api.db import SupabaseRest
+from aevrin_api.services.marketplace import normalize
 from aevrin_api.services.marketplace.grading import scan_freshness
 from aevrin_api.services.marketplace.ranking import DEFAULT_SORT, SORT_ORDERS
 
@@ -83,8 +84,18 @@ def decorate(listing: dict[str, Any], *, favorited: bool = False) -> dict[str, A
     """
     freshness = scan_freshness(listing)
     grade = listing.get("current_trust_grade")
+    # Derived, not trusted from the row: every listing ingested before the
+    # link format was corrected still stores a URL that 404s, and only a full
+    # re-sync would rewrite it. Recomputing here fixes those rows on read and
+    # keeps one implementation of the format. Falls back to the stored value
+    # for anything not from the registry (a user submission has no
+    # registry_name, and its own stored URL is the only one there is).
+    registry_url = normalize.registry_server_url(
+        listing.get("registry_name"), listing.get("latest_version")
+    ) or listing.get("registry_url")
     return {
         **listing,
+        "registry_url": registry_url,
         "is_favorited": favorited,
         "security": {
             "grade": grade,

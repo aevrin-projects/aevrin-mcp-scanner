@@ -72,6 +72,24 @@ an existing cached explanation references the model that produced it, and
 that reference must keep resolving. A failed sync keeps the previous
 catalogue rather than emptying the dropdown.
 
+**Saving a provider key also refreshes that provider's catalogue, using the
+key just saved.** The weekly job still never touches a customer credential;
+this is the opposite situation, and the distinction is the point. A
+scheduled poll on Aevrin's behalf would bill a customer for Aevrin's
+bookkeeping and leak which vendors Aevrin polls into their usage dashboard.
+A refresh triggered by that customer, with their key, to populate the
+dropdown they are looking at, does none of those things - it happens once,
+at their request, for their benefit. The model names it learns are public
+catalogue facts about the vendor, not the customer's data, which is why they
+can be written to the shared catalogue at all.
+
+This exists because the weekly job is only as good as its credential, and
+this deployment has never had one: with no `*_CATALOG_API_KEY` set,
+`ai_provider_models` stayed empty, so "add a provider, then choose a model"
+dead-ended with an empty dropdown and no explanation. The refresh is
+best-effort and never fails the save - the credential is stored either way,
+and a vendor being briefly unreachable must not read as a rejected key.
+
 ## Provider APIs
 
 Called with the user's own credential, from the backend only. No vendor
@@ -95,7 +113,9 @@ access logs and referrer headers, and a credential must not.
 
 **Every one of these four endpoints requires a credential.** There is no
 anonymous model list, which is why the weekly catalogue sync (above) uses
-Aevrin's own credential rather than a customer's.
+Aevrin's own credential rather than a customer's - and why, when no such
+credential is configured, the only key available to populate the catalogue
+at all is the one the customer just saved.
 
 ### Why LiteLLM was evaluated and not adopted
 

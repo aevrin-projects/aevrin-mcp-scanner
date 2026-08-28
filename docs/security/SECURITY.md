@@ -80,6 +80,16 @@ must keep passing for this boundary to mean anything.
 - **Never logged**: provider errors are constructed without the request
   body, since a body can echo request content back and request content is
   one careless log line away from being the key.
+- **A customer's provider key is used only for that customer's own
+  requests**: their explanations, and - on save only - one model-list call
+  to populate the model dropdown they are about to use
+  (`controllers/ai_controller.py::save_provider`). It is never used for
+  Aevrin's scheduled bookkeeping: the weekly catalogue sync reads
+  `*_CATALOG_API_KEY` and never `ai_provider_credentials`, so no customer is
+  ever billed for, or has their usage dashboard record, a call Aevrin made
+  for its own purposes. The distinction is between a call the customer
+  initiated and a call Aevrin initiated, not between which key is nearer to
+  hand. See [`../features/AI_REVIEW.md`](../features/AI_REVIEW.md#model-catalogue).
 
 ## SSRF protection
 

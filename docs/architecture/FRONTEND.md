@@ -87,10 +87,21 @@ chrome, `thesvg` (via `brand-icon.tsx`) for a real company's mark where the
 company is actually named (a listing's own tags, an AI provider), and
 `react-icons` (currently `react-icons/fi`) for generic concept icons where
 neither of the other two fits - e.g. a marketplace category ("databases",
-"devops") that names no specific brand. `entities/marketplace/ui/listing-logo.tsx`
-is the one place all three meet: it reads a listing's own tags for a brand
-match before ever falling back to a category icon, so a mark is never shown
-unless the publisher's own text supports it.
+"devops") that names no specific brand.
+
+`entities/marketplace/ui/listing-logo.tsx` is where all three meet, behind
+a fourth and stronger source: the publisher's **own GitHub avatar**, read
+from the owner segment of their declared `repository_url`
+(`github.com/<owner>.png`). That tier goes first because it is the only one
+that identifies *this* server rather than a category it falls into, and
+because the tag-derived brand mark below it is inferred from keyword
+matching over the publisher's prose - a server that merely mentions Slack
+can carry a `slack` tag without being Slack's, and rendering someone else's
+brand on an unrelated project is a false provenance claim. The URL is
+parsed with `URL` and an exact host check, never a substring match, since
+`repository_url` is publisher-supplied and `normalize.py` guarantees only
+that it is http(s). A failed image load falls through to the brand mark and
+then the category icon, so the tile never renders blank or broken.
 
 ## Entities (business domain)
 

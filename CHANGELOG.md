@@ -20,6 +20,54 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ## [Unreleased]
 
+### Fixed
+
+- **Saving a marketplace listing, adding an AI provider key, and setting an
+  organisation's install policy all silently failed.** The API's CORS
+  configuration listed `GET, POST, PATCH, DELETE` but the app registers
+  three `PUT` routes, and those three were exactly them. The browser's
+  preflight succeeded, saw `PUT` missing from
+  `access-control-allow-methods`, and refused to send the real request - so
+  nothing ever reached the API to be logged, and the client reported
+  "Could not reach the Aevrin API", a connectivity message for what was
+  actually a policy refusal. A regression test now derives the expected
+  method set from the OpenAPI schema, so adding a route with a new method
+  cannot reintroduce this silently.
+- The marketplace's "Listed via Official MCP Registry" link 404'd for every
+  listing ingested before the URL format was corrected. The format fix
+  shipped previously only applied to newly synced rows, and the weekly
+  registry sync has no scheduler wired to it, so existing rows kept serving
+  the broken link indefinitely. `registry_server_url()` is now the single
+  implementation and is applied on read, correcting stored rows without
+  waiting for a re-sync.
+- The AI provider model dropdown was empty for every provider. The
+  catalogue is populated only by a sync job needing Aevrin's own
+  `*_CATALOG_API_KEY`, which this deployment has never had, so
+  "add a provider, then choose a model" dead-ended with nothing to choose
+  and no explanation. Saving a provider key now refreshes that provider's
+  catalogue using the key just saved - user-initiated and for their own
+  dropdown, never the scheduled job, which still never touches a customer
+  credential. See `DECISIONS.md` ADR-012.
+
+### Added
+
+- Marketplace listings now show the publisher's real logo: their GitHub
+  owner avatar, read from the owner segment of their declared
+  `repository_url`. It takes precedence over the tag-derived brand mark,
+  which is inferred from keyword matching over the publisher's prose and so
+  can attach a company's logo to an unrelated project. Falls back to the
+  brand mark and then the category icon, so a tile never renders blank or
+  broken. See `docs/architecture/FRONTEND.md`.
+
+- Google/GitHub sign-in bounced silently to `mcp.aevrin.net` (the marketing
+  site) instead of reaching the dashboard, a gap left by the domain
+  cutover below: Supabase's `site_url` still pointed at the old app
+  domain, and that's what GoTrue's own OAuth callback handler redirects
+  to on any internal hiccup, bypassing the app's `redirect_to` entirely.
+  Password sign-in was unaffected (confirmed via a real login and a
+  magic-link round trip before this fix landed). Set `site_url` to
+  `https://app.mcp.aevrin.net`; see `DECISIONS.md` ADR-011.
+
 ### Changed
 
 - The docs site (`docs.mcp.aevrin.net`) is now its own app and Cloudflare

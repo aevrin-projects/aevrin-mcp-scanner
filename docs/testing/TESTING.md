@@ -74,6 +74,12 @@ enabled, so it never tries to push to a dashboard that doesn't exist).
   bounded and inside a data field. **These tests must never be deleted or
   weakened to make a refactor pass** - they encode the product's actual
   security promises, not incidental behavior.
+  `routes/test_cors_methods.py` is worth knowing about for the same reason
+  in a different direction: it derives the expected CORS method set from the
+  OpenAPI schema rather than a fixed list, because the bug it exists for
+  (a registered `PUT` missing from `allow_methods`) is invisible
+  server-side - the browser refuses the request, so nothing reaches the API
+  to log. A hardcoded expectation would have kept passing through it.
 - **`backend/cli/tests/`** - target detection, upload, output rendering
   (including exit codes and encoding), remote scan, a dependency-contract
   test (the CLI's declared dependency on `scanner-core` matches what's
