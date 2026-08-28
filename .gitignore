@@ -50,3 +50,4 @@ blob-report/
 .supabase-keys
 .cloudflare-keys
 .npmjs-key
+.prompts
