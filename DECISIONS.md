@@ -346,8 +346,12 @@ mint one per request, and this deployment now deliberately has none.
 
 ## ADR-011: `frontend/`'s public marketing routes split into a third app, `frontend-public/`
 
-**Status:** Accepted, partially implemented (built and verified; not yet
-cut over to the live domain - see Trade-offs)
+**Status:** Accepted, fully implemented and cut over. `frontend/` moved to
+`app.mcp.aevrin.net`; `frontend-public/` took over `mcp.aevrin.net`.
+Measured after cutover: `frontend/`'s Worker is now ~2.24 MiB gzip
+(`wrangler deploy --dry-run`), comfortably under the free plan's 3 MiB
+limit and down from ~7.1 MiB - the account no longer requires Workers
+Paid for either app.
 
 **Decision:** Eight fully public, non-authenticated routes - `/`, `/cli`,
 `/contact`, `/terms`, `/privacy`, `/refund`, `/status`, and the root
@@ -426,30 +430,41 @@ assumed:
   smaller bill. Not chosen because the user's stated goal was to avoid it,
   and this split gets there without removing anything real.
 
-**Trade-offs:**
-- **Not measured against a real fitness number yet.** ADR-009's own
-  finding (bloat spread evenly, no single fix) means there is no guarantee
-  the remaining `frontend/` Worker clears 3 MiB after these eight routes
-  leave - only that it is smaller. The actual number needs measuring after
-  `frontend/` itself is trimmed of these routes, which has not happened in
-  this pass (see below).
-- **The domain cutover is a separate, external-dependency step, not yet
-  taken.** A Cloudflare custom domain can only point at one Worker at a
-  time (ADR-009's own finding), so `mcp.aevrin.net` moving to
-  `frontend-public/` means `frontend/` has to move to a new subdomain,
-  `app.mcp.aevrin.net`. That requires, before the domains actually
-  switch: every OAuth redirect URI registered with Google and GitHub
-  updated to `app.mcp.aevrin.net` in their respective consoles (account-
-  holder access only, not something this session can do), `frontend/`'s
-  `NEXT_PUBLIC_SITE_URL` updated to match, and the backend's `WEB_ORIGIN`
-  CORS allowlist extended to include `app.mcp.aevrin.net` (`mcp.aevrin.net`
-  itself needs no CORS change, since `frontend-public/` inherits the
-  existing origin the backend already allows). Until that happens,
-  `frontend-public/` deploys to its own `workers.dev` URL and `frontend/`
-  has not been trimmed of the eight moved routes, so nothing in production
-  is broken by this ADR landing - both the old and new copies of these
-  eight pages exist side by side until cutover.
-- One more `package.json`/lockfile to keep dependency versions aligned by
+**The cutover, in the order it actually happened (each step verified live
+before the next):**
+1. Supabase's redirect-URL allowlist (`config/auth`'s `uri_allow_list`,
+   via the Management API) gained `app.mcp.aevrin.net/auth/callback` and
+   `.../auth/confirm`, alongside the existing `mcp.aevrin.net` ones - this
+   is the actual gate on where an OAuth sign-in is allowed to land, and a
+   correction from this ADR's first draft: the GitHub/Google OAuth *app*
+   registrations were never involved. Both providers redirect to
+   Supabase's own fixed callback URL regardless of which domain our own
+   app lives at; only Supabase's allowlist needed to change.
+2. The backend's `WEB_ORIGIN` became `https://app.mcp.aevrin.net` and a
+   new `PUBLIC_WEB_ORIGIN=https://mcp.aevrin.net` was added (see the CORS
+   multi-origin support added to `main.py`/`config/settings.py` in the
+   same pass), deployed via the `AEVRIN_ENV_OVERRIDES` GitHub Actions
+   secret and a manual `deploy-backend.yml` dispatch. This step briefly
+   made the backend construct links (device-pairing URLs, quota-upgrade
+   links, the GitHub App redirect) to a domain that didn't resolve to
+   anything yet - closed within minutes by step 3, not left open.
+3. `frontend/` deleted the eight already-duplicated routes, fixed every
+   remaining internal link to them (navbar, footer, login page, the
+   authenticated sidebar, not-found) to point at `https://mcp.aevrin.net`,
+   and its `wrangler.jsonc` route moved to `app.mcp.aevrin.net` - deployed
+   and verified live before the next step.
+4. `frontend-public/`'s `wrangler.jsonc` gained the `mcp.aevrin.net`
+   route. Cloudflare's custom-domain reassignment is immediate and has no
+   graceful handoff (confirmed live: `mcp.aevrin.net` briefly 522'd
+   between `frontend/`'s route changing away from it and this deploy
+   claiming it) - real but brief, and unavoidable with this mechanism
+   short of accepting Workers Paid just to avoid it.
+5. Found in end-to-end verification, not assumed: `mcp.aevrin.net/docs`
+   404'd instead of redirecting, since the static `frontend-public/` has
+   no middleware to do what `frontend/`'s used to. Fixed with a
+   `public/_redirects` file (Cloudflare's static-redirect mechanism).
+
+One more `package.json`/lockfile to keep dependency versions aligned by
   hand (same trade-off ADR-009 already accepted for `frontend-docs/`).
 - `globals.css` is now duplicated a second time (`frontend-public/` copied
   it wholesale from `frontend/`, unlike `frontend-docs/`'s hand-trimmed

@@ -37,12 +37,13 @@ silent violation waiting to be noticed in review.
 
 ## Routing (`app/`)
 
-Top-level routes actually present: `/` (marketing home), `/pricing`,
-`/contact`, `/cli`, `/status`, `/integrations`, `/privacy`, `/terms`,
-`/refund`, `/login`, `/onboarding`, `/device` (CLI device-code approval),
-`/error`. `/docs/*` is a 308 redirect to `docs.mcp.aevrin.net` -
-documentation content lives in a separate app, `frontend-docs/`; see
-below.
+Top-level routes actually present: `/pricing`, `/integrations`, `/login`,
+`/onboarding`, `/device` (CLI device-code approval), `/error`. This app is
+`app.mcp.aevrin.net` (not `mcp.aevrin.net`) - the marketing/content routes
+(`/`, `/cli`, `/contact`, `/status`, `/privacy`, `/terms`, `/refund`) moved
+to a separate app, `frontend-public/`, at the root domain (`DECISIONS.md`
+ADR-011); see below. `/docs/*` is a 308 redirect to `docs.mcp.aevrin.net` -
+documentation content lives in a separate app, `frontend-docs/`, too.
 
 Authenticated app routes: `/dashboard`, `/scans/new`, `/scans/history`,
 `/scans/[id]`, `/scans/[id]/findings/[findingId]`, `/agents`,
@@ -101,21 +102,20 @@ unless the publisher's own text supports it.
 so a bare confident letter grade can never be rendered without its scan
 state alongside it).
 
-## Two routes are moving to their own app, `frontend-public/`
+## Eight routes moved to their own app, `frontend-public/`
 
-`ADR-011` (`DECISIONS.md`) started moving eight fully public,
-non-authenticated routes - `/`, `/cli`, `/contact`, `/status`, `/privacy`,
-`/terms`, `/refund` - out of this app into `frontend-public/`, a static
-export with no server. **This app still serves all of them today** - the
-routing list above is accurate as of right now - because the cutover
-(moving this app's Worker off `mcp.aevrin.net` to `app.mcp.aevrin.net`, and
-deleting these routes here) waits on external OAuth-provider redirect-URI
-updates only the account holder can make. See
-`docs/architecture/DEPLOYMENT.md` for the exact remaining steps. `/pricing`,
-`/login`, `/device`, `/onboarding`, and `/marketplace*` were each checked
-and found to need a real server (Server Actions, a session check, or
+`DECISIONS.md` ADR-011 moved eight fully public, non-authenticated routes
+- `/`, `/cli`, `/contact`, `/status`, `/privacy`, `/terms`, `/refund` - out
+of this app into `frontend-public/`, a static export with no server, at
+the root domain (`mcp.aevrin.net`); this app moved to `app.mcp.aevrin.net`
+in the same cutover. Nothing here renders any of those eight routes
+anymore - every internal link to one of them (navbar, footer, login page,
+not-found, the authenticated sidebar's Status link) points at
+`https://mcp.aevrin.net` instead. `/pricing`, `/login`, `/device`,
+`/onboarding`, and `/marketplace*` were each checked individually and
+found to need a real server (Server Actions, a session check, or
 build-time-unknowable paths) and stay here permanently, not just until
-cutover.
+cutover - see `DECISIONS.md` ADR-011 for the reasoning behind each.
 
 ## The docs site is a separate app
 

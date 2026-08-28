@@ -70,31 +70,30 @@ exceeded Cloudflare's Worker size limit; see `DECISIONS.md` ADR-009. Since
 ADR-010 and ADR-011, they don't all share a build/deploy shape - one is a
 real server, two aren't - because only the dashboard actually needs one.
 
-**Domain topology is mid-cutover, not yet final** (ADR-011). Today:
-`frontend/` (Worker `aevrin-web`) still holds `mcp.aevrin.net` and still
-serves the eight routes `frontend-public/` now also builds. Nothing is
-broken by this - both copies exist side by side - but it means the
-description below of `frontend-public/` is where things are *headed*,
-not what a request to `mcp.aevrin.net` hits today. The cutover this is
-waiting on: every OAuth redirect URI registered with Google and GitHub
-updated to `app.mcp.aevrin.net` (only the account holder can do this, in
-each provider's own console), then `frontend/`'s route moves to
-`app.mcp.aevrin.net`, `frontend-public/`'s route takes `mcp.aevrin.net`,
-`frontend/`'s `NEXT_PUBLIC_SITE_URL` changes to match, the backend's
-`WEB_ORIGIN` CORS allowlist gains `app.mcp.aevrin.net`, and the eight
-moved routes are deleted from `frontend/` (the actual bundle-size win -
-building `frontend-public/` without removing them from `frontend/` saves
-nothing).
+**Domain topology (as of ADR-011's cutover):** `frontend/` is
+`app.mcp.aevrin.net` (dashboard, admin, settings, billing, auth);
+`frontend-public/` is `mcp.aevrin.net` (marketing/content); `frontend-docs/`
+is `docs.mcp.aevrin.net` (unchanged). The cutover moved five things
+together, in order, each verified live before the next: Supabase's OAuth
+redirect allowlist, the backend's `WEB_ORIGIN`/`PUBLIC_WEB_ORIGIN`,
+`frontend/`'s route and its eight deleted routes, `frontend-public/`'s
+route claiming `mcp.aevrin.net`, and a `_redirects` fix for `/docs/*` on
+the new domain (`frontend-public/` has no middleware to do what
+`frontend/`'s used to). Full sequence and what each step depended on:
+`DECISIONS.md` ADR-011.
 
-**`frontend/`** (Worker `aevrin-web`, `mcp.aevrin.net`) - OpenNext, real
-per-request server code. `.github/workflows/deploy-frontend.yml`
-redeploys whenever `frontend/**` changes on `master` (`fetch-depth: 0` -
+**`frontend/`** (Worker `aevrin-web`, `app.mcp.aevrin.net`) - OpenNext,
+real per-request server code: the dashboard, admin, settings, billing,
+marketplace submit/saved, `/pricing`, `/login`, `/device`, `/onboarding`,
+and the auth routes. `.github/workflows/deploy-frontend.yml` redeploys
+whenever `frontend/**` changes on `master` (`fetch-depth: 0` -
 `sitemap.xml` is prerendered at build time and reads each page's last
 commit date via `git log`, which needs real history). Builds with
 `npx opennextjs-cloudflare build`, deploys with `npx wrangler deploy`. A
 request to `/docs/*` on this domain gets a 308 redirect to
 `docs.mcp.aevrin.net` (`src/middleware.ts`) - nothing here renders
-documentation content anymore.
+documentation content, and nothing here renders the marketing/content
+routes either anymore (see `frontend-public/` below).
 
 `wrangler.jsonc`: `compatibility_flags` includes `nodejs_compat` (Next's
 server runtime needs Node built-ins) and `global_fetch_strictly_public`
@@ -104,39 +103,39 @@ cache, tag cache, or queue - every page is either statically prerendered
 at build time or rendered per-request against Supabase/the API, so
 there's no ISR surface for a cache to serve.
 
-**Cloudflare plan requirement.** Measured before ADR-011's split: the
-bundle was ~7.1 MB, comfortably under **Workers Paid**'s 10 MiB-per-Worker
-limit and over the free plan's 3 MiB limit. This is genuine per-request
-server code, not misplaced static assets - `middleware.ts` refreshes the
-Supabase session cookie on every request, and
-`src/app/auth/callback/route.ts` / `src/app/auth/confirm/route.ts`
-exchange an OAuth/email code for a session and set the resulting cookie
-via `next/headers`'s `cookies()`, both explicitly on Next.js's own list of
-what static export (`output: "export"`) cannot express at all - see
-`DECISIONS.md` ADR-010. Workers Paid ($5/month, one flat account-wide fee)
-remains required for this Worker today; ADR-011 moved eight
-non-authenticated routes out to `frontend-public/`, but has not yet
-*removed* them from this app (that's part of the pending cutover above),
-so the measured 7.1 MB has not changed yet either. Once cutover happens
-and those eight routes are actually deleted here, this number needs
-re-measuring - ADR-009's own finding (bloat cumulative across roughly 50
-routes, no single fixable cause) means there is no guarantee it clears
-3 MiB even then.
+**Cloudflare plan requirement: none beyond free.** Measured via
+`wrangler deploy --dry-run` after ADR-011's split actually removed the
+eight moved routes: the Worker's gzip-compressed bundle is **~2.24 MiB**,
+under the free plan's 3 MiB limit and down from ~7.1 MiB before the
+split. This is genuine per-request server code, not misplaced static
+assets - `middleware.ts` refreshes the Supabase session cookie on every
+request, and `src/app/auth/callback/route.ts` /
+`src/app/auth/confirm/route.ts` exchange an OAuth/email code for a
+session and set the resulting cookie via `next/headers`'s `cookies()`,
+both explicitly on Next.js's own list of what static export
+(`output: "export"`) cannot express at all - see `DECISIONS.md` ADR-010.
+Removing eight routes' worth of dependencies (`motion`, `recharts`'s
+home-page usage, the marketing-specific view code) was what actually
+closed the gap; ADR-009's own finding (bloat cumulative across ~50
+routes, no single fixable cause) had left this genuinely uncertain until
+measured.
 
-**`frontend-public/`** (Worker `aevrin-public`, not yet bound to a
-production domain - see the cutover note above) - a plain static export,
-no server, no Worker script at all, same shape as `frontend-docs/`.
-Carries the eight fully public routes with no session/auth dependency:
-`/`, `/cli`, `/contact`, `/terms`, `/privacy`, `/refund`, `/status`, plus
-their sitemap/robots. Deploys whenever `frontend-public/**` changes on
-`master` (`.github/workflows/deploy-public.yml`), to its own
-`aevrin-public.<subdomain>.workers.dev` URL until the domain cutover.
-`/status`'s live service checks run from the visitor's own browser
-(`fetch`, client component) rather than the server, since static export
-has no server to run them from. See `DECISIONS.md` ADR-011 for exactly
-which routes were excluded and why (`/pricing`, `/login`, `/device`,
-`/onboarding`, `/marketplace*` all stay in `frontend/` - each for a
-different, checked reason, not by default).
+**`frontend-public/`** (Worker `aevrin-public`, `mcp.aevrin.net`) - a
+plain static export, no server, no Worker script at all, same shape as
+`frontend-docs/`. Carries the eight fully public routes with no
+session/auth dependency: `/`, `/cli`, `/contact`, `/terms`, `/privacy`,
+`/refund`, `/status`, plus their sitemap/robots. Deploys whenever
+`frontend-public/**` changes on `master`
+(`.github/workflows/deploy-public.yml`). `/status`'s live service checks
+run from the visitor's own browser (`fetch`, client component) rather
+than the server, since static export has no server to run them from.
+`public/_redirects` 308-redirects `/docs/*` to `docs.mcp.aevrin.net`
+(Cloudflare's static-redirect mechanism - `frontend/`'s old middleware
+did this from the same domain; a static site has no middleware to do it
+itself). See `DECISIONS.md` ADR-011 for exactly which routes were
+excluded and why (`/pricing`, `/login`, `/device`, `/onboarding`,
+`/marketplace*` all stay in `frontend/` - each for a different, checked
+reason, not by default).
 
 **Cloudflare plan requirement: none beyond free**, same reasoning as
 `frontend-docs/` below - static assets only, no script, no 3 MiB limit to
@@ -162,9 +161,9 @@ Carries fumadocs-core/fumadocs-mdx/fumadocs-ui and the MDX content
 **Cloudflare plan requirement: none beyond free.** The static output is
 ~8.6 MB, comfortably inside the free plan's static-assets limits (20,000
 files, 25 MiB per file - both far larger than this site) and irrelevant to
-the Worker-script limit entirely, since there is no script. This Worker
-alone does not require Workers Paid; the account still needs it today
-because `frontend/` does.
+the Worker-script limit entirely, since there is no script. As of ADR-011's
+cutover, **none of the three Workers requires Workers Paid** - the account
+can run entirely on Cloudflare's free plan.
 
 ## CI (`.github/workflows/ci.yml`)
 

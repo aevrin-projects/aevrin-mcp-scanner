@@ -41,26 +41,14 @@ marketplace/AI/admin/providers work is fully live)
       secrets (write-only, unreadable outside a workflow run). Needs
       either an IAM credential provided directly, or the commands run by
       whoever holds one.
-- [ ] **Cut over the `frontend`/`frontend-public` domain split, then
-      re-measure whether `frontend/` fits the free plan.**
-      `frontend-docs/` no longer needs Workers Paid at all
-      (`DECISIONS.md` ADR-010). `frontend-public/` is built, tested, and
-      ready (ADR-011) - eight public routes moved out of `frontend/` as a
-      static export - but not yet live: `frontend/` still serves all
-      eight routes today, and neither Worker's route has moved. Remaining
-      steps, in order: (1) update every OAuth redirect URI registered
-      with Google and GitHub to `app.mcp.aevrin.net` - account-holder-only,
-      cannot be done from here; (2) point `frontend/`'s `wrangler.jsonc`
-      route at `app.mcp.aevrin.net` and `frontend-public/`'s at
-      `mcp.aevrin.net`; (3) update `frontend/`'s `NEXT_PUBLIC_SITE_URL` and
-      the backend's `WEB_ORIGIN` CORS allowlist to include
-      `app.mcp.aevrin.net`; (4) delete the eight moved routes from
-      `frontend/` - the actual bundle-size win, not yet taken. Even after
-      all four, ADR-009's own finding (bloat spread evenly across ~50
-      routes) means there's no guarantee the remaining `frontend/` Worker
-      clears 3 MiB - it needs re-measuring once (4) actually happens.
-      Until the full cutover, `deploy-frontend.yml` fails at the
-      `wrangler deploy` step with a size-limit error without Workers Paid.
+- [x] **Cut over the `frontend`/`frontend-public` domain split.** Done:
+      `frontend/` is `app.mcp.aevrin.net`, `frontend-public/` is
+      `mcp.aevrin.net`, `frontend-docs/` is unaffected. Measured after the
+      cutover actually deleted the eight moved routes from `frontend/`:
+      its Worker is ~2.24 MiB gzip (`wrangler deploy --dry-run`), under
+      the free plan's 3 MiB limit and down from ~7.1 MiB - **the account
+      no longer needs Workers Paid for any of the three Workers.** Full
+      sequence in `DECISIONS.md` ADR-011.
 
 ## Known gaps
 

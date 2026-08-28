@@ -39,8 +39,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   already silently blocking Next's own inline hydration scripts in
   production, so search, the theme toggle, and the sidebar were
   non-functional post-JS on every existing page. See `DECISIONS.md`
-  ADR-010. `frontend/` still needs Workers Paid - see
-  `docs/architecture/DEPLOYMENT.md` and `ROADMAP.md`.
+  ADR-010.
 - New app, `frontend-public/`: eight fully public routes (`/`, `/cli`,
   `/contact`, `/terms`, `/privacy`, `/refund`, `/status`) checked
   individually and moved out of `frontend/` because none of them need a
@@ -49,9 +48,18 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   the server. `/pricing`, `/login`, `/device`, `/onboarding`, and
   `/marketplace*` were each checked and found to genuinely need a server
   (Server Actions and rate limiting, a session check, or build-time-
-  unknowable paths respectively) and stay in `frontend/`. Not yet cut
-  over to the production domain - deploys to its own Workers URL pending
-  an OAuth redirect-URI update only the account holder can make. See
+  unknowable paths respectively) and stay in `frontend/`.
+- **Domain cutover completed**: `frontend/` moved from `mcp.aevrin.net` to
+  `app.mcp.aevrin.net`; `frontend-public/` took over `mcp.aevrin.net`.
+  Backend gained a second allowed CORS origin (`PUBLIC_WEB_ORIGIN`) and
+  `WEB_ORIGIN` now points at the app's new domain; Supabase's OAuth
+  redirect allowlist gained the new domain's callback URLs (the actual
+  gate on sign-in - the GitHub/Google OAuth app registrations themselves
+  never needed to change, a correction from this work's own first
+  analysis). Measured after the cutover deleted the eight moved routes
+  from `frontend/`: its Worker is **~2.24 MiB gzip, under Cloudflare's
+  free-plan 3 MiB limit and down from ~7.1 MiB** - the account no longer
+  needs Workers Paid for any of the three frontend Workers. See
   `DECISIONS.md` ADR-011 and `docs/architecture/DEPLOYMENT.md`.
 - Fixed a real Postgres issue found while applying migrations `0037` and
   `0038` to production: `array_to_string(anyarray, text)` is `STABLE`, not
