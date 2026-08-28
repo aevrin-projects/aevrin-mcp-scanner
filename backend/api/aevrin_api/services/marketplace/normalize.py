@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from aevrin_api.integrations.mcp_registry import RegistryServer
 
@@ -280,7 +280,17 @@ def registry_server_to_listing(server: RegistryServer) -> dict[str, Any]:
         "description": server.description[:4000],
         "repository_url": repository_url,
         "homepage_url": _safe_public_url(server.website_url),
-        "registry_url": f"https://registry.modelcontextprotocol.io/v0.1/servers/{server.name}",
+        # The registry has no `GET /v0.1/servers/{name}` endpoint -- only
+        # `/versions` and `/versions/{version}` -- so a link built without the
+        # version segment 404s. The name also contains a literal "/" (the
+        # namespace separator) that must be percent-encoded, or the
+        # registry's own router treats it as an extra path segment instead of
+        # part of the name -- the same encoding `fetch_server_version` above
+        # already does for the same reason.
+        "registry_url": (
+            "https://registry.modelcontextprotocol.io/v0.1/servers/"
+            f"{quote(server.name, safe='')}/versions/{quote(server.version, safe='')}"
+        ),
         # The verified namespace, which is the closest the registry gets to an
         # authenticated publisher identity.
         "publisher": server.namespace or None,

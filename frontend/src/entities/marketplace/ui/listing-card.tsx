@@ -4,6 +4,7 @@ import { Star } from "lucide-react";
 import { Badge } from "@/shared/ui/badge";
 import { PRICE_LABELS, type Listing } from "../model/types";
 import { GradeBadge } from "./grade-badge";
+import { ListingLogo } from "./listing-logo";
 import { PopularitySignals } from "./popularity-signals";
 
 /**
@@ -25,16 +26,19 @@ export function ListingCard({ listing }: { listing: Listing }) {
       className="group flex flex-col rounded-xl border border-border bg-card p-5 transition-colors hover:border-foreground/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate font-medium group-hover:underline">{listing.title}</h3>
-            {listing.featured ? (
-              <Star className="size-3.5 shrink-0 text-severity-medium" aria-label="Featured" />
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <ListingLogo listing={listing} className="size-9" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h3 className="truncate font-medium group-hover:underline">{listing.title}</h3>
+              {listing.featured ? (
+                <Star className="size-3.5 shrink-0 text-severity-medium" aria-label="Featured" />
+              ) : null}
+            </div>
+            {listing.publisher ? (
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{listing.publisher}</p>
             ) : null}
           </div>
-          {listing.publisher ? (
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">{listing.publisher}</p>
-          ) : null}
         </div>
 
         {/* Security lives in its own tile, never inline with the metrics. */}

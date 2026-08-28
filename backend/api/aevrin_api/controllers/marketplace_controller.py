@@ -70,11 +70,14 @@ async def browse(
         page_size=page_size,
         org_id=await _org_for(db, user_id),
         featured_only=featured_only,
+        user_id=user_id,
     )
 
 
 async def detail(db: SupabaseRest, *, slug: str, user_id: str | None) -> dict[str, Any]:
-    listing = await catalog.get_listing(db, slug=slug, org_id=await _org_for(db, user_id))
+    listing = await catalog.get_listing(
+        db, slug=slug, org_id=await _org_for(db, user_id), user_id=user_id
+    )
     if not listing:
         # 404 for a private listing the caller cannot see, deliberately.
         # A 403 would confirm the listing exists, which is itself information

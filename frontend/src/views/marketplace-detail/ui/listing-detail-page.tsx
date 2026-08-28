@@ -16,6 +16,7 @@ import {
   GradeBadge,
   INSTALL_TARGET_LABELS,
   PRICE_LABELS,
+  ListingLogo,
   PopularitySignals,
   ScanStatePill,
   getListing,
@@ -58,7 +59,10 @@ export function ListingDetailPage({ slug }: { slug: string }) {
     let cancelled = false;
     getListing(slug)
       .then((result) => {
-        if (!cancelled) setListing(result);
+        if (!cancelled) {
+          setListing(result);
+          setFavorited(result.favorited);
+        }
       })
       .catch((error) => {
         if (cancelled) return;
@@ -101,13 +105,16 @@ export function ListingDetailPage({ slug }: { slug: string }) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">{listing.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {listing.publisher ? `${listing.publisher} · ` : ""}
-            {listing.latestVersion ? `v${listing.latestVersion}` : "version not stated"}
-          </p>
-          <p className="mt-3 max-w-2xl text-sm">{listing.description}</p>
+        <div className="flex min-w-0 items-start gap-4">
+          <ListingLogo listing={listing} className="size-12" />
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight">{listing.title}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {listing.publisher ? `${listing.publisher} · ` : ""}
+              {listing.latestVersion ? `v${listing.latestVersion}` : "version not stated"}
+            </p>
+            <p className="mt-3 max-w-2xl text-sm">{listing.description}</p>
+          </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">

@@ -83,6 +83,7 @@ function toListing(raw: RawListing): Listing {
     visibility: (raw.visibility as Listing["visibility"]) ?? "public",
     createdAt: (raw.created_at as string) ?? null,
     updatedAt: (raw.updated_at as string) ?? null,
+    favorited: Boolean(raw.is_favorited),
     security: {
       grade: (security?.grade as Listing["security"]["grade"]) ?? null,
       score: security?.score ?? null,

@@ -99,6 +99,9 @@ export interface Listing {
   visibility: "public" | "private" | "unlisted";
   createdAt: string | null;
   updatedAt: string | null;
+  /** Whether the signed-in caller has saved this listing. Always `false`
+   *  for a signed-out request -- there is no relationship to report. */
+  favorited: boolean;
 }
 
 export interface ListingVersion {

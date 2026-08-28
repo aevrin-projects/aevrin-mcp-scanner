@@ -58,7 +58,7 @@ export function SubmitPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
         title="Submit an MCP server"
         description="Paste a repository or server URL. Aevrin reads the rest from the source."
@@ -69,7 +69,7 @@ export function SubmitPage() {
           <PanelTitle>What happens next</PanelTitle>
         </PanelHeader>
         <PanelBody>
-          <ol className="space-y-2 text-sm text-muted-foreground">
+          <ol className="space-y-3 text-sm text-muted-foreground">
             <li>1. Aevrin fetches the source and derives the metadata.</li>
             <li>2. The server is scanned: code security, MCP surface, dependencies.</li>
             <li>3. An administrator reviews the result.</li>
@@ -87,7 +87,7 @@ export function SubmitPage() {
         <PanelHeader>
           <PanelTitle>Server URL</PanelTitle>
         </PanelHeader>
-        <PanelBody className="space-y-4">
+        <PanelBody className="space-y-8 py-6">
           {submitted ? (
             <div className="flex items-start gap-3 rounded-lg border border-severity-low/25 bg-severity-low/10 p-4">
               <CheckCircle2
@@ -103,26 +103,27 @@ export function SubmitPage() {
             </div>
           ) : null}
 
-          <label className="space-y-1.5 text-sm">
+          <label className="block space-y-2.5 text-sm">
             <span className="font-medium">Repository or MCP server URL</span>
             <Input
               value={url}
               onChange={(event) => setUrl(event.target.value)}
               placeholder="https://github.com/owner/repo"
               type="url"
+              className="h-10"
             />
-            <span className="block text-xs text-muted-foreground">
+            <span className="block text-xs leading-relaxed text-muted-foreground">
               A public GitHub repository, or a public HTTPS MCP endpoint. Private
               and internal addresses are refused.
             </span>
           </label>
 
-          <label className="space-y-1.5 text-sm">
+          <label className="block space-y-2.5 text-sm">
             <span className="font-medium">Anything a reviewer should know (optional)</span>
             <Textarea
               value={note}
               onChange={(event) => setNote(event.target.value)}
-              rows={3}
+              rows={4}
               maxLength={2000}
               placeholder="e.g. this is the official server for our API"
             />
@@ -130,19 +131,25 @@ export function SubmitPage() {
 
           {error ? <p className="text-sm text-severity-critical">{error}</p> : null}
 
-          <Button
-            onClick={() => void submit()}
-            disabled={submitting || !url.trim().startsWith("https://")}
-          >
-            {submitting ? (
-              <>
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                Submitting
-              </>
-            ) : (
-              "Submit for review"
-            )}
-          </Button>
+          <div className="flex items-center gap-3 border-t border-border pt-6">
+            <Button
+              onClick={() => void submit()}
+              disabled={submitting || !url.trim().startsWith("https://")}
+              size="lg"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  Submitting
+                </>
+              ) : (
+                "Submit for review"
+              )}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Only the URL is required. Everything else is read from the source.
+            </span>
+          </div>
         </PanelBody>
       </Panel>
 

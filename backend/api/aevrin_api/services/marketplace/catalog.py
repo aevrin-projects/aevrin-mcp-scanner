@@ -68,18 +68,24 @@ def _visibility_filters(
     )
 
 
-def decorate(listing: dict[str, Any]) -> dict[str, Any]:
+def decorate(listing: dict[str, Any], *, favorited: bool = False) -> dict[str, Any]:
     """Attach everything derived that a client must not compute itself.
 
     `security` is the important one. Handing back `current_trust_grade` alone
     invites a UI to render a letter next to a version that letter was never
     about; bundling it with the freshness state makes the stale case
     impossible to miss and awkward to ignore.
+
+    `is_favorited` is the caller's own relationship to this listing, never a
+    property of the listing itself -- it is `False` by default (an
+    unauthenticated browse has no favourites) and is only ever `True` when the
+    caller has separately looked it up for this specific user.
     """
     freshness = scan_freshness(listing)
     grade = listing.get("current_trust_grade")
     return {
         **listing,
+        "is_favorited": favorited,
         "security": {
             "grade": grade,
             "score": listing.get("current_security_score"),
@@ -144,6 +150,7 @@ async def search_listings(
     page_size: int = DEFAULT_PAGE_SIZE,
     org_id: str | None = None,
     featured_only: bool = False,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """One page of the catalogue.
 
@@ -192,8 +199,10 @@ async def search_listings(
     )
 
     has_more = len(rows) > page_size
+    page_rows = rows[:page_size]
+    favorited_ids = await _favorited_ids(db, user_id=user_id, listing_ids=[r["id"] for r in page_rows])
     return {
-        "items": [decorate(row) for row in rows[:page_size]],
+        "items": [decorate(row, favorited=row["id"] in favorited_ids) for row in page_rows],
         "page": page,
         "page_size": page_size,
         "has_more": has_more,
@@ -220,7 +229,7 @@ def _sanitise_token(raw: str) -> str:
 
 
 async def get_listing(
-    db: SupabaseRest, *, slug: str, org_id: str | None = None
+    db: SupabaseRest, *, slug: str, org_id: str | None = None, user_id: str | None = None
 ) -> dict[str, Any] | None:
     """One listing by slug, with its versions and recent events.
 
@@ -236,8 +245,9 @@ async def get_listing(
     )
     if not rows:
         return None
-    listing = decorate(rows[0])
     listing_id = rows[0]["id"]
+    favorited_ids = await _favorited_ids(db, user_id=user_id, listing_ids=[listing_id])
+    listing = decorate(rows[0], favorited=listing_id in favorited_ids)
 
     versions = await db.select(
         "mcp_listing_versions",
@@ -293,6 +303,25 @@ async def record_view(db: SupabaseRest, *, listing_id: str) -> None:
         logger.debug("view counter not incremented for %s", listing_id, exc_info=True)
 
 
+async def _favorited_ids(
+    db: SupabaseRest, *, user_id: str | None, listing_ids: list[str]
+) -> set[str]:
+    """Which of these listings the caller has favourited.
+
+    Empty for a signed-out browse, deliberately: there is no relationship to
+    report without a user. One query per page/detail read rather than a join,
+    because the API talks to PostgREST over HTTP rather than raw SQL.
+    """
+    if not user_id or not listing_ids:
+        return set()
+    rows = await db.select(
+        "mcp_favorites",
+        {"user_id": user_id, "listing_id": f"in.({','.join(listing_ids)})"},
+        columns="listing_id",
+    )
+    return {row["listing_id"] for row in rows}
+
+
 async def toggle_favorite(
     db: SupabaseRest, *, user_id: str, listing_id: str, favorite: bool
 ) -> bool:
@@ -324,4 +353,6 @@ async def list_favorites(db: SupabaseRest, *, user_id: str) -> list[dict[str, An
     # Preserve the order the user favourited them in, which PostgREST's `in.`
     # does not guarantee.
     by_id = {row["id"]: row for row in rows}
-    return [decorate(by_id[i]) for i in listing_ids if i in by_id]
+    # Every row here came from this user's own favourites table, so it is
+    # favorited by construction -- no second lookup needed.
+    return [decorate(by_id[i], favorited=True) for i in listing_ids if i in by_id]

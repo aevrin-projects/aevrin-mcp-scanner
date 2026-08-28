@@ -49,6 +49,7 @@ class ListingSummary(BaseModel):
     security: dict[str, Any]
     popularity: dict[str, Any]
     ranking_score: float = 0
+    is_favorited: bool = False
 
     model_config = {"extra": "allow"}
 

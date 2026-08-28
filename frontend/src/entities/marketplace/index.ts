@@ -45,4 +45,5 @@ export type { BrowseParams } from "./api/marketplace-api";
 export { GradeBadge } from "./ui/grade-badge";
 export { ScanStatePill } from "./ui/scan-state-pill";
 export { ListingCard } from "./ui/listing-card";
+export { ListingLogo } from "./ui/listing-logo";
 export { PopularitySignals } from "./ui/popularity-signals";
