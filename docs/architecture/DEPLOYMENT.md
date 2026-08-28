@@ -204,12 +204,18 @@ console.
 | `uptime` | `0 * * * *` (hourly) | `POST /scheduler/uptime-check` |
 | `weekly` | `15 3 * * 0` (Sun 03:15) | `POST /scheduler/registry-sync`, then `POST /scheduler/provider-sync` |
 
-Both jobs read a `SCHEDULER_TOKEN` **repository** secret and send it as
-`X-Scheduler-Token`. It must match the `SCHEDULER_TOKEN` deployed in the
-API's environment (which is set through the `AEVRIN_ENV_OVERRIDES`
-environment secret - a separate, write-only store, so the value has to be
-put in both places by whoever holds it). The workflow fails with an
-explicit message rather than a confusing 401 when the secret is absent.
+Both jobs declare `environment: aws` and read the token out of
+`AEVRIN_ENV_OVERRIDES`, the same KEY=VALUE blob that deploys it to
+`/opt/aevrin/api.env`. That secret is write-only *outside* a run and
+readable *inside* one, which is the whole trick: there is no second copy to
+create or keep in sync, and no setup step before the workflow works. A
+dedicated `SCHEDULER_TOKEN` secret still takes precedence if one is ever
+set, so the token can be rotated independently of the deploy blob.
+
+The extracted value is passed to `::add-mask::` before use. That is
+required rather than defensive: GitHub masks a secret's whole value, and
+this is a *substring* of one, so without the explicit mask it would be
+unmasked everywhere and one `set -x` away from the log.
 
 GitHub's scheduled runs are best-effort and can be delayed or dropped under
 load. Nothing here is damaged by that: every endpoint is idempotent, the

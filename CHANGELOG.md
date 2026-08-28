@@ -41,8 +41,9 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   since they were written. GitHub Actions rather than EventBridge because
   provisioning an EventBridge rule needs an IAM credential nobody holds
   outside a workflow run, while a cron in this repository needs nothing
-  that is not already here. Needs a `SCHEDULER_TOKEN` repository secret
-  matching the deployed value. See `DECISIONS.md` ADR-013.
+  that is not already here, and no new secret: the jobs read the token out
+  of `AEVRIN_ENV_OVERRIDES`, which is write-only outside a workflow run but
+  readable inside one. See `DECISIONS.md` ADR-013.
 
 ### Fixed
 

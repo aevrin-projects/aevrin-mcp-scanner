@@ -43,12 +43,10 @@ marketplace/AI/admin/providers work is fully live)
       dissolves the blocker recorded here previously: an EventBridge rule
       needs an IAM credential in someone's hands, while Actions secrets are
       readable inside a workflow run, which is the only place they are
-      needed. **One manual step remains**: add a `SCHEDULER_TOKEN`
-      repository secret matching the value deployed through
-      `AEVRIN_ENV_OVERRIDES`. That secret is environment-scoped and
-      write-only, so its value cannot be copied across automatically; the
-      workflow fails with an explicit message until it is set. See
-      `DECISIONS.md` ADR-013.
+      needed. No setup step: the jobs declare `environment: aws` and read
+      the token out of `AEVRIN_ENV_OVERRIDES` itself, which is write-only
+      outside a run but readable inside one, so there is no second copy of
+      the secret to create or keep in sync. See `DECISIONS.md` ADR-013.
 - [x] **Cut over the `frontend`/`frontend-public` domain split.** Done:
       `frontend/` is `app.mcp.aevrin.net`, `frontend-public/` is
       `mcp.aevrin.net`, `frontend-docs/` is unaffected. Measured after the

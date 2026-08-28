@@ -642,3 +642,24 @@ through `AEVRIN_ENV_OVERRIDES`. That secret is environment-scoped and
 write-only, so its contents cannot be read to copy the token across, and
 rewriting it blind would destroy the other keys it carries. The workflow
 fails with an explicit message rather than a bare 401 until it is set.
+
+**Correction, same day, to the last paragraph above.** The claim that a
+manual step "cannot be automated from here" was wrong, and wrong in an
+instructive way: it reasoned from *my* inability to read the secret rather
+than from what the workflow could read. `AEVRIN_ENV_OVERRIDES` is write-only
+outside a run and fully readable inside one, exactly like the AWS
+credentials whose in-run readability the scheduler decision above is
+entirely built on. The same fact was load-bearing twice and only noticed
+once.
+
+Both jobs now declare `environment: aws` and parse the token out of
+`AEVRIN_ENV_OVERRIDES` directly. There is no second secret to create, no
+value to re-type, and nothing to keep in sync when it is rotated. A
+dedicated `SCHEDULER_TOKEN` secret still takes precedence when present, so
+the token can be rotated independently of the deploy blob if that is ever
+wanted.
+
+One detail that is required rather than defensive: the extracted value is
+passed to `::add-mask::` before use. GitHub masks a secret's *whole* value,
+and this is a substring of one, so without the explicit mask it would be
+unmasked in every log line it touched.

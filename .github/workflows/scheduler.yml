@@ -46,20 +46,47 @@ jobs:
   uptime:
     name: Record availability sample
     runs-on: ubuntu-latest
-    # Hourly cron, or a manual run that asked for it.
+    # `aws` is where AEVRIN_ENV_OVERRIDES lives; see the token step below for
+    # why that matters. No protection rules on it, so this is not a gate.
+    environment: aws
     if: >-
       github.event.schedule == '0 * * * *' ||
       (github.event_name == 'workflow_dispatch' &&
        (inputs.job == 'uptime' || inputs.job == 'both'))
     steps:
-      - name: Record one check per service
+      - name: Resolve the scheduler token
         env:
-          SCHEDULER_TOKEN: ${{ secrets.SCHEDULER_TOKEN }}
+          DEDICATED: ${{ secrets.SCHEDULER_TOKEN }}
+          ENV_OVERRIDES: ${{ secrets.AEVRIN_ENV_OVERRIDES }}
         run: |
-          if [ -z "${SCHEDULER_TOKEN}" ]; then
-            echo "::error::SCHEDULER_TOKEN is not set. Add it as an Actions secret; it must match the value deployed in the API's environment."
+          # The token the API checks is deployed through AEVRIN_ENV_OVERRIDES,
+          # a KEY=VALUE blob applied to /opt/aevrin/api.env on deploy. That
+          # secret is write-only outside a run, so it cannot be copied into a
+          # second secret by hand without someone re-typing the value -- but
+          # inside a run it is readable, so the value is simply read from the
+          # one place it already lives. No second copy to keep in sync, and
+          # nothing to set up before this workflow works.
+          #
+          # A dedicated SCHEDULER_TOKEN secret still wins if one is ever set,
+          # so the token can be rotated independently of the deploy blob.
+          TOKEN="${DEDICATED}"
+          if [ -z "$TOKEN" ]; then
+            TOKEN="$(printf '%s\n' "$ENV_OVERRIDES" \
+              | sed -n 's/^[[:space:]]*SCHEDULER_TOKEN[[:space:]]*=[[:space:]]*//p' \
+              | head -n1 | tr -d '\r')"
+          fi
+          if [ -z "$TOKEN" ]; then
+            echo "::error::No scheduler token found. Set a SCHEDULER_TOKEN secret, or ensure AEVRIN_ENV_OVERRIDES contains a SCHEDULER_TOKEN= line."
             exit 1
           fi
+          # Required, not belt-and-braces: GitHub masks a secret's *whole*
+          # value, and this is a substring of one. Without this the token
+          # would be maskable nowhere and one `set -x` away from the log.
+          echo "::add-mask::$TOKEN"
+          echo "SCHEDULER_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Record one check per service
+        run: |
           code="$(curl -sS -o response.json -w '%{http_code}' -X POST \
             -H "X-Scheduler-Token: ${SCHEDULER_TOKEN}" \
             --max-time 60 \
@@ -75,19 +102,34 @@ jobs:
   weekly:
     name: Registry and provider sync
     runs-on: ubuntu-latest
+    environment: aws
     if: >-
       github.event.schedule == '15 3 * * 0' ||
       (github.event_name == 'workflow_dispatch' &&
        (inputs.job == 'weekly' || inputs.job == 'both'))
     steps:
-      - name: Sync the MCP registry
+      - name: Resolve the scheduler token
         env:
-          SCHEDULER_TOKEN: ${{ secrets.SCHEDULER_TOKEN }}
+          DEDICATED: ${{ secrets.SCHEDULER_TOKEN }}
+          ENV_OVERRIDES: ${{ secrets.AEVRIN_ENV_OVERRIDES }}
         run: |
-          if [ -z "${SCHEDULER_TOKEN}" ]; then
-            echo "::error::SCHEDULER_TOKEN is not set. Add it as an Actions secret; it must match the value deployed in the API's environment."
+          # Same derivation as the uptime job above; see that step for why the
+          # token is read out of AEVRIN_ENV_OVERRIDES rather than duplicated.
+          TOKEN="${DEDICATED}"
+          if [ -z "$TOKEN" ]; then
+            TOKEN="$(printf '%s\n' "$ENV_OVERRIDES" \
+              | sed -n 's/^[[:space:]]*SCHEDULER_TOKEN[[:space:]]*=[[:space:]]*//p' \
+              | head -n1 | tr -d '\r')"
+          fi
+          if [ -z "$TOKEN" ]; then
+            echo "::error::No scheduler token found. Set a SCHEDULER_TOKEN secret, or ensure AEVRIN_ENV_OVERRIDES contains a SCHEDULER_TOKEN= line."
             exit 1
           fi
+          echo "::add-mask::$TOKEN"
+          echo "SCHEDULER_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Sync the MCP registry
+        run: |
           code="$(curl -sS -o registry.json -w '%{http_code}' -X POST \
             -H "X-Scheduler-Token: ${SCHEDULER_TOKEN}" \
             --max-time 900 \
@@ -102,13 +144,7 @@ jobs:
         # against different upstreams, and skipping the catalogue because the
         # MCP registry was down would compound one outage into two.
         if: always()
-        env:
-          SCHEDULER_TOKEN: ${{ secrets.SCHEDULER_TOKEN }}
         run: |
-          if [ -z "${SCHEDULER_TOKEN}" ]; then
-            echo "::error::SCHEDULER_TOKEN is not set."
-            exit 1
-          fi
           code="$(curl -sS -o providers.json -w '%{http_code}' -X POST \
             -H "X-Scheduler-Token: ${SCHEDULER_TOKEN}" \
             --max-time 300 \
