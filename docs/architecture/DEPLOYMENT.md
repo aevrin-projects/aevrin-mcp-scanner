@@ -212,6 +212,18 @@ create or keep in sync, and no setup step before the workflow works. A
 dedicated `SCHEDULER_TOKEN` secret still takes precedence if one is ever
 set, so the token can be rotated independently of the deploy blob.
 
+**Write `AEVRIN_ENV_OVERRIDES` as the complete set of overrides, never as
+just the key you are changing.** `remote-deploy.sh` applies the blob as a
+patch (it adds or replaces the given keys and leaves others in `api.env`
+alone), but writing the secret replaces its whole value. Setting it to one
+key therefore leaves the server working while the secret silently loses
+everything else - which already happened once: the domain cutover reduced it
+to the two origin keys, dropping `SCHEDULER_TOKEN` and
+`MARKETPLACE_SCAN_USER_ID` from the only off-instance record of them. It
+currently carries `WEB_ORIGIN`, `PUBLIC_WEB_ORIGIN`,
+`MARKETPLACE_SCAN_USER_ID`, and `SCHEDULER_TOKEN`. See `DECISIONS.md`
+ADR-013.
+
 The extracted value is passed to `::add-mask::` before use. That is
 required rather than defensive: GitHub masks a secret's whole value, and
 this is a *substring* of one, so without the explicit mask it would be

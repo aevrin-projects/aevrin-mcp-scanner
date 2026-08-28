@@ -663,3 +663,39 @@ One detail that is required rather than defensive: the extracted value is
 passed to `::add-mask::` before use. GitHub masks a secret's *whole* value,
 and this is a substring of one, so without the explicit mask it would be
 unmasked in every log line it touched.
+
+**A real defect this uncovered, worth more than the feature that found it.**
+The first run of the workflow above failed, and the reason was not the
+workflow: `AEVRIN_ENV_OVERRIDES` no longer contained a `SCHEDULER_TOKEN`
+line at all. It held exactly two keys, `WEB_ORIGIN` and
+`PUBLIC_WEB_ORIGIN`.
+
+The cause is a sharp edge in how that secret is used.
+`backend/deploy/remote-deploy.sh` treats the blob as a *patch*: it adds or
+replaces the keys it is given and never removes others already in
+`/opt/aevrin/api.env`. The secret itself has no such semantics -- writing it
+replaces the whole value. So when the domain cutover set it to just the two
+origin keys, the server kept `SCHEDULER_TOKEN` and
+`MARKETPLACE_SCAN_USER_ID` (they were already in `api.env`) while the secret
+silently lost them. Nothing broke, no error was raised, and the drift was
+invisible: the deployed configuration and the record of it had diverged, and
+the only surviving copy of two values was a file on one EC2 instance. A
+rebuild would have lost both.
+
+Two things follow, and both are now true:
+
+- The workflow prints the *key names* it found when the token is missing.
+  Names are not secrets, and the distinction between "the blob is absent"
+  and "the blob is present but no longer carries this key" is the entire
+  diagnosis. Values are never printed.
+- `AEVRIN_ENV_OVERRIDES` was restored to carry all four keys. The scheduler
+  token had to be rotated to do it: the deployed value exists only in
+  `api.env` on the instance, reachable only over SSH through a security
+  group that admits one operator address, so it could not be read back to
+  preserve it. `MARKETPLACE_SCAN_USER_ID` was recovered from Supabase (the
+  `marketplace-scan@aevrin.internal` user's id) rather than guessed.
+
+**The standing rule this implies:** `AEVRIN_ENV_OVERRIDES` must always be
+written as the complete set of overrides, never as "just the key I am
+changing". It reads like a patch because the script applies it as one, and
+that is exactly the trap.

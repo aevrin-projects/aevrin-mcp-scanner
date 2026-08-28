@@ -47,6 +47,18 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **`AEVRIN_ENV_OVERRIDES` had silently lost two keys.** The domain cutover
+  rewrote it with only `WEB_ORIGIN` and `PUBLIC_WEB_ORIGIN`, dropping
+  `SCHEDULER_TOKEN` and `MARKETPLACE_SCAN_USER_ID`. Nothing broke, because
+  `remote-deploy.sh` applies the blob as a patch and the server kept both
+  values in `api.env` - but the secret had diverged from the deployed
+  configuration, leaving one EC2 instance as the only copy of two values a
+  rebuild would have needed. Restored to all four keys (the scan user id
+  recovered from Supabase; the scheduler token rotated, since the deployed
+  value is reachable only over SSH and could not be read back to preserve
+  it). The scheduler workflow now prints the *key names* it found when the
+  token is missing, which is what made the diagnosis possible; values are
+  never printed. See `DECISIONS.md` ADR-013.
 - `SupabaseRest.delete` force-prefixed `eq.` onto every filter value, so a
   range filter became `eq.lt.<value>` and matched nothing: the delete
   reported success while removing no rows. `select` already had the
