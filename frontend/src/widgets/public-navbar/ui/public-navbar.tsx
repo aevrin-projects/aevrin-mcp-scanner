@@ -15,20 +15,9 @@ export function PublicNavbar({ signedIn }: { signedIn: boolean }) {
     return null;
   }
 
-  // The docs section itself runs edge-to-edge (fumadocs' own sidebar/TOC
-  // grid, not this max-width band), cap the nav here too so its logo and
-  // links line up with that content instead of sitting inset above it.
-  const isDocsRoute = pathname.startsWith("/docs");
-
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur-sm">
-      <div
-        className={
-          isDocsRoute
-            ? "grid h-[4.5rem] w-full grid-cols-[auto_1fr_auto] items-center gap-3 px-4 sm:gap-6"
-            : "mx-auto grid h-[4.5rem] w-full max-w-[1600px] grid-cols-[auto_1fr_auto] items-center gap-3 px-4 sm:gap-6 sm:px-6 lg:px-10 xl:px-14"
-        }
-      >
+      <div className="mx-auto grid h-[4.5rem] w-full max-w-[1600px] grid-cols-[auto_1fr_auto] items-center gap-3 px-4 sm:gap-6 sm:px-6 lg:px-10 xl:px-14">
         <Link
           href={signedIn ? "/dashboard" : "/"}
           aria-label={signedIn ? "Open Aevrin dashboard" : "Aevrin home"}
@@ -47,7 +36,7 @@ export function PublicNavbar({ signedIn }: { signedIn: boolean }) {
           <Link href="/pricing" className="hidden hover:text-foreground md:inline">
             Pricing
           </Link>
-          <Link href="/docs" className="hover:text-foreground">
+          <Link href="https://docs.mcp.aevrin.net" className="hover:text-foreground">
             Docs
           </Link>
           <Link href="/status" className="hidden hover:text-foreground lg:inline">

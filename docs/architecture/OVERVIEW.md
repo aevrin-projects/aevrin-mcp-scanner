@@ -4,10 +4,9 @@
 
 ```
                      +-----------------------------+
-                     |   Cloudflare Workers          |
-                     |   (frontend, OpenNext build)  |
-                     |   mcp.aevrin.net               |
-                     |   docs.mcp.aevrin.net (rewrite)|
+                     | Cloudflare Workers (2, OpenNext)|
+                     | aevrin-web:  mcp.aevrin.net      |
+                     | aevrin-docs: docs.mcp.aevrin.net |
                      +---------------+---------------+
                                      | HTTPS
                                      v
@@ -84,7 +83,8 @@ hook block message all came from the exact same `Finding` object.
 | Agent (Claude Code / Codex) discovery and posture | `backend/scanner-core/aevrin_scanner_core/agents/` |
 | Auth (Supabase JWT verification, API keys) | `backend/api/aevrin_api/core/security.py` |
 | Permissions/roles | `backend/api/aevrin_api/services/permissions.py` |
-| Dashboard + public site + docs site | `frontend/src` (App Router) + `frontend/content/` (MDX) |
+| Dashboard + public site | `frontend/src` (App Router) |
+| Docs site (separate app/Worker) | `frontend-docs/src` (App Router) + `frontend-docs/content/` (MDX) |
 
 See [`DATA_FLOWS.md`](DATA_FLOWS.md) for how these actually connect,
 end to end, per major feature.

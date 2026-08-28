@@ -326,7 +326,7 @@ export function OnboardingPage() {
 
       <p className="text-center text-xs text-muted-foreground">
         Need help getting started?{" "}
-        <Link href="/docs" className={cn(buttonVariants({ variant: "link", size: "xs" }), "h-auto px-0 text-xs")}>
+        <Link href="https://docs.mcp.aevrin.net" className={cn(buttonVariants({ variant: "link", size: "xs" }), "h-auto px-0 text-xs")}>
           Read the docs
         </Link>
       </p>

@@ -40,7 +40,9 @@ silent violation waiting to be noticed in review.
 Top-level routes actually present: `/` (marketing home), `/pricing`,
 `/contact`, `/cli`, `/status`, `/integrations`, `/privacy`, `/terms`,
 `/refund`, `/login`, `/onboarding`, `/device` (CLI device-code approval),
-`/error`, `/docs/[[...slug]]` (fumadocs, catch-all).
+`/error`. `/docs/*` is a 308 redirect to `docs.mcp.aevrin.net` -
+documentation content lives in a separate app, `frontend-docs/`; see
+below.
 
 Authenticated app routes: `/dashboard`, `/scans/new`, `/scans/history`,
 `/scans/[id]`, `/scans/[id]/findings/[findingId]`, `/agents`,
@@ -55,8 +57,7 @@ Admin routes: `/admin`, `/admin/analytics`, `/admin/audit`,
 
 API routes (Next.js route handlers, not the FastAPI backend):
 `app/api/integrations/github/callback/route.ts`,
-`app/api/search/route.ts`, `app/auth/callback/route.ts`,
-`app/auth/confirm/route.ts`, `app/docs/llms.txt/route.ts`.
+`app/auth/callback/route.ts`, `app/auth/confirm/route.ts`.
 
 The chrome that decides sidebar-vs-public-navbar
 (`widgets/app-shell/ui/layout-chrome.tsx`) branches on
@@ -90,14 +91,19 @@ the product - a new view composes these rather than inventing its own.
 so a bare confident letter grade can never be rendered without its scan
 state alongside it).
 
-## The docs site
+## The docs site is a separate app
 
-`docs.mcp.aevrin.net` is not a separate deployment. `src/middleware.ts`
-rewrites that hostname onto `/docs` inside this same Next.js app; content
-lives in `frontend/content/` as fumadocs MDX, structured by
-`frontend/content/meta.json` and per-folder `meta.json` files. See
-`docs/architecture/DEPLOYMENT.md` for the Worker routing that makes both
-hostnames resolve to one build.
+`docs.mcp.aevrin.net` is `frontend-docs/`, not part of this app - its own
+Next.js project, own `package.json`, own Cloudflare Worker (`aevrin-docs`).
+It was split out of `frontend/` because the combined bundle (this app's
+routes plus fumadocs/MDX rendering) exceeded Cloudflare's Worker size
+limit; see `DECISIONS.md`. Content lives in `frontend-docs/content/` as
+fumadocs MDX, structured by `frontend-docs/content/meta.json` and
+per-folder `meta.json` files. This app's `middleware.ts` 308-redirects any
+`/docs/*` request to the new domain rather than rendering anything -
+there is no fumadocs dependency left in `frontend/` at all. See
+`docs/architecture/DEPLOYMENT.md` for both Workers' deploy triggers and
+the Cloudflare plan requirement.
 
 ## Testing surface
 

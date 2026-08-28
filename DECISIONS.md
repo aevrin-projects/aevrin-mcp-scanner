@@ -188,5 +188,66 @@ behind if challenged. This is the same principle, applied to itself, that
 the marketplace already applies to popularity metrics (label exactly what
 was measured, claim nothing more).
 
+---
+
+## ADR-009: The docs site split into its own Cloudflare Worker
+
+**Status:** Accepted
+
+**Decision:** `docs.mcp.aevrin.net` moved from being a route rewrite inside
+the main `frontend/` Next.js app to its own app, `frontend-docs/`, with
+its own `package.json`, `wrangler.jsonc`, and Cloudflare Worker
+(`aevrin-docs`). `frontend/` no longer depends on fumadocs-core,
+fumadocs-mdx, or fumadocs-ui at all; a `/docs/*` request on the main
+domain gets a 308 redirect to the new one.
+
+**Context:** The combined Worker (dashboard + marketplace + admin +
+fumadocs/MDX rendering, after the marketplace/AI-review feature work)
+measured 13.6 MB in CI, exceeding Cloudflare's Workers Paid plan limit of
+10 MiB outright and the free plan's 3 MiB limit by a wide margin. Analysis
+of the actual esbuild metafile (`handler.mjs.meta.json`) found no single
+oversized dependency - the size was cumulative, from roughly 50 routes now
+in the app, each contributing a modest chunk. There was no "remove one bad
+import" fix available.
+
+**Alternatives considered:**
+- Upgrade to Cloudflare Workers Paid and stop there. Rejected: the
+  combined bundle (13.6 MB in CI, 9.9 MB measured locally - a real,
+  unexplained gap between environments) left too little margin against
+  the 10 MiB paid limit to trust as the app kept growing.
+- OpenNext's own multi-Worker splitting for a single Next.js codebase.
+  Investigated via Context7 against `@opennextjs/cloudflare`'s own docs;
+  no such feature is documented. The `WORKER_SELF_REFERENCE` service
+  binding pattern that does exist is for a Worker calling itself
+  (revalidation), not for splitting one app's routes across Workers.
+
+**Reasoning:** Cloudflare route-pattern specificity
+(`docs.developers.cloudflare.com/workers/platform/known-issues`) is a
+real, documented mechanism, but `mcp.aevrin.net` is bound as a **custom
+domain** (a DNS-managed, whole-hostname binding), and custom domains don't
+coexist with a separate path-scoped route to a different Worker on the
+same hostname the way plain zone routes do. Redirecting `/docs/*` rather
+than proxying it avoided needing to prove that combination out on live
+DNS. fumadocs/MDX rendering is also the single largest fully-separable
+dependency cluster in the app (fumadocs-ui alone is a bigger `node_modules`
+footprint than `recharts`), and it's serving is naturally content-only,
+with no session/auth/API dependency on the dashboard - the docs site was
+already effectively edge-appropriate for a static-leaning deployment
+distinct from the dashboard's.
+
+**Trade-offs:**
+- Two `package.json`s to keep dependency versions aligned by hand where
+  they matter (Next, React, `@opennextjs/cloudflare`, Tailwind) - not an
+  npm workspace, so nothing enforces this automatically.
+- The colour tokens in `frontend-docs/src/app/globals.css` are a
+  hand-copied subset of `frontend/src/app/globals.css`'s `:root`/`.dark`
+  variables, kept in sync manually rather than shared through a package.
+- Measured post-split: `frontend/`'s Worker is ~7.1 MB, `frontend-docs/`'s
+  is ~5.8 MB. **Both comfortably fit the Workers Paid 10 MiB limit, but
+  neither fits the free plan's 3 MiB limit standalone.** The split solved
+  "one Worker too large to deploy at all"; it did not eliminate the need
+  for Workers Paid ($5/month, one flat account-wide fee covering both
+  Workers). See `docs/architecture/DEPLOYMENT.md`.
+
 **Trade-offs:** None - this is a decision not to build something, not a
 capability given up.

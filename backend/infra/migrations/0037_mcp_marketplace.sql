@@ -186,6 +186,19 @@ create index if not exists mcp_listings_updated_idx on public.mcp_listings (regi
 -- servers at the top of a "most secure" list.
 create index if not exists mcp_listings_grade_idx on public.mcp_listings (current_trust_grade, current_security_score desc);
 
+-- array_to_string() is marked STABLE, not IMMUTABLE, in Postgres (a
+-- consequence of its polymorphic anyarray signature, not of anything it
+-- actually depends on for text[] with a text separator). A generated
+-- column requires every function in its expression to be IMMUTABLE, so
+-- the wrapper below re-declares the same call as immutable -- the
+-- standard, Postgres-documented way around this specific limitation.
+create or replace function public.immutable_array_to_string(text[], text)
+returns text
+language sql
+immutable
+parallel safe
+as $$ select array_to_string($1, $2) $$;
+
 -- Full-text search across the fields the marketplace searches. A generated
 -- column rather than an expression index so the same vector is used for
 -- ranking and for matching, and so the weights (title beats description
@@ -196,8 +209,8 @@ alter table public.mcp_listings
     setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
     setweight(to_tsvector('english', coalesce(publisher, '')), 'B') ||
     setweight(to_tsvector('english', coalesce(description, '')), 'B') ||
-    setweight(to_tsvector('english', array_to_string(coalesce(tags, '{}'), ' ')), 'C') ||
-    setweight(to_tsvector('english', array_to_string(coalesce(categories, '{}'), ' ')), 'C')
+    setweight(to_tsvector('english', public.immutable_array_to_string(coalesce(tags, '{}'), ' ')), 'C') ||
+    setweight(to_tsvector('english', public.immutable_array_to_string(coalesce(categories, '{}'), ' ')), 'C')
   ) stored;
 
 create index if not exists mcp_listings_search_idx on public.mcp_listings using gin (search_vector);

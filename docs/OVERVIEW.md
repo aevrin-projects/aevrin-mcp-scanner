@@ -27,19 +27,20 @@ are the one finding vocabulary used everywhere a finding is shown.
 | `backend/cli` | The `aevrin` Python CLI - `scan`, `agent scan`, `login`/`logout`, `hook setup`/`allow`, `findings triage`. Published to PyPI. |
 | `backend/cli-npm` | An npm wrapper (`npm install -g aevrin`) that installs the Python CLI underneath. |
 | `backend/hook` | The Claude Code `PreToolUse` hook - blocks a risky MCP install before it happens, using the same engine. |
-| `frontend` | The Next.js 16 dashboard, public marketing site, and the fumadocs-powered docs site at `docs.mcp.aevrin.net` (same Next.js deployment; see `docs/architecture/DEPLOYMENT.md`). |
+| `frontend` | The Next.js 16 dashboard and public marketing site, at `mcp.aevrin.net`. |
+| `frontend-docs` | The fumadocs-powered docs site at `docs.mcp.aevrin.net` - its own app and Cloudflare Worker, split from `frontend` because a combined bundle exceeded Cloudflare's Worker size limit (see `DECISIONS.md`). |
 | Supabase | Postgres, auth (JWT via JWKS), and the data API every backend query goes through. |
 
 ## Two documentation systems, on purpose
 
 `docs/` (this tree) documents Aevrin's own engineering: architecture,
-security model, how to build and test the thing. `frontend/content/`
+security model, how to build and test the thing. `frontend-docs/content/`
 documents Aevrin **the product**, for the people using it - what a trust
 grade means, how to install a marketplace listing, how AI explanations
 work from a user's perspective. It's fumadocs MDX, published live at
 `docs.mcp.aevrin.net`. A feature that changes user-visible behavior needs
-both: this tree for the engineering reality, `frontend/content/` for the
-user-facing explanation - see the
+both: this tree for the engineering reality, `frontend-docs/content/` for
+the user-facing explanation - see the
 [maintenance matrix](../CLAUDE.md#documentation-maintenance-matrix).
 
 ## Request and data flow, at a glance

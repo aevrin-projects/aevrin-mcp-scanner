@@ -118,17 +118,32 @@ the product treats as authoritative. See
 Five directories at the repository root -
 `.aws-keys/`, `.github-keys/`, `.cloudflare-keys/`, `.npmjs-key/`,
 `.supabase-keys/` - hold this specific deployment's own operator
-credentials as `.pem` files (an EC2 instance key; two GitHub App private
-keys for the `aevrin-login` and `aevrin-mcp-security` apps; a Cloudflare
-access-token pair; an npm access token; a Supabase access token). All five
-are `.gitignore`d (`*.pem`, plus each directory named explicitly), never be 
-commited in repo by an agent
-working in this repository - confirm what's configured by filename only.
+credentials as `.pem` files: an EC2 SSH private key (`.aws-keys` - this is
+an SSH key for the API host, not an AWS IAM access key; it does not
+authenticate `aws` CLI calls), two GitHub App private keys for the
+`aevrin-login` and `aevrin-mcp-security` apps, a Cloudflare access-token
+pair, an npm access token, and a Supabase personal access token (used
+against the Management API, e.g. `POST /v1/projects/{ref}/database/query`
+to apply a migration directly - distinct from the runtime
+`SUPABASE_SERVICE_ROLE_KEY` the deployed API uses against PostgREST).
+
+Reading and using these files for operational tasks in this repository
+(applying a migration, an EC2 deploy, a DNS/token check) is permitted.
+What must never happen, regardless: a value from any of them ends up
+committed into the repository, printed into documentation, written into a
+log line, or pasted into an error message. All five directories are
+`.gitignore`d (`*.pem`, plus each directory named explicitly) as a second
+layer under that rule, not the only one.
+
 These are separate from the runtime environment variables the deployed API
 reads (`GITHUB_APP_PRIVATE_KEY`, `RAZORPAY_KEY_SECRET`, etc. - see
 [`../reference/ENVIRONMENT.md`](../reference/ENVIRONMENT.md)), which live
 in `/opt/aevrin/api.env` on the EC2 instance or GitHub Actions
-secrets/vars, never in the repository at all.
+secrets/vars, never in the repository at all. AWS IAM credentials
+(`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, used by `deploy-backend.yml`)
+exist only as GitHub Actions secrets - write-only by GitHub's own design,
+unreadable by anyone, including the repository owner, outside an actual
+workflow run. No local file grants `aws` CLI access to this account.
 
 ## What this does not (yet) do
 

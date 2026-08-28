@@ -12,11 +12,11 @@ export const baseOptions: BaseLayoutProps = {
   links: [
     {
       text: "Home",
-      url: "/",
+      url: "https://mcp.aevrin.net",
     },
     {
       text: "Dashboard",
-      url: "/dashboard",
+      url: "https://mcp.aevrin.net/dashboard",
     },
     {
       text: "Support",

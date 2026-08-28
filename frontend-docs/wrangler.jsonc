@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aevrin-docs",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-24",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // A dedicated Worker for docs.mcp.aevrin.net, split out from the main
+  // aevrin-web Worker because the combined bundle (dashboard + marketplace +
+  // admin + fumadocs/MDX rendering) exceeded Cloudflare's free-plan 3 MiB
+  // Worker size limit. See docs/architecture/DEPLOYMENT.md and DECISIONS.md.
+  "routes": [
+    { "pattern": "docs.mcp.aevrin.net", "custom_domain": true }
+  ],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".open-next/assets"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "aevrin-docs"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

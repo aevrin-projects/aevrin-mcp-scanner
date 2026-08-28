@@ -60,25 +60,48 @@ Not tied to one cloud vendor by design: nothing in the image or the code
 names AWS. The documented fallback is Azure Container Apps behind
 Application Gateway or Front Door, same image, same environment variables.
 
-## Frontend: Cloudflare Workers, OpenNext
+## Frontend: Cloudflare Workers, OpenNext (two Workers)
 
-`.github/workflows/deploy-frontend.yml` redeploys whenever
-`frontend/**` changes on `master` (`fetch-depth: 0` - `sitemap.xml` is
-prerendered at build time and reads each page's last commit date via
-`git log`, which needs real history). Builds with
-`npx opennextjs-cloudflare build`, deploys with `npx wrangler deploy`.
+Two separately deployed Next.js apps, each its own Cloudflare Worker, each
+its own `package.json`/lockfile/`wrangler.jsonc` - not an npm workspace,
+just two sibling directories. Split apart because a single combined Worker
+(dashboard + marketplace + admin + fumadocs/MDX rendering) exceeded
+Cloudflare's Worker size limit; see `DECISIONS.md`.
 
-`frontend/wrangler.jsonc` attaches both `mcp.aevrin.net` and
-`docs.mcp.aevrin.net` as custom domains on the **same** Worker
-(`aevrin-web`) - `docs.mcp.aevrin.net` is not a second deployment;
-`src/middleware.ts` rewrites that hostname onto `/docs` internally.
-`compatibility_flags` includes `nodejs_compat` (Next's server runtime
-needs Node built-ins) and `global_fetch_strictly_public` (makes
-in-Worker `fetch()` behave like a real public request for
-self-referencing routes). `open-next.config.ts` intentionally configures
-no incremental cache, tag cache, or queue - every page is either
-statically prerendered at build time or rendered per-request against
-Supabase/the API; there's no ISR surface for a cache to serve.
+**`frontend/`** (Worker `aevrin-web`, `mcp.aevrin.net`).
+`.github/workflows/deploy-frontend.yml` redeploys whenever `frontend/**`
+changes on `master` (`fetch-depth: 0` - `sitemap.xml` is prerendered at
+build time and reads each page's last commit date via `git log`, which
+needs real history). Builds with `npx opennextjs-cloudflare build`,
+deploys with `npx wrangler deploy`. A request to `/docs/*` on this domain
+gets a 308 redirect to `docs.mcp.aevrin.net` (`src/middleware.ts`) -
+nothing here renders documentation content anymore.
+
+**`frontend-docs/`** (Worker `aevrin-docs`, `docs.mcp.aevrin.net`).
+`.github/workflows/deploy-docs.yml` redeploys whenever `frontend-docs/**`
+changes on `master`. Same build/deploy shape as `frontend/`, no
+`fetch-depth: 0` needed (its sitemap doesn't read git history). Carries
+fumadocs-core/fumadocs-mdx/fumadocs-ui and the MDX content
+(`frontend-docs/content/`); the dashboard Worker carries none of it.
+
+Both `wrangler.jsonc` files share the same shape: `compatibility_flags`
+includes `nodejs_compat` (Next's server runtime needs Node built-ins) and
+`global_fetch_strictly_public` (makes in-Worker `fetch()` behave like a
+real public request for self-referencing routes); `open-next.config.ts`
+in both configures no incremental cache, tag cache, or queue - every page
+in either app is either statically prerendered at build time or rendered
+per-request against Supabase/the API, so there's no ISR surface for a
+cache to serve.
+
+**Cloudflare plan requirement.** Measured after the split: the dashboard
+Worker's bundle is ~7.1 MB, the docs Worker's is ~5.8 MB. Both fit
+comfortably under the **Workers Paid** plan's 10 MiB-per-Worker limit;
+**neither** fits the free plan's 3 MiB limit standalone. A Next.js app
+with this many server-rendered routes, on either side of the split, does
+not fit the free tier - the split fixed "one Worker too large to deploy
+at all," not "small enough for the free plan." Workers Paid is
+$5/month per account (covers every Worker on the account, not per-Worker)
+and is required for either Worker to deploy successfully.
 
 ## CI (`.github/workflows/ci.yml`)
 

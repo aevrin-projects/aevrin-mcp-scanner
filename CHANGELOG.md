@@ -20,6 +20,21 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ## [Unreleased]
 
+### Changed
+
+- The docs site (`docs.mcp.aevrin.net`) is now its own app and Cloudflare
+  Worker, `frontend-docs/`, split out of `frontend/`. The combined bundle
+  had grown past Cloudflare's Worker size limit; see `DECISIONS.md`
+  ADR-009. `frontend/` no longer depends on fumadocs at all; a `/docs/*`
+  link on the main domain now 308-redirects to the new one.
+- Fixed a real Postgres issue found while applying migrations `0037` and
+  `0038` to production: `array_to_string(anyarray, text)` is `STABLE`, not
+  `IMMUTABLE`, which broke `mcp_listings.search_vector`'s generated
+  column. Resolved with a small immutable wrapper function.
+- `backend/deploy/remote-deploy.sh`: guards against a latent bug where
+  appending an environment override to `api.env` with no trailing newline
+  would silently merge it into the previous line.
+
 ### Added
 
 - MCP marketplace: registry ingestion from the official MCP Registry,

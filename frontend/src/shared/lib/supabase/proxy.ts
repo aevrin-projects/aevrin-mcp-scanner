@@ -8,7 +8,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // actual app lives under explicit protected prefixes. Unknown routes pass
 // through to Next's real 404 instead of being disguised as login pages.
 const PUBLIC_PATHS_EXACT = ["/"];
-const PUBLIC_PATH_PREFIXES = ["/login", "/auth", "/device", "/pricing", "/docs", "/terms", "/privacy", "/status", "/error"];
+const PUBLIC_PATH_PREFIXES = ["/login", "/auth", "/device", "/pricing", "/terms", "/privacy", "/status", "/error"];
 const PROTECTED_PATH_PREFIXES = ["/dashboard", "/onboarding", "/scans", "/settings", "/integrations", "/usage", "/admin", "/agents"];
 
 function matchesPath(pathname: string, prefix: string) {

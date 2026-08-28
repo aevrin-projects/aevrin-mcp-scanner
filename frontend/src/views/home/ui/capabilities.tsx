@@ -30,7 +30,7 @@ const FEATURES = [
     icon: Sparkles,
     title: "Agent posture",
     body: "Scan the coding agents already on your machine. Aevrin reads what Claude Code and Codex are configured to do, and grades what that exposes.",
-    href: "/docs",
+    href: "https://docs.mcp.aevrin.net",
     // Inset preview: what the agent scan lists back. The two agents carry
     // their real marks; the counts are plain text.
     preview: [
@@ -44,7 +44,7 @@ const FEATURES = [
     icon: Server,
     title: "MCP inventory",
     body: "Every server you have connected, in one list, each graded A to D so the risky one is obvious without opening it.",
-    href: "/docs",
+    href: "https://docs.mcp.aevrin.net",
     preview: [
       { label: "A  Low risk" },
       { label: "B  Review" },
@@ -56,7 +56,7 @@ const FEATURES = [
     icon: Waypoints,
     title: "Attack paths",
     body: "Where a poisoned tool description, an over-scoped token and a shell-reaching argument line up into one route through your setup.",
-    href: "/docs",
+    href: "https://docs.mcp.aevrin.net",
     preview: [
       { label: "Tool description" },
       { label: "to credential" },
@@ -68,7 +68,7 @@ const FEATURES = [
     icon: GitBranch,
     title: "Hooks and CI",
     body: "A pre-install hook for your agent, and an exit code your pipeline can branch on. An incomplete scan fails closed instead of passing quietly.",
-    href: "/docs",
+    href: "https://docs.mcp.aevrin.net",
     preview: [
       { label: "exit 0  clean" },
       { label: "exit 1  findings" },
@@ -92,7 +92,7 @@ const FEATURES = [
     icon: FileText,
     title: "Exportable report",
     body: "A self-contained document that prints cleanly, states a conclusion rather than only a score, and survives being read by someone who has never seen the dashboard.",
-    href: "/docs",
+    href: "https://docs.mcp.aevrin.net",
     preview: [
       { label: "Verdict" },
       { label: "Findings" },

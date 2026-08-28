@@ -232,7 +232,7 @@ export function Hero({ primaryHref, signedIn }: { primaryHref: string; signedIn:
                 {signedIn ? "Open dashboard" : "Start scanning free"}
                 <ArrowRight className="size-4" />
               </Link>
-              <Link href="/docs" className="mk-btn mk-btn-ghost">
+              <Link href="https://docs.mcp.aevrin.net" className="mk-btn mk-btn-ghost">
                 Read the docs
               </Link>
             </TimelineAnimation>

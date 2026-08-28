@@ -93,9 +93,13 @@ model and its test coverage
 example of the kind of attack scenario this product must survive - SSRF,
 credential leakage, prompt injection, cross-tenant access).
 
-Never read the contents of `.aws-keys/`, `.github-keys/`,
-`.cloudflare-keys/`, `.npmjs-key/`, or `.supabase-keys/` - filenames only,
-if you need to confirm what's configured.
+Reading and using `.aws-keys/`, `.github-keys/`, `.cloudflare-keys/`,
+`.npmjs-key/`, and `.supabase-keys/` for an operational task (a migration,
+a deploy, a token check) is permitted - see
+[`docs/security/SECURITY.md#local-credential-files`](docs/security/SECURITY.md#local-credential-files)
+for what's in each and what still must never happen: a value from any of
+them committed, printed into documentation, logged, or pasted into an
+error message.
 
 ## Updating documentation
 

@@ -49,16 +49,21 @@ backend/
   infra/          Supabase migrations (backend/infra/migrations/) and the
                   DefectDojo deployment.
   deploy/         Caddyfile and the EC2 remote-deploy script.
-frontend/         Next.js 16 App Router: dashboard, public site, and the
-                  fumadocs-powered docs site (frontend/content/).
+frontend/         Next.js 16 App Router: dashboard and public site.
+frontend-docs/    Next.js 16 App Router: the fumadocs-powered docs site
+                  (frontend-docs/content/) at docs.mcp.aevrin.net - its own
+                  app and Cloudflare Worker, split from frontend/ because
+                  a combined bundle exceeded Cloudflare's Worker size
+                  limit (see DECISIONS.md).
 docs/             Engineering documentation for this repository (this is
                   what you are reading now, one level up).
 ```
 
 Five directories at the repository root - `.aws-keys/`, `.github-keys/`,
 `.cloudflare-keys/`, `.npmjs-key/`, `.supabase-keys/` - hold this
-deployment's own credential files (`.pem`), all `.gitignore`d. Never read,
-print, or copy their contents. See
+deployment's own credential files (`.pem`), all `.gitignore`d. Reading and
+using them for an operational task is permitted; a value from any of them
+must never end up committed, printed into documentation, or logged. See
 [`docs/security/SECURITY.md`](docs/security/SECURITY.md#local-credential-files).
 
 ## Reading order before any change
@@ -201,7 +206,7 @@ right in the same piece of work.
 | New frontend route/page | `docs/architecture/FRONTEND.md`, relevant feature doc |
 | New Feature-Sliced layer/slice convention | `docs/architecture/FRONTEND.md` |
 | New scanner adapter | `backend/scanner-core/EXTERNAL_SCANNERS.md`, `docs/features/MCP_SCANNING.md`, `docs/testing/TESTING.md` |
-| New MCP marketplace behavior | `docs/features/MCP_MARKETPLACE.md`, `frontend/content/(marketplace)/*.mdx` (user-facing docs site) |
+| New MCP marketplace behavior | `docs/features/MCP_MARKETPLACE.md`, `frontend-docs/content/(marketplace)/*.mdx` (user-facing docs site) |
 | New agent-posture rule/adapter | `docs/features/AGENT_POSTURE.md` |
 | New AI provider or model-catalogue behavior | `docs/features/AI_REVIEW.md`, `docs/security/SECURITY.md` |
 | New billing behavior | `docs/features/BILLING.md`, `CHANGELOG.md` |

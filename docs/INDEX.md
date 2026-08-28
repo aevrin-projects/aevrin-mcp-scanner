@@ -3,9 +3,9 @@
 This is the documentation for building Aevrin, not for using it. If you're
 looking for user-facing product docs (how to install a marketplace listing,
 how the CLI works as an end user, what a security grade means), that's the
-public docs site sourced from [`frontend/content/`](../frontend/content/)
-and published at `docs.mcp.aevrin.net` - see `docs/OVERVIEW.md` for how the
-two relate.
+public docs site: a separate app, `frontend-docs/`, sourced from
+[`frontend-docs/content/`](../frontend-docs/content/) and published at
+`docs.mcp.aevrin.net` - see `docs/OVERVIEW.md` for how the two relate.
 
 Start at [`../CLAUDE.md`](../CLAUDE.md) if you haven't. It has the reading
 order and the rules; this page is the map it points to.

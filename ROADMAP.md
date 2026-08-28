@@ -8,23 +8,46 @@ removed with a one-line note of why, not left to accumulate.
 ## Operational prerequisites (not code - required before the current
 marketplace/AI/admin/providers work is fully live)
 
-- [ ] Review and apply migrations `0037_mcp_marketplace.sql` and
-      `0038_ai_providers.sql` to the production Supabase project.
-- [ ] Set `MARKETPLACE_SCAN_USER_ID` - catalogue (marketplace) scans
-      refuse to run without it.
-- [ ] Set `SCHEDULER_TOKEN` - `/scheduler/*` routes fail closed without it.
+- [x] Review and apply migrations `0037_mcp_marketplace.sql` and
+      `0038_ai_providers.sql` to the production Supabase project. Applied
+      2026-08-27. Fixed one real issue found in review before applying:
+      `array_to_string(anyarray, text)` is STABLE, not IMMUTABLE, in
+      Postgres, which made the `mcp_listings.search_vector` generated
+      column fail on first attempt (`42P17: generation expression is not
+      immutable`); resolved with a small `immutable_array_to_string()`
+      wrapper function, the standard fix for this specific Postgres
+      limitation. Verified against the live database afterward: all 13
+      new tables, the 3 new `tier_limits` columns, and the RLS fix on
+      `ai_explanations` are all present and correct.
+- [x] Set `MARKETPLACE_SCAN_USER_ID` - set 2026-08-27, via a dedicated
+      Supabase Auth user (`marketplace-scan@aevrin.internal`, no password).
+- [x] Set `SCHEDULER_TOKEN` - set 2026-08-27 via the `AEVRIN_ENV_OVERRIDES`
+      GitHub secret, applied to production on the next deploy.
 - [ ] Confirm `BYOK_ENCRYPTION_KEY` is set in production (auto-minted by
       `remote-deploy.sh` on first deploy if blank, but verify it's backed
       up - losing it makes every encrypted provider key and admin TOTP
       secret unrecoverable).
 - [ ] Optionally set `GROQ_CATALOG_API_KEY` / `OPENAI_CATALOG_API_KEY` /
       `ANTHROPIC_CATALOG_API_KEY` / `GEMINI_CATALOG_API_KEY` to enable
-      automatic AI-model catalogue refresh.
+      automatic AI-model catalogue refresh - needs real vendor keys, not
+      yet obtained.
 - [ ] Wire an external scheduler (EventBridge, a cron container, or
       equivalent) to call `POST /scheduler/registry-sync` and
-      `POST /scheduler/provider-sync` on a weekly cadence - nothing calls
-      these routes automatically today; they exist and are tested, but
-      need a caller in production.
+      `POST /scheduler/provider-sync` on a weekly cadence. Verified
+      commands ready (`docs/architecture/DEPLOYMENT.md` and the session
+      that produced them) but not run - this account's only available
+      credential for the EC2 host is an SSH key, not an AWS IAM
+      access key/secret pair, and those exist solely as GitHub Actions
+      secrets (write-only, unreadable outside a workflow run). Needs
+      either an IAM credential provided directly, or the commands run by
+      whoever holds one.
+- [ ] **Upgrade the Cloudflare account to Workers Paid ($5/month).**
+      Required for `frontend/` and `frontend-docs/` to deploy at all -
+      both exceed the free plan's 3 MiB per-Worker limit even after
+      splitting docs into its own Worker (~7.1 MB and ~5.8 MB measured;
+      see `DECISIONS.md` ADR-009 and `docs/architecture/DEPLOYMENT.md`).
+      Without this, both `deploy-frontend.yml` and `deploy-docs.yml` fail
+      at the `wrangler deploy` step with a size-limit error.
 
 ## Known gaps
 

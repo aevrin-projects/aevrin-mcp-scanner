@@ -1,9 +1,9 @@
 name: Deploy frontend
 
 # Redeploys mcp.aevrin.net whenever something the site is actually built from
-# changes on master. Docs content counts: docs.mcp.aevrin.net is a rewrite onto
-# /docs in this same Worker, not a separate deployment, so an .mdx edit has to
-# go through here to appear.
+# changes on master. docs.mcp.aevrin.net is a separate Worker (frontend-docs/,
+# deploy-docs.yml) as of the split recorded in DECISIONS.md; an .mdx content
+# edit no longer goes through this workflow at all.
 on:
   push:
     branches: [master]

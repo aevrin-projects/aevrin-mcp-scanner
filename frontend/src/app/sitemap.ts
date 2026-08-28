@@ -1,7 +1,6 @@
 import type { MetadataRoute } from "next";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { source } from "@/shared/lib/docs-source";
 
 // Same fallback pattern as siteUrl() in auth/callback, auth/confirm, and
 // login/actions.ts; this file can't import a shared helper because those
@@ -30,14 +29,14 @@ function lastCommitDate(absoluteFilePath: string): Date | undefined {
   }
 }
 
-// Only the routes that are genuinely public, unique, and meant to rank:
-// marketing pages and the docs. Everything under /dashboard, /scans,
+// Only the routes that are genuinely public, unique, and meant to rank.
+// docs.mcp.aevrin.net is a separate Worker (frontend-docs/) with its own
+// sitemap now, not part of this one. Everything under /dashboard, /scans,
 // /settings, /integrations, /usage, /onboarding requires a signed-in
 // session and redirects to /login for everyone else, indexing a login wall
 // wastes crawl budget and Google explicitly downranks sites that submit
 // pages behind auth. /login and /device are functional, not content: no
-// unique copy to rank on. /error is never a real destination. /docs/llms.txt
-// is a machine-readable feed, not an HTML page for search results.
+// unique copy to rank on. /error is never a real destination.
 const STATIC_ROUTES = [
   "src/app/page.tsx",
   "src/app/pricing/page.tsx",
@@ -50,7 +49,7 @@ const STATIC_ROUTES = [
 ] as const;
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const staticEntries: MetadataRoute.Sitemap = STATIC_ROUTES.map((file) => {
+  return STATIC_ROUTES.map((file) => {
     const routePath = file
       .replace(/^src\/app/, "")
       .replace(/\/page\.tsx$/, "")
@@ -60,15 +59,4 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: lastCommitDate(path.join(process.cwd(), file)),
     };
   });
-
-  // Every real docs page, driven by the same fumadocs source /docs itself
-  // renders from, a new file dropped into content/ appears here with
-  // no manual list to keep in sync, and a deleted or renamed page can't
-  // leave a stale 404 URL behind.
-  const docEntries: MetadataRoute.Sitemap = source.getPages().map((page) => ({
-    url: `${SITE_URL}${page.url}`,
-    lastModified: lastCommitDate(page.absolutePath ?? path.join(process.cwd(), "content", page.path)),
-  }));
-
-  return [...staticEntries, ...docEntries];
 }

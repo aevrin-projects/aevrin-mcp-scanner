@@ -160,7 +160,7 @@ export function AuthenticatedAppShell({
                   </DropdownMenuGroup>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem>
-                    <Link href="/docs" className="flex w-full items-center gap-2">
+                    <Link href="https://docs.mcp.aevrin.net" className="flex w-full items-center gap-2">
                       <BookOpen className="size-4" />
                       Docs
                     </Link>

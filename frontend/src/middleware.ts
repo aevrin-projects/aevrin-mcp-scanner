@@ -8,25 +8,18 @@ import { updateSession } from "@/shared/lib/supabase/proxy";
 // staying on the deprecated middleware convention, which still defaults to the
 // edge runtime. Revisit when Next ships edge instructions for proxy.
 
-// docs.mcp.aevrin.net serves the same fumadocs pages as /docs on the apex,
-// rewritten rather than redirected, so mcp.aevrin.net/docs/* stays canonical
-// and every published link keeps working.
-const DOCS_HOST = "docs.mcp.aevrin.net";
-
+// docs.mcp.aevrin.net is its own Cloudflare Worker (frontend-docs/) as of the
+// split recorded in DECISIONS.md -- fumadocs/MDX rendering no longer lives in
+// this app's bundle at all. A published /docs/* link on the apex still needs
+// to resolve, so it's redirected rather than rewritten; there is nothing left
+// here to rewrite to.
 export async function middleware(request: NextRequest) {
-  const host = (request.headers.get("host") ?? "").split(":")[0].toLowerCase();
+  const { pathname } = request.nextUrl;
 
-  if (host === DOCS_HOST) {
-    const { pathname } = request.nextUrl;
-    // Docs are public, so the session work below is skipped entirely. It would
-    // also misfire here: a signed-in visitor hitting "/" gets bounced to
-    // /dashboard, which is right on the apex and wrong on this subdomain.
-    if (pathname.startsWith("/api/") || pathname.startsWith("/_next/") || pathname.startsWith("/docs")) {
-      return NextResponse.next();
-    }
-    const url = request.nextUrl.clone();
-    url.pathname = pathname === "/" ? "/docs" : `/docs${pathname}`;
-    return NextResponse.rewrite(url);
+  if (pathname === "/docs" || pathname.startsWith("/docs/")) {
+    const target = new URL(`https://docs.mcp.aevrin.net${pathname.slice("/docs".length)}`);
+    target.search = request.nextUrl.search;
+    return NextResponse.redirect(target, 308);
   }
 
   return await updateSession(request);

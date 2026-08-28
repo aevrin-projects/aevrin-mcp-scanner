@@ -62,7 +62,7 @@ export async function LandingPage() {
               <ArrowRight className="size-4" />
             </Link>
             <Link
-              href="/docs"
+              href="https://docs.mcp.aevrin.net"
               className="mk-btn"
               style={{ border: "1px solid var(--mk-invert-line)", color: "var(--mk-invert-fg)" }}
             >

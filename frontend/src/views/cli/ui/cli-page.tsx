@@ -20,7 +20,7 @@ export function CliPage() {
             scanner, target, dashboard workflow, usage event, report, API contract, and troubleshooting path.
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Link href="/docs" className={buttonVariants({ size: "lg" })}>
+            <Link href="https://docs.mcp.aevrin.net" className={buttonVariants({ size: "lg" })}>
               Open complete documentation
               <ArrowRight className="size-4" />
             </Link>
