@@ -1,0 +1,6 @@
+# frontend/'s middleware used to 308-redirect /docs/* to docs.mcp.aevrin.net
+# from this same domain (DECISIONS.md ADR-009); this app has no middleware
+# to do that, so an old /docs bookmark on the root domain would otherwise
+# 404 instead. Cloudflare's own static-redirect mechanism for exactly this.
+/docs https://docs.mcp.aevrin.net/ 308
+/docs/* https://docs.mcp.aevrin.net/:splat 308
