@@ -39,8 +39,19 @@ class CatchUnhandledErrorsMiddleware(BaseHTTPMiddleware):
 async def supabase_error_handler(request: Request, exc: SupabaseRestError) -> JSONResponse:
     # Never leak PostgREST's raw error body (may include table/column names) to
     # the client; log it server-side, return a generic message.
+    #
+    # 500 rather than the 502 this used to return, and the reason is Cloudflare
+    # rather than semantics. 502 is the more accurate word -- this API really is
+    # a gateway in front of PostgREST -- but Cloudflare replaces an origin 502
+    # with its own `error code: 502` page, which is plain text and carries none
+    # of the CORS headers the middleware ordering above exists to guarantee. The
+    # browser then sees no response at all rather than a refused one, and the
+    # dashboard reports "Could not reach the Aevrin API": a connectivity message
+    # for a query fault, pointing every future investigation at the network
+    # instead of at the bug. A 500 reaches the client intact, so the generic
+    # detail below is actually readable by the thing that has to display it.
     logger.error("PostgREST error on %s %s: %s", request.method, request.url.path, exc)
-    return JSONResponse(status_code=502, content={"detail": "Upstream data store error"})
+    return JSONResponse(status_code=500, content={"detail": "Upstream data store error"})
 
 
 async def quota_exceeded_handler(request: Request, exc: QuotaExceeded) -> JSONResponse:

@@ -47,6 +47,24 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **The whole marketplace was broken for any user in an organisation.**
+  Browse, listing detail, and the install plan all failed; users with no
+  organisation were unaffected, which is why it survived testing.
+  `_visibility_filters` built its `or=` expression without the enclosing
+  parentheses PostgREST requires, so every org-scoped read came back as
+  `PGRST100 failed to parse logic tree`. The two callers in the codebase had
+  disagreed about whose job those parentheses were (`sync.py` supplied them,
+  the marketplace did not), so `SupabaseRest.select` now adds them itself and
+  neither convention can break it.
+- **A query fault was reported to the browser as a connectivity failure.**
+  `supabase_error_handler` returned 502, and Cloudflare replaces an origin
+  502 with its own plain-text `error code: 502` page, which carries none of
+  the CORS headers the middleware ordering exists to guarantee. The browser
+  therefore saw no response at all and the dashboard said "Could not reach
+  the Aevrin API" - a network message for a database error, pointing every
+  investigation at the wrong layer. It is a 500 now, which reaches the client
+  intact. The generic detail is unchanged: PostgREST's own body still never
+  leaves the server.
 - **`AEVRIN_ENV_OVERRIDES` had silently lost two keys.** The domain cutover
   rewrote it with only `WEB_ORIGIN` and `PUBLIC_WEB_ORIGIN`, dropping
   `SCHEDULER_TOKEN` and `MARKETPLACE_SCAN_USER_ID`. Nothing broke, because

@@ -96,7 +96,18 @@ class SupabaseRest:
             # column/value pair, and because callers must construct it
             # deliberately: everything inside it is OR'd, so folding it in with
             # the AND filters above would silently widen a query.
-            params["or"] = or_filter
+            #
+            # The enclosing parentheses are added here rather than trusted to
+            # the caller. PostgREST rejects the expression without them
+            # ("failed to parse logic tree", PGRST100) and the two callers in
+            # this codebase disagreed about whose job they were: the
+            # marketplace's visibility clause omitted them, so every
+            # org-scoped listing read returned 400 from PostgREST -- which
+            # surfaced to the browser as a gateway error with no CORS headers,
+            # and therefore as "could not reach the API" rather than as
+            # anything resembling a query bug. Normalising in one place is the
+            # only version of this that cannot be got wrong at a call site.
+            params["or"] = or_filter if or_filter.startswith("(") else f"({or_filter})"
         if order:
             params["order"] = order
         if limit:

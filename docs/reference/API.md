@@ -54,6 +54,17 @@ JWT) unless noted.
   allow-list, which contains no security-bearing column - an admin can
   correct curation metadata, never a grade.
 
+## Error responses and the CDN
+
+An upstream PostgREST failure returns **500**, not 502. 502 is the more
+accurate word - this API is a gateway in front of PostgREST - but Cloudflare
+replaces an origin 502 with its own plain-text error page, which carries none
+of the CORS headers `CatchUnhandledErrorsMiddleware`'s ordering exists to
+guarantee. The browser then sees no response rather than a refused one, and
+the dashboard reports a connectivity error for what was a query fault. Any
+new error status this API returns has to survive the same trip: if Cloudflare
+would substitute its own page for it, the client learns nothing.
+
 ## Adding a route
 
 New file in `routes/`, registered in `routes/__init__.py`'s `ROUTERS` list
