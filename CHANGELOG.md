@@ -22,6 +22,17 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **Marketplace browse cards rendered with no title at all.** `GradeBadge`'s
+  full form pairs its tile with an explanation ("No security evidence. Not a
+  statement that this is safe."), and as a max-content flex sibling it took
+  the width it wanted, collapsing the title's `min-w-0` column to nothing.
+  Every card showed a bare `?` next to the publisher's logo where the server
+  name should have been. The badge gained a `tile` variant - the square
+  alone - which the card now uses; an unscanned listing renders no tile at
+  all rather than an unexplained `?`, since the card states its scan status
+  in the footer. That footer pill is now a labelled status rather than loose
+  text, with the word carrying the meaning and colour only reinforcing it.
+
 - **Saving a marketplace listing, adding an AI provider key, and setting an
   organisation's install policy all silently failed.** The API's CORS
   configuration listed `GET, POST, PATCH, DELETE` but the app registers

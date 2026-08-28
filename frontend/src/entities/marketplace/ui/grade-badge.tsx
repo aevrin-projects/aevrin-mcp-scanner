@@ -21,22 +21,58 @@ const GRADE_STYLES: Record<TrustGrade, string> = {
 // says. Colour reads as a verdict, and there is no verdict to give.
 const MUTED = "bg-muted text-muted-foreground border-border";
 
+const STATE_NOTE: Record<ScanState, string> = {
+  complete: "Aevrin security scan",
+  outdated: "This grade covers an older version",
+  partial: "Partial coverage. Do not treat as clean.",
+  unscanned: "Not yet scanned",
+};
+
 export function GradeBadge({
   grade,
   score,
   state,
   size = "md",
+  variant = "full",
 }: {
   grade: TrustGrade | null;
   score?: number | null;
   state: ScanState;
   size?: "sm" | "md" | "lg";
+  /**
+   * `full` pairs the tile with its explanation, for a detail view that has
+   * room for it. `tile` is the square alone, for a grid card where the
+   * explanation would not fit -- see the note below on why that is a layout
+   * requirement rather than a preference.
+   */
+  variant?: "full" | "tile";
 }) {
   const dimensions = {
     sm: "size-8 text-sm",
     md: "size-12 text-lg",
     lg: "size-20 text-3xl",
   }[size];
+
+  if (variant === "tile") {
+    // Nothing to show, and deliberately nothing rather than a "?" placeholder:
+    // on a card the caller states the scan state in its own footer, so a
+    // second unexplained glyph beside the publisher's logo read as a broken
+    // image rather than as "no evidence".
+    if (!grade || state === "unscanned") return null;
+    const style = state === "complete" ? GRADE_STYLES[grade] : MUTED;
+    return (
+      <div
+        className={`grid ${dimensions} shrink-0 place-items-center rounded-lg border ${style} font-semibold tabular-nums`}
+        // The letter alone is meaningless to a screen reader, and the colour
+        // that qualifies it is meaningless to anyone not seeing it. Both are
+        // carried in text here so the tile is never a colour-only signal.
+        role="img"
+        aria-label={`Trust grade ${grade}. ${STATE_NOTE[state]}`}
+      >
+        {grade}
+      </div>
+    );
+  }
 
   if (!grade || state === "unscanned") {
     return (
@@ -78,13 +114,7 @@ export function GradeBadge({
             </span>
           ) : null}
         </p>
-        <p className="text-xs text-muted-foreground">
-          {state === "outdated"
-            ? "This grade covers an older version"
-            : state === "partial"
-              ? "Partial coverage. Do not treat as clean."
-              : "Aevrin security scan"}
-        </p>
+        <p className="text-xs text-muted-foreground">{STATE_NOTE[state]}</p>
       </div>
     </div>
   );

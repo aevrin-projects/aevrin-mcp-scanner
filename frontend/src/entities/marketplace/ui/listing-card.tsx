@@ -25,10 +25,20 @@ export function ListingCard({ listing }: { listing: Listing }) {
       href={`/marketplace/${listing.slug}`}
       className="group flex flex-col rounded-xl border border-border bg-card p-5 transition-colors hover:border-foreground/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
-      <div className="flex items-start justify-between gap-4">
+      {/* The grade is the `tile` variant, not the full badge, and that is a
+          layout requirement rather than a style choice: the full badge's
+          explanation ("No security evidence. Not a statement that this is
+          safe.") is a max-content flex sibling, so on a card it claimed the
+          width it wanted and squeezed the title -- whose container is
+          `min-w-0` and therefore free to collapse -- down to nothing. Every
+          card rendered with no visible title at all. `shrink-0` on the tile
+          and `min-w-0` on the text column keep the title the element that
+          survives. The scan state it used to spell out is still stated, in
+          the footer below. */}
+      <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <ListingLogo listing={listing} className="size-9" />
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h3 className="truncate font-medium group-hover:underline">{listing.title}</h3>
               {listing.featured ? (
@@ -47,6 +57,7 @@ export function ListingCard({ listing }: { listing: Listing }) {
           score={security.score}
           state={security.state}
           size="sm"
+          variant="tile"
         />
       </div>
 
@@ -70,10 +81,15 @@ export function ListingCard({ listing }: { listing: Listing }) {
         ) : null}
       </div>
 
+      {/* With the grade tile absent on an unscanned listing, this is the only
+          place the card states its scan status, so it is a labelled pill
+          rather than loose text. The word carries the meaning on its own --
+          the colour is reinforcement, never the signal. */}
       <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
         <PopularitySignals popularity={popularity} />
         {security.state !== "complete" ? (
-          <span className="shrink-0 text-[11px] font-medium text-severity-medium">
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-severity-medium/25 bg-severity-medium/10 px-2 py-0.5 text-[11px] font-medium text-severity-medium">
+            <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
             {security.state === "unscanned"
               ? "Unscanned"
               : security.state === "outdated"

@@ -113,6 +113,19 @@ then the category icon, so the tile never renders blank or broken.
 so a bare confident letter grade can never be rendered without its scan
 state alongside it).
 
+`GradeBadge` has two variants, and the split is a layout constraint rather
+than a preference. `full` pairs the tile with its explanation and is used
+where there is room for it (listing detail, install dialog). `tile` is the
+square alone, for a grid card: the full badge's explanation is a
+max-content flex sibling, so on a card it claimed the width it wanted and
+collapsed the `min-w-0` title column to zero - every card rendered with no
+visible title. In `tile` form an unscanned listing renders nothing at all,
+because the card already states its scan status in its footer and a second
+unexplained glyph beside the publisher's logo read as a broken image. The
+`state` guarantee is unchanged either way: the tile is muted whenever the
+scan is not complete, and carries the state in an `aria-label` so it is
+never a colour-only signal.
+
 ## Eight routes moved to their own app, `frontend-public/`
 
 `DECISIONS.md` ADR-011 moved eight fully public, non-authenticated routes
