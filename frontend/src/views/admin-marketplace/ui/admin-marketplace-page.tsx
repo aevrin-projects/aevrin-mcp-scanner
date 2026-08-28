@@ -92,14 +92,12 @@ export function AdminMarketplacePage() {
   // Debounce search to avoid firing a fetch on every keystroke
   const [debouncedSearch, setDebouncedSearch] = useState("");
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(0);
+    }, 300);
     return () => clearTimeout(t);
   }, [search]);
-
-  // Reset to page 0 whenever filters or search change
-  useEffect(() => {
-    setPage(0);
-  }, [statusFilter, gradeFilter, debouncedSearch]);
 
   const fetchAll = useCallback(async () => {
     const [s, list, subs, reps] = await Promise.all([
@@ -292,7 +290,7 @@ export function AdminMarketplacePage() {
               </div>
               <Select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
                 aria-label="Filter by status"
                 className="w-[140px]"
               >
@@ -305,7 +303,7 @@ export function AdminMarketplacePage() {
               </Select>
               <Select
                 value={gradeFilter}
-                onChange={(e) => setGradeFilter(e.target.value)}
+                onChange={(e) => { setGradeFilter(e.target.value); setPage(0); }}
                 aria-label="Filter by grade"
                 className="w-[120px]"
               >
