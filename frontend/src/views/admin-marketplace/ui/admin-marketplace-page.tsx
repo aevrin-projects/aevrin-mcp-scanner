@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { Loader2, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, RefreshCw, Search, ShieldCheck } from "lucide-react";
 
 import { marketplaceAdminApi } from "@/entities/admin";
 import { ApiError } from "@/shared/api";
@@ -35,6 +35,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
  * have no way to tell, and would draw the wrong conclusion from an unchanged
  * grade.
  */
+
+const PAGE_SIZE = 30;
 
 interface Summary {
   total: number;
@@ -85,6 +87,7 @@ export function AdminMarketplacePage() {
   const [newUrl, setNewUrl] = useState("");
 
   const [reloadToken, setReloadToken] = useState(0);
+  const [page, setPage] = useState(0);
 
   // Debounce search to avoid firing a fetch on every keystroke
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -92,6 +95,11 @@ export function AdminMarketplacePage() {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
   }, [search]);
+
+  // Reset to page 0 whenever filters or search change
+  useEffect(() => {
+    setPage(0);
+  }, [statusFilter, gradeFilter, debouncedSearch]);
 
   const fetchAll = useCallback(async () => {
     const [s, list, subs, reps] = await Promise.all([
@@ -101,14 +109,15 @@ export function AdminMarketplacePage() {
           status: statusFilter || undefined,
           grade: gradeFilter || undefined,
           q: debouncedSearch || undefined,
-          limit: 50,
+          limit: PAGE_SIZE,
+          offset: page * PAGE_SIZE,
         })
         .catch(() => []),
       marketplaceAdminApi.submissions().catch(() => []),
       marketplaceAdminApi.reports().catch(() => []),
     ]);
     return { s, list, subs, reps };
-  }, [statusFilter, gradeFilter, debouncedSearch]);
+  }, [statusFilter, gradeFilter, debouncedSearch, page]);
 
   useEffect(() => {
     let cancelled = false;
@@ -316,124 +325,156 @@ export function AdminMarketplacePage() {
                 <EmptyState title="No listings match" body="Try clearing the filters." />
               </div>
             ) : (
-              <ScrollArea viewportClassName="max-h-[520px] overflow-y-auto scroll-fade">
-                <div className="divide-y divide-border">
-                  <AnimatePresence initial={false}>
-                    {rows.map((row) => {
-                      const gradeClass = row.security.grade ? GRADE_COLORS[row.security.grade] : "";
-                      const statusClass = STATUS_COLORS[row.status] ?? "bg-muted text-muted-foreground border-transparent";
-                      return (
-                        <motion.div
-                          key={row.id}
-                          layout
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          transition={spring.fast}
-                          className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3"
-                        >
-                          {/* Identity */}
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Link
-                                href={`/marketplace/${row.slug}`}
-                                className="truncate text-sm font-medium hover:underline"
-                              >
-                                {row.title}
-                              </Link>
-                              <span
-                                className={`inline-flex items-center rounded-md border px-1.5 py-0 text-[11px] font-medium ${statusClass}`}
-                              >
-                                {row.status}
-                              </span>
+              <>
+                <ScrollArea viewportClassName="overflow-y-auto scroll-fade">
+                  <div className="divide-y divide-border">
+                    <AnimatePresence initial={false}>
+                      {rows.map((row) => {
+                        const gradeClass = row.security.grade ? GRADE_COLORS[row.security.grade] : "";
+                        const statusClass = STATUS_COLORS[row.status] ?? "bg-muted text-muted-foreground border-transparent";
+                        return (
+                          <motion.div
+                            key={row.id}
+                            layout
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={spring.fast}
+                            className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3"
+                          >
+                            {/* Identity */}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Link
+                                  href={`/marketplace/${row.slug}`}
+                                  className="truncate text-sm font-medium hover:underline"
+                                >
+                                  {row.title}
+                                </Link>
+                                <span
+                                  className={`inline-flex items-center rounded-md border px-1.5 py-0 text-[11px] font-medium ${statusClass}`}
+                                >
+                                  {row.status}
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                {row.security.label}
+                              </p>
                             </div>
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              {row.security.label}
-                            </p>
-                          </div>
 
-                          {/* Grade chip + actions */}
-                          <div className="flex shrink-0 items-center gap-2">
-                            {row.security.grade ? (
-                              <span
-                                className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold tabular-nums ${gradeClass}`}
-                              >
-                                Grade {row.security.grade}
-                                {row.security.score !== null ? ` · ${row.security.score}` : ""}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">unscanned</span>
-                            )}
-
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={busyId === row.id}
-                              aria-label={`Rescan ${row.title}`}
-                              onClick={() =>
-                                void act(
-                                  row.id,
-                                  () => marketplaceAdminApi.scan(row.id, true),
-                                  (r) => {
-                                    const result = r as { reused: boolean; reason: string };
-                                    return result.reused
-                                      ? `No new scan: ${result.reason}`
-                                      : `Scan started: ${result.reason}`;
-                                  },
-                                )
-                              }
-                            >
-                              {busyId === row.id ? (
-                                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                            {/* Grade chip + actions */}
+                            <div className="flex shrink-0 items-center gap-2">
+                              {row.security.grade ? (
+                                <span
+                                  className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold tabular-nums ${gradeClass}`}
+                                >
+                                  Grade {row.security.grade}
+                                  {row.security.score !== null ? ` · ${row.security.score}` : ""}
+                                </span>
                               ) : (
-                                <RefreshCw className="size-3.5" aria-hidden="true" />
+                                <span className="text-xs text-muted-foreground">unscanned</span>
                               )}
-                              Rescan
-                            </Button>
 
-                            {row.status === "published" ? (
                               <Button
                                 size="sm"
-                                variant="ghost"
+                                variant="outline"
                                 disabled={busyId === row.id}
+                                aria-label={`Rescan ${row.title}`}
                                 onClick={() =>
                                   void act(
                                     row.id,
-                                    () =>
-                                      marketplaceAdminApi.setStatus(
-                                        row.id,
-                                        "suspended",
-                                        "suspended by an administrator",
-                                      ),
-                                    () => "Suspended.",
+                                    () => marketplaceAdminApi.scan(row.id, true),
+                                    (r) => {
+                                      const result = r as { reused: boolean; reason: string };
+                                      return result.reused
+                                        ? `No new scan: ${result.reason}`
+                                        : `Scan started: ${result.reason}`;
+                                    },
                                   )
                                 }
                               >
-                                Suspend
+                                {busyId === row.id ? (
+                                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                                ) : (
+                                  <RefreshCw className="size-3.5" aria-hidden="true" />
+                                )}
+                                Rescan
                               </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                disabled={busyId === row.id}
-                                onClick={() =>
-                                  void act(
-                                    row.id,
-                                    () => marketplaceAdminApi.setStatus(row.id, "published"),
-                                    () => "Published.",
-                                  )
-                                }
-                              >
-                                Publish
-                              </Button>
-                            )}
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </AnimatePresence>
+
+                              {row.status === "published" ? (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={busyId === row.id}
+                                  onClick={() =>
+                                    void act(
+                                      row.id,
+                                      () =>
+                                        marketplaceAdminApi.setStatus(
+                                          row.id,
+                                          "suspended",
+                                          "suspended by an administrator",
+                                        ),
+                                      () => "Suspended.",
+                                    )
+                                  }
+                                >
+                                  Suspend
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={busyId === row.id}
+                                  onClick={() =>
+                                    void act(
+                                      row.id,
+                                      () => marketplaceAdminApi.setStatus(row.id, "published"),
+                                      () => "Published.",
+                                    )
+                                  }
+                                >
+                                  Publish
+                                </Button>
+                              )}
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </AnimatePresence>
+                  </div>
+                </ScrollArea>
+
+                {/* Pagination controls */}
+                <div className="flex items-center justify-between border-t border-border px-5 py-3">
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    Page {page + 1}
+                    {rows.length < PAGE_SIZE && page === 0 ? ` · ${rows.length} total` : ""}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={page === 0}
+                      aria-label="Previous page"
+                      onClick={() => setPage((p) => p - 1)}
+                    >
+                      <ChevronLeft className="size-4" aria-hidden="true" />
+                      Prev
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={rows.length < PAGE_SIZE}
+                      aria-label="Next page"
+                      onClick={() => setPage((p) => p + 1)}
+                    >
+                      Next
+                      <ChevronRight className="size-4" aria-hidden="true" />
+                    </Button>
+                  </div>
                 </div>
-              </ScrollArea>
+              </>
             )}
           </PanelBody>
         </Panel>
