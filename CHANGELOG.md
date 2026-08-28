@@ -47,6 +47,19 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Changed
 
+- **Admin marketplace page redesigned.** Filters and search now work
+  correctly: search is debounced 300 ms so API calls only fire after the
+  user pauses typing, and status/grade filters are applied server-side on
+  every change. Layout changed from a single-column stack to a responsive
+  grid: Add Server and Queue panels share a row, Submissions and Reports
+  share a row, and the Catalogue list is a `ScrollArea` with a fade-edged
+  scrollbar rather than a stack of bordered cards. Motion uses the
+  Fluid Functionalism spring tokens (`fast`/`moderate`/`slow`) throughout,
+  wrapped in `MotionConfig reducedMotion="user"` for accessibility. Status
+  and grade are now colour-coded inline badges; busy-state spinners appear
+  inside action buttons during pending mutations. All existing scan, suspend,
+  publish, approve, reject, dismiss, and report actions are unchanged.
+
 - **Settings → AI providers is a roster rather than four open forms.** Each
   provider is one row with its own brand mark (`thesvg`, via `BrandIcon` -
   Groq and Gemini added), what it is, and whether it is connected;
