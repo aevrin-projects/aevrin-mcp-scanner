@@ -61,14 +61,12 @@ jobs:
         run: |
           # The token the API checks is deployed through AEVRIN_ENV_OVERRIDES,
           # a KEY=VALUE blob applied to /opt/aevrin/api.env on deploy. That
-          # secret is write-only outside a run, so it cannot be copied into a
-          # second secret by hand without someone re-typing the value -- but
-          # inside a run it is readable, so the value is simply read from the
-          # one place it already lives. No second copy to keep in sync, and
-          # nothing to set up before this workflow works.
+          # secret is write-only outside a run but readable inside one, so the
+          # value is read from the place it already lives rather than copied
+          # into a second secret somebody has to keep in sync.
           #
-          # A dedicated SCHEDULER_TOKEN secret still wins if one is ever set,
-          # so the token can be rotated independently of the deploy blob.
+          # A dedicated SCHEDULER_TOKEN secret wins when set, so the token can
+          # be rotated independently of the deploy blob.
           TOKEN="${DEDICATED}"
           if [ -z "$TOKEN" ]; then
             TOKEN="$(printf '%s\n' "$ENV_OVERRIDES" \
@@ -76,12 +74,20 @@ jobs:
               | head -n1 | tr -d '\r')"
           fi
           if [ -z "$TOKEN" ]; then
-            echo "::error::No scheduler token found. Set a SCHEDULER_TOKEN secret, or ensure AEVRIN_ENV_OVERRIDES contains a SCHEDULER_TOKEN= line."
+            # Key names are not secrets, and they distinguish "the blob is
+            # missing" from "the blob exists but no longer carries this key".
+            # The second is what actually happened: a later deploy rewrote
+            # AEVRIN_ENV_OVERRIDES with only the origin keys, dropping the
+            # token from it. Values are never printed.
+            echo "Keys present in AEVRIN_ENV_OVERRIDES:"
+            printf '%s\n' "$ENV_OVERRIDES" \
+              | sed -n 's/^[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\)[[:space:]]*=.*/  - \1/p'
+            echo "::error::No scheduler token found. Set a SCHEDULER_TOKEN secret, or add a SCHEDULER_TOKEN= line to AEVRIN_ENV_OVERRIDES (the keys it currently holds are listed above)."
             exit 1
           fi
           # Required, not belt-and-braces: GitHub masks a secret's *whole*
           # value, and this is a substring of one. Without this the token
-          # would be maskable nowhere and one `set -x` away from the log.
+          # would be unmasked in any log line it reached.
           echo "::add-mask::$TOKEN"
           echo "SCHEDULER_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
@@ -122,7 +128,10 @@ jobs:
               | head -n1 | tr -d '\r')"
           fi
           if [ -z "$TOKEN" ]; then
-            echo "::error::No scheduler token found. Set a SCHEDULER_TOKEN secret, or ensure AEVRIN_ENV_OVERRIDES contains a SCHEDULER_TOKEN= line."
+            echo "Keys present in AEVRIN_ENV_OVERRIDES:"
+            printf '%s\n' "$ENV_OVERRIDES" \
+              | sed -n 's/^[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\)[[:space:]]*=.*/  - \1/p'
+            echo "::error::No scheduler token found. Set a SCHEDULER_TOKEN secret, or add a SCHEDULER_TOKEN= line to AEVRIN_ENV_OVERRIDES (the keys it currently holds are listed above)."
             exit 1
           fi
           echo "::add-mask::$TOKEN"
