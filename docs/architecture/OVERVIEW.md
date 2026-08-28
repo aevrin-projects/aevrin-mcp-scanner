@@ -3,10 +3,17 @@
 ## Topology
 
 ```
-                     +-----------------------------+
-                     | Cloudflare Workers (2, OpenNext)|
-                     | aevrin-web:  mcp.aevrin.net      |
-                     | aevrin-docs: docs.mcp.aevrin.net |
+                     +-----------------------------------+
+                     | Cloudflare Workers (3)                |
+                     | aevrin-web:    mcp.aevrin.net (today) |
+                     |   -> app.mcp.aevrin.net (post-cutover)|
+                     |   OpenNext, real server (auth/session)|
+                     | aevrin-public: static export, no      |
+                     |   script (-> mcp.aevrin.net post-     |
+                     |   cutover; workers.dev until then)    |
+                     | aevrin-docs:   docs.mcp.aevrin.net,   |
+                     |   static export, no script            |
+                     | See DECISIONS.md ADR-009/010/011      |
                      +---------------+---------------+
                                      | HTTPS
                                      v
@@ -83,8 +90,9 @@ hook block message all came from the exact same `Finding` object.
 | Agent (Claude Code / Codex) discovery and posture | `backend/scanner-core/aevrin_scanner_core/agents/` |
 | Auth (Supabase JWT verification, API keys) | `backend/api/aevrin_api/core/security.py` |
 | Permissions/roles | `backend/api/aevrin_api/services/permissions.py` |
-| Dashboard + public site | `frontend/src` (App Router) |
-| Docs site (separate app/Worker) | `frontend-docs/src` (App Router) + `frontend-docs/content/` (MDX) |
+| Authenticated dashboard, admin, settings, billing, auth | `frontend/src` (App Router) |
+| Public marketing/content site (separate app/Worker, static) | `frontend-public/src` (App Router) |
+| Docs site (separate app/Worker, static) | `frontend-docs/src` (App Router) + `frontend-docs/content/` (MDX) |
 
 See [`DATA_FLOWS.md`](DATA_FLOWS.md) for how these actually connect,
 end to end, per major feature.

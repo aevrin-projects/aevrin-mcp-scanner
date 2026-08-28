@@ -49,12 +49,22 @@ backend/
   infra/          Supabase migrations (backend/infra/migrations/) and the
                   DefectDojo deployment.
   deploy/         Caddyfile and the EC2 remote-deploy script.
-frontend/         Next.js 16 App Router: dashboard and public site.
+frontend/         Next.js 16 App Router: the authenticated dashboard,
+                  admin, settings, billing, marketplace submit/saved, and
+                  auth routes. A real server (OpenNext/Cloudflare Worker) -
+                  it needs one for session cookies and OAuth exchange.
+frontend-public/  Next.js 16 App Router: the fully public marketing/content
+                  routes (home, cli, contact, terms, privacy, refund,
+                  status) split out of frontend/ because those need no
+                  server at all - a static export, no Worker script, no
+                  Cloudflare plan requirement beyond free (see
+                  DECISIONS.md ADR-011). Mid-cutover: still deploys to its
+                  own workers.dev URL, not yet mcp.aevrin.net.
 frontend-docs/    Next.js 16 App Router: the fumadocs-powered docs site
-                  (frontend-docs/content/) at docs.mcp.aevrin.net - its own
-                  app and Cloudflare Worker, split from frontend/ because
-                  a combined bundle exceeded Cloudflare's Worker size
-                  limit (see DECISIONS.md).
+                  (frontend-docs/content/) at docs.mcp.aevrin.net - also a
+                  static export, no Worker script, split from frontend/
+                  because a combined bundle exceeded Cloudflare's Worker
+                  size limit (see DECISIONS.md ADR-009, ADR-010).
 docs/             Engineering documentation for this repository (this is
                   what you are reading now, one level up).
 ```

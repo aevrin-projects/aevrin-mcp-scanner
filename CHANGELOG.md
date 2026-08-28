@@ -27,6 +27,32 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   had grown past Cloudflare's Worker size limit; see `DECISIONS.md`
   ADR-009. `frontend/` no longer depends on fumadocs at all; a `/docs/*`
   link on the main domain now 308-redirects to the new one.
+- `frontend-docs/` no longer needs Cloudflare Workers Paid: it's now a
+  plain static export (`output: "export"`) deployed as a Worker with only
+  static assets and no script, so there's nothing left for the free
+  plan's 3 MiB Worker-script limit to apply to. Search moved from a
+  per-request endpoint to fumadocs' static mode (a build-time index
+  searched client-side). Response headers (CSP included) moved from
+  `next.config.ts`'s `headers()`, which doesn't run under static export,
+  to a `public/_headers` file. Fixed a real bug found while rebuilding
+  that file: the CSP's `script-src 'self'` (no `'unsafe-inline'`) was
+  already silently blocking Next's own inline hydration scripts in
+  production, so search, the theme toggle, and the sidebar were
+  non-functional post-JS on every existing page. See `DECISIONS.md`
+  ADR-010. `frontend/` still needs Workers Paid - see
+  `docs/architecture/DEPLOYMENT.md` and `ROADMAP.md`.
+- New app, `frontend-public/`: eight fully public routes (`/`, `/cli`,
+  `/contact`, `/terms`, `/privacy`, `/refund`, `/status`) checked
+  individually and moved out of `frontend/` because none of them need a
+  server - a static export, same free-plan-only shape as `frontend-docs/`.
+  `/status`'s live checks now run from the visitor's browser instead of
+  the server. `/pricing`, `/login`, `/device`, `/onboarding`, and
+  `/marketplace*` were each checked and found to genuinely need a server
+  (Server Actions and rate limiting, a session check, or build-time-
+  unknowable paths respectively) and stay in `frontend/`. Not yet cut
+  over to the production domain - deploys to its own Workers URL pending
+  an OAuth redirect-URI update only the account holder can make. See
+  `DECISIONS.md` ADR-011 and `docs/architecture/DEPLOYMENT.md`.
 - Fixed a real Postgres issue found while applying migrations `0037` and
   `0038` to production: `array_to_string(anyarray, text)` is `STABLE`, not
   `IMMUTABLE`, which broke `mcp_listings.search_vector`'s generated
@@ -34,6 +60,27 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 - `backend/deploy/remote-deploy.sh`: guards against a latent bug where
   appending an environment override to `api.env` with no trailing newline
   would silently merge it into the previous line.
+- Fixed the marketplace's "Listed via" registry link: the official MCP
+  Registry has no `GET /v0.1/servers/{name}` endpoint, only
+  `/servers/{name}/versions/{version}`, and the name (which contains a
+  literal `/`) was never percent-encoded - both meant every listing's
+  registry link 404'd. `normalize.py` now builds the correct
+  `/versions/{version}` URL with the name and version each encoded.
+  Existing listings pick up the corrected link the next registry sync.
+- Fixed the marketplace "Save" button: `GET /marketplace/mcp` and
+  `GET /marketplace/mcp/{slug}` never told the client whether the signed-in
+  caller had already favourited a listing, so the button always rendered
+  unsaved on page load regardless of the true state, even though the
+  favourite itself was persisted correctly. Both endpoints, and
+  `catalog.decorate()`, now carry `is_favorited` for the requesting user.
+- Marketplace browse cards and the listing detail page now show a logo: a
+  real brand mark (via `thesvg`) when the listing's own tags name a known
+  company, otherwise a generic icon (via the new `react-icons` dependency)
+  for its first category. See `entities/marketplace/ui/listing-logo.tsx`
+  and `docs/architecture/FRONTEND.md`.
+- Submit-a-server form (`/marketplace/submit`): more breathing room between
+  fields, a clearer separator before the submit action - the layout had
+  read as cramped.
 
 ### Added
 

@@ -60,48 +60,111 @@ Not tied to one cloud vendor by design: nothing in the image or the code
 names AWS. The documented fallback is Azure Container Apps behind
 Application Gateway or Front Door, same image, same environment variables.
 
-## Frontend: Cloudflare Workers, OpenNext (two Workers)
+## Frontend: Cloudflare Workers, three apps, two different deployment shapes
 
-Two separately deployed Next.js apps, each its own Cloudflare Worker, each
+Three separately deployed Next.js apps, each its own Cloudflare Worker, each
 its own `package.json`/lockfile/`wrangler.jsonc` - not an npm workspace,
-just two sibling directories. Split apart because a single combined Worker
-(dashboard + marketplace + admin + fumadocs/MDX rendering) exceeded
-Cloudflare's Worker size limit; see `DECISIONS.md`.
+just three sibling directories. Split apart because a single combined
+Worker (dashboard + marketplace + admin + fumadocs/MDX rendering)
+exceeded Cloudflare's Worker size limit; see `DECISIONS.md` ADR-009. Since
+ADR-010 and ADR-011, they don't all share a build/deploy shape - one is a
+real server, two aren't - because only the dashboard actually needs one.
 
-**`frontend/`** (Worker `aevrin-web`, `mcp.aevrin.net`).
-`.github/workflows/deploy-frontend.yml` redeploys whenever `frontend/**`
-changes on `master` (`fetch-depth: 0` - `sitemap.xml` is prerendered at
-build time and reads each page's last commit date via `git log`, which
-needs real history). Builds with `npx opennextjs-cloudflare build`,
-deploys with `npx wrangler deploy`. A request to `/docs/*` on this domain
-gets a 308 redirect to `docs.mcp.aevrin.net` (`src/middleware.ts`) -
-nothing here renders documentation content anymore.
+**Domain topology is mid-cutover, not yet final** (ADR-011). Today:
+`frontend/` (Worker `aevrin-web`) still holds `mcp.aevrin.net` and still
+serves the eight routes `frontend-public/` now also builds. Nothing is
+broken by this - both copies exist side by side - but it means the
+description below of `frontend-public/` is where things are *headed*,
+not what a request to `mcp.aevrin.net` hits today. The cutover this is
+waiting on: every OAuth redirect URI registered with Google and GitHub
+updated to `app.mcp.aevrin.net` (only the account holder can do this, in
+each provider's own console), then `frontend/`'s route moves to
+`app.mcp.aevrin.net`, `frontend-public/`'s route takes `mcp.aevrin.net`,
+`frontend/`'s `NEXT_PUBLIC_SITE_URL` changes to match, the backend's
+`WEB_ORIGIN` CORS allowlist gains `app.mcp.aevrin.net`, and the eight
+moved routes are deleted from `frontend/` (the actual bundle-size win -
+building `frontend-public/` without removing them from `frontend/` saves
+nothing).
 
-**`frontend-docs/`** (Worker `aevrin-docs`, `docs.mcp.aevrin.net`).
-`.github/workflows/deploy-docs.yml` redeploys whenever `frontend-docs/**`
-changes on `master`. Same build/deploy shape as `frontend/`, no
-`fetch-depth: 0` needed (its sitemap doesn't read git history). Carries
-fumadocs-core/fumadocs-mdx/fumadocs-ui and the MDX content
-(`frontend-docs/content/`); the dashboard Worker carries none of it.
+**`frontend/`** (Worker `aevrin-web`, `mcp.aevrin.net`) - OpenNext, real
+per-request server code. `.github/workflows/deploy-frontend.yml`
+redeploys whenever `frontend/**` changes on `master` (`fetch-depth: 0` -
+`sitemap.xml` is prerendered at build time and reads each page's last
+commit date via `git log`, which needs real history). Builds with
+`npx opennextjs-cloudflare build`, deploys with `npx wrangler deploy`. A
+request to `/docs/*` on this domain gets a 308 redirect to
+`docs.mcp.aevrin.net` (`src/middleware.ts`) - nothing here renders
+documentation content anymore.
 
-Both `wrangler.jsonc` files share the same shape: `compatibility_flags`
-includes `nodejs_compat` (Next's server runtime needs Node built-ins) and
-`global_fetch_strictly_public` (makes in-Worker `fetch()` behave like a
-real public request for self-referencing routes); `open-next.config.ts`
-in both configures no incremental cache, tag cache, or queue - every page
-in either app is either statically prerendered at build time or rendered
-per-request against Supabase/the API, so there's no ISR surface for a
-cache to serve.
+`wrangler.jsonc`: `compatibility_flags` includes `nodejs_compat` (Next's
+server runtime needs Node built-ins) and `global_fetch_strictly_public`
+(makes in-Worker `fetch()` behave like a real public request for
+self-referencing routes); `open-next.config.ts` configures no incremental
+cache, tag cache, or queue - every page is either statically prerendered
+at build time or rendered per-request against Supabase/the API, so
+there's no ISR surface for a cache to serve.
 
-**Cloudflare plan requirement.** Measured after the split: the dashboard
-Worker's bundle is ~7.1 MB, the docs Worker's is ~5.8 MB. Both fit
-comfortably under the **Workers Paid** plan's 10 MiB-per-Worker limit;
-**neither** fits the free plan's 3 MiB limit standalone. A Next.js app
-with this many server-rendered routes, on either side of the split, does
-not fit the free tier - the split fixed "one Worker too large to deploy
-at all," not "small enough for the free plan." Workers Paid is
-$5/month per account (covers every Worker on the account, not per-Worker)
-and is required for either Worker to deploy successfully.
+**Cloudflare plan requirement.** Measured before ADR-011's split: the
+bundle was ~7.1 MB, comfortably under **Workers Paid**'s 10 MiB-per-Worker
+limit and over the free plan's 3 MiB limit. This is genuine per-request
+server code, not misplaced static assets - `middleware.ts` refreshes the
+Supabase session cookie on every request, and
+`src/app/auth/callback/route.ts` / `src/app/auth/confirm/route.ts`
+exchange an OAuth/email code for a session and set the resulting cookie
+via `next/headers`'s `cookies()`, both explicitly on Next.js's own list of
+what static export (`output: "export"`) cannot express at all - see
+`DECISIONS.md` ADR-010. Workers Paid ($5/month, one flat account-wide fee)
+remains required for this Worker today; ADR-011 moved eight
+non-authenticated routes out to `frontend-public/`, but has not yet
+*removed* them from this app (that's part of the pending cutover above),
+so the measured 7.1 MB has not changed yet either. Once cutover happens
+and those eight routes are actually deleted here, this number needs
+re-measuring - ADR-009's own finding (bloat cumulative across roughly 50
+routes, no single fixable cause) means there is no guarantee it clears
+3 MiB even then.
+
+**`frontend-public/`** (Worker `aevrin-public`, not yet bound to a
+production domain - see the cutover note above) - a plain static export,
+no server, no Worker script at all, same shape as `frontend-docs/`.
+Carries the eight fully public routes with no session/auth dependency:
+`/`, `/cli`, `/contact`, `/terms`, `/privacy`, `/refund`, `/status`, plus
+their sitemap/robots. Deploys whenever `frontend-public/**` changes on
+`master` (`.github/workflows/deploy-public.yml`), to its own
+`aevrin-public.<subdomain>.workers.dev` URL until the domain cutover.
+`/status`'s live service checks run from the visitor's own browser
+(`fetch`, client component) rather than the server, since static export
+has no server to run them from. See `DECISIONS.md` ADR-011 for exactly
+which routes were excluded and why (`/pricing`, `/login`, `/device`,
+`/onboarding`, `/marketplace*` all stay in `frontend/` - each for a
+different, checked reason, not by default).
+
+**Cloudflare plan requirement: none beyond free**, same reasoning as
+`frontend-docs/` below - static assets only, no script, no 3 MiB limit to
+fit under. The measured static output is ~2.7 MB, comfortably inside the
+free plan's static-asset limits.
+
+**`frontend-docs/`** (Worker `aevrin-docs`, `docs.mcp.aevrin.net`) - a
+plain static export, no server, no Worker script at all. Deploys whenever
+`frontend-docs/**` changes on `master`
+(`.github/workflows/deploy-docs.yml`). Builds with `next build`
+(`output: "export"` in `next.config.ts` makes this alone produce `out/`;
+no Cloudflare-specific build step exists in this app anymore),
+deploys with `npx wrangler deploy`. `wrangler.jsonc` has no `main` field -
+only `assets: { directory: "out", not_found_handling: "404-page" }` - so
+there is no script for Cloudflare's Worker-size limit to apply to;
+response headers (CSP and the rest) come from `public/_headers` instead
+of `next.config.ts`'s `headers()`, which doesn't run under static export.
+Carries fumadocs-core/fumadocs-mdx/fumadocs-ui and the MDX content
+(`frontend-docs/content/`); `frontend/` carries none of it. Search is
+`fumadocs-core`'s static mode (`staticGET` + a client-side Orama index,
+`src/components/search.tsx`) rather than a per-request search endpoint.
+
+**Cloudflare plan requirement: none beyond free.** The static output is
+~8.6 MB, comfortably inside the free plan's static-assets limits (20,000
+files, 25 MiB per file - both far larger than this site) and irrelevant to
+the Worker-script limit entirely, since there is no script. This Worker
+alone does not require Workers Paid; the account still needs it today
+because `frontend/` does.
 
 ## CI (`.github/workflows/ci.yml`)
 
@@ -113,6 +176,11 @@ Runs on every push/PR, needs no secret (so it runs for forks too):
 - **Frontend** - `npm ci`, `eslint src`, `tsc --noEmit`, `next build` (with
   placeholder `NEXT_PUBLIC_*` values - read again at runtime, so a
   placeholder here can never reach a deployed page).
+- **frontend-public**, **frontend-docs** - same four steps, but the
+  placeholder build values are baked in permanently rather than re-read at
+  runtime (`output: "export"` has no runtime to re-read them) - the CI
+  build is a smoke test only; the real values live in each app's own
+  `deploy-*.yml`.
 - **`docker` job** - builds the API image from repo root as a build-only
   smoke test (catches a `COPY` path breaking before a real deploy would).
 
@@ -156,8 +224,10 @@ The five `.aws-keys/`, `.github-keys/`, `.cloudflare-keys/`, `.npmjs-key/`,
 deployment's own operator credentials (`.pem` files: an AWS instance key,
 two GitHub App private keys, a Cloudflare access token pair, an npm access
 token, a Supabase access token). All five are `.gitignore`d
-(`*.pem`, plus each directory by name) and must never be read for their
-contents, quoted, or otherwise surfaced - see
+(`*.pem`, plus each directory by name). Reading and using them for an
+operational task (a migration, a deploy, a token check) is permitted; a
+value from any of them must never be committed, printed into
+documentation, or logged - see
 [`../security/SECURITY.md`](../security/SECURITY.md#local-credential-files).
 Runtime secrets (`GITHUB_APP_PRIVATE_KEY`, `RAZORPAY_KEY_SECRET`, and
 everything else the API reads) are environment variables - see

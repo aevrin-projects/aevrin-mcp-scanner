@@ -1,0 +1,821 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --font-display: var(--font-display);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-severity-critical: var(--severity-critical);
+  --color-severity-critical-solid: var(--severity-critical-solid);
+  --color-severity-critical-foreground: var(--severity-critical-foreground);
+  --color-severity-high: var(--severity-high);
+  --color-severity-high-foreground: var(--severity-high-foreground);
+  --color-severity-medium: var(--severity-medium);
+  --color-severity-medium-foreground: var(--severity-medium-foreground);
+  --color-severity-low: var(--severity-low);
+  --color-severity-low-foreground: var(--severity-low-foreground);
+  --color-brand: var(--brand);
+  --color-brand-text: var(--brand-text);
+  --color-brand-foreground: var(--brand-foreground);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* Warm bone ground rather than pure white, with cards sitting a step
+     brighter on top of it. A flat white page gives a card no surface to lift
+     off, which is why dense dashboards on white read as a wall of borders. */
+  --background: oklch(0.9856 0.0042 106.47);
+  --foreground: oklch(0.2734 0.0193 240.53);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2734 0.0193 240.53);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2734 0.0193 240.53);
+  /* Solid ink CTA, matching how both reference sites treat their one true
+     action: a single high-contrast button, with the accent hue reserved for
+     links, focus rings and active nav. The previous light-blue fill carried
+     dark text at roughly 2:1 against the page, so the most important control
+     on screen was also the least visible one. */
+  --primary: oklch(0.2734 0.0193 240.53);
+  --primary-foreground: oklch(0.9856 0.0042 106.47);
+  --secondary: oklch(0.9585 0.0035 106.47);
+  --secondary-foreground: oklch(0.2734 0.0193 240.53);
+  --muted: oklch(0.9585 0.0035 106.47);
+  /* 4.5:1 on white is the binding constraint here; the previous value was
+     #9ca3af at 2.5:1, which failed on essentially every secondary line of
+     text in the light theme. Tuned against the docs' #f0f0f0 inline-code
+     background rather than plain white, since that is the tightest surface
+     it has to clear. */
+  --muted-foreground: oklch(0.527 0.016 261.32);
+  --accent: oklch(0.9585 0.0035 106.47);
+  --accent-foreground: oklch(0.2734 0.0193 240.53);
+  --destructive: oklch(0.7345 0.1626 25.78);
+  /* Two weights, deliberately. --border is a decorative hairline between
+     surfaces and is tuned to sit quietly on the bone ground; --input stays
+     dark enough to clear the 3:1 non-text contrast rule that actually applies
+     to form controls and other interactive boundaries. */
+  --border: oklch(0.9 0.005 106.47);
+  --input: oklch(0.82 0.008 261.32);
+  --ring: oklch(0.7857 0.1153 246.66);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.25rem;
+  --sidebar: oklch(0.9762 0.004 106.47);
+  --sidebar-foreground: oklch(0.2734 0.0193 240.53);
+  --sidebar-primary: oklch(0.2734 0.0193 240.53);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.9551 0 0);
+  --sidebar-accent-foreground: oklch(0.2734 0.0193 240.53);
+  --sidebar-border: oklch(0.82 0.008 261.32);
+  --sidebar-ring: oklch(0.7857 0.1153 246.66);
+
+  /* Brand accent: a cool sky blue (matches the reference design system's
+     accent, #79c0ff), replacing the earlier lime mark. --brand is the
+     light/background value (buttons, focus rings, badges); --brand-text is
+     darkened along the same hue for use as on-white text/link color;
+     #79c0ff itself sits below 4.5:1 contrast on white, so text uses this
+     darker sibling while large/interactive surfaces use the lighter one. */
+  --brand: oklch(0.7857 0.1153 246.66);
+  --brand-text: oklch(0.55 0.15 246.66);
+  --brand-foreground: oklch(0.2891 0 0);
+
+  /* Severity hues always appear beside a visible severity label or other
+     text; color is supplemental, never the only conveyed signal. */
+  /* Two reds, deliberately. One colour cannot serve both roles at AA: white
+     text on red needs the red DARKER than ~0.176 relative luminance, while
+     red text on our near-black surface needs it LIGHTER than ~0.190. That
+     range is empty, so --severity-critical is the text/accent colour and
+     --severity-critical-solid is the fill behind white text. Verified with
+     axe-core in both themes. */
+  --severity-critical: oklch(0.55 0.24 27);
+  --severity-critical-solid: oklch(0.505 0.22 27);
+  --severity-critical-foreground: oklch(0.985 0 0);
+  --severity-high: oklch(0.535 0.19 41);
+  --severity-high-foreground: oklch(0.985 0 0);
+  --severity-medium: oklch(0.75 0.16 80);
+  --severity-medium-foreground: oklch(0.145 0 0);
+  --severity-low: oklch(0.52 0.15 245);
+  --severity-low-foreground: oklch(0.985 0 0);
+}
+
+.dark {
+  /* Pure-black canvas with hairline separators: the app's primary theme.
+     Depth comes from 1px borders and a barely-lifted card surface, not from
+     shadows or blur, so dense security tables stay legible. */
+  --background: oklch(0 0 0);
+  --foreground: oklch(0.9939 0.0029 264.54);
+  --card: oklch(0.1448 0 0);
+  --card-foreground: oklch(0.9939 0.0029 264.54);
+  --popover: oklch(0.1448 0 0);
+  --popover-foreground: oklch(0.9939 0.0029 264.54);
+  /* Primary CTA is white-on-black; the accent blue is reserved for links,
+     focus rings, and active nav so the one true action always reads first. */
+  --primary: oklch(1 0 0);
+  --primary-foreground: oklch(0 0 0);
+  --secondary: oklch(0.1776 0 0);
+  --secondary-foreground: oklch(0.9939 0.0029 264.54);
+  --muted: oklch(0.1776 0 0);
+  --muted-foreground: oklch(0.7166 0.0037 219.55);
+  --accent: oklch(0.2178 0 0);
+  --accent-foreground: oklch(0.9939 0.0029 264.54);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(0.2178 0 0);
+  --input: oklch(0.2686 0 0);
+  --ring: oklch(0.7857 0.1153 246.66);
+  --chart-1: oklch(0.7729 0.1535 163.22);
+  --chart-2: oklch(0.7345 0.1626 25.78);
+  --chart-3: oklch(0.7857 0.1153 246.66);
+  --chart-4: oklch(0.8606 0.1731 91.94);
+  --chart-5: oklch(0.6268 0 0);
+  --sidebar: oklch(0.0645 0 0);
+  --sidebar-foreground: oklch(0.7166 0.0037 219.55);
+  --sidebar-primary: oklch(0.2178 0 0);
+  --sidebar-primary-foreground: oklch(0.9939 0.0029 264.54);
+  --sidebar-accent: oklch(0.1776 0 0);
+  --sidebar-accent-foreground: oklch(0.9939 0.0029 264.54);
+  --sidebar-border: oklch(0.2178 0 0);
+  --sidebar-ring: oklch(0.7857 0.1153 246.66);
+
+  --brand: oklch(0.7857 0.1153 246.66);
+  --brand-text: oklch(0.7857 0.1153 246.66);
+  --brand-foreground: oklch(0 0 0);
+
+  --severity-critical: oklch(0.645 0.205 27);
+  --severity-critical-solid: oklch(0.505 0.22 27);
+  --severity-critical-foreground: oklch(0.985 0 0);
+  --severity-high: oklch(0.7 0.19 41);
+  --severity-high-foreground: oklch(0.145 0 0);
+  --severity-medium: oklch(0.8 0.15 85);
+  --severity-medium-foreground: oklch(0.145 0 0);
+  --severity-low: oklch(0.68 0.13 245);
+  --severity-low-foreground: oklch(0.145 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@layer components {
+  /* Display headlines. The serif only earns its place above ~30px, so these
+     are the only places it should appear; anything smaller stays in the sans
+     where x-height and hinting matter more than character. */
+  .display,
+  .display-xl,
+  .display-lg,
+  .display-md {
+    font-family: var(--font-display), ui-serif, Georgia, serif;
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    line-height: 1.04;
+    text-wrap: balance;
+  }
+  .display-xl {
+    font-size: clamp(2.75rem, 6vw, 4.5rem);
+  }
+  .display-lg {
+    font-size: clamp(2.25rem, 4.5vw, 3.25rem);
+  }
+  .display-md {
+    font-size: clamp(1.75rem, 3vw, 2.25rem);
+    letter-spacing: -0.015em;
+  }
+
+  /* Small-caps section label, lifted from the Databricks product UI: it lets a
+     dense panel announce itself without spending a heading level or much
+     vertical space. */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground;
+  }
+
+  /* Tabler's `subheader`: the product-side counterpart to .eyebrow, at the
+     exact 12px / 500 / 0.04em it uses. It appears above every figure, every
+     column header and every page title, and that repetition is most of why a
+     Tabler screen reads as one system rather than a stack of panels. Tighter
+     tracking and lighter weight than .eyebrow because it is used at density,
+     where .eyebrow's marketing-scale spacing would fray. */
+  .subheader {
+    @apply text-xs leading-4 font-medium uppercase tracking-[0.04em] text-muted-foreground;
+  }
+
+  /* Measure caps for readable prose. Long lines are the single most common
+     reason a marketing section feels unedited. */
+  .lede {
+    @apply text-lg leading-relaxed text-muted-foreground;
+    max-width: 46ch;
+    text-wrap: pretty;
+  }
+
+  /* The card surface itself is defined further down, in the layered
+     subscription glass block. Only the type scale lives here. */
+  .plan-name {
+    font-size: 1.75rem;
+    font-weight: 400;
+    line-height: 1.15;
+    letter-spacing: -0.04em;
+  }
+  .plan-price {
+    font-size: 2.5rem;
+    font-weight: 400;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+  }
+  /* FAQ rows as filled panels rather than divider-separated lines. Each answer
+     is then a self-contained block, which is easier to scan than a ruled list
+     when the answers differ a lot in length. */
+  .faq-row {
+    background: var(--muted);
+    border-radius: 10px;
+    padding: 4px 20px;
+    border: 1px solid transparent;
+  }
+  .dark .faq-row {
+    border-color: var(--border);
+  }
+}
+
+@keyframes security-drift-one {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(7vw, 5vh, 0) scale(1.12); }
+}
+
+@keyframes security-drift-two {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-6vw, -4vh, 0) scale(0.9); }
+}
+
+@keyframes scan-travel {
+  0% { transform: translate3d(0, -110%, 0); opacity: 0; }
+  12%, 72% { opacity: 0.7; }
+  100% { transform: translate3d(0, 115vh, 0); opacity: 0; }
+}
+
+@keyframes panel-float {
+  0%, 100% { transform: perspective(1200px) rotateX(0deg) rotateY(0deg) translateY(0); }
+  50% { transform: perspective(1200px) rotateX(0.6deg) rotateY(-0.8deg) translateY(-8px); }
+}
+
+@keyframes sweep-across {
+  0%, 18% { transform: translateX(-140%) skewX(-16deg); opacity: 0; }
+  35% { opacity: 0.5; }
+  62%, 100% { transform: translateX(240%) skewX(-16deg); opacity: 0; }
+}
+
+@keyframes auth-panel-in {
+  from { opacity: 0; transform: translateY(18px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.security-mesh {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--border) 55%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--border) 55%, transparent) 1px, transparent 1px);
+  background-size: 52px 52px;
+  mask-image: linear-gradient(to bottom, black, transparent 88%);
+}
+
+.security-orb {
+  position: absolute;
+  width: min(44rem, 72vw);
+  aspect-ratio: 1;
+  border-radius: 9999px;
+  filter: blur(90px);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.security-orb-one {
+  left: -22rem;
+  top: -20rem;
+  background: color-mix(in oklab, var(--brand) 24%, transparent);
+  animation: security-drift-one 15s ease-in-out infinite;
+}
+
+.security-orb-two {
+  right: -25rem;
+  top: 8rem;
+  background: color-mix(in oklab, var(--foreground) 9%, transparent);
+  animation: security-drift-two 18s ease-in-out infinite;
+}
+
+.hero-scan-beam,
+.auth-scan-line {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 8%, var(--brand) 50%, transparent 92%);
+  box-shadow: 0 0 30px color-mix(in oklab, var(--brand) 55%, transparent);
+  pointer-events: none;
+  animation: scan-travel 9s linear infinite;
+}
+
+.motion-float-card {
+  animation: panel-float 8s ease-in-out infinite;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.preview-scan-sweep {
+  position: absolute;
+  inset-block: -20%;
+  left: -35%;
+  width: 28%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--brand) 18%, transparent), transparent);
+  animation: sweep-across 8s ease-in-out infinite;
+}
+
+.interactive-lift {
+  transition: transform 240ms ease, border-color 240ms ease, box-shadow 240ms ease, background-color 240ms ease;
+}
+
+.interactive-lift:hover {
+  transform: translateY(-4px);
+  border-color: color-mix(in oklab, var(--brand) 38%, var(--border));
+  box-shadow: 0 20px 45px -30px color-mix(in oklab, var(--brand) 45%, black);
+}
+
+.auth-panel-enter {
+  animation: auth-panel-in 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.auth-grid::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 15% 15%, color-mix(in oklab, var(--brand) 13%, transparent), transparent 38%);
+}
+
+.auth-grid > *:not(.auth-scan-line) {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .security-orb,
+  .hero-scan-beam,
+  .auth-scan-line,
+  .motion-float-card,
+  .preview-scan-sweep,
+  .auth-panel-enter {
+    animation: none !important;
+  }
+
+  .interactive-lift,
+  .interactive-lift:hover {
+    transform: none;
+    transition: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Hero scan visual: a radar sweep over a faint code field, with ecosystem
+   badges around the perimeter and a finding surfacing inside the cone. All
+   motion is transform/opacity only so it stays off the layout path, and the
+   whole thing is decorative (aria-hidden); nothing here carries meaning that
+   isn't also stated in text.
+--------------------------------------------------------------------------- */
+
+@keyframes hero-sweep {
+  0%   { transform: rotate(-32deg); }
+  50%  { transform: rotate(32deg); }
+  100% { transform: rotate(-32deg); }
+}
+
+@keyframes hero-ring-pulse {
+  0%   { transform: scale(0.82); opacity: 0; }
+  30%  { opacity: 0.55; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+@keyframes hero-badge-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+@keyframes hero-finding-in {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.hero-scan-cone {
+  /* Cone widening downward from the hub, pivoting at its apex. */
+  transform-origin: 50% 0%;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in oklab, var(--brand) 42%, transparent) 0%,
+    color-mix(in oklab, var(--brand) 14%, transparent) 45%,
+    transparent 85%
+  );
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  animation: hero-sweep 7s ease-in-out infinite;
+}
+
+.hero-ring {
+  border: 1px solid color-mix(in oklab, var(--brand) 22%, transparent);
+  border-radius: 9999px;
+  animation: hero-ring-pulse 4.5s ease-out infinite;
+}
+
+.hero-badge {
+  animation: hero-badge-float 5s ease-in-out infinite;
+}
+
+.hero-finding {
+  animation: hero-finding-in 0.7s cubic-bezier(0.4, 0, 0.2, 1) 0.5s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-scan-cone,
+  .hero-ring,
+  .hero-badge,
+  .hero-finding {
+    animation: none !important;
+  }
+  /* Without the sweep the cone should still read as a beam, not a wedge
+     frozen mid-rotation. */
+  .hero-scan-cone { transform: rotate(0deg); }
+  .hero-ring { opacity: 0.35; transform: scale(1); }
+}
+
+/* --- Dashboard motion -----------------------------------------------------
+   Product-surface motion is deliberately quieter than the marketing hero:
+   short, one-shot, on mount only. Nothing loops, because a dashboard is a
+   place people read, and a looping animation in peripheral vision is a
+   permanent distraction. Every rule here degrades to a static end state
+   under prefers-reduced-motion. */
+
+@keyframes panel-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes bar-grow-x {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes bar-grow-y {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes gauge-sweep {
+  from { stroke-dashoffset: var(--gauge-circumference); }
+  to { stroke-dashoffset: var(--gauge-offset); }
+}
+
+/* Applied to a grid/stack; children stagger by index via --i. */
+.panel-rise > * {
+  animation: panel-rise 0.45s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+.panel-rise-item {
+  animation: panel-rise 0.45s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+.bar-grow-x {
+  transform-origin: left center;
+  animation: bar-grow-x 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+.bar-grow-y {
+  transform-origin: bottom center;
+  animation: bar-grow-y 0.55s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 35ms);
+}
+
+.gauge-sweep {
+  animation: gauge-sweep 0.9s cubic-bezier(0.4, 0, 0.2, 1) 0.1s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-rise > *,
+  .panel-rise-item,
+  .bar-grow-x,
+  .bar-grow-y,
+  .gauge-sweep {
+    animation: none !important;
+  }
+  /* The gauge is drawn with a dash offset, so with the animation off it needs
+     its final offset applied directly or the arc renders empty. */
+  .gauge-sweep { stroke-dashoffset: var(--gauge-offset); }
+}
+
+/* ==========================================================================
+   Marketing surface
+   --------------------------------------------------------------------------
+   Scoped to `.marketing` so the signed-in app keeps its own tokens untouched.
+   Measured from the reference rather than guessed: paper #FDFFF8, ink #151414,
+   muted #5A5A5A, a pale panel at #F3F7EB and hairlines at #D1DECD. The two
+   details that carry most of the character are the square button (the
+   reference sets radius 0 on every real action and reserves the full pill for
+   chips) and the tight -0.03em tracking on body text at weight 500.
+
+   Both themes are defined here because the header keeps its theme toggle: the
+   dark side inverts to ink-as-ground, which is what the reference itself does
+   for its full-bleed dark sections.
+   ========================================================================== */
+.marketing {
+  --mk-paper: #fdfff8;
+  --mk-ink: #151414;
+  --mk-muted: #5a5a5a;
+  --mk-panel: #f3f7eb;
+  --mk-raise: #ffffff;
+  --mk-line: #d1decd;
+  --mk-line-soft: #e4ebdf;
+  /* Inverse pair, for the deliberately dark bands inside a light page. */
+  --mk-invert-bg: #151414;
+  --mk-invert-fg: #fdfff8;
+  --mk-invert-muted: #9a9a94;
+  --mk-invert-line: #2e2d2c;
+  /* Section marker. The block set uses orange-600; this product's mark is
+     green, so the accent is green and orange appears nowhere. --mk-accent is
+     the solid fill (hover tiles, rails) and always carries
+     --mk-accent-contrast on top of it; --mk-accent-chart is the series colour,
+     tuned per theme so it reads on --mk-panel either way. */
+  --mk-accent: #15803d;
+  --mk-accent-contrast: #ffffff;
+  --mk-accent-chart: #2f9e68;
+
+  background: var(--mk-paper);
+  color: var(--mk-ink);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+.dark .marketing {
+  --mk-paper: #151414;
+  --mk-ink: #fdfff8;
+  --mk-muted: #9a9a94;
+  --mk-panel: #1c1b1b;
+  --mk-raise: #201f1f;
+  --mk-line: #2e2d2c;
+  --mk-line-soft: #232222;
+  /* Inverted again, so a band that is dark-on-light in the light theme
+     becomes light-on-dark here instead of disappearing into the page. */
+  --mk-invert-bg: #f3f7eb;
+  --mk-invert-fg: #151414;
+  --mk-invert-muted: #5a5a5a;
+  --mk-invert-line: #d1decd;
+  --mk-accent: #34d399;
+  --mk-accent-contrast: #0a0a0a;
+  --mk-accent-chart: #34d399;
+}
+
+@layer components {
+  /* Display face. The reference sets its headline at 64px / weight 300 with
+     -0.03em; Instrument Serif is a touch lighter on the page at 400, so the
+     weight stays there and only the tracking is matched. */
+  .mk-display {
+    font-family: var(--font-display), ui-serif, Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(2.5rem, 5.6vw, 4rem);
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+  .mk-h2 {
+    font-family: var(--font-display), ui-serif, Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(2rem, 3.6vw, 3.25rem);
+    line-height: 1.04;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+  .mk-h3 {
+    font-family: var(--font-display), ui-serif, Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(1.35rem, 1.8vw, 1.75rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+  .mk-lede {
+    font-size: 1.125rem;
+    line-height: 1.4;
+    letter-spacing: -0.03em;
+    color: var(--mk-muted);
+    text-wrap: pretty;
+  }
+
+  /* Square, 14px, weight 600: the reference's one true action. */
+  .mk-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem 1.1rem 1rem 1.3rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    border-radius: 0;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+  }
+  .mk-btn-solid {
+    background: var(--mk-ink);
+    color: var(--mk-paper);
+  }
+  .mk-btn-solid:hover { opacity: 0.85; }
+  .mk-btn-ghost {
+    border: 1px solid var(--mk-line);
+    color: var(--mk-ink);
+  }
+  .mk-btn-ghost:hover { background: var(--mk-panel); }
+
+  /* Chips are the one place the reference goes fully round. */
+  .mk-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 9999px;
+    padding: 0.4rem 0.9rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+  }
+
+  .mk-mono {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--mk-muted);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Pricing: layered subscription glass
+   --------------------------------------------------------------------------
+   From the `subscription-details` block. Plans are distinguished by surface
+   rather than outline: unfeatured tiers sit on a soft panel behind a 2px
+   dashed border, and the featured tier is a solid ink slab carrying the
+   blurred orange-to-pink glow, a rotated translucent pane and the layered
+   sm-to-2xl shadow stack. The glow and pane are rendered in the component
+   itself, since they are elements rather than paint.
+
+   Applied globally, not scoped to `.marketing`: the pricing section is the
+   same section on `/` and on `/pricing`, and giving it two different designs
+   depending on which page it was mounted on is worse than either design.
+   -------------------------------------------------------------------------- */
+.plan-card {
+  background: var(--muted);
+  border: 2px dashed var(--border);
+  border-radius: 1rem;
+  padding: 28px 28px 32px;
+  box-shadow: none;
+}
+.dark .plan-card {
+  border-color: var(--input);
+}
+
+.plan-card-featured {
+  /* Ink in both themes, as the source has it. In the dark theme the glow and
+     the shadow stack are what separate it from the page. */
+  background: #0a0a0a;
+  color: #ffffff;
+  border: 0;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.08),
+    0 4px 8px rgb(0 0 0 / 0.10),
+    0 10px 20px rgb(0 0 0 / 0.12),
+    0 20px 44px rgb(0 0 0 / 0.18);
+}
+.dark .plan-card-featured {
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.08),
+    0 20px 44px rgb(0 0 0 / 0.55);
+}
+
+/* Inside the ink slab the muted and border tokens have to flip, or every
+   secondary line falls to roughly 1.5:1 against it. */
+.plan-card-featured :where(.text-muted-foreground) {
+  color: oklch(0.75 0 0) !important;
+}
+.plan-card-featured :where(svg) {
+  color: #ffffff;
+}
+.plan-card-featured :where(.border-border, hr) {
+  border-color: rgb(255 255 255 / 0.18) !important;
+}
+
+/* The card's own action inverts with it: ink slab, paper button. The button
+   is styled with utilities rather than a `.plan-cta` class, so this targets
+   the element; left alone it renders `bg-primary`, which in the light theme
+   is the same ink as the slab it sits on. */
+.plan-card-featured :where(button, a) {
+  background: #ffffff !important;
+  color: #0a0a0a !important;
+  --tw-ring-color: transparent;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.25);
+}
+.plan-card-featured :where(button, a):active {
+  scale: 0.97;
+}
+
+.marketing .plan-card {
+  background: var(--mk-panel);
+  border-color: var(--mk-line);
+  color: var(--mk-ink);
+}
+/* Needed because the rule above is one class more specific than
+   `.plan-card-featured`, so without it the marketing panel repainted the ink
+   slab and the featured card came back light, taking its white pill and white
+   button with it. */
+.marketing .plan-card-featured {
+  background: #0a0a0a;
+  color: #ffffff;
+  border: 0;
+}
+.marketing .plan-name,
+.marketing .plan-price {
+  font-family: var(--font-display), ui-serif, Georgia, serif;
+}
+
+/* NumberFlow renders its own inline-block wrapper; without this the price
+   baseline drifts away from the "/month" beside it. */
+.plan-price {
+  display: inline-block;
+  vertical-align: baseline;
+}
+
+/* The dashboard preview, scrubbed by scroll rather than played on a clock.
+ *
+ * The bars keep their existing keyframes and are paused, with a negative
+ * animation-delay selecting the frame: at --reveal 0 the delay is 0 and the
+ * bar sits at scaleY(0), and at 1 it is past the end and the bar is full. The
+ * per-column stagger is preserved by keeping its term in the same expression,
+ * and the 0.75s span is wide enough to hold all six columns' offsets.
+ *
+ * The gauge and the donut need no scrub: their arcs are computed from the
+ * score and counts, which are themselves derived from the reveal, so they
+ * follow it directly. Their own entrance animation is switched off here so it
+ * cannot fight the scroll.
+ *
+ * Reduced motion still wins: that rule sets `animation: none` and applies the
+ * gauge's final offset, and the caller passes a reveal of 1. */
+.preview-scrub .bar-grow-y {
+  animation-play-state: paused;
+  animation-delay: calc((var(--i, 0) * 35ms) - (var(--reveal, 1) * 0.75s));
+}
+
+.preview-scrub .gauge-sweep {
+  animation: none;
+  stroke-dashoffset: var(--gauge-offset);
+}

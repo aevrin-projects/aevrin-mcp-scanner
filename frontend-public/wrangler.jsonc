@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aevrin-public",
+  "compatibility_date": "2026-08-24",
+  // No `main` -- same static-assets-only shape as `frontend-docs/` (see
+  // DECISIONS.md ADR-010): `next build` with `output: "export"` produces a
+  // plain static site (`out/`), served directly from Cloudflare's asset
+  // storage rather than a Worker script, so there's no 3 MiB free-plan
+  // Worker-script limit to fit under at all.
+  "assets": {
+    "directory": "out",
+    "not_found_handling": "404-page"
+  },
+  // No `routes` yet, deliberately: this app is meant to take over
+  // `mcp.aevrin.net` from `frontend/`'s Worker (`aevrin-web`), which cannot
+  // happen until every OAuth provider's redirect URI is updated to
+  // `app.mcp.aevrin.net` first (see DECISIONS.md ADR-011 and
+  // docs/architecture/DEPLOYMENT.md) -- an external, account-holder-only
+  // step. Until that cutover, this deploys to its own
+  // `aevrin-public.<subdomain>.workers.dev` URL for verification.
+  "observability": {
+    "enabled": true
+  }
+}

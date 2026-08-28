@@ -4,7 +4,10 @@ name: Deploy docs
 # changes on master -- MDX content included. Split out from deploy-frontend.yml
 # (see DECISIONS.md) because the combined Worker (dashboard + marketplace +
 # admin + fumadocs/MDX rendering) exceeded Cloudflare's free-plan 3 MiB Worker
-# size limit; this Worker carries only the docs site's own dependencies.
+# size limit. Since ADR-010, this deploys a plain static export (`next build`
+# with `output: "export"`) as a Worker with static assets and no script at
+# all, rather than an OpenNext Worker -- there is no per-request server code
+# left to size, so this needs no Cloudflare plan beyond free.
 on:
   push:
     branches: [master]
@@ -42,8 +45,8 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Build Worker bundle
-        run: npx opennextjs-cloudflare build
+      - name: Build static export
+        run: npm run build
 
       - name: Deploy
         # wrangler is already a devDependency, so this needs no third-party

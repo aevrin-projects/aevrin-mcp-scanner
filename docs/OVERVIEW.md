@@ -27,8 +27,9 @@ are the one finding vocabulary used everywhere a finding is shown.
 | `backend/cli` | The `aevrin` Python CLI - `scan`, `agent scan`, `login`/`logout`, `hook setup`/`allow`, `findings triage`. Published to PyPI. |
 | `backend/cli-npm` | An npm wrapper (`npm install -g aevrin`) that installs the Python CLI underneath. |
 | `backend/hook` | The Claude Code `PreToolUse` hook - blocks a risky MCP install before it happens, using the same engine. |
-| `frontend` | The Next.js 16 dashboard and public marketing site, at `mcp.aevrin.net`. |
-| `frontend-docs` | The fumadocs-powered docs site at `docs.mcp.aevrin.net` - its own app and Cloudflare Worker, split from `frontend` because a combined bundle exceeded Cloudflare's Worker size limit (see `DECISIONS.md`). |
+| `frontend` | The Next.js 16 authenticated dashboard, admin, settings, billing, and auth routes, at `mcp.aevrin.net` today (moving to `app.mcp.aevrin.net` - see `DECISIONS.md` ADR-011). A real server: session cookies and OAuth exchange need one. |
+| `frontend-public` | The public marketing/content site (home, cli, contact, terms, privacy, refund, status) - a static export with no server, split from `frontend` because those routes need none (see `DECISIONS.md` ADR-011). Not yet bound to `mcp.aevrin.net`; deploys to its own Workers URL until the domain cutover. |
+| `frontend-docs` | The fumadocs-powered docs site at `docs.mcp.aevrin.net` - also a static export, split from `frontend` because a combined bundle exceeded Cloudflare's Worker size limit (see `DECISIONS.md` ADR-009/010). |
 | Supabase | Postgres, auth (JWT via JWKS), and the data API every backend query goes through. |
 
 ## Two documentation systems, on purpose

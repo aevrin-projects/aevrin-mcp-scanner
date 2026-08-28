@@ -1,0 +1,16 @@
+# script-src needs 'unsafe-inline': Next.js's App Router inlines its RSC
+# hydration payload as literal <script> tags on every page, static export or
+# not, and a static/assets-only deployment has no server left to mint a
+# per-request nonce. Without this, the previous CSP (script-src 'self', no
+# 'unsafe-inline') silently blocked that hydration in production -- verified
+# by hitting the live site's console: search, the theme toggle, and the
+# collapsible sidebar were non-functional. frontend/'s CSP already carries
+# 'unsafe-inline' in script-src for the identical reason; this brings docs
+# in line with it rather than being the one exception.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains

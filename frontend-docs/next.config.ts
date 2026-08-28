@@ -4,44 +4,21 @@ import { createMDX } from "fumadocs-mdx/next";
 
 const withMDX = createMDX();
 
-// A public documentation site: no API origin, no payment provider, no
-// dashboard session to protect. The policy is narrower than the main app's
-// on purpose -- there is nothing here that needs script-src beyond 'self'.
-const contentSecurityPolicy = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
-  "font-src 'self' data:",
-  "connect-src 'self'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-].join("; ");
-
+// A fully static site: every response header lives in `public/_headers`
+// instead of here. `output: 'export'` -- there is no server at request time
+// to run next.config's `headers()`, and Next.js warns (correctly) that it
+// would silently do nothing. Cloudflare's static-assets handler reads
+// `_headers` from the output root and applies it at the edge, which is a
+// closer match anyway: these are the same fixed strings on every request,
+// computed once at build time rather than recomputed per request.
 const nextConfig: NextConfig = {
+  output: "export",
   // The repo root has its own package-lock.json (for the shadcn CLI
   // devDependency used by the main frontend/ app), and this project sits
   // alongside frontend/ under the same root -- pin the workspace root
   // explicitly so Turbopack doesn't have to guess between the two.
   turbopack: {
     root: path.join(__dirname),
-  },
-  async headers() {
-    return [
-      {
-        source: "/(.*)",
-        headers: [
-          { key: "Content-Security-Policy", value: contentSecurityPolicy },
-          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "X-Frame-Options", value: "DENY" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
-          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
-        ],
-      },
-    ];
   },
 };
 

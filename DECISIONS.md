@@ -251,3 +251,208 @@ distinct from the dashboard's.
 
 **Trade-offs:** None - this is a decision not to build something, not a
 capability given up.
+
+---
+
+## ADR-010: `frontend-docs/` became a static export, no Worker script at all
+
+**Status:** Accepted
+
+**Decision:** `frontend-docs/` no longer builds through OpenNext
+(`@opennextjs/cloudflare`). It's a plain Next.js static export
+(`output: "export"` in `next.config.ts`, `next build` alone produces `out/`),
+deployed as a Cloudflare Worker with an `assets` block and **no `main`
+field** - there is no server-side code left to bundle. Same Worker name
+(`aevrin-docs`), same `custom_domain` route for `docs.mcp.aevrin.net`, so
+the domain/DNS/certificate never had to move.
+
+**Context:** ADR-009 split the docs site into its own Worker but left it on
+OpenNext, and concluded Workers Paid ($5/month) was required because its
+~5.8 MB bundle exceeded the free plan's 3 MiB Worker-script limit. That
+bundle was genuine per-request server code (Next's server runtime plus
+every route compiled into it) - not misplaced static assets, since
+OpenNext already serves `.open-next/assets` through Cloudflare's assets
+binding, separate from the script. The fix had to actually remove the
+script, not just shrink it.
+
+Every route in `frontend-docs/` turned out to already be static-safe: the
+catch-all docs page already used `generateStaticParams()`, `llms.txt`
+already had no per-request logic, and `sitemap.ts`/`robots.ts` read only
+the bundled MDX content. The one exception was `src/app/api/search/route.ts`,
+which used `createFromSource(source)`'s dynamic `GET` - a per-request
+Orama query fumadocs' own docs describe as one of the specific things
+static export cannot do (a Route Handler may only read static/cached data,
+never the incoming request). Fumadocs has a documented, purpose-built
+answer for exactly this: `staticGET` (aliased as `GET`) exports the whole
+search index as a single JSON file at build time, paired with a client-side
+search client (`fumadocs-core/search/client/orama-static`'s `staticClient`)
+that runs the actual query in the browser - see the new
+`src/components/search.tsx` and the rewritten `route.ts`. Verified against
+the built site, not assumed: the search dialog opened and returned
+correctly-ranked, highlighted results.
+
+Cloudflare's `headers()` next.config option doesn't run under static
+export either (confirmed against Next.js's own source, which warns and
+no-ops it) - replaced with a `public/_headers` file, Cloudflare's own
+static-asset header mechanism, carrying the identical CSP/security headers
+computed once at build time instead of per request.
+
+**A pre-existing bug, found and fixed in the same pass:** testing the
+rebuilt `_headers` file's CSP against the *live production* site (before
+touching anything) showed `script-src 'self'` was already blocking Next's
+own inline RSC-hydration `<script>` tags in production - search, the theme
+toggle, and the collapsible sidebar were all silently non-functional post-JS,
+on every existing page load, independent of this migration. `frontend/`'s
+CSP already carries `'unsafe-inline'` in `script-src` for the identical
+reason (Next inlines hydration data as literal script tags on every route,
+static or server-rendered); `frontend-docs/`'s CSP was the one surface that
+had never picked that up. Fixed by adding `'unsafe-inline'` to
+`script-src` in `public/_headers`, bringing it in line with `frontend/`.
+A stricter, nonce-based CSP isn't available here: nonces need a server to
+mint one per request, and this deployment now deliberately has none.
+
+**Alternatives considered:**
+- Migrate to Cloudflare Pages instead of Workers-with-assets-only. Rejected:
+  Cloudflare's own Workers static-assets feature (confirmed via
+  `developers.cloudflare.com/workers/static-assets/`) gives the identical
+  outcome - unlimited free static requests, a 20,000-file/25 MiB-per-file
+  limit nowhere near this site's ~8.6 MB output, no Worker-script size
+  limit at all in the absence of a script - through the exact same
+  `wrangler.jsonc`/`wrangler deploy` mechanism already in use, with the
+  same custom domain never needing to move. Cloudflare's own current
+  direction is folding Pages into Workers, not the other way round, and
+  Pages' custom-domain attachment isn't yet a `wrangler` CLI operation at
+  all (dashboard or direct API only) - a real migration cost this path
+  doesn't have.
+- Keep Workers Paid. Rejected per the user's explicit constraint: the free
+  plan was the goal, not just a smaller bill.
+
+**Trade-offs:**
+- The static search index (`out/api/search`, ~1.3 MB for ~36 pages) ships
+  to every visitor who opens the search dialog, rather than a server
+  filtering server-side per keystroke. For a documentation site this size,
+  immaterial; it would need reconsidering at a much larger page count.
+- `frontend-docs/`'s CSP no longer matches `frontend/`'s in one respect it
+  now should: both allow `'unsafe-inline'` in `script-src` for the same
+  Next.js hydration reason, which is documented here and in `_headers`
+  rather than left for the next person to wonder about.
+- This does not touch `frontend/` - see `docs/architecture/DEPLOYMENT.md`
+  for why the same fix does not carry over: `middleware.ts` and the OAuth
+  callback routes (`auth/callback`, `auth/confirm`) require real per-request
+  server code (cookie-based session exchange), which static export cannot
+  express at all, and removing them would remove authentication itself.
+
+---
+
+## ADR-011: `frontend/`'s public marketing routes split into a third app, `frontend-public/`
+
+**Status:** Accepted, partially implemented (built and verified; not yet
+cut over to the live domain - see Trade-offs)
+
+**Decision:** Eight fully public, non-authenticated routes - `/`, `/cli`,
+`/contact`, `/terms`, `/privacy`, `/refund`, `/status`, and the root
+sitemap/robots - move out of `frontend/` into `frontend-public/`, a third
+Next.js app built the same way as ADR-010's `frontend-docs/`: a static
+export (`output: "export"`), deployed as a Cloudflare Worker with only
+static assets and no script, no Cloudflare plan required beyond free.
+`frontend/` keeps everything that actually needs a server: the dashboard,
+admin, settings, billing, marketplace submit/saved, `/pricing`, `/login`,
+`/device`, `/onboarding`, and the auth routes, and is intended to move to
+`app.mcp.aevrin.net` once cutover happens, freeing `mcp.aevrin.net` for
+this app.
+
+**Context:** ADR-009 already found `frontend/`'s size problem (~7.1 MB,
+over the free plan's 3 MiB Worker-script limit) has no single fix - the
+bloat is cumulative across roughly 50 routes. The only way to reduce it
+without removing functionality is to reduce the route count, and the
+routes that can leave without changing what they do are the ones with no
+server-side dependency at all: no session check, no Server Action, no
+per-request data.
+
+Every route considered was checked against that bar individually, not
+assumed:
+- `/`, `/cli`, `/contact`, `/terms`, `/privacy`, `/refund` - plain content,
+  no dynamic dependency. Moved as-is.
+- `/status` - was a Server Component doing `fetch(..., { cache: "no-store"
+  })`, which `output: "export"` cannot express (a live check needs a
+  request to run from). Converted to a client component running the same
+  three checks from the visitor's own browser instead - arguably a more
+  honest signal than a check that only proves Cloudflare's edge can reach
+  the target, not the visitor.
+- `/pricing` - public to view, but pulls in the full billing integration
+  (Razorpay checkout, a live pricing fetch, `sonner` toasts, `@number-flow/
+  react`) for a page whose paid-tier checkout already requires signing in
+  regardless. Moving it would have added real dependency weight to
+  `frontend-public/` for comparatively little bundle relief on `frontend/`'s
+  side, so it stays with the authenticated app. The home page links to it
+  cross-domain instead of duplicating it.
+- `/login` - ruled out, not merely deferred: `views/login/api/actions.ts`
+  is a `"use server"` Server Actions file, which is explicitly on Next.js's
+  own unsupported-with-static-export list, and it enforces rate limits
+  (`checkRateLimit`, backed by Upstash Redis) against brute-force signin/
+  signup/password-reset attempts. Rewriting that as client-side Supabase
+  calls would mean the rate limits either move to a new backend endpoint
+  or stop being enforceable at all - a real security-relevant behavior
+  change, not a deploy detail, so this stays put.
+- `/device` - reads `headers()` for a server-verified session before
+  deciding whether to redirect to `/login`; same category of blocker as
+  `/login`, for the same reason (a real, enforced check, not a client-side
+  courtesy one).
+- `/onboarding` - a client component with no page-level dynamic
+  dependency, technically movable, but it exists only as the redirect
+  target immediately after `/auth/callback` completes on the authenticated
+  app's own domain. Moving it would add a cross-domain hop to every
+  sign-up with no functional benefit, so it stays with the flow it belongs
+  to.
+- `/marketplace`, `/marketplace/[slug]` - ruled out for a different reason:
+  static export needs `generateStaticParams()` to pre-list every path at
+  build time, and a listing added by the weekly registry sync or an
+  admin's submission approval (`docs/features/MCP_MARKETPLACE.md`) would
+  404 until the next `frontend-public` rebuild. That is a real behavior
+  change for a catalogue whose entire value is being current, not a
+  packaging detail, so both stay in the authenticated app.
+
+**Alternatives considered:**
+- Move `/marketplace`/`/marketplace/[slug]` anyway, wiring a rebuild
+  trigger off the existing registry-sync job to bound the staleness
+  window. Rejected for now: real complexity (a build-triggering step added
+  to `sync.py`'s job, plus wrangler's Direct Upload API called from
+  outside GitHub Actions) for a page whose data freshness is exactly what
+  the marketplace's own docs (`docs/features/MCP_MARKETPLACE.md`) promise;
+  worth reconsidering only if `frontend/`'s size still doesn't clear the
+  free-plan limit after this split lands.
+- Upgrade to Workers Paid and stop here. Available at any point - it's
+  $5/month, flat, and this split does not have to be the only path to a
+  smaller bill. Not chosen because the user's stated goal was to avoid it,
+  and this split gets there without removing anything real.
+
+**Trade-offs:**
+- **Not measured against a real fitness number yet.** ADR-009's own
+  finding (bloat spread evenly, no single fix) means there is no guarantee
+  the remaining `frontend/` Worker clears 3 MiB after these eight routes
+  leave - only that it is smaller. The actual number needs measuring after
+  `frontend/` itself is trimmed of these routes, which has not happened in
+  this pass (see below).
+- **The domain cutover is a separate, external-dependency step, not yet
+  taken.** A Cloudflare custom domain can only point at one Worker at a
+  time (ADR-009's own finding), so `mcp.aevrin.net` moving to
+  `frontend-public/` means `frontend/` has to move to a new subdomain,
+  `app.mcp.aevrin.net`. That requires, before the domains actually
+  switch: every OAuth redirect URI registered with Google and GitHub
+  updated to `app.mcp.aevrin.net` in their respective consoles (account-
+  holder access only, not something this session can do), `frontend/`'s
+  `NEXT_PUBLIC_SITE_URL` updated to match, and the backend's `WEB_ORIGIN`
+  CORS allowlist extended to include `app.mcp.aevrin.net` (`mcp.aevrin.net`
+  itself needs no CORS change, since `frontend-public/` inherits the
+  existing origin the backend already allows). Until that happens,
+  `frontend-public/` deploys to its own `workers.dev` URL and `frontend/`
+  has not been trimmed of the eight moved routes, so nothing in production
+  is broken by this ADR landing - both the old and new copies of these
+  eight pages exist side by side until cutover.
+- One more `package.json`/lockfile to keep dependency versions aligned by
+  hand (same trade-off ADR-009 already accepted for `frontend-docs/`).
+- `globals.css` is now duplicated a second time (`frontend-public/` copied
+  it wholesale from `frontend/`, unlike `frontend-docs/`'s hand-trimmed
+  subset) rather than shared through a package - deliberate, to avoid a
+  third risky manual trim in one sitting; worth revisiting if the three
+  copies drift.

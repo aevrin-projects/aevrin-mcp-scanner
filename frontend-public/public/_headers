@@ -1,0 +1,18 @@
+# Same reasoning as frontend-docs/public/_headers: static export has no
+# server left to run next.config.ts's `headers()`, so these are computed
+# once here instead of per request. `script-src`/`style-src` need
+# 'unsafe-inline' for the same reason: Next's App Router inlines its RSC
+# hydration payload as literal <script> tags on every route.
+#
+# connect-src names the production API and Supabase origins directly
+# (mirroring what frontend/'s CSP builds from NEXT_PUBLIC_API_URL at build
+# time) because the status page's live checks (`fetch(apiUrl + "/health")`,
+# `fetch(supabaseUrl + "/auth/v1/health")`) are otherwise silently blocked
+# by CSP and would misreport those services as down.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://api.mcp.aevrin.net https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains

@@ -8,6 +8,7 @@ import { RootProvider } from "fumadocs-ui/provider/next";
 import { DocsLayout } from "fumadocs-ui/layouts/docs";
 import { baseOptions } from "./layout.config";
 import { source } from "@/lib/docs-source";
+import DocsSearchDialog from "@/components/search";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -47,7 +48,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     >
       <body className="min-h-full bg-background text-foreground">
         <div className="docs-shell">
-          <RootProvider theme={{ enabled: false }} search={{ options: { api: "/api/search" } }}>
+          <RootProvider theme={{ enabled: false }} search={{ SearchDialog: DocsSearchDialog }}>
             <DocsLayout
               tree={source.pageTree}
               {...baseOptions}

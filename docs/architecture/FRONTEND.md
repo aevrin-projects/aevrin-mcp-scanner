@@ -81,6 +81,16 @@ of a missing `lucide-react` icon where needed), `sonner` (toasts). This is
 what keeps spacing and visual hierarchy identical across every screen in
 the product - a new view composes these rather than inventing its own.
 
+Three icon sources, each with one job: `lucide-react` for general UI
+chrome, `thesvg` (via `brand-icon.tsx`) for a real company's mark where the
+company is actually named (a listing's own tags, an AI provider), and
+`react-icons` (currently `react-icons/fi`) for generic concept icons where
+neither of the other two fits - e.g. a marketplace category ("databases",
+"devops") that names no specific brand. `entities/marketplace/ui/listing-logo.tsx`
+is the one place all three meet: it reads a listing's own tags for a brand
+match before ever falling back to a category icon, so a mark is never shown
+unless the publisher's own text supports it.
+
 ## Entities (business domain)
 
 `admin`, `agent`, `ai-provider`, `api-key`, `billing`, `device`, `finding`,
@@ -90,6 +100,22 @@ the product - a new view composes these rather than inventing its own.
 `entities/marketplace/ui/grade-badge.tsx`, which *requires* a `state` prop
 so a bare confident letter grade can never be rendered without its scan
 state alongside it).
+
+## Two routes are moving to their own app, `frontend-public/`
+
+`ADR-011` (`DECISIONS.md`) started moving eight fully public,
+non-authenticated routes - `/`, `/cli`, `/contact`, `/status`, `/privacy`,
+`/terms`, `/refund` - out of this app into `frontend-public/`, a static
+export with no server. **This app still serves all of them today** - the
+routing list above is accurate as of right now - because the cutover
+(moving this app's Worker off `mcp.aevrin.net` to `app.mcp.aevrin.net`, and
+deleting these routes here) waits on external OAuth-provider redirect-URI
+updates only the account holder can make. See
+`docs/architecture/DEPLOYMENT.md` for the exact remaining steps. `/pricing`,
+`/login`, `/device`, `/onboarding`, and `/marketplace*` were each checked
+and found to need a real server (Server Actions, a session check, or
+build-time-unknowable paths) and stay here permanently, not just until
+cutover.
 
 ## The docs site is a separate app
 

@@ -1,25 +1,22 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "aevrin-docs",
-  "main": ".open-next/worker.js",
   "compatibility_date": "2026-08-24",
-  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  // A dedicated Worker for docs.mcp.aevrin.net, split out from the main
-  // aevrin-web Worker because the combined bundle (dashboard + marketplace +
-  // admin + fumadocs/MDX rendering) exceeded Cloudflare's free-plan 3 MiB
-  // Worker size limit. See docs/architecture/DEPLOYMENT.md and DECISIONS.md.
+  // No `main` -- there is no server-side code at all. `next build` with
+  // `output: "export"` produces a plain static site (`out/`), and Cloudflare
+  // serves it directly from asset storage. That storage isn't the Worker
+  // script -- there's no script here to size -- so this deploys on the free
+  // plan; the previous OpenNext build (`.open-next/worker.js`) was a real
+  // ~5.8 MB Worker script and needed Workers Paid. See DECISIONS.md.
+  "assets": {
+    "directory": "out",
+    "not_found_handling": "404-page"
+  },
+  // Same Worker name and the same custom-domain route as the OpenNext
+  // deployment this replaced, so docs.mcp.aevrin.net's DNS/certificate never
+  // needs to move.
   "routes": [
     { "pattern": "docs.mcp.aevrin.net", "custom_domain": true }
-  ],
-  "assets": {
-    "binding": "ASSETS",
-    "directory": ".open-next/assets"
-  },
-  "services": [
-    {
-      "binding": "WORKER_SELF_REFERENCE",
-      "service": "aevrin-docs"
-    }
   ],
   "observability": {
     "enabled": true
