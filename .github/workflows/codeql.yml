@@ -36,7 +36,7 @@ jobs:
           build-mode: none
 
       - name: Analyze
-        uses: github/codeql-action/analyze@e60ea984bd3baa95954f2856bcf24f9eaba46637 # v3.37.5
+        uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
         with:
           # This is a private repository without GitHub Code Scanning enabled.
           # Run the complete CodeQL analysis as a CI gate, but do not fail the
