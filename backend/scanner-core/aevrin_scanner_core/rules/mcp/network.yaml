@@ -1,0 +1,57 @@
+rules:
+  - id: mcp-tool-input-reaches-network-request
+    languages: [python]
+    severity: ERROR
+    mode: taint
+    message: "An MCP tool argument reaches an outbound network request."
+    metadata:
+      aevrin-capability: network_outbound
+      aevrin-owasp: MCP05
+    pattern-sources:
+      - patterns:
+          - pattern-inside: |
+              @$DECORATOR.tool(...)
+              def $FUNC(..., $ARG, ...):
+                  ...
+          - focus-metavariable: $ARG
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: requests.get($URL, ...)
+              - pattern: requests.post($URL, ...)
+              - pattern: requests.put($URL, ...)
+              - pattern: requests.delete($URL, ...)
+              - pattern: httpx.get($URL, ...)
+              - pattern: httpx.post($URL, ...)
+              - pattern: urllib.request.urlopen($URL)
+          - focus-metavariable: $URL
+
+  - id: mcp-tool-input-reaches-network-request-ts
+    languages: [typescript, javascript]
+    severity: ERROR
+    mode: taint
+    message: "An MCP tool argument reaches an outbound network request."
+    metadata:
+      aevrin-capability: network_outbound
+      aevrin-owasp: MCP05
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $SERVER.registerTool($NAME, $OPTS, async ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.registerTool($NAME, $OPTS, ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.tool($NAME, $DESC, $SCHEMA, async ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.tool($NAME, $DESC, $SCHEMA, ($ARG) => { ... })
+          - focus-metavariable: $ARG
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: fetch($URL, ...)
+              - pattern: $AXIOS.get($URL, ...)
+              - pattern: $AXIOS.post($URL, ...)
+              - pattern: $HTTP.get($URL, ...)
+              - pattern: $HTTP.request($URL, ...)
+          - focus-metavariable: $URL

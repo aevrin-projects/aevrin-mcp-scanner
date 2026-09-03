@@ -285,7 +285,14 @@ def http_server_snapshot() -> dict[str, Any]:
     )
 
 
-def scan_row(scan_id: str, target: str, *, status: str = "completed", score: int = 100) -> dict[str, Any]:
+def scan_row(
+    scan_id: str,
+    target: str,
+    *,
+    status: str = "completed",
+    score: int = 100,
+    mcp_capabilities: dict[str, bool] | None = None,
+) -> dict[str, Any]:
     return {
         "id": scan_id,
         "user_id": USER,
@@ -293,6 +300,7 @@ def scan_row(scan_id: str, target: str, *, status: str = "completed", score: int
         "target_type": "live_mcp_server",
         "status": status,
         "score": score,
+        "mcp_capabilities": mcp_capabilities,
         "created_at": datetime.now(UTC).isoformat(),
     }
 
@@ -336,6 +344,26 @@ def test_a_scanned_http_server_carries_the_grade_from_its_own_scan():
     # The letter arrives with the factors that produced it, or it is an
     # opinion with better typography.
     assert any("high-severity" in factor.reason for factor in trust.factors)
+
+
+def test_live_capability_data_reaches_the_agent_posture_grade():
+    """scan.mcp_capabilities for a live_mcp_server scan comes from
+    remote_mcp.py's own handshake, not discover_tools() - before this was
+    wired up, _trust_by_identity never read the column at all, so a live
+    server's real, established capability evidence never reached its own
+    grade here (ADR-022)."""
+    scan_id = str(uuid4())
+    db = FakeDb(
+        [row(http_server_snapshot())],
+        scans=[scan_row(
+            scan_id, "https://mcp.context7.com/mcp", score=100,
+            mcp_capabilities={"can_execute": True, "can_write": False, "can_read": True,
+                              "handles_credentials": False, "makes_network_calls": False},
+        )],
+    )
+    trust = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0].trust
+    assert trust is not None
+    assert any("command-execution" in factor.reason for factor in trust.factors)
 
 
 def test_an_http_server_that_was_never_scanned_has_no_grade():

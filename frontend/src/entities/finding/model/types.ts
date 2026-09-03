@@ -14,6 +14,14 @@ export interface Finding {
   line_end: number | null;
   manifest_field: string | null;
   tool_name_in_manifest: string | null;
+  /** Which declared MCP tool this finding's sink was found inside
+   * (analysis.capability_map). Null when not applicable or not
+   * established - never a guess at the nearest tool. */
+  mcp_tool: string | null;
+  /** The normalized capability vocabulary term this finding is about
+   * (adapters/mcp_behavior.py). Null for every tool except the MCP
+   * behavior pack. */
+  capability: string | null;
   remediation: string;
   verified: boolean | null;
   not_tested: boolean;

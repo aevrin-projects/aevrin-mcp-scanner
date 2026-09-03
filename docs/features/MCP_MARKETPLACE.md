@@ -82,7 +82,31 @@ snippet with blank secrets (never a real value). Admins moderate via
   `grade_mcp_server()`. No second rubric exists here. Writes the grade
   onto a specific `mcp_listing_versions` row, and only that function
   writes `mcp_listings.current_*` (the maintained projection - see
-  [`../architecture/DATABASE.md`](../architecture/DATABASE.md)).
+  [`../architecture/DATABASE.md`](../architecture/DATABASE.md)). Its
+  `can_execute`/`can_write` factors now read `scans.mcp_capabilities`
+  (migration `0045`) off the scan row - `scanning.py`'s
+  `_apply_scan_to_version` passes it straight through as `capabilities`.
+  Before this it was always `None` (unestablished), because the tools a
+  repository declares lived only on the in-memory `Scan` object and were
+  never persisted anywhere `apply_completed_scan` could read them back
+  from - `capability_summary()` (`scanner-core/analysis/mcp_detection.py`)
+  had its own passing unit test the whole time with no real caller. A
+  server whose declared tools include command execution now costs
+  `EXECUTION_CAPABILITY_WEIGHT` (12 points) against its grade, a write
+  capability `WRITE_CAPABILITY_WEIGHT` (6); see `DECISIONS.md` ADR-020 for
+  why this is a real, if modest, grade-affecting change for already-scanned
+  listings rather than a pure bugfix, and how it surfaces (a `grade_changed`
+  event on that listing's next scan, not a retroactive rewrite). ADR-021,
+  the immediate follow-up: `can_execute`/`can_write: None` (unestablished)
+  now costs `UNKNOWN_CAPABILITY_WEIGHT` (4, each field independently) rather
+  than scoring identically to a confirmed `False`. `scan_listing_version`
+  requires a `repository_url` (raises `ScanNotPossible` otherwise), so a
+  marketplace listing is always graded from a real `GITHUB_REPO` scan,
+  never the source-less live-only path ADR-022 addresses separately -
+  `mcp_capabilities` is `None` for a listing here only when its repository
+  was scanned but did not look like an MCP server at all
+  (`scan.mcp_detected is False`), which is exactly the honest "we didn't
+  check the right thing" case this penalty exists for.
 - **`catalog.py`** - search, listing detail, category listing, favorites,
   view counts. Explicit column lists (`LIST_COLUMNS`/`DETAIL_COLUMNS`),
   never `select *`. Deliberately has **no "Verified" badge** - a

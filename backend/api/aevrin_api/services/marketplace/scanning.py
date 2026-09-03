@@ -72,7 +72,7 @@ async def find_reusable_scan(
     rows = await db.select(
         "scans",
         filters,
-        columns="id,score,status,mcp_detected,unreliable_stages,created_at,completed_at",
+        columns="id,score,status,mcp_detected,mcp_capabilities,unreliable_stages,created_at,completed_at",
         order="completed_at.desc",
         limit=1,
     )
@@ -295,7 +295,7 @@ async def apply_completed_scan(
     scan_rows = await db.select(
         "scans",
         {"id": scan_id},
-        columns="id,score,status,mcp_detected,unreliable_stages,completed_at",
+        columns="id,score,status,mcp_detected,mcp_capabilities,unreliable_stages,completed_at",
         limit=1,
     )
     if not scan_rows:
@@ -331,12 +331,16 @@ async def _apply_scan_to_version(
         findings,
         scan_score=scan_row.get("score"),
         coverage_complete=coverage_complete,
-        # Capabilities are not read back from the scan row today: the tools a
-        # repository declares live on the in-memory Scan and are not persisted
-        # per-listing yet. Passing nothing means grade.py treats them as
-        # unestablished, which counts against the grade rather than for it --
-        # the correct direction for an unknown.
-        capabilities=None,
+        # scan.mcp_capabilities (migration 0045): capability_summary() over
+        # this scan's declared tools - can_execute/can_write, from tool
+        # names/descriptions, not observed behavior. None for a scan where
+        # tool discovery never ran (a live server, a pasted config, or a
+        # repository that isn't an MCP server), which grade_mcp_server()
+        # currently treats the same as "confirmed no capability" for these
+        # two factors specifically - see that function's own docstring
+        # caveat on where this differs from how it treats an unknown
+        # `authenticated`.
+        capabilities=scan_row.get("mcp_capabilities"),
     )
 
     row = await record_version_scan(

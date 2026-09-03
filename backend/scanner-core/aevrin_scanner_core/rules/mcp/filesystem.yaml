@@ -1,0 +1,193 @@
+rules:
+  - id: mcp-tool-input-reaches-filesystem-write
+    languages: [python]
+    severity: ERROR
+    mode: taint
+    message: "An MCP tool argument reaches a filesystem write."
+    metadata:
+      aevrin-capability: filesystem_write
+      aevrin-owasp: MCP09
+    pattern-sources:
+      - patterns:
+          - pattern-inside: |
+              @$DECORATOR.tool(...)
+              def $FUNC(..., $ARG, ...):
+                  ...
+          - focus-metavariable: $ARG
+    # A tool argument reduced to its basename can no longer traverse
+    # (`../../etc/passwd` becomes `passwd`) - the standard path-traversal
+    # defense, and unambiguous enough to trust as a sanitizer. Writing
+    # outside the intended directory is defeated; writing to an unexpected
+    # file *within* it is not, which is a real but narrower residual risk
+    # than traversal, the risk this specific rule pack targets.
+    pattern-sanitizers:
+      - patterns:
+          - pattern: os.path.basename(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: open($PATH, "w", ...)
+              - pattern: open($PATH, "a", ...)
+              - pattern: open($PATH, "x", ...)
+              - pattern: open($PATH, "wb", ...)
+              - pattern: $P.write_text(...)
+              - pattern: $P.write_bytes(...)
+          - focus-metavariable:
+              - $PATH
+              - $P
+
+  - id: mcp-tool-input-reaches-filesystem-read
+    languages: [python]
+    severity: WARNING
+    mode: taint
+    message: "An MCP tool argument reaches a filesystem read."
+    metadata:
+      aevrin-capability: filesystem_read
+      aevrin-owasp: MCP09
+    pattern-sources:
+      - patterns:
+          - pattern-inside: |
+              @$DECORATOR.tool(...)
+              def $FUNC(..., $ARG, ...):
+                  ...
+          - focus-metavariable: $ARG
+    pattern-sanitizers:
+      - patterns:
+          - pattern: os.path.basename(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: open($PATH)
+              - pattern: open($PATH, "r", ...)
+              - pattern: $P.read_text(...)
+              - pattern: $P.read_bytes(...)
+          - focus-metavariable:
+              - $PATH
+              - $P
+
+  - id: mcp-tool-input-reaches-destructive-filesystem-op
+    languages: [python]
+    severity: ERROR
+    mode: taint
+    message: "An MCP tool argument reaches a destructive filesystem operation."
+    metadata:
+      aevrin-capability: destructive_operation
+      aevrin-owasp: MCP09
+    pattern-sources:
+      - patterns:
+          - pattern-inside: |
+              @$DECORATOR.tool(...)
+              def $FUNC(..., $ARG, ...):
+                  ...
+          - focus-metavariable: $ARG
+    pattern-sanitizers:
+      - patterns:
+          - pattern: os.path.basename(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: os.remove($PATH)
+              - pattern: os.unlink($PATH)
+              - pattern: shutil.rmtree($PATH)
+              - pattern: $P.unlink(...)
+          - focus-metavariable:
+              - $PATH
+              - $P
+
+  - id: mcp-tool-input-reaches-filesystem-write-ts
+    languages: [typescript, javascript]
+    severity: ERROR
+    mode: taint
+    message: "An MCP tool argument reaches a filesystem write."
+    metadata:
+      aevrin-capability: filesystem_write
+      aevrin-owasp: MCP09
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $SERVER.registerTool($NAME, $OPTS, async ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.registerTool($NAME, $OPTS, ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.tool($NAME, $DESC, $SCHEMA, async ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.tool($NAME, $DESC, $SCHEMA, ($ARG) => { ... })
+          - focus-metavariable: $ARG
+    # Node's own `path` module, the direct equivalent of Python's
+    # os.path.basename above - literal `path.basename`, not a metavariable
+    # object, so an unrelated method that happens to share the name can't
+    # be mistaken for the real sanitizer.
+    pattern-sanitizers:
+      - patterns:
+          - pattern: path.basename(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $FS.writeFileSync($PATH, ...)
+              - pattern: $FS.writeFile($PATH, ...)
+              - pattern: $FS.appendFileSync($PATH, ...)
+              - pattern: $FS.appendFile($PATH, ...)
+          - focus-metavariable: $PATH
+
+  - id: mcp-tool-input-reaches-filesystem-read-ts
+    languages: [typescript, javascript]
+    severity: WARNING
+    mode: taint
+    message: "An MCP tool argument reaches a filesystem read."
+    metadata:
+      aevrin-capability: filesystem_read
+      aevrin-owasp: MCP09
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $SERVER.registerTool($NAME, $OPTS, async ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.registerTool($NAME, $OPTS, ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.tool($NAME, $DESC, $SCHEMA, async ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.tool($NAME, $DESC, $SCHEMA, ($ARG) => { ... })
+          - focus-metavariable: $ARG
+    pattern-sanitizers:
+      - patterns:
+          - pattern: path.basename(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $FS.readFileSync($PATH, ...)
+              - pattern: $FS.readFile($PATH, ...)
+          - focus-metavariable: $PATH
+
+  - id: mcp-tool-input-reaches-destructive-filesystem-op-ts
+    languages: [typescript, javascript]
+    severity: ERROR
+    mode: taint
+    message: "An MCP tool argument reaches a destructive filesystem operation."
+    metadata:
+      aevrin-capability: destructive_operation
+      aevrin-owasp: MCP09
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $SERVER.registerTool($NAME, $OPTS, async ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.registerTool($NAME, $OPTS, ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.tool($NAME, $DESC, $SCHEMA, async ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.tool($NAME, $DESC, $SCHEMA, ($ARG) => { ... })
+          - focus-metavariable: $ARG
+    pattern-sanitizers:
+      - patterns:
+          - pattern: path.basename(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $FS.unlinkSync($PATH)
+              - pattern: $FS.unlink($PATH, ...)
+              - pattern: $FS.rmSync($PATH, ...)
+              - pattern: $FS.rmdirSync($PATH, ...)
+          - focus-metavariable: $PATH

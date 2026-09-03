@@ -45,6 +45,7 @@ _STAGE_ORDER = [
     StageName.STATIC_ANALYSIS,
     StageName.SECRETS,
     StageName.DEPENDENCIES,
+    StageName.MCP_ANALYSIS,
     StageName.TOOL_DESCRIPTION_CHECK,
     StageName.AGGREGATING,
 ]

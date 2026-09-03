@@ -40,6 +40,21 @@ grade; `attack_paths.py` derives concrete "agent X can reach credential Y
 via capability Z" chains from the same discovered data, rather than a
 separate analysis pass.
 
+The per-server MCP trust grade shown alongside a configured agent
+(`api/controllers/agent_controller.py::_trust_by_identity`) is matched by
+identity against a `live_mcp_server` scan of the same target, never
+against a source-repository scan of it. `Scan.mcp_capabilities` for that
+scan now comes from `analysis/remote_mcp.py::inspect_remote_signatures` -
+the same live `list_tools()` handshake that already produced the rug-pull
+signature hash also feeds `capability_summary()` (ADR-022), so an
+execute-capable live server is graded on real, established evidence rather
+than carrying a permanent "could not be established" penalty
+(`UNKNOWN_CAPABILITY_WEIGHT`, ADR-021) purely because no source repository
+was ever read. That penalty still applies, correctly, when the live
+handshake itself fails (network error, protocol error) - a target that
+genuinely could not be checked stays distinguishable from one confirmed
+clean, the same rule the rest of this rubric already follows.
+
 ## Scoring
 
 Deterministic: start at 100, deduct named amounts, and every deduction

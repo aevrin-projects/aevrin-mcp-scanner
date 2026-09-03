@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 # Depth and file-count ceilings. A monorepo can be enormous, and this walk
@@ -74,6 +75,26 @@ class DetectionSignal:
     file_path: str | None = None
 
 
+@dataclass(frozen=True)
+class McpComponent:
+    """One MCP server living inside this repository, at `root`.
+
+    A monorepo's frontend, backend, and MCP server are three different
+    things sharing one clone; scoring the whole tree as one target meant a
+    repo with an MCP server in `mcp-server/` and nothing MCP-related in
+    `frontend/`/`backend/` was already correctly detected overall, but
+    nothing said *where* - which mattered once tool discovery needed to
+    stop merging two separately-rooted servers' tools into one flat list.
+    Only emitted for a root that independently reaches at least `low`
+    confidence on its own files; a directory with no MCP signal of its own
+    is not a component just because it shares a repository with one that is.
+    """
+
+    root: str  # relative path, "." for the repository root itself
+    confidence: str  # "high" | "medium" | "low" (never "none" - not emitted)
+    signals: tuple[DetectionSignal, ...] = ()
+
+
 @dataclass
 class McpDetection:
     """The verdict, with the evidence that produced it."""
@@ -81,6 +102,15 @@ class McpDetection:
     is_mcp_server: bool
     confidence: str  # "high" | "medium" | "low" | "none"
     signals: list[DetectionSignal] = field(default_factory=list)
+    # Deliberately NOT a roll-up of this list: computed once, globally, over
+    # every manifest/source file in the repository, exactly as before
+    # components existed. A monorepo's evidence often splits across
+    # directories (an SDK dependency in one package, its registration
+    # decorator in another via a shared internal library), and scoping this
+    # verdict to "the strongest single component" would under-detect real
+    # servers whose evidence is real but spread out. components (below) is
+    # the answer to "where", not a replacement for this answer to "whether".
+    components: list[McpComponent] = field(default_factory=list)
 
     @property
     def score(self) -> int:
@@ -198,16 +228,15 @@ def _walk(repo_dir: str) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     return manifests, sources
 
 
-def detect_mcp_server(repo_dir: str) -> McpDetection:
-    """Is this repository an MCP server, and on what evidence?
+def _evidence_signals(
+    manifests: list[tuple[str, str]], sources: list[tuple[str, str]]
+) -> list[DetectionSignal]:
+    """Every detection signal found in this manifest/source set.
 
-    Scoring, rather than any single test, because every individual signal has
-    a plausible innocent explanation. A dependency could be a client's. An
-    import could be in an example. A `new Server(` could be Express. Requiring
-    agreement between independent signals is what keeps this from firing on
-    every repository that has heard of MCP.
+    Pulled out of detect_mcp_server so component detection (below) can run
+    the identical pattern-matching against a narrower, per-directory subset
+    without duplicating a single regex.
     """
-    manifests, sources = _walk(repo_dir)
     signals: list[DetectionSignal] = []
     seen: set[str] = set()
 
@@ -246,6 +275,10 @@ def detect_mcp_server(repo_dir: str) -> McpDetection:
             if pattern.search(content):
                 add("transport", label, 15, path)
 
+    return signals
+
+
+def _confidence_from_signals(signals: list[DetectionSignal]) -> str:
     score = sum(s.weight for s in signals)
     kinds = {s.kind for s in signals}
 
@@ -255,18 +288,100 @@ def detect_mcp_server(repo_dir: str) -> McpDetection:
     serving = bool(kinds & {"registration", "transport", "server_init"})
 
     if strong and serving:
-        confidence = "high"
-    elif strong or (serving and "sdk_import" in kinds):
-        confidence = "medium"
-    elif score >= 30:
-        confidence = "low"
-    else:
-        confidence = "none"
+        return "high"
+    if strong or (serving and "sdk_import" in kinds):
+        return "medium"
+    if score >= 30:
+        return "low"
+    return "none"
+
+
+def _component_candidate_roots(manifests: list[tuple[str, str]]) -> list[str]:
+    """Every directory a component could be rooted at: the repository root,
+    plus every directory that owns a manifest of its own. A directory with
+    no manifest is never a candidate root on its own - it has nothing that
+    plausibly makes it a separate package rather than just more files
+    belonging to whichever manifest-owning directory encloses it."""
+    roots = {"."}
+    for path, _content in manifests:
+        directory = os.path.dirname(path)
+        roots.add(directory if directory else ".")
+    return sorted(roots)
+
+
+def _owning_root(path: str, roots: list[str]) -> str:
+    """The most specific candidate root that encloses `path`, so a file two
+    levels under `mcp-server/` is attributed to `mcp-server/`, not to the
+    repository root just because "." technically encloses everything too."""
+    best = "."
+    best_len = -1
+    for root in roots:
+        if root == ".":
+            continue
+        if (path == root or path.startswith(root + "/")) and len(root) > best_len:
+            best = root
+            best_len = len(root)
+    return best
+
+
+def _detect_components(
+    manifests: list[tuple[str, str]], sources: list[tuple[str, str]]
+) -> list[McpComponent]:
+    roots = _component_candidate_roots(manifests)
+    grouped_manifests: dict[str, list[tuple[str, str]]] = {root: [] for root in roots}
+    grouped_sources: dict[str, list[tuple[str, str]]] = {root: [] for root in roots}
+    for path, content in manifests:
+        grouped_manifests[_owning_root(path, roots)].append((path, content))
+    for path, content in sources:
+        grouped_sources[_owning_root(path, roots)].append((path, content))
+
+    components: list[McpComponent] = []
+    for root in roots:
+        signals = _evidence_signals(grouped_manifests[root], grouped_sources[root])
+        confidence = _confidence_from_signals(signals)
+        if confidence == "none":
+            continue
+        components.append(
+            McpComponent(
+                root=root,
+                confidence=confidence,
+                signals=tuple(sorted(signals, key=lambda s: -s.weight)),
+            )
+        )
+    # Repository root first when it is itself a component (the common case:
+    # a single-package repo has exactly one component, rooted "."), then the
+    # rest alphabetically.
+    return sorted(components, key=lambda c: (c.root != ".", c.root))
+
+
+def detect_mcp_server(repo_dir: str) -> McpDetection:
+    """Is this repository an MCP server, and on what evidence?
+
+    Scoring, rather than any single test, because every individual signal has
+    a plausible innocent explanation. A dependency could be a client's. An
+    import could be in an example. A `new Server(` could be Express. Requiring
+    agreement between independent signals is what keeps this from firing on
+    every repository that has heard of MCP.
+
+    This verdict is computed globally, over every manifest and source file in
+    the repository - it is not derived from `components` below, and scoping
+    it to components would under-detect a real server whose evidence happens
+    to be split across directories (a shared internal library declaring the
+    SDK dependency, a separate directory registering the tools). `components`
+    answers a different, narrower question: which specific directories, each
+    judged independently on their own files, look like a self-contained MCP
+    server. A monorepo can correctly score "high" here while contributing
+    zero or several entries there.
+    """
+    manifests, sources = _walk(repo_dir)
+    signals = _evidence_signals(manifests, sources)
+    confidence = _confidence_from_signals(signals)
 
     return McpDetection(
         is_mcp_server=confidence in ("high", "medium", "low"),
         confidence=confidence,
         signals=sorted(signals, key=lambda s: -s.weight),
+        components=_detect_components(manifests, sources),
     )
 
 
@@ -287,6 +402,16 @@ class DiscoveredTool:
     # Best-effort read of what the tool does, from its own name and text.
     # Never presented as proof of capability, only as a declared surface.
     capabilities: tuple[str, ...] = ()
+    # The registration site's own span - for Python, the decorator through
+    # the end of the docstring (or the `def` line alone, with no docstring);
+    # for the JS/TS/object-literal forms, the single matched expression.
+    # This is a *declaration* location, not a function-body range: a Python
+    # tool's actual logic continues past where line_end points, and nothing
+    # here claims otherwise. It exists so a finding or a future capability
+    # check can say "declared at handler.py:42" instead of only naming the
+    # file the way file_path alone did.
+    line_start: int | None = None
+    line_end: int | None = None
 
 
 # Python: @mcp.tool() / @server.tool(name="x", description="y"), followed by a
@@ -344,6 +469,11 @@ def _classify(name: str, description: str) -> tuple[str, ...]:
     return tuple(label for label, pattern in _CAPABILITY_TERMS if pattern.search(haystack))
 
 
+def _line_number(content: str, offset: int) -> int:
+    """1-based line number of a character offset into `content`."""
+    return content.count("\n", 0, offset) + 1
+
+
 def _clean(text: str) -> str:
     """Collapse whitespace and cap length.
 
@@ -366,7 +496,9 @@ def discover_tools(repo_dir: str) -> list[DiscoveredTool]:
     _, sources = _walk(repo_dir)
     found: dict[str, DiscoveredTool] = {}
 
-    def record(name: str, description: str, path: str) -> None:
+    def record(
+        name: str, description: str, path: str, line_start: int | None, line_end: int | None
+    ) -> None:
         name = name.strip()
         # A registration site whose name is an interpolation rather than a
         # literal tells us a tool exists but not what it is called. Recording
@@ -382,6 +514,8 @@ def discover_tools(repo_dir: str) -> list[DiscoveredTool]:
             description=description,
             file_path=path,
             capabilities=_classify(name, description),
+            line_start=line_start,
+            line_end=line_end,
         )
 
     for path, content in sources:
@@ -394,25 +528,54 @@ def discover_tools(repo_dir: str) -> list[DiscoveredTool]:
                     explicit_name.group(1) if explicit_name else match.group(3),
                     explicit_description.group(1) if explicit_description else (match.group("doc") or ""),
                     path,
+                    _line_number(content, match.start()),
+                    _line_number(content, match.end()),
                 )
             continue
 
         for match in _TS_REGISTER_TOOL.finditer(content):
             description = _DESCRIPTION_FIELD.search(match.group("body") or "")
-            record(match.group("name"), description.group(1) if description else "", path)
+            record(
+                match.group("name"),
+                description.group(1) if description else "",
+                path,
+                _line_number(content, match.start()),
+                _line_number(content, match.end()),
+            )
         for match in _TS_TOOL_CALL.finditer(content):
-            record(match.group("name"), match.group("description"), path)
+            record(
+                match.group("name"),
+                match.group("description"),
+                path,
+                _line_number(content, match.start()),
+                _line_number(content, match.end()),
+            )
         for match in _TOOL_OBJECT.finditer(content):
-            record(match.group("name"), match.group("description"), path)
+            record(
+                match.group("name"),
+                match.group("description"),
+                path,
+                _line_number(content, match.start()),
+                _line_number(content, match.end()),
+            )
 
     return sorted(found.values(), key=lambda tool: tool.name)
 
 
-def capability_summary(tools: list[DiscoveredTool]) -> dict[str, bool]:
-    """Roll the per-tool capability labels up into the flags the trust grade
-    takes. `can_execute` and `can_write` are the two it weighs, and they are
-    reported as declared surface, not as demonstrated behaviour."""
-    labels = {label for tool in tools for label in tool.capabilities}
+def capability_summary(tools: Iterable[tuple[str, str]]) -> dict[str, bool]:
+    """Roll declared-capability classification up into the flags the trust
+    grade takes. `can_execute` and `can_write` are the two it weighs, and
+    they are reported as declared surface, not as demonstrated behaviour.
+
+    Takes (name, description) pairs, not `DiscoveredTool` objects: a live
+    MCP handshake's tool list (`analysis/remote_mcp.py`) has both of those
+    but no `file_path`/line info to build a `DiscoveredTool` from, and there
+    is no reason for this - the classification (`_classify`, above) is the
+    same regardless of whether a tool was read from source or from a live
+    `list_tools()` response. One function computes both, rather than a
+    second rubric for the same five flags.
+    """
+    labels = {label for name, description in tools for label in _classify(name, description)}
     return {
         "can_execute": "execute" in labels,
         "can_write": bool(labels & {"write", "delete"}),
@@ -420,3 +583,16 @@ def capability_summary(tools: list[DiscoveredTool]) -> dict[str, bool]:
         "handles_credentials": "credential" in labels,
         "makes_network_calls": "network" in labels,
     }
+
+
+def merge_capability_summaries(*summaries: dict[str, bool] | None) -> dict[str, bool] | None:
+    """OR multiple `capability_summary()` results together - a capability is
+    real if *any* source (static discovery, a live handshake) confirms it.
+    `None` only when every summary given is `None`; a single real summary
+    among several `None`s is not diluted back down to "unknown" just
+    because another surface had nothing to say."""
+    real = [s for s in summaries if s is not None]
+    if not real:
+        return None
+    keys = real[0].keys()
+    return {key: any(s.get(key, False) for s in real) for key in keys}

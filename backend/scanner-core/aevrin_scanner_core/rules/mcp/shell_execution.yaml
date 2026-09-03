@@ -1,0 +1,66 @@
+rules:
+  - id: mcp-tool-input-reaches-shell
+    languages: [python]
+    severity: ERROR
+    mode: taint
+    message: "An MCP tool argument reaches a shell/subprocess call within the same function."
+    metadata:
+      aevrin-capability: shell_execution
+      aevrin-owasp: MCP09
+    pattern-sources:
+      - patterns:
+          - pattern-inside: |
+              @$DECORATOR.tool(...)
+              def $FUNC(..., $ARG, ...):
+                  ...
+          - focus-metavariable: $ARG
+    # A tool argument passed through the standard-library shell-escaping
+    # function before reaching the sink can no longer break out via shell
+    # metacharacters. Only this one specific, unambiguous function - not an
+    # allowlist check or any other control-flow validation, which Semgrep's
+    # taint mode cannot model reliably enough to trust for something that
+    # silently suppresses a real finding if wrong.
+    pattern-sanitizers:
+      - patterns:
+          - pattern: shlex.quote(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: subprocess.run($CMD, ...)
+              - pattern: subprocess.call($CMD, ...)
+              - pattern: subprocess.Popen($CMD, ...)
+              - pattern: os.system($CMD)
+          - focus-metavariable: $CMD
+
+  - id: mcp-tool-input-reaches-shell-ts
+    languages: [typescript, javascript]
+    severity: ERROR
+    mode: taint
+    message: "An MCP tool argument reaches a shell/child_process call within the same function."
+    metadata:
+      aevrin-capability: shell_execution
+      aevrin-owasp: MCP09
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $SERVER.registerTool($NAME, $OPTS, async ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.registerTool($NAME, $OPTS, ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.tool($NAME, $DESC, $SCHEMA, async ($ARG) => { ... })
+              - pattern-inside: |
+                  $SERVER.tool($NAME, $DESC, $SCHEMA, ($ARG) => { ... })
+          - focus-metavariable: $ARG
+    # No pattern-sanitizers here, deliberately: unlike Python's shlex,
+    # there is no standard-library shell-escaping function in Node to
+    # anchor a sanitizer on, and inventing one against a third-party
+    # package would mean guessing whether it's actually used correctly.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $CP.exec($CMD, ...)
+              - pattern: $CP.execSync($CMD, ...)
+              - pattern: $CP.spawn($CMD, ...)
+              - pattern: $CP.spawnSync($CMD, ...)
+          - focus-metavariable: $CMD

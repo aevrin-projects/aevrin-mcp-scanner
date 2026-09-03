@@ -1,6 +1,7 @@
 from .bandit import BanditAdapter
 from .base import ScannerAdapter
 from .gitleaks import GitleaksAdapter
+from .mcp_behavior import McpBehaviorAdapter
 from .mcp_shield import McpShieldAdapter
 from .osv_scanner import OsvScannerAdapter
 from .scorecard import ScorecardAdapter
@@ -11,6 +12,7 @@ from .trufflehog import TruffleHogAdapter
 __all__ = [
     "BanditAdapter",
     "GitleaksAdapter",
+    "McpBehaviorAdapter",
     "McpShieldAdapter",
     "OsvScannerAdapter",
     "ScannerAdapter",

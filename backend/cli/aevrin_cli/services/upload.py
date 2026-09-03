@@ -38,6 +38,11 @@ def _serialize_scan(scan: Scan) -> dict[str, Any]:
         "created_at": scan.created_at.isoformat(),
         "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
         "mcp_detected": scan.mcp_detected,
+        "mcp_detection_confidence": scan.mcp_detection_confidence,
+        "mcp_detection_evidence": scan.mcp_detection_evidence,
+        "mcp_tools_declared": scan.mcp_tools_declared,
+        "mcp_components": scan.mcp_components,
+        "mcp_capabilities": scan.mcp_capabilities,
         "unreliable_stages": [s.value for s in scan.unreliable_stages],
         "stages": [
             {
@@ -62,6 +67,8 @@ def _serialize_scan(scan: Scan) -> dict[str, Any]:
                 "line_end": f.location.line_end,
                 "manifest_field": f.location.manifest_field,
                 "tool_name_in_manifest": f.location.tool_name_in_manifest,
+                "mcp_tool": f.mcp_tool,
+                "capability": f.capability,
                 "remediation": f.remediation,
                 "verified": f.verified,
                 "not_tested": f.not_tested,

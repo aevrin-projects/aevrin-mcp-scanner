@@ -21,6 +21,8 @@ class CliUploadFinding(BaseModel):
     line_end: int | None = None
     manifest_field: str | None = None
     tool_name_in_manifest: str | None = None
+    mcp_tool: str | None = None
+    capability: str | None = None
     remediation: str
     verified: bool | None = None
     not_tested: bool = False
@@ -45,6 +47,11 @@ class CliUploadRequest(BaseModel):
     created_at: datetime | None = None
     completed_at: datetime | None = None
     mcp_detected: bool | None = None
+    mcp_detection_confidence: str | None = None
+    mcp_detection_evidence: list[str] = Field(default_factory=list)
+    mcp_tools_declared: list[str] = Field(default_factory=list)
+    mcp_components: list[dict[str, Any]] = Field(default_factory=list)
+    mcp_capabilities: dict[str, bool] | None = None
     unreliable_stages: list[str] = Field(default_factory=list)
     stages: list[CliUploadStage] = Field(default_factory=list)
     findings: list[CliUploadFinding]

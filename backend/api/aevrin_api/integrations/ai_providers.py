@@ -244,11 +244,48 @@ async def list_models(provider: str, api_key: str) -> list[ModelInfo]:
     return _parse_openai_style_models(payload)
 
 
+
+# Model families that exist on the same /v1/models list as the chat models
+# but cannot be used through the /chat/completions endpoint complete() calls
+# -- they belong to a different endpoint (audio transcription, text-to-speech,
+# embeddings, moderation, image/video generation, legacy text completion) and
+# a request against them would fail with a provider error the moment someone
+# picked "Explain this finding" and it actually ran. Matched against the
+# model id, case-insensitively; this is a statement about API surface, not
+# about quality, so nothing here is excluded for being a smaller or older
+# chat model. "guard"/"safeguard" classifiers (llama-prompt-guard,
+# gpt-oss-safeguard) are included too: they answer with a safety label, not
+# an explanation, so they are just as unusable for this feature even though
+# they do technically accept a /chat/completions request.
+_NON_CHAT_MODEL_MARKERS = (
+    "whisper",
+    "tts",
+    "embed",
+    "moderation",
+    "dall-e",
+    "gpt-image",
+    "sora",
+    "davinci",
+    "babbage",
+    "computer-use",
+    "guard",
+    "safeguard",
+)
+
+
+def _looks_like_chat_model(model_id: str) -> bool:
+    lowered = model_id.lower()
+    return not any(marker in lowered for marker in _NON_CHAT_MODEL_MARKERS)
+
+
 def _parse_openai_style_models(payload: Any) -> list[ModelInfo]:
     """Groq and OpenAI both return {"data": [{"id": ...}]}.
 
     Groq adds context_window and a public `active` flag; OpenAI adds neither,
-    so both are read optionally rather than assumed.
+    so both are read optionally rather than assumed. Neither endpoint
+    distinguishes chat models from audio/embedding/moderation/image models in
+    this list, so _looks_like_chat_model does that filtering here -- the same
+    reasoning Gemini's parser already applies via supportedGenerationMethods.
     """
     entries = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(entries, list):
@@ -259,6 +296,8 @@ def _parse_openai_style_models(payload: Any) -> list[ModelInfo]:
             continue
         model_id = entry.get("id")
         if not isinstance(model_id, str) or not model_id:
+            continue
+        if not _looks_like_chat_model(model_id):
             continue
         models.append(
             ModelInfo(

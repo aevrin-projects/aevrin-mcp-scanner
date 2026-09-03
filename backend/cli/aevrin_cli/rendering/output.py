@@ -74,11 +74,14 @@ def _print_trust_grade(scan: Scan) -> None:
     Shown with the factors that produced it: a letter nobody can interrogate
     is an opinion with better typography.
     """
+    capabilities = scan.mcp_capabilities or {}
     result = grade_mcp_server(
         findings=scan.findings,
         scan_score=scan.score,
         coverage_complete=scan.status != ScanStatus.INCOMPLETE,
         transport=scan.target if scan.target_type is TargetType.LIVE_MCP_SERVER else None,
+        can_execute=capabilities.get("can_execute"),
+        can_write=capabilities.get("can_write"),
     )
     style = _GRADE_STYLE.get(result.grade.value, "")
     stdout_console.print()
@@ -234,6 +237,11 @@ def print_json_report(scan: Scan) -> None:
             else (verdict(scan.score) if scan.score is not None else None)
         ),
         "mcp_detected": scan.mcp_detected,
+        "mcp_detection_confidence": scan.mcp_detection_confidence,
+        "mcp_detection_evidence": scan.mcp_detection_evidence,
+        "mcp_tools_declared": scan.mcp_tools_declared,
+        "mcp_components": scan.mcp_components,
+        "mcp_capabilities": scan.mcp_capabilities,
         "unreliable_stages": [s.value for s in scan.unreliable_stages],
         "disclaimer": "Self-reported by the scanning client, not independently re-verified by Aevrin.",
         "findings": [
@@ -249,6 +257,8 @@ def print_json_report(scan: Scan) -> None:
                 "line_start": f.location.line_start,
                 "line_end": f.location.line_end,
                 "manifest_field": f.location.manifest_field,
+                "mcp_tool": f.mcp_tool,
+                "capability": f.capability,
                 "remediation": f.remediation,
                 "verified": f.verified,
                 "not_tested": f.not_tested,

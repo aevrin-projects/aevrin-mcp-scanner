@@ -16,6 +16,17 @@ jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    # The CodeQL CLI Terms and Conditions license analysis (including
+    # generating a database "during automated analysis, CI or CD") only for
+    # an Open Source Codebase, and separately forbid using the Software "in
+    # connection with any codebase that is not an Open Source Codebase (e.g.,
+    # code in a private repo in GitHub)" without a paid GitHub Advanced
+    # Security / Code Security entitlement, which this repository does not
+    # have. This repo is private, so the job is skipped entirely rather than
+    # generating a CodeQL database against it - see DECISIONS.md ADR-018.
+    # It re-enables itself automatically if the repository is ever made
+    # public, which is the case the free license terms actually cover.
+    if: ${{ !github.event.repository.private }}
     permissions:
       actions: read
       contents: read

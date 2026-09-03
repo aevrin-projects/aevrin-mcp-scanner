@@ -167,6 +167,40 @@ async def test_gemini_embedding_models_are_filtered_out():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_groq_and_openai_non_chat_models_are_filtered_out():
+    """whisper/tts/embedding/moderation/image/legacy-completion/guard models
+    live on the same /v1/models list as the chat models but 400 (or answer
+    uselessly) against /chat/completions, the only endpoint complete() calls.
+    Offering one in the "explain this finding" dropdown fails at the moment
+    somebody actually needed the explanation -- the exact bug this guards."""
+    for provider in ("groq", "openai"):
+        respx.get(f"{SPECS[provider].base_url}/models").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"id": "llama-3.3-70b-versatile"},
+                        {"id": "whisper-large-v3"},
+                        {"id": "tts-1"},
+                        {"id": "text-embedding-3-small"},
+                        {"id": "omni-moderation-latest"},
+                        {"id": "dall-e-3"},
+                        {"id": "gpt-image-1"},
+                        {"id": "davinci-002"},
+                        {"id": "babbage-002"},
+                        {"id": "computer-use-preview"},
+                        {"id": "meta-llama/llama-prompt-guard-2-22m"},
+                        {"id": "openai/gpt-oss-safeguard-20b"},
+                    ]
+                },
+            )
+        )
+        models = await list_models(provider, "test-key")
+        assert [m.model_id for m in models] == ["llama-3.3-70b-versatile"]
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_an_auth_failure_produces_an_actionable_message_without_the_body():
     respx.get(f"{SPECS['groq'].base_url}/models").mock(
         return_value=httpx.Response(401, json={"error": {"message": "bad key sk-leaked123456"}})

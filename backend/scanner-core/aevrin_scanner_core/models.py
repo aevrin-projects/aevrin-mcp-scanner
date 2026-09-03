@@ -34,9 +34,15 @@ class ToolName(str, Enum):
     TRIVY = "trivy"
     OPENSSF_SCORECARD = "openssf-scorecard"
     MCP_SHIELD = "mcp-shield"
+    # Not a scanner run in this stage: MCP_SCAN labels findings from Aevrin's
+    # own rug-pull signature diff (analysis/rug_pull.py), not the Invariant
+    # Labs mcp-scan CLI.
     MCP_SCAN = "mcp-scan"
-    MCP_CONTEXT_PROTECTOR = "mcp-context-protector"
     AEVRIN_MANIFEST_RULES = "aevrin-manifest-rules"  # our own rule-lookup checks, not a model
+    # Aevrin's own Semgrep taint rule pack (adapters/mcp_behavior.py,
+    # rules/mcp/*.yaml): does an MCP tool argument reach a dangerous sink,
+    # not just "does a dangerous API exist somewhere in the repository".
+    AEVRIN_MCP_BEHAVIOR = "aevrin-mcp-behavior"
 
 
 class TargetType(str, Enum):
@@ -69,12 +75,15 @@ class StageStatus(str, Enum):
 
 
 class StageName(str, Enum):
-    """Exact stage list and order from Section 6, Screen 2."""
+    """Exact stage list and order from Section 6, Screen 2, extended by
+    MCP_ANALYSIS (Aevrin's own behavior rule pack + capability join -
+    adapters/mcp_behavior.py, analysis/capability_map.py)."""
 
     CLONING = "cloning"
     STATIC_ANALYSIS = "static_analysis"
     SECRETS = "secrets"
     DEPENDENCIES = "dependencies"
+    MCP_ANALYSIS = "mcp_analysis"
     TOOL_DESCRIPTION_CHECK = "tool_description_check"
     AGGREGATING = "aggregating"
 
@@ -84,6 +93,7 @@ STAGE_LABELS: dict[StageName, str] = {
     StageName.STATIC_ANALYSIS: "Static analysis",
     StageName.SECRETS: "Secrets",
     StageName.DEPENDENCIES: "Dependencies",
+    StageName.MCP_ANALYSIS: "MCP behavior analysis",
     StageName.TOOL_DESCRIPTION_CHECK: "Tool description check",
     StageName.AGGREGATING: "Aggregating",
 }
@@ -96,10 +106,10 @@ STAGE_TOOLS: dict[StageName, list[ToolName]] = {
     StageName.STATIC_ANALYSIS: [ToolName.SEMGREP, ToolName.BANDIT],
     StageName.SECRETS: [ToolName.GITLEAKS, ToolName.TRUFFLEHOG],
     StageName.DEPENDENCIES: [ToolName.OSV_SCANNER, ToolName.TRIVY, ToolName.OPENSSF_SCORECARD],
+    StageName.MCP_ANALYSIS: [ToolName.AEVRIN_MCP_BEHAVIOR],
     StageName.TOOL_DESCRIPTION_CHECK: [
         ToolName.MCP_SHIELD,
         ToolName.MCP_SCAN,
-        ToolName.MCP_CONTEXT_PROTECTOR,
         ToolName.AEVRIN_MANIFEST_RULES,
     ],
     StageName.AGGREGATING: [],
@@ -186,6 +196,20 @@ class Finding(BaseModel):
     # scoring only ever sees this one Finding for the whole group.
     additional_locations: list[Location] = Field(default_factory=list)
     raw: dict[str, Any] | None = None  # original tool output, for debugging/audit
+    # Which declared MCP tool this finding's sink was found inside, from
+    # analysis.capability_map.attribute_findings_to_tools. None means either
+    # this finding isn't tool-shaped (most scanners' findings aren't), or it
+    # is but no known tool's function body could be shown to contain it -
+    # never a guess at the nearest one.
+    mcp_tool: str | None = None
+    # The normalized capability this finding is about - "shell_execution",
+    # "credential_access", etc; the fixed vocabulary adapters/mcp_behavior.py
+    # sinks are organised around. Set only by that adapter today; None for
+    # every other tool. A typed field rather than something read back out of
+    # `raw` on demand: `raw` is documented as debugging/audit output, not a
+    # contract, and analysis.declared_vs_observed needs this value for real
+    # logic, not display.
+    capability: str | None = None
     triage_status: TriageStatus = TriageStatus.OPEN
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -230,6 +254,28 @@ class Scan(BaseModel):
     # not parse -- which is why an empty list is never reported as "exposes
     # nothing", only as "none found".
     mcp_tools_declared: list[str] = Field(default_factory=list)
+    # Which directories inside this repository independently look like a
+    # self-contained MCP server, from analysis.mcp_detection.McpComponent:
+    # {"root": ..., "confidence": ..., "evidence": [...]}. Empty for a
+    # single-package repo with no manifest-owning subdirectory of its own
+    # (there is nothing to name as a separate component), for a repo where
+    # no directory independently reaches "low" confidence, and always for
+    # target types where there is no repository to partition at all
+    # (live_mcp_server, config_paste). Not a substitute for mcp_detected:
+    # a monorepo's evidence can be real and still be split across
+    # directories in a way no single one of them clears alone.
+    mcp_components: list[dict[str, Any]] = Field(default_factory=list)
+    # analysis.mcp_detection.capability_summary() over mcp_tools_declared's
+    # own tools: {"can_execute": bool, "can_write": bool, "can_read": bool,
+    # "handles_credentials": bool, "makes_network_calls": bool} - the
+    # declared surface, not observed behavior. None (not a dict of all-False)
+    # for a target where tool discovery never ran at all (a live server URL,
+    # a pasted config, or a repository that isn't an MCP server), because
+    # "never established" and "established as no capabilities" are different
+    # claims and only the marketplace grade cares about telling them apart:
+    # grade_mcp_server() scores an unestablished capability against the
+    # server, the correct direction for an unknown.
+    mcp_capabilities: dict[str, bool] | None = None
     # Names of stages (static_analysis, secrets, dependencies) where every
     # tool in that category failed to execute, e.g. Docker down, a binary
     # missing, network unreachable. Non-empty means the findings/score above

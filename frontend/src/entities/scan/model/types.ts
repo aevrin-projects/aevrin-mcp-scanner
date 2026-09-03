@@ -10,6 +10,7 @@ export type StageName =
   | "static_analysis"
   | "secrets"
   | "dependencies"
+  | "mcp_analysis"
   | "tool_description_check"
   | "aggregating";
 

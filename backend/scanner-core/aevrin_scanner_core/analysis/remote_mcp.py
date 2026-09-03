@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import Any
 
 import anyio
@@ -10,10 +11,22 @@ import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from .mcp_detection import capability_summary
 from .rug_pull import hash_signature
 
 
-async def _tool_signature(url: str, headers: dict[str, str]) -> str:
+@dataclass(frozen=True)
+class RemoteToolSignature:
+    server_name: str
+    signature_hash: str
+    # capability_summary() over this server's own list_tools() response -
+    # the live-handshake counterpart to discover_tools()'s static reading of
+    # the same declared surface. Never observed behaviour, same caveat as
+    # the static path: a tool's own name/description, nothing more.
+    capabilities: dict[str, bool]
+
+
+async def _tool_signature(url: str, headers: dict[str, str]) -> tuple[str, dict[str, bool]]:
     # Redirects are disabled: an otherwise-public endpoint must not redirect
     # the scanner into a private or metadata address after validation.
     async with httpx.AsyncClient(
@@ -34,17 +47,21 @@ async def _tool_signature(url: str, headers: dict[str, str]) -> str:
         (tool.model_dump(mode="json", exclude_none=True) for tool in response.tools),
         key=lambda tool: str(tool.get("name", "")),
     )
-    return hash_signature(normalized)
+    capabilities = capability_summary(
+        (str(tool.get("name", "")), str(tool.get("description") or "")) for tool in normalized
+    )
+    return hash_signature(normalized), capabilities
 
 
-def inspect_remote_signatures(entries: dict[str, dict[str, Any]]) -> list[tuple[str, str]]:
-    """Return ``(server_name, tool-description hash)`` for validated URLs."""
-    signatures: list[tuple[str, str]] = []
+def inspect_remote_signatures(entries: dict[str, dict[str, Any]]) -> list[RemoteToolSignature]:
+    """One signature + declared-capability summary per validated URL."""
+    results: list[RemoteToolSignature] = []
     for name, entry in entries.items():
         headers = {
             str(key): str(value)
             for key, value in (entry.get("headers") or {}).items()
             if isinstance(key, str) and isinstance(value, str)
         }
-        signatures.append((name, asyncio.run(_tool_signature(str(entry["url"]), headers))))
-    return signatures
+        signature_hash, capabilities = asyncio.run(_tool_signature(str(entry["url"]), headers))
+        results.append(RemoteToolSignature(name, signature_hash, capabilities))
+    return results

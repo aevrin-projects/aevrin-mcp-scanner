@@ -5,6 +5,7 @@ export const STAGE_ORDER: StageName[] = [
   "static_analysis",
   "secrets",
   "dependencies",
+  "mcp_analysis",
   "tool_description_check",
   "aggregating",
 ];
@@ -14,6 +15,7 @@ export const STAGE_LABELS: Record<StageName, string> = {
   static_analysis: "Static analysis",
   secrets: "Secrets",
   dependencies: "Dependencies",
+  mcp_analysis: "MCP behavior analysis",
   tool_description_check: "Tool description check",
   aggregating: "Aggregating",
 };

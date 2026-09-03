@@ -40,6 +40,13 @@ UNKNOWN_AUTH_WEIGHT = 8
 PLAINTEXT_TRANSPORT_WEIGHT = 10
 EXECUTION_CAPABILITY_WEIGHT = 12
 WRITE_CAPABILITY_WEIGHT = 6
+# Applied per unknown capability field (can_execute, can_write), each
+# independently - the same shape as UNKNOWN_AUTH_WEIGHT relative to
+# UNAUTHENTICATED_WEIGHT above, not a single combined penalty. The common
+# real case (no source to read at all, so both are unestablished together)
+# sums to 8, deliberately landing at the same order of magnitude as an
+# unknown auth state rather than at either capability's own confirmed weight.
+UNKNOWN_CAPABILITY_WEIGHT = 4
 
 class Grade(str, Enum):
     A = "A"
@@ -125,10 +132,17 @@ def grade_mcp_server(
 ) -> TrustGrade:
     """Grade one MCP server from the evidence available about it.
 
-    Every argument is optional because evidence usually is. `None` means "not
-    established", and it is never read as "fine": an unknown that could make
-    things worse counts against the grade, which is the same rule the scanner
-    already applies when a stage does not run.
+    Every argument is optional because evidence usually is. `None` means
+    "not established" and is never read as "fine": an unknown authentication
+    state (`authenticated=None`) still costs `UNKNOWN_AUTH_WEIGHT`, distinctly
+    from a confirmed `authenticated=False`, and `can_execute`/`can_write`
+    follow the identical shape - each unestablished field costs
+    `UNKNOWN_CAPABILITY_WEIGHT` independently, distinctly from a confirmed
+    `False` (which, like confirmed auth, earns nothing - the baseline, not a
+    reward). A server whose capabilities were never established (no source
+    to read at all - a live-only server, a pasted config) therefore scores
+    worse than one confirmed to declare neither, the same direction as every
+    other unknown here.
     """
     factors: list[GradeFactor] = []
     findings = findings or []
@@ -157,8 +171,14 @@ def grade_mcp_server(
 
     if can_execute:
         factors.append(GradeFactor(EXECUTION_CAPABILITY_WEIGHT, "exposes command-execution tools"))
+    elif can_execute is None:
+        factors.append(
+            GradeFactor(UNKNOWN_CAPABILITY_WEIGHT, "command-execution capability could not be established")
+        )
     if can_write:
         factors.append(GradeFactor(WRITE_CAPABILITY_WEIGHT, "exposes write-capable tools"))
+    elif can_write is None:
+        factors.append(GradeFactor(UNKNOWN_CAPABILITY_WEIGHT, "write capability could not be established"))
 
     has_critical = any(
         f.severity is Severity.CRITICAL and not f.not_tested and f.triage_status == "open"

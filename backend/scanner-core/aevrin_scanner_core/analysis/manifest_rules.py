@@ -6,12 +6,14 @@ the `tool_description_check` stage alongside MCP-Shield and SDK inspection.
 
 from __future__ import annotations
 
+import difflib
 import os
 import re
 from uuid import UUID
 
 from ..classification.owasp import OwaspMcpCategory
 from ..models import Finding, Location, Severity, ToolName
+from .mcp_detection import DiscoveredTool
 
 # Row 9: tool names/descriptions implying broad, dangerous capability with no
 # apparent scoping. Presence of these terms doesn't prove overreach, but their
@@ -75,6 +77,69 @@ def check_excessive_agency(scan_id: UUID, tools: list[ToolDescriptor]) -> list[F
                 raw={"tool": t.name, "matched_terms": matches},
             )
         )
+    return findings
+
+
+# A presence/schema check in the same spirit as the rest of this module: two
+# declared tools whose *names* are close enough
+# to be picked interchangeably. Whoever chooses which tool to call - a human
+# skimming a list, or an agent doing its own fuzzy name matching - is choosing
+# by name alone; a name crafted to be almost indistinguishable from a trusted
+# one is exactly the shape of a deliberate shadow. This checks spelling only:
+# it cannot and does not claim to know intent from static text.
+_SHADOW_SIMILARITY_THRESHOLD = 0.82
+_SHADOW_MIN_NAME_LENGTH = 4
+# O(n^2) pairwise comparison guard. A real server's declared tool count is in
+# the tens; a repository that reports more than this is already pathological
+# for this check, and skipping it here costs one heuristic, not the stage.
+_SHADOW_MAX_TOOLS = 200
+_SHADOW_ESCALATING_CAPABILITIES = frozenset({"execute", "delete", "credential"})
+
+
+def check_tool_name_shadowing(scan_id: UUID, tools: list[DiscoveredTool]) -> list[Finding]:
+    findings: list[Finding] = []
+    candidates = [t for t in tools if len(t.name) >= _SHADOW_MIN_NAME_LENGTH]
+    if len(candidates) > _SHADOW_MAX_TOOLS:
+        return findings
+
+    for i, a in enumerate(candidates):
+        for b in candidates[i + 1 :]:
+            if a.name == b.name:
+                continue  # discover_tools() already dedupes by exact name
+            ratio = difflib.SequenceMatcher(None, a.name.lower(), b.name.lower()).ratio()
+            if ratio < _SHADOW_SIMILARITY_THRESHOLD:
+                continue
+
+            capability_gap = (set(a.capabilities) ^ set(b.capabilities)) & _SHADOW_ESCALATING_CAPABILITIES
+            severity = Severity.HIGH if capability_gap else Severity.MEDIUM
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    tool=ToolName.AEVRIN_MANIFEST_RULES,
+                    owasp_category=OwaspMcpCategory.CROSS_ORIGIN_ESCALATION,
+                    severity=severity,
+                    title=f"Near-identical tool names: '{a.name}' and '{b.name}'",
+                    description=(
+                        f"'{a.name}' and '{b.name}' are {ratio:.0%} similar by character "
+                        "sequence - close enough to be picked interchangeably by a human "
+                        "skimming a tool list, or by an agent's own fuzzy name matching."
+                        + (
+                            f" Only one declares {'/'.join(sorted(capability_gap))} "
+                            "capability, so picking the wrong one changes what actually runs."
+                            if capability_gap
+                            else ""
+                        )
+                        + " Name-similarity check only; this does not confirm either tool is "
+                        "malicious, only that the pair is easy to confuse."
+                    ),
+                    location=Location(manifest_field="tools[].name", tool_name_in_manifest=a.name),
+                    remediation=(
+                        "Rename one of these tools to something clearly distinct, or merge "
+                        "them if they are meant to do the same thing."
+                    ),
+                    raw={"tool_a": a.name, "tool_b": b.name, "similarity": round(ratio, 3)},
+                )
+            )
     return findings
 
 

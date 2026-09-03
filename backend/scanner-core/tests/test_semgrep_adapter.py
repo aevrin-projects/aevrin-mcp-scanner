@@ -46,3 +46,17 @@ def test_missing_confidence_metadata_leaves_severity_untouched():
     assert findings[0].severity == Severity.MEDIUM
     assert findings[0].confidence is None
     assert findings[0].original_severity is None
+
+
+def test_run_writes_semgrepignore_into_the_target_before_scanning(monkeypatch, tmp_path):
+    """Without this, Semgrep's own default ignore patterns would silently
+    skip any tests-named directory in the actual target being scanned -
+    see execution/semgrep_ignore.py and DECISIONS.md ADR-025/026."""
+    from aevrin_scanner_core.adapters import base as base_module
+
+    monkeypatch.setattr(base_module, "resolve_execution", lambda *a, **k: "subprocess")
+    monkeypatch.setattr(base_module, "run_local_command", lambda *a, **k: ('{"results": []}', "", 0))
+
+    SemgrepAdapter().run(uuid4(), str(tmp_path))
+
+    assert (tmp_path / ".semgrepignore").exists()

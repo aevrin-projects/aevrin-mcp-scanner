@@ -355,6 +355,328 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   every credential-shaped string stripped, even from fields that
   "shouldn't" contain one.
 
+### Fixed
+
+- The AI providers model dropdown offered every model a key could see,
+  including ones that cannot answer a `/chat/completions` request at all -
+  Whisper (speech-to-text), TTS, embedding, moderation, image/video
+  generation and legacy completion-only models, plus safety-classifier
+  models (`llama-prompt-guard`, `gpt-oss-safeguard`) that answer with a
+  label rather than an explanation. `_parse_openai_style_models` now
+  filters these out for Groq and OpenAI the same way the Gemini parser
+  already excludes non-`generateContent` models. Five already-synced Groq
+  rows were corrected in production (marked `unavailable`, never deleted,
+  per the existing catalogue convention) so the fix took effect without
+  waiting for a resync.
+- `.github/workflows/codeql.yml` ran CodeQL as a CI gate against this
+  private repository, which its own license does not permit without a paid
+  GitHub Advanced Security entitlement this repository does not have. The
+  job now runs only when the repository is public - see `DECISIONS.md`
+  ADR-018.
+- `Scan.mcp_detection_confidence`, `mcp_detection_evidence` and
+  `mcp_tools_declared` were computed by the pipeline on every scan
+  (`scanner-core/pipeline/orchestrator.py`) and discarded before reaching
+  any column, schema, or CLI output - `MCP_SCANNING.md` already claimed
+  the report surfaced them; no surface did. Migration `0040` adds the
+  columns; `services/scan.py` (dashboard/API-initiated scans) and
+  `controllers/cli_controller.py` (CLI-uploaded scans) now persist them;
+  `ScanOut` and the CLI's `--json` output now expose them. Not yet
+  rendered on the scan-detail dashboard page - see `MCP_SCANNING.md#data`.
+- `ToolName.MCP_CONTEXT_PROTECTOR` was declared in the tool enum, the
+  tool-description stage's tool list, and the marketplace's MCP scoring
+  bucket, with no adapter ever emitting it (confirmed against production:
+  zero `findings` rows ever used it). Removed. `ToolName.MCP_SCAN` is
+  unaffected and documented more precisely - it labels findings from
+  Aevrin's own rug-pull signature diff, not the Invariant Labs `mcp-scan`
+  CLI, which does not run in this pipeline.
+
+### Added
+
+- **MCP component detection.** `detect_mcp_server()` now also identifies
+  which specific directories inside a repository independently look like
+  a self-contained MCP server (`analysis/mcp_detection.py::McpComponent`),
+  so a monorepo's unrelated `frontend/`/`backend/` are never reported as
+  part of the MCP surface, and the real component is nameable by its own
+  directory rather than "somewhere in this repository." Scoped strictly:
+  a directory is a component only when it independently reaches at least
+  `low` confidence on its own files, and the existing whole-repository
+  `mcp_detected`/`mcp_detection_confidence` verdict is computed exactly as
+  it always was - globally, not derived from components - because a real
+  server's evidence can legitimately split across directories in a way
+  that scoping to one component would under-detect. New
+  `Scan.mcp_components` (migration `0041`), persisted and exposed through
+  both existing write paths and both existing read surfaces the same way
+  `mcp_detection_confidence` was in this same release. See
+  `docs/features/MCP_SCANNING.md#architecture`.
+- **Tool discovery now records where a tool was declared.**
+  `DiscoveredTool` gains `line_start`/`line_end` (`analysis/mcp_detection.py`)
+  for every registration site `discover_tools()` finds - previously only
+  `file_path` was recorded, so nothing could point at the actual
+  declaration. Named as a declaration span, not a function-body range: for
+  Python it covers the decorator through the end of the docstring, not the
+  handler's own logic past it, and nothing claims otherwise. Not yet
+  persisted onto `Scan` - `mcp_tools_declared` stays a flat list of names;
+  giving this richer shape a wire contract is separate follow-up work.
+- **Aevrin's own MCP behavior rule pack** (`adapters/mcp_behavior.py`,
+  `rules/mcp/*.yaml`, `ToolName.AEVRIN_MCP_BEHAVIOR`): a Semgrep
+  `mode: taint` pack answering "does an MCP tool's own argument reach a
+  dangerous sink" (`subprocess`, a filesystem write, an outbound request,
+  a credential-shaped path), using the tool handler's declared parameters
+  as the taint source - dataflow evidence rather than the name/description
+  guess `_classify()` alone is. A separate adapter from `SemgrepAdapter`
+  because each rule declares its own OWASP MCP category and capability in
+  its own metadata, not one hardcoded bucket for every finding. Every rule
+  is intra-procedural - Semgrep's open-source engine cannot track taint
+  across a function boundary; both paid routes to closing that (Semgrep
+  Pro, CodeQL) were evaluated and rejected, the latter on licence grounds
+  (see `DECISIONS.md` ADR-018) - stated as a real, deliberate limitation,
+  not hidden. Verified empirically against real Semgrep during development
+  (true positive at the tainted line, true negative on a same-shaped safe
+  twin, true negative across a function boundary); not yet part of
+  `run_pipeline`'s stage sequence - see `docs/features/MCP_SCANNING.md`.
+- **Capability join** (`analysis/capability_map.py`, `Finding.mcp_tool`,
+  migration `0042`): attributes a behavior finding to the specific declared
+  tool whose handler contains it. Deliberately does not reuse
+  `DiscoveredTool.line_start`/`line_end` from the entry above - concretely
+  confirmed during development that a tool's declaration span ends at its
+  docstring, before a real sink even starts, so joining against it would
+  have silently produced zero attributions. Instead parses the source with
+  Python's own `ast` module for the function's exact body range
+  (`end_lineno`), not a regex or indentation guess. Python only; a sink
+  outside every known tool's body, or in a file that doesn't parse, is left
+  unattributed rather than guessed at the nearest tool. Persisted through
+  both existing write paths and both existing read surfaces the same way
+  every other addition in this release was.
+- **The MCP behavior rule pack and capability join are now part of the real
+  scan pipeline**, as `StageName.MCP_ANALYSIS` (migration `0043`) between
+  `DEPENDENCIES` and `TOOL_DESCRIPTION_CHECK`. `discover_tools()` moved to
+  run once in `run_pipeline` itself - both this stage and
+  `TOOL_DESCRIPTION_CHECK` need the identical tool list, and reading the
+  source tree twice for it would be the exact duplicate work `_walk()`'s
+  own docstring warns against. Skipped, not failed, when there is no
+  source repository for the target type or no MCP tools were declared in
+  it. Not one of `_CORE_STAGES`, the same reasoning that already excludes
+  `TOOL_DESCRIPTION_CHECK`.
+
+### Fixed
+
+- `services/reports/html.py`'s exported-PDF stage list (`_STAGE_ORDER`)
+  and the dashboard's `StageName` union/label maps
+  (`entities/scan/model/{types,labels}.ts`) each hardcode every known
+  stage name; adding `MCP_ANALYSIS` above would have made both silently
+  drop the new stage from every exported report and (depending on how a
+  future render read an unlisted key) the scan-detail page, rather than
+  erroring anywhere - caught by checking, not by a test, until
+  `test_stage_order_covers_every_stage_the_pipeline_can_report` was added
+  to make sure the next one is. Both are updated; `npx tsc --noEmit`,
+  `npx eslint src`, and `npm run build` all pass, though this was not
+  additionally verified against a running dev server in a browser.
+
+### Added
+
+- **Declared vs observed** (`analysis/declared_vs_observed.py`): compares
+  a behavior finding's observed capability (`Finding.capability`, migration
+  `0044`) against its attributed tool's own declared capabilities
+  (`DiscoveredTool.capabilities`, from the tool's name/description). A
+  capability the tool's own words gave no hint of is upweighted one
+  severity tier (`severity_utils.upweight_one_tier`, the mirror of the
+  existing `downweight_one_tier`; `original_severity` preserved) rather
+  than producing a second finding for the same evidence - two findings
+  describing one fact would inflate the count without adding information.
+  Never runs in reverse: a tool declaring more than was observed earns no
+  finding, because over-description is not a security event. Wired into
+  `StageName.MCP_ANALYSIS` immediately after the capability join.
+  `Finding.capability` replaces reaching into a finding's `raw` payload
+  for this value - `raw` is documented as debugging/audit output, not a
+  contract, and this is now real logic depending on it.
+- `frontend/src/entities/finding/model/types.ts`'s `Finding` interface
+  gained `mcp_tool`/`capability` to match: the API has sent both since
+  earlier in this release, and the frontend type had no way to read either.
+- **Tool name shadowing** (`analysis/manifest_rules.py::check_tool_name_shadowing`,
+  `OwaspMcpCategory.CROSS_ORIGIN_ESCALATION`): flags a pair of declared
+  tools whose names are >=82% similar by `difflib.SequenceMatcher` but not
+  identical - close enough for a human or an agent's own fuzzy matching to
+  pick the wrong one. Severity is `HIGH` when the pair's declared
+  capabilities differ on `execute`/`delete`/`credential`, `MEDIUM`
+  otherwise; names under 4 characters, and repositories declaring more than
+  200 tools, are excluded. Runs inside `_run_source_mcp_analysis` alongside
+  `check_excessive_agency`, using the same source-derived tool list - the
+  static counterpart to `mcp-shield`'s existing live-connection shadowing
+  detection, for the common case of a source repository with no reachable
+  endpoint to connect to.
+- **Rug-pull detection now also covers source repositories**, not just the
+  live-connection path. `analysis/rug_pull.py`'s existing generic
+  `hash_signature`/`PinnedSignature`/`diff_signatures` are reused unchanged;
+  `_run_source_mcp_analysis` computes one signature per declared tool
+  (name, description, declared capabilities - deliberately not its
+  line range, which shifts on unrelated edits) and diffs it against the
+  last scan of the same target. Shares the existing `rug_pull_signatures`
+  table and `PipelineConfig.previous_signatures`/`computed_signatures`
+  fields with the live path rather than adding a new table: a source key
+  is prefixed `tool:{name}` so it can't collide with a live server's own
+  name in that same column (see `DECISIONS.md` ADR-019). Fixed
+  `_probe_remote_servers` to `extend` rather than reassign
+  `computed_signatures` while here, since a target could in principle
+  exercise both paths in one scan and reassignment would have silently
+  dropped whichever ran first.
+- **The marketplace trust grade now reads real declared-capability
+  evidence**, not always `None`. `analysis.mcp_detection.capability_summary()`
+  had its own passing unit test since before this - `can_execute`/
+  `can_write`/etc over a scan's declared tools - but the pipeline computed
+  it and discarded it every scan, and the marketplace's own
+  `_apply_scan_to_version` always called `grade_from_scan(capabilities=None)`.
+  `Scan.mcp_capabilities` (`scans.mcp_capabilities` jsonb, migration `0045`)
+  persists it; `None` (never an all-`False` dict) when tool discovery never
+  ran, so "unestablished" stays distinguishable from "confirmed none".
+  Persisted through the API/CLI schema and rendering layers the same way
+  every other `Scan` field in this release was. This is a real, if modest,
+  grade-affecting change for already-scanned listings whose declared tools
+  include execution or writes - see `DECISIONS.md` ADR-020 for the full
+  reasoning, why it isn't backfilled against past scans, and how it
+  surfaces (the existing `grade_changed` event, on each listing's next
+  scan). The user-facing docs
+  (`frontend-docs/content/(marketplace)/security-grades.mdx`) already
+  described these two factors as live before this fix; this closes the gap
+  between that page and actual behavior rather than introducing something
+  new to document. Also corrected that page's "an unknown always counts
+  against a grade" claim, which was never true for capabilities
+  specifically (only for authentication) - and corrected the same
+  overclaim in `grade_mcp_server()`'s own docstring, without changing what
+  the function actually does; whether an unestablished capability should
+  cost points the way an unestablished `authenticated` does was, at the
+  time, a separate, deliberately deferred scoring decision - see the very
+  next entry.
+- **Follow-up, same session: implemented the deferred decision above.**
+  `grade_mcp_server()` now treats `can_execute`/`can_write: None`
+  (unestablished) as a real penalty (`UNKNOWN_CAPABILITY_WEIGHT` = 4 per
+  field, applied independently), distinct from a confirmed `False`, the
+  identical shape `authenticated` already used. See `DECISIONS.md` ADR-021
+  for the full reasoning and, importantly, for the audit of every caller
+  this touches - the blast radius turned out to be every place that calls
+  `grade_mcp_server()` without explicitly supplying capability data, not
+  just the marketplace:
+  - **CLI** (`rendering/output.py::_print_trust_grade`) was not passing
+    `can_execute`/`can_write` at all despite `scan.mcp_capabilities` being
+    available on the same `Scan` object already in scope - fixed, so a CLI
+    scan of an actual MCP server repository gets an accurate grade instead
+    of an undeserved penalty from a data gap unrelated to the server itself.
+  - **Agent posture** (`controllers/agent_controller.py::_trust_by_identity`)
+    is scoped to live-only servers, for which this data structurally cannot
+    exist yet (no source to run `discover_tools()` against, and nothing
+    today turns mcp-shield's live tool descriptions into a capability
+    summary) - left unpassed on purpose, documented explicitly rather than
+    faked, and every asset graded through this path now carries a real,
+    permanent, disclosed 8-point "could not be established" penalty until
+    that live-capability path is built (see `docs/features/AGENT_POSTURE.md`).
+  - The public docs page's "unknown always counts against, never for it"
+    claim, softened in the previous entry to carve out an exception for
+    capabilities, is now simply true again and was reverted to the
+    original, stronger wording.
+  Existing scanner-core fixtures that omitted `can_execute`/`can_write` to
+  test an unrelated concern (a clean-scan test, a dismissed/untested-finding
+  test) now pass `can_execute=False, can_write=False` explicitly, the same
+  discipline already applied to `authenticated=` throughout that test file.
+  6 new/updated tests across all three packages.
+- **Live MCP servers now get real declared-capability data too, instead of
+  a permanent penalty.** `analysis/remote_mcp.py`'s live `list_tools()`
+  handshake already fetched every server's full tool list to compute the
+  rug-pull signature hash; it now also feeds `capability_summary()` for the
+  same data (`RemoteToolSignature.capabilities`) instead of discarding it
+  right after hashing. `capability_summary()` itself changed to take
+  `(name, description)` pairs rather than `DiscoveredTool` objects so one
+  function serves both the static source path and this live one - not a
+  second rubric. New `merge_capability_summaries()` ORs multiple servers'
+  summaries together (`None` only when every input is `None`).
+  `orchestrator.py::_probe_remote_servers` merges the result into
+  `scan.mcp_capabilities`, on top of whatever source discovery already set
+  rather than overwriting it. `agent_controller.py::_trust_by_identity` and
+  the CLI's `_print_trust_grade` (a live-URL `--target` scan) now both read
+  it back, closing the loop ADR-021 left open for `live_mcp_server` scans
+  specifically. See `DECISIONS.md` ADR-022, including a correction to
+  ADR-020/021's own wording: the marketplace grading path is unaffected by
+  this (it always scans a real repository, never a source-less live-only
+  target) - the framing in those entries overstated its relevance there.
+  `analysis/remote_mcp.py` had zero test coverage before this; a new
+  `test_remote_mcp.py` fakes the MCP client session/streamable-HTTP layer
+  for the first time in this codebase. 10 new/updated tests across all
+  three packages.
+- **The MCP behavior taint pack now covers TypeScript/JavaScript, not just
+  Python.** Each of `rules/mcp/{shell_execution,filesystem,network,credentials}.yaml`
+  gained a `languages: [typescript, javascript]` sibling rule (same
+  `aevrin-capability`/`aevrin-owasp` metadata as its Python counterpart),
+  matching a tool handler passed to `server.registerTool(...)` or the older
+  `server.tool(...)`. `adapters/mcp_behavior.py` needed no code change - it
+  already reads a rule's metadata per-finding rather than assuming a
+  language. Verified empirically against real Semgrep 1.174.0 the same way
+  the Python rules were: true positive at the exact tainted line across
+  every handler shape (destructured/property-accessed parameter, both
+  `.tool()` forms), true negative on a same-shaped safe twin, true negative
+  across a helper-function boundary. Deliberately does **not** extend
+  `analysis.capability_map`'s tool attribution to these findings - see
+  `DECISIONS.md` ADR-023 for why that specific piece (locating a JS/TS
+  function's real body range without a real parser) was evaluated and
+  rejected as too fragile to trust, splitting what had been considered one
+  deferred "JS/TS capability join" item into a safe half that shipped and a
+  risky half that stays deferred.
+- **Sanitizer modeling in the MCP behavior taint pack** (`DECISIONS.md`
+  ADR-024). Semgrep's `mode: taint` `pattern-sanitizers` construct had gone
+  unused in `rules/mcp/*.yaml`. Added where a well-known, unambiguous,
+  standard-library function exists to anchor on: `shlex.quote(...)`
+  sanitizes the Python shell rule; `os.path.basename(...)`/`path.basename(...)`
+  sanitize all three Python and TS/JS filesystem rules (write/read/destructive)
+  - the standard path-traversal defense. Deliberately not added for TS/JS
+  shell execution (no standard-library equivalent to `shlex.quote` in
+  Node), the network rules (URL encoding doesn't address SSRF, the actual
+  risk those rules target), or the credentials rules (no "escape this and
+  it's safe" operation exists for reading a credential). Considered
+  alongside a `Finding.proof_level` classification from the same earlier
+  addendum and rejected that half outright: `services/triage.py`'s existing
+  `llm_classification` (`confirmed`/`likely_false_positive`/`needs_review`)
+  already does this job, and a second field would either duplicate or
+  disagree with it - the same "one grader" rule this codebase already
+  applies to `grade_mcp_server()`. Verified empirically against real
+  Semgrep 1.174.0: a sanitized value's line stops firing, an
+  otherwise-identical unsanitized twin still fires, and every existing
+  true-positive/safe-twin/cross-function fixture in the pack was re-run to
+  confirm nothing else changed.
+- **A permanent, checked-in regression corpus for `rules/mcp/*.yaml`**
+  (`rule_pack_corpus/{python,typescript}/*`, `tests/test_rule_pack_corpus.py`),
+  replacing the scratch-directory fixtures every rule change this session
+  had rebuilt from nothing and thrown away afterward. Exact expected
+  findings (file, line, rule id) asserted against a real `semgrep`
+  invocation; `pytest.mark.skipif` when `semgrep` isn't on PATH, so the
+  normal test suite - what CI runs - is unaffected either way. Deliberately
+  not wired into CI for real enforcement, since that would mean either
+  breaking this suite's existing "no test invokes a real scanner binary"
+  portability rule or adding a Semgrep install step to CI - a separate,
+  bigger decision (see `DECISIONS.md` ADR-025).
+  Found a real, previously undocumented gap while building this: Semgrep's
+  own default ignore behavior silently skips any path containing a
+  directory literally named `tests` - neither `--no-git-ignore` nor an
+  internal semgrepignore-filename override defeats it, only an empty
+  `.semgrepignore` at the scan root does. `rule_pack_corpus/` was placed
+  as a sibling of `tests/`, not nested in it, to work around this for the
+  corpus itself - but the same default applies when `SemgrepAdapter`/
+  `McpBehaviorAdapter` scan a real target repository, and neither adapter
+  disabled it at the time - fixed in the very next entry below, kept
+  separate from this test-infrastructure change deliberately.
+- **Fixed the gap above: `SemgrepAdapter`/`McpBehaviorAdapter` now write an
+  empty `.semgrepignore` into the target before scanning**
+  (`execution/semgrep_ignore.py`, `DECISIONS.md` ADR-026), unless the
+  target already ships its own (which already fully replaces Semgrep's
+  defaults on its own). A target that keeps real source under a
+  `tests`-named directory anywhere in its tree no longer has that content
+  silently excluded from either the general Semgrep pass or the MCP
+  behavior taint pack - directly closing a contradiction with
+  `execution/fixture_paths.py`'s own promise that such a finding is still
+  reported, just excluded from scoring. Wired in via a `run()` override on
+  each adapter rather than inside `build_spec()`/`build_local_command()`:
+  those two are called speculatively with a fake path by
+  `ScannerAdapter.local_binary()`, so a file-write side effect there would
+  have broken that call - caught by tracing the call graph before writing
+  the fix. Best-effort: an unwritable target directory is caught and
+  ignored rather than failing the scan.
+
 ## [0.4.0] - 2026-08-27 (CLI)
 
 ### Added

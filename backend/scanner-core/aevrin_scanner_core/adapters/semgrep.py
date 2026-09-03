@@ -14,6 +14,7 @@ from ..classification.owasp import OwaspMcpCategory
 from ..classification.severity_utils import downweight_one_tier
 from ..execution.paths import relative_to_mount
 from ..execution.runner import DockerRunSpec, LocalCommandSpec
+from ..execution.semgrep_ignore import ensure_no_default_semgrepignore
 from ..models import Finding, Location, Severity, ToolName
 from .base import ScannerAdapter
 
@@ -68,6 +69,15 @@ class SemgrepAdapter(ScannerAdapter):
             timeout_s=180,
             ok_exit_codes=(0,),
         )
+
+    def run(self, scan_id: UUID, target_dir: str) -> list[Finding]:
+        # See execution/semgrep_ignore.py: without this, Semgrep's own
+        # default ignore patterns silently skip any path in the target
+        # containing a directory literally named "tests" (and similar),
+        # contradicting excluded_path's promise that such a finding is
+        # still reported, just excluded from scoring.
+        ensure_no_default_semgrepignore(target_dir)
+        return super().run(scan_id, target_dir)
 
     def parse_output(self, scan_id: UUID, stdout: str) -> list[Finding]:
         data = json.loads(stdout)

@@ -46,6 +46,82 @@ def test_json_report_completed_scan_unaffected(capsys):
     assert payload["unreliable_stages"] == []
 
 
+def test_json_report_includes_mcp_detection_evidence(capsys):
+    """These were computed by the pipeline on every scan and silently
+    dropped before print_json_report exposed them - see CHANGELOG.md."""
+    scan = Scan(
+        target_type=TargetType.GITHUB_REPO,
+        target="https://github.com/example/repo",
+        status=ScanStatus.COMPLETED,
+        score=100,
+        mcp_detected=True,
+        mcp_detection_confidence="high",
+        mcp_detection_evidence=["sdk_dependency: depends on fastmcp"],
+        mcp_tools_declared=["search"],
+        mcp_components=[{"root": ".", "confidence": "high", "evidence": []}],
+        mcp_capabilities={"can_execute": False, "can_write": False, "can_read": True,
+                          "handles_credentials": False, "makes_network_calls": False},
+    )
+    output.print_json_report(scan)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["mcp_detection_confidence"] == "high"
+    assert payload["mcp_detection_evidence"] == ["sdk_dependency: depends on fastmcp"]
+    assert payload["mcp_tools_declared"] == ["search"]
+    assert payload["mcp_components"] == [{"root": ".", "confidence": "high", "evidence": []}]
+    assert payload["mcp_capabilities"] == {
+        "can_execute": False, "can_write": False, "can_read": True,
+        "handles_credentials": False, "makes_network_calls": False,
+    }
+
+
+def test_terminal_trust_grade_reflects_declared_capabilities(capsys):
+    """`_print_trust_grade` used to call `grade_mcp_server()` with no
+    capability arguments at all, so an execute-capable MCP server's own
+    trust grade never reflected it. `scan.mcp_capabilities` (migration
+    0045) is now read and passed through."""
+    scan = Scan(
+        target_type=TargetType.GITHUB_REPO,
+        target="https://github.com/example/repo",
+        status=ScanStatus.COMPLETED,
+        score=100,
+        mcp_detected=True,
+        mcp_capabilities={"can_execute": True, "can_write": False, "can_read": True,
+                          "handles_credentials": False, "makes_network_calls": False},
+    )
+    output.print_terminal_report(scan)
+    text = plain(capsys.readouterr().out)
+    assert "command-execution" in text
+
+
+def test_terminal_trust_grade_distinguishes_unestablished_from_confirmed_none(capsys):
+    """Unestablished (`mcp_capabilities=None`, e.g. a repo that isn't an MCP
+    server) must not read identically to confirmed-none capabilities - the
+    same distinction ADR-020's follow-up fix makes inside grade_mcp_server()
+    itself, now observable through the CLI's own report too."""
+    established_none = Scan(
+        target_type=TargetType.GITHUB_REPO,
+        target="https://github.com/example/repo",
+        status=ScanStatus.COMPLETED,
+        score=100,
+        mcp_detected=True,
+        mcp_capabilities={"can_execute": False, "can_write": False, "can_read": True,
+                          "handles_credentials": False, "makes_network_calls": False},
+    )
+    output.print_terminal_report(established_none)
+    established_text = plain(capsys.readouterr().out)
+    assert "capability could not be established" not in established_text
+
+    unestablished = Scan(
+        target_type=TargetType.LIVE_MCP_SERVER,
+        target="https://example.com/mcp",
+        status=ScanStatus.COMPLETED,
+        score=100,
+    )
+    output.print_terminal_report(unestablished)
+    unestablished_text = plain(capsys.readouterr().out)
+    assert "capability could not be established" in unestablished_text
+
+
 def test_terminal_report_warns_on_incomplete_scan(capsys):
     scan = _make_scan(status=ScanStatus.INCOMPLETE, unreliable_stages=[StageName.DEPENDENCIES])
     output.print_terminal_report(scan)
@@ -54,7 +130,14 @@ def test_terminal_report_warns_on_incomplete_scan(capsys):
     assert "Clean" not in text
 
 
-def _finding(*, excluded_path: bool = False, epss_score: float | None = None, in_kev: bool = False) -> Finding:
+def _finding(
+    *,
+    excluded_path: bool = False,
+    epss_score: float | None = None,
+    in_kev: bool = False,
+    mcp_tool: str | None = None,
+    capability: str | None = None,
+) -> Finding:
     return Finding(
         scan_id=uuid4(),
         tool=ToolName.SEMGREP,
@@ -67,6 +150,8 @@ def _finding(*, excluded_path: bool = False, epss_score: float | None = None, in
         excluded_path=excluded_path,
         epss_score=epss_score,
         in_kev=in_kev,
+        mcp_tool=mcp_tool,
+        capability=capability,
     )
 
 
@@ -89,7 +174,10 @@ def test_terminal_report_hides_excluded_path_findings():
 
 def test_json_report_serializes_new_accuracy_fields(capsys):
     scan = _make_scan(status=ScanStatus.COMPLETED, unreliable_stages=[])
-    scan.findings = [_finding(excluded_path=True), _finding(epss_score=0.42, in_kev=True)]
+    scan.findings = [
+        _finding(excluded_path=True),
+        _finding(epss_score=0.42, in_kev=True, mcp_tool="run_command", capability="shell_execution"),
+    ]
     output.print_json_report(scan)
     payload = json.loads(capsys.readouterr().out)
     findings = payload["findings"]
@@ -100,6 +188,13 @@ def test_json_report_serializes_new_accuracy_fields(capsys):
     assert "corroborated_by" in findings[0]
     assert "occurrence_count" in findings[0]
     assert "additional_locations" in findings[0]
+    # attribute_findings_to_tools sets this; None (findings[0]) must never be
+    # confused with "attributed to no tool by design" vs "not yet run at
+    # all" - both currently render as null, which is correct until a
+    # combined/potential/confirmed evidence state exists to distinguish them.
+    assert findings[0]["mcp_tool"] is None
+    assert findings[1]["mcp_tool"] == "run_command"
+    assert findings[1]["capability"] == "shell_execution"
 
 
 def test_a_stage_that_finished_with_a_failed_tool_is_not_shown_as_clean(capsys):

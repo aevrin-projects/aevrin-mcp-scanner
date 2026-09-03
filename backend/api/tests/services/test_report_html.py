@@ -13,8 +13,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from aevrin_scanner_core import StageName
 
 from aevrin_api.services.reports import render_report_html
+from aevrin_api.services.reports.html import _STAGE_ORDER
 
 NOW = datetime.now(UTC)
 
@@ -62,9 +64,20 @@ STAGES = [
     {"name": "static_analysis", "status": "done", "error": None},
     {"name": "secrets", "status": "done", "error": None},
     {"name": "dependencies", "status": "done", "error": None},
+    {"name": "mcp_analysis", "status": "done", "error": None},
     {"name": "tool_description_check", "status": "done", "error": None},
     {"name": "aggregating", "status": "done", "error": None},
 ]
+
+
+def test_stage_order_covers_every_stage_the_pipeline_can_report():
+    """_STAGE_ORDER is a hand-maintained list _coverage_html iterates to
+    render "every stage, with the reason it did not run" (that function's
+    own docstring). A stage added to the pipeline (StageName.MCP_ANALYSIS,
+    when it was wired in) and not added here would be silently absent from
+    every exported report - a real regression this guards, caught only
+    because it was checked for by hand once."""
+    assert set(_STAGE_ORDER) == set(StageName)
 
 
 def text_of(html: str) -> str:

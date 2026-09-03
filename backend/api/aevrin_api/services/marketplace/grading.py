@@ -42,7 +42,6 @@ _DEPENDENCY_TOOLS = frozenset({ToolName.OSV_SCANNER, ToolName.TRIVY, ToolName.OP
 _MCP_TOOLS = frozenset({
     ToolName.MCP_SHIELD,
     ToolName.MCP_SCAN,
-    ToolName.MCP_CONTEXT_PROTECTOR,
     ToolName.AEVRIN_MANIFEST_RULES,
 })
 # The OWASP categories that are about the MCP surface rather than the code,

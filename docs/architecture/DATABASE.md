@@ -24,9 +24,33 @@ tables) and as defense in depth on the rest.
 ## Table inventory, by domain
 
 **Scanning** (`0001_init.sql`, extended by `0007`, `0008`, `0010`, `0011`,
-`0012`, `0024`, `0025`)
+`0012`, `0024`, `0025`, `0040`, `0041`, `0042`, `0043`, `0044`, `0045`)
 `scans`, `scan_stages`, `findings`, `hook_cache`, `api_keys`,
-`rug_pull_signatures`.
+`rug_pull_signatures`. `0040_scan_mcp_evidence.sql` added
+`scans.mcp_detection_confidence`/`mcp_detection_evidence`/
+`mcp_tools_declared` - the pipeline (`scanner-core/pipeline/orchestrator.py`)
+had always computed these on every scan; they reached no column and were
+discarded before this. `0041_scan_mcp_components.sql` added
+`scans.mcp_components` (jsonb), one entry per repository directory that
+independently looks like its own MCP server. `0042_finding_mcp_tool.sql`
+added `findings.mcp_tool` - which declared tool a behavior finding's sink
+was found inside (`analysis/capability_map.py`). `0043_scan_stage_mcp_analysis.sql`
+widened `scan_stages`'s `name` check constraint for the new
+`mcp_analysis` stage (`adapters/mcp_behavior.py`'s Semgrep taint pack,
+between `dependencies` and `tool_description_check`). `0044_finding_capability.sql`
+added `findings.capability` - the normalized capability vocabulary term a
+behavior finding is about (`analysis/declared_vs_observed.py`'s input) -
+see [`../features/MCP_SCANNING.md`](../features/MCP_SCANNING.md#data).
+`0045_scan_mcp_capabilities.sql` added `scans.mcp_capabilities` (jsonb) -
+`analysis.mcp_detection.capability_summary()`'s result
+(`can_execute`/`can_write`/`can_read`/`handles_credentials`/`makes_network_calls`),
+computed by the pipeline on every scan whose tool discovery ran and, before
+this migration, discarded rather than persisted anywhere. Null (not a dict
+of all-false) for a target where tool discovery never ran at all. This is
+what lets the marketplace grade finally read real declared-capability
+evidence instead of always passing `capabilities=None` to `grade_mcp_server()` -
+see [`../features/MCP_MARKETPLACE.md`](../features/MCP_MARKETPLACE.md) and
+`DECISIONS.md` ADR-020.
 
 **Auth, tiering, billing** (`0003_tiering_auth_billing.sql`, `0005`, `0013`,
 `0016`, `0028`, `0033`)

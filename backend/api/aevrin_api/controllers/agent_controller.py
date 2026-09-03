@@ -235,7 +235,7 @@ async def _trust_by_identity(
     scans = await db.select(
         "scans",
         {"user_id": user_id, "target_type": "live_mcp_server"},
-        columns="id,target,score,status,created_at",
+        columns="id,target,score,status,created_at,mcp_capabilities",
         order="created_at.desc",
         limit=GRADE_SCAN_LOOKBACK,
     )
@@ -257,6 +257,7 @@ async def _trust_by_identity(
 
     trust: dict[str, McpTrustOut] = {}
     for key, scan in latest.items():
+        capabilities = scan.get("mcp_capabilities") or {}
         result = grade_mcp_server(
             findings=findings_by_scan.get(scan["id"], []),
             scan_score=scan["score"],
@@ -264,6 +265,15 @@ async def _trust_by_identity(
             # the same rule the CLI applies to the same grade.
             coverage_complete=scan["status"] != "incomplete",
             transport=scan["target"],
+            # scan.mcp_capabilities for a live_mcp_server scan comes from
+            # analysis/remote_mcp.py's own list_tools() handshake - the same
+            # one that already produced the rug-pull signature hash for
+            # this target - not from discover_tools() (there is no source
+            # to read here). None when that handshake itself failed, which
+            # correctly costs UNKNOWN_CAPABILITY_WEIGHT rather than reading
+            # as a confirmed-clean server.
+            can_execute=capabilities.get("can_execute"),
+            can_write=capabilities.get("can_write"),
         )
         trust[key] = McpTrustOut(
             scan_id=UUID(scan["id"]),

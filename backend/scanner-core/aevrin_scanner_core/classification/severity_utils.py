@@ -71,3 +71,16 @@ def downweight_one_tier(severity: Severity) -> Severity:
     index = _SEVERITY_ORDER.index(severity)
     low_index = _SEVERITY_ORDER.index(Severity.LOW)
     return _SEVERITY_ORDER[min(index + 1, low_index)]
+
+
+def upweight_one_tier(severity: Severity) -> Severity:
+    """One step more urgent, capped at CRITICAL. The mirror of
+    downweight_one_tier, for a signal that argues a finding is worse than
+    its tool's own severity label - today, analysis.declared_vs_observed:
+    an observed capability a tool's own description gave no warning about
+    is worse than the same capability declared up front, because nobody
+    reading that description would have known to check.
+    """
+    index = _SEVERITY_ORDER.index(severity)
+    critical_index = _SEVERITY_ORDER.index(Severity.CRITICAL)
+    return _SEVERITY_ORDER[max(index - 1, critical_index)]

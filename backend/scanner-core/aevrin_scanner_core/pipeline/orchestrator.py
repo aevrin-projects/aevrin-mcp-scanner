@@ -12,6 +12,7 @@ SKIPPED, not silently absent.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 
@@ -27,6 +28,7 @@ from uuid import UUID, uuid4
 from ..adapters import (
     BanditAdapter,
     GitleaksAdapter,
+    McpBehaviorAdapter,
     McpShieldAdapter,
     OsvScannerAdapter,
     ScorecardAdapter,
@@ -35,17 +37,26 @@ from ..adapters import (
     TruffleHogAdapter,
 )
 from ..adapters.mcp_shield import build_mcp_config
+from ..analysis.capability_map import attribute_findings_to_tools
+from ..analysis.declared_vs_observed import flag_undeclared_capabilities
 from ..analysis.manifest_rules import (
     ToolDescriptor,
     TransportInfo,
     check_audit_logging_presence,
     check_dangerous_launch_command,
     check_excessive_agency,
+    check_tool_name_shadowing,
     check_weak_auth,
 )
-from ..analysis.mcp_detection import detect_mcp_server, discover_tools
-from ..analysis.remote_mcp import inspect_remote_signatures
-from ..analysis.rug_pull import PinnedSignature, diff_signatures
+from ..analysis.mcp_detection import (
+    DiscoveredTool,
+    capability_summary,
+    detect_mcp_server,
+    discover_tools,
+    merge_capability_summaries,
+)
+from ..analysis.remote_mcp import RemoteToolSignature, inspect_remote_signatures
+from ..analysis.rug_pull import PinnedSignature, diff_signatures, hash_signature
 from ..classification.scoring import compute_score
 from ..execution.network_safety import public_https_url_error
 from ..execution.runner import ToolExecutionError, sanitized_subprocess_env
@@ -70,11 +81,20 @@ OnFindings = Callable[[list[Finding]], None]
 class PipelineConfig:
     github_token: str | None = None
     clone_depth: int = 50
-    # {server_name: signature_hash} from the last scan of this exact target;
-    # empty on first scan, populated by the caller from persisted state.
+    # {key: signature_hash} from the last scan of this exact target; empty on
+    # first scan, populated by the caller from persisted state. Two disjoint
+    # keyspaces share this one dict/table on purpose (see
+    # docs/features/MCP_SCANNING.md#rug-pull-source-repositories): a live
+    # probe's key is the server name straight out of the MCP config, and a
+    # source repository's key is `tool:{tool_name}` - the prefix is what
+    # keeps a same-named live server and declared tool from colliding, not a
+    # second table for what is, underneath, the same
+    # "did this target's declared surface change since last time" question.
     previous_signatures: dict[str, str] = field(default_factory=dict)
-    # (server_name, signature_hash) pairs computed this run, caller persists
-    # these after the pipeline returns so the *next* scan can diff against them.
+    # (key, signature_hash) pairs computed this run, same keyspace as above.
+    # Extended, never reassigned: a target could in principle exercise both
+    # the live probe and the source path in one scan, and each must add its
+    # own entries rather than overwrite the other's.
     computed_signatures: list[tuple[str, str]] = field(default_factory=list)
 
 
@@ -190,13 +210,43 @@ def run_pipeline(
             scan.mcp_detected = detection.is_mcp_server
             scan.mcp_detection_confidence = detection.confidence
             scan.mcp_detection_evidence = [f"{s.kind}: {s.detail}" for s in detection.signals[:10]]
+            scan.mcp_components = [
+                {
+                    "root": component.root,
+                    "confidence": component.confidence,
+                    "evidence": [f"{s.kind}: {s.detail}" for s in component.signals[:6]],
+                }
+                for component in detection.components
+            ]
         else:
             scan.mcp_detected = True
             scan.mcp_detection_confidence = "high"
             scan.mcp_detection_evidence = ["target_type: the target is an MCP server by construction"]
 
+        # Computed once here rather than inside each consumer: MCP_ANALYSIS
+        # (the behavior rule pack + capability join, below) and the source
+        # half of TOOL_DESCRIPTION_CHECK both need this same list, and
+        # discover_tools() walks the repository to build it - see _walk()'s
+        # own docstring on why reading that tree twice would be pure waste.
+        tools: list[DiscoveredTool] = []
+        if repo_dir and scan.mcp_detected:
+            tools = discover_tools(repo_dir)
+            scan.mcp_tools_declared = [tool.name for tool in tools]
+            # Declared surface only - real behavior is `_run_mcp_behavior_stage`
+            # below, this is just what the tools' own names/descriptions say.
+            # None (not this) for every target type that skipped tool
+            # discovery entirely - see the field's own docstring on why an
+            # unknown capability must stay distinguishable from a confirmed
+            # absence of one.
+            scan.mcp_capabilities = capability_summary((tool.name, tool.description) for tool in tools)
+
+        _run_mcp_behavior_stage(
+            scan, repo_dir, tools, stage_by_name[StageName.MCP_ANALYSIS], on_stage, emit, errors
+        )
+
         _run_tool_description_stage(
-            scan, target_type, target, repo_dir, config, stage_by_name[StageName.TOOL_DESCRIPTION_CHECK], on_stage, emit, errors
+            scan, target_type, target, repo_dir, tools, config,
+            stage_by_name[StageName.TOOL_DESCRIPTION_CHECK], on_stage, emit, errors
         )
 
         _mark(stage_by_name[StageName.AGGREGATING], StageStatus.RUNNING, on_stage)
@@ -390,7 +440,7 @@ def _partition_safe_remote_entries(
 
 
 def _probe_remote_servers(
-    scan_id: UUID,
+    scan: Scan,
     mcp_entries: dict[str, dict[str, Any]],
     repo_dir: str | None,
     config: PipelineConfig,
@@ -402,6 +452,7 @@ def _probe_remote_servers(
     verdict; signature pinning can be unavailable while description coverage is
     still real.
     """
+    scan_id = scan.id
     config_dir = tempfile.mkdtemp(prefix="aevrin-mcpcfg-")
     try:
         with open(f"{config_dir}/mcp.json", "w") as f:
@@ -414,17 +465,25 @@ def _probe_remote_servers(
         mcp_shield_succeeded = error is None
 
         signatures: list[PinnedSignature] = []
+        remote_results: list[RemoteToolSignature] = []
         try:
-            signatures = [
-                PinnedSignature(name, signature)
-                for name, signature in inspect_remote_signatures(mcp_entries)
-            ]
+            remote_results = inspect_remote_signatures(mcp_entries)
+            signatures = [PinnedSignature(r.server_name, r.signature_hash) for r in remote_results]
         except Exception as exc:  # noqa: BLE001 - remote protocol errors are isolated
             tool_errors.append(f"MCP signature inspection: {type(exc).__name__}: {exc}")
 
-        config.computed_signatures = [(s.server_name, s.signature_hash) for s in signatures]
+        config.computed_signatures.extend((s.server_name, s.signature_hash) for s in signatures)
         previous = [PinnedSignature(name, h) for name, h in config.previous_signatures.items()]
         emit(diff_signatures(scan_id, ToolName.MCP_SCAN, previous, signatures))
+
+        if remote_results:
+            # A live handshake actually answered "what does this server
+            # expose", where before nothing did for this target type -
+            # merged (OR'd) rather than overwritten, in case source
+            # discovery already ran for the same scan (a repository that
+            # also ships a client config pointing at another server).
+            live_capabilities = merge_capability_summaries(*(r.capabilities for r in remote_results))
+            scan.mcp_capabilities = merge_capability_summaries(scan.mcp_capabilities, live_capabilities)
 
         for entry in mcp_entries.values():
             transport = TransportInfo(
@@ -441,8 +500,101 @@ def _probe_remote_servers(
         shutil.rmtree(config_dir, ignore_errors=True)
 
 
+def _read_source_for_join(repo_dir: str, findings: list[Finding]) -> dict[str, str]:
+    """Just the files a behavior finding actually landed in, read fresh from
+    disk for capability_map.attribute_findings_to_tools. Cheaper than
+    threading discover_tools()'s own already-read source content through:
+    that walk reads every source file in the repository, almost always far
+    more than the handful a Semgrep run actually reported against.
+    """
+    paths = {f.location.file_path for f in findings if f.location.file_path}
+    sources: dict[str, str] = {}
+    for relative_path in paths:
+        try:
+            with open(os.path.join(repo_dir, relative_path), encoding="utf-8", errors="ignore") as handle:
+                sources[relative_path] = handle.read()
+        except OSError:
+            continue
+    return sources
+
+
+def _run_mcp_behavior_stage(
+    scan: Scan,
+    repo_dir: str | None,
+    tools: list[DiscoveredTool],
+    stage: ScanStage,
+    on_stage: OnStage,
+    emit: OnFindings,
+    errors: list[str],
+) -> None:
+    """Aevrin's own MCP-aware Semgrep taint pack (adapters/mcp_behavior.py),
+    joined to the specific tool whose handler contains each sink
+    (analysis/capability_map.py).
+
+    Not one of `_CORE_STAGES`: a Docker/binary failure here means one
+    additional analysis did not run, not that the scan's foundational
+    static/secrets/dependency coverage is in doubt - the same reasoning
+    TOOL_DESCRIPTION_CHECK's own exclusion from that set already rests on.
+    """
+    if not repo_dir:
+        _mark(
+            stage,
+            StageStatus.SKIPPED,
+            on_stage,
+            error="No source repository to analyze for this target type.",
+        )
+        return
+    if not tools:
+        _mark(
+            stage,
+            StageStatus.SKIPPED,
+            on_stage,
+            error=(
+                "No declared MCP tools were found in source; there is nothing for this "
+                "stage to check arguments against."
+            ),
+        )
+        return
+
+    _mark(stage, StageStatus.RUNNING, on_stage)
+    findings, error = _run_isolated(
+        "aevrin-mcp-behavior", lambda: McpBehaviorAdapter().run(scan.id, repo_dir)
+    )
+    if findings:
+        sources = _read_source_for_join(repo_dir, findings)
+        attribute_findings_to_tools(tools, findings, sources)
+        # Only meaningful once a finding is attributed to a specific tool -
+        # comparing against the right tool's own declared capabilities is
+        # the entire point.
+        flag_undeclared_capabilities(tools, findings)
+    emit(findings)
+    if error:
+        errors.append(error)
+    _mark(stage, StageStatus.FAILED if error else StageStatus.DONE, on_stage, error=error)
+
+
+_TOOL_SIGNATURE_PREFIX = "tool:"
+
+
+def _tool_signature_pins(tools: list[DiscoveredTool]) -> list[PinnedSignature]:
+    """One signature per declared tool: name, description, and the declared
+    capability labels derived from them - deliberately not `line_start`/
+    `line_end`, which shift whenever unrelated code earlier in the file
+    changes and would make this fire on every unrelated commit rather than
+    on an actual change to what the tool says it does."""
+    return [
+        PinnedSignature(
+            f"{_TOOL_SIGNATURE_PREFIX}{tool.name}",
+            hash_signature(
+                {"name": tool.name, "description": tool.description, "capabilities": sorted(tool.capabilities)}
+            ),
+        )
+        for tool in tools
+    ]
+
+
 def _run_source_mcp_analysis(
-    scan: Scan, repo_dir: str, emit: OnFindings
+    scan: Scan, repo_dir: str, tools: list[DiscoveredTool], config: PipelineConfig, emit: OnFindings
 ) -> bool:
     """MCP-specific analysis of a repository that *is* an MCP server.
 
@@ -458,11 +610,19 @@ def _run_source_mcp_analysis(
     reported rather than hidden: a tool registered through indirection this
     cannot parse is a tool that does not appear below.
 
+    `tools` is computed once by the caller (run_pipeline), not here -
+    MCP_ANALYSIS needs the identical list, and discover_tools() walks the
+    whole repository to build it.
+
+    Also diffs this scan's declared-tool signatures against the previous
+    scan of this exact target (`config.previous_signatures`), the rug-pull
+    check the live-connection path already had - a source repository can
+    rug-pull the same way a live server can, and a fresh clone every scan
+    means there is no local pin state to lean on the way an MCP client has.
+
     Returns whether any MCP surface was actually read, so the caller can tell
     "checked, found nothing" apart from "could not check".
     """
-    tools = discover_tools(repo_dir)
-    scan.mcp_tools_declared = [tool.name for tool in tools]
     if not tools:
         return False
 
@@ -473,9 +633,22 @@ def _run_source_mcp_analysis(
             scan.id, [ToolDescriptor(tool.name, tool.description) for tool in tools]
         )
     )
+    # Needs the actual DiscoveredTool objects, not the name/description-only
+    # ToolDescriptor above - severity depends on whether a near-identical pair
+    # declares different capabilities.
+    emit(check_tool_name_shadowing(scan.id, tools))
     # Audit logging is a property of the code, so it was always answerable for
     # a repository; it simply never got the chance to run.
     emit(check_audit_logging_presence(scan.id, repo_dir))
+
+    current_pins = _tool_signature_pins(tools)
+    previous_pins = [
+        PinnedSignature(key, sig_hash)
+        for key, sig_hash in config.previous_signatures.items()
+        if key.startswith(_TOOL_SIGNATURE_PREFIX)
+    ]
+    emit(diff_signatures(scan.id, ToolName.MCP_SCAN, previous_pins, current_pins))
+    config.computed_signatures.extend((p.server_name, p.signature_hash) for p in current_pins)
     return True
 
 
@@ -484,6 +657,7 @@ def _run_tool_description_stage(
     target_type: TargetType,
     target: str,
     repo_dir: str | None,
+    tools: list[DiscoveredTool],
     config: PipelineConfig,
     stage: ScanStage,
     on_stage: OnStage,
@@ -499,7 +673,7 @@ def _run_tool_description_stage(
     # a repository that ships a server rather than a config that consumes one.
     source_analysis_ran = False
     if repo_dir and scan.mcp_detected:
-        source_analysis_ran = _run_source_mcp_analysis(scan, repo_dir, emit)
+        source_analysis_ran = _run_source_mcp_analysis(scan, repo_dir, tools, config, emit)
 
     mcp_entries = _discover_mcp_entries(target_type, target, repo_dir)
     if not mcp_entries:
@@ -563,7 +737,7 @@ def _run_tool_description_stage(
     # Only the filtered set is ever probed; the unfiltered `mcp_entries` is
     # deliberately not reused past this point.
     mcp_shield_succeeded = _probe_remote_servers(
-        scan_id, safe_remote_entries, repo_dir, config, emit, tool_errors
+        scan, safe_remote_entries, repo_dir, config, emit, tool_errors
     )
 
     if limitations:

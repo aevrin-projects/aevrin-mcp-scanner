@@ -33,7 +33,14 @@ def _finding(severity: Severity, *, triage: str = "open", not_tested: bool = Fal
 
 
 def test_a_clean_authenticated_server_is_a():
-    result = grade_mcp_server(findings=[], scan_score=98, coverage_complete=True, authenticated=True)
+    result = grade_mcp_server(
+        findings=[],
+        scan_score=98,
+        coverage_complete=True,
+        authenticated=True,
+        can_execute=False,
+        can_write=False,
+    )
 
     assert result.grade is Grade.A
     assert result.label == "Trusted"
@@ -108,6 +115,25 @@ def test_unknown_authentication_counts_against_rather_than_for():
     assert any("could not be established" in f.reason for f in unknown.factors)
 
 
+def test_unknown_capabilities_count_against_rather_than_for():
+    """None means not established, the same rule as authentication above.
+    A server whose declared tools were never read must not score the same
+    as one confirmed to declare neither execution nor writes."""
+    unknown = grade_mcp_server(findings=[], authenticated=True)
+    confirmed_none = grade_mcp_server(findings=[], authenticated=True, can_execute=False, can_write=False)
+
+    assert unknown.risk_points > confirmed_none.risk_points
+    assert any("could not be established" in f.reason for f in unknown.factors)
+
+
+def test_confirmed_absent_capability_earns_nothing():
+    """A confirmed False is the baseline, not a reward - the same rule
+    confirmed authentication already follows."""
+    result = grade_mcp_server(findings=[], authenticated=True, can_execute=False, can_write=False)
+    assert result.grade is Grade.A
+    assert not any("capability" in f.reason for f in result.factors)
+
+
 def test_plaintext_transport_is_penalised():
     plain = grade_mcp_server(findings=[], authenticated=True, transport="http://box.local/mcp")
     secure = grade_mcp_server(findings=[], authenticated=True, transport="https://box.local/mcp")
@@ -120,13 +146,21 @@ def test_a_dismissed_finding_is_not_evidence():
     """A finding triaged as a false positive was reviewed and rejected.
     Grading on it anyway would make triage pointless."""
     result = grade_mcp_server(
-        findings=[_finding(Severity.CRITICAL, triage="false_positive")], authenticated=True
+        findings=[_finding(Severity.CRITICAL, triage="false_positive")],
+        authenticated=True,
+        can_execute=False,
+        can_write=False,
     )
     assert result.grade is Grade.A
 
 
 def test_an_untested_finding_does_not_count_as_a_real_one():
-    result = grade_mcp_server(findings=[_finding(Severity.CRITICAL, not_tested=True)], authenticated=True)
+    result = grade_mcp_server(
+        findings=[_finding(Severity.CRITICAL, not_tested=True)],
+        authenticated=True,
+        can_execute=False,
+        can_write=False,
+    )
     assert result.grade is Grade.A
 
 

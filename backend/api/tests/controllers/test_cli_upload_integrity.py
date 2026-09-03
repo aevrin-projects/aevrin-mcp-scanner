@@ -63,6 +63,8 @@ def test_to_core_finding_round_trips_location_fields():
         file_path="app.py",
         line_start=10,
         line_end=12,
+        mcp_tool="run_command",
+        capability="shell_execution",
         remediation="r",
     )
     core = _to_core_finding(f, scan_id)
@@ -70,6 +72,8 @@ def test_to_core_finding_round_trips_location_fields():
     assert core.location.file_path == "app.py"
     assert core.location.line_start == 10
     assert core.location.line_end == 12
+    assert core.mcp_tool == "run_command"
+    assert core.capability == "shell_execution"
 
 
 class _UploadDb:
@@ -138,6 +142,12 @@ def test_cli_upload_is_idempotent_and_preserves_full_dashboard_record(monkeypatc
         created_at=started,
         completed_at=completed,
         mcp_detected=True,
+        mcp_detection_confidence="high",
+        mcp_detection_evidence=["sdk_dependency: depends on fastmcp"],
+        mcp_tools_declared=["search"],
+        mcp_components=[{"root": ".", "confidence": "high", "evidence": []}],
+        mcp_capabilities={"can_execute": False, "can_write": False, "can_read": True,
+                          "handles_credentials": False, "makes_network_calls": False},
         stages=[
             CliUploadStage(
                 name="static_analysis",
@@ -168,6 +178,21 @@ def test_cli_upload_is_idempotent_and_preserves_full_dashboard_record(monkeypatc
     assert db.tables["scans"][0]["source"] == "cli"
     assert db.tables["scans"][0]["created_at"] == started.isoformat()
     assert db.tables["scans"][0]["completed_at"] == completed.isoformat()
+    # A CLI-local scan's detection confidence/evidence/declared-tools were
+    # computed by the pipeline and discarded here before this was wired up -
+    # see CHANGELOG.md.
+    assert db.tables["scans"][0]["mcp_detection_confidence"] == "high"
+    assert db.tables["scans"][0]["mcp_detection_evidence"] == [
+        "sdk_dependency: depends on fastmcp"
+    ]
+    assert db.tables["scans"][0]["mcp_tools_declared"] == ["search"]
+    assert db.tables["scans"][0]["mcp_components"] == [
+        {"root": ".", "confidence": "high", "evidence": []}
+    ]
+    assert db.tables["scans"][0]["mcp_capabilities"] == {
+        "can_execute": False, "can_write": False, "can_read": True,
+        "handles_credentials": False, "makes_network_calls": False,
+    }
     assert len(db.tables["scan_stages"]) == 1
     assert len(db.tables["findings"]) == 1
     assert db.tables["findings"][0]["id"] == str(finding.id)
