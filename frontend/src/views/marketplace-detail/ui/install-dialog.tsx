@@ -90,7 +90,7 @@ export function InstallDialog({
           <div className="rounded-lg border border-border p-4">
             <GradeBadge
               grade={listing.security.grade}
-              score={listing.security.score}
+              riskScore={listing.security.risk_score}
               state={listing.security.state}
             />
           </div>

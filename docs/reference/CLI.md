@@ -75,7 +75,7 @@ at the top level, which exits immediately after printing).
 ## Environment
 
 `GITHUB_TOKEN`, if set, is passed into the pipeline config for a local
-scan (raises GitHub API rate limits for Scorecard/OSV lookups against
+scan (raises GitHub API rate limits for OSV lookups against
 public repos it references) - unrelated to the API's own
 `GITHUB_APP_*` variables that power "Connect GitHub" on the dashboard.
 See [`ENVIRONMENT.md`](ENVIRONMENT.md).

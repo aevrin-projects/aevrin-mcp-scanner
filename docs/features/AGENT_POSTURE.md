@@ -13,8 +13,8 @@ distinction documented directly in `scanner-core/agents/posture.py`:
 
 | Number | Question | Computed by |
 |---|---|---|
-| MCP scan score | How many problems does this server have | `classification/scoring.py` |
-| MCP trust grade | Should I let this server run | `agents/grade.py` |
+| MCP risk score | How much risk does this server carry (0 clean, 100 "do not use") | `mcp/risk.py` |
+| MCP trust grade | Should I let this server run (A-F, or none) | `mcp/risk.py` |
 | Agent posture | How much can this agent already do on this machine | `agents/posture.py` |
 | Blast radius | What does misuse reach | Part of posture, surfaced as its own deduction factors |
 
@@ -35,10 +35,21 @@ been uploaded.
 `scanner-core/agents/`: `claude_code.py` and `codex.py` discover
 per-vendor configuration; `common.py`/`identity.py`/`models.py` hold the
 shared `Capability`/`Level`/`DiscoveredAgent` shapes; `posture.py` computes
-the score; `grade.py` converts it to a letter alongside the MCP trust
-grade; `attack_paths.py` derives concrete "agent X can reach credential Y
+the score; `attack_paths.py` derives concrete "agent X can reach credential Y
 via capability Z" chains from the same discovered data, rather than a
 separate analysis pass.
+
+`agents.Capability` (what an agent has been *granted*, with a `Level`) is
+deliberately not merged with `mcp.Permission` (what a tool *declares*).
+They share word stems, not semantics: a permission level has no meaning for
+a tool's declared surface, and merging them would produce a worse model
+than either.
+
+Posture reads a server's grade as a string; it does not recompute one.
+Grade `F` deducts more than `D`, and an *ungraded* server (coverage
+incomplete) is excluded from the arithmetic entirely rather than passed
+through as a letter-shaped null - the agent's own coverage signal already
+accounts for what could not be read.
 
 The per-server MCP trust grade shown alongside a configured agent
 (`api/controllers/agent_controller.py::_trust_by_identity`) is matched by

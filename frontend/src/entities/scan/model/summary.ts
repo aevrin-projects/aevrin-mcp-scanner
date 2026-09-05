@@ -20,10 +20,13 @@ export function uniqueTargets(scans: Scan[]) {
 
 export function verdictLabel(scan: Scan, activeCounts: Record<Severity, number>) {
   if (scan.status === "failed") return "Scan failed";
-  if (scan.status === "incomplete") return "Partial coverage";
+  // An ungraded scan is its own state, and it outranks the finding counts:
+  // the point of withholding the letter is that the findings do not add up
+  // to an assessment, so summarising them as one would undo that.
+  if (scan.status === "incomplete" || scan.grade === null) return "Not graded";
   if (activeCounts.critical > 0) return "Critical issues need attention";
   if (activeCounts.high > 0) return "High-risk findings need review";
-  if (scan.score !== null && scan.score >= 90) return "No significant issues in completed checks";
-  if (scan.score !== null && scan.score >= 70) return "Lower-severity issues found";
+  if (scan.risk_score !== null && scan.risk_score <= 9) return "No significant issues found";
+  if (scan.risk_score !== null && scan.risk_score <= 24) return "Lower-severity issues found";
   return "Review the findings before use";
 }

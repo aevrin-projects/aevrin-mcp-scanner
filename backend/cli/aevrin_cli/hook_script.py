@@ -6,10 +6,10 @@ robust as a hook script matched on nearly every Bash/Write tool call; it
 must return well within its settings.json `timeout` budget.
 
 Decision logic (exactly per the master build spec, Section 8):
-1. Check for a cached score first (POST /hook/cache, a fast Supabase lookup,
+1. Check for a cached grade first (POST /hook/cache, a fast Supabase lookup,
    not a scan).
-2. Clean cached score -> allow silently.
-3. Cached score shows critical/high -> block, with score + specific
+2. Clean cached grade -> allow silently.
+3. Cached grade shows critical/high -> block, with the grade + specific
    findings (including file/line and remediation, so the session that just
    got blocked has enough to actually fix the code) + three explicit next
    steps: fix it directly, `aevrin hook allow <target>` to install anyway,
@@ -20,7 +20,7 @@ Decision logic (exactly per the master build spec, Section 8):
     network) -> block as "incomplete", never allow_clean, an empty
     findings list from a scan that never ran isn't the same thing as a
     clean one.
-4. No cached score -> allow with a visible "not yet scanned" warning. The
+4. No cached grade -> allow with a visible "not yet scanned" warning. The
    actual background scan is triggered server-side by the /hook/cache call
    itself (FastAPI BackgroundTasks); this script never runs or waits on a
    scan itself, only ever makes one short HTTP request.
@@ -196,10 +196,17 @@ def _block_message(result: dict[str, Any], override_target: str) -> str:
     Written for Claude reading it in the session that was just blocked, so every
     option names the exact command that resolves it.
     """
-    score = result.get("score")
+    risk_score = result.get("risk_score")
+    grade = result.get("grade")
     findings = result.get("findings_summary", [])
 
-    lines = [f"Aevrin: this MCP server scored {score}/100 with unresolved high/critical findings:"]
+    headline = f"grade {grade}" if grade else "no grade (scan incomplete)"
+    lines = [
+        (
+            f"Aevrin: this MCP server has {headline}, risk {risk_score}/100, with unresolved "
+            "high/critical findings:"
+        )
+    ]
     for f in findings[:5]:
         loc = f", {f['file_path']}" + (f":{f['line_start']}" if f.get("line_start") else "") if f.get("file_path") else ""
         lines.append(f"  - [{f['severity'].upper()}] {f['title']} ({f['owasp_category']}){loc}")
@@ -325,8 +332,13 @@ def main() -> None:
         return
 
     # "allow_clean" or anything else recognized-but-fine
-    score = result.get("score")
-    _allow(f"Aevrin: clean scan on record (score {score}/100)." if score is not None else None)
+    risk_score = result.get("risk_score")
+    grade = result.get("grade")
+    _allow(
+        f"Aevrin: clean scan on record (grade {grade}, risk {risk_score}/100)."
+        if grade is not None
+        else None
+    )
 
 
 if __name__ == "__main__":

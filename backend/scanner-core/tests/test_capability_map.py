@@ -6,8 +6,8 @@ from aevrin_scanner_core.analysis.capability_map import (
     attribute_findings_to_tools,
     python_function_ranges,
 )
-from aevrin_scanner_core.analysis.mcp_detection import DiscoveredTool
 from aevrin_scanner_core.classification.owasp import OwaspMcpCategory
+from aevrin_scanner_core.mcp.tools import McpTool
 from aevrin_scanner_core.models import Finding, Location, Severity, ToolName
 
 _SOURCE = (
@@ -16,9 +16,9 @@ _SOURCE = (
     "\n"                                         # 3
     "@mcp.tool()\n"                               # 4  <- decorator
     "def run_command(command: str) -> str:\n"    # 5  <- def
-    '    """Run a shell command."""\n'           # 6  <- docstring (DiscoveredTool.line_end)
+    '    """Run a shell command."""\n'           # 6  <- docstring (McpTool.line_end)
     "    result = subprocess.run(command, shell=True)\n"  # 7 <- the actual sink
-    "    return result.stdout.decode()\n"        # 8  <- DiscoveredTool.line_end would stop at 6
+    "    return result.stdout.decode()\n"        # 8  <- McpTool.line_end would stop at 6
     "\n"
     "@mcp.tool()\n"                               # 10
     "def list_files() -> str:\n"                 # 11
@@ -27,12 +27,12 @@ _SOURCE = (
 )
 
 
-def _tool(name: str, line_start: int, line_end: int) -> DiscoveredTool:
-    """A DiscoveredTool exactly as discover_tools() would build it - the
+def _tool(name: str, line_start: int, line_end: int) -> McpTool:
+    """A McpTool exactly as discover_tools() would build it - the
     declaration span (decorator through docstring), deliberately NOT a
     function-body range. See the module docstring on why this alone cannot
     be used for the join."""
-    return DiscoveredTool(
+    return McpTool(
         name=name, description="", file_path="server.py", line_start=line_start, line_end=line_end
     )
 

@@ -87,7 +87,7 @@ def test_false_positive_persists_reason_timestamp_and_owner_filter() -> None:
                 "id": str(finding_id),
                 "scan_id": str(scan_id),
                 "user_id": user.id,
-                "tool": "semgrep",
+                "tool": "aevrin-mcp-behavior",
                 "owasp_category": "MCP05",
                 "severity": "medium",
                 "title": "Fixture finding",

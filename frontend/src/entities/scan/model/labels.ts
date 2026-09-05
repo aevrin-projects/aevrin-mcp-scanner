@@ -2,21 +2,21 @@ import type { ScanStatus, StageName, TargetType } from "./types";
 
 export const STAGE_ORDER: StageName[] = [
   "cloning",
-  "static_analysis",
+  "discovery",
+  "mcp_rules",
+  "mcp_behavior",
   "secrets",
   "dependencies",
-  "mcp_analysis",
-  "tool_description_check",
   "aggregating",
 ];
 
 export const STAGE_LABELS: Record<StageName, string> = {
   cloning: "Cloning",
-  static_analysis: "Static analysis",
-  secrets: "Secrets",
-  dependencies: "Dependencies",
-  mcp_analysis: "MCP behavior analysis",
-  tool_description_check: "Tool description check",
+  discovery: "Tool discovery",
+  mcp_rules: "MCP tool rules",
+  mcp_behavior: "MCP behavior analysis",
+  secrets: "Credential exposure",
+  dependencies: "Supply chain",
   aggregating: "Aggregating",
 };
 

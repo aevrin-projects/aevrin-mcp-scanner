@@ -1121,3 +1121,311 @@ adapter that actually calls `.run()` with the underlying Semgrep invocation
 faked out (the same "never invoke a real binary" convention every adapter
 test in this suite already follows) and asserts the real file appears on
 disk.
+
+## ADR-027: Code Security is removed from the product
+
+**Status:** accepted, 2026-09-03.
+
+### Context
+
+Aevrin scanned a GitHub repository with Semgrep's public rulesets, Bandit,
+Gitleaks, TruffleHog, OSV-Scanner, Trivy and OpenSSF Scorecard, then
+labelled every resulting finding with an OWASP MCP category and presented
+the whole set as an "MCP security" result.
+
+Scanning `microsoft/playwright-mcp` produced a report whose most prominent
+findings were a missing Dockerfile `HEALTHCHECK`, an absent OpenSSF badge,
+fuzzing status, branch-protection settings, code-review percentage,
+dependency hash pinning, and CVEs in dev-only packages. None of that is MCP
+security. A developer looking for "can this server's tools hurt my agent"
+had to find four or five relevant findings inside fifty irrelevant ones,
+and the score was driven by the irrelevant ones because there were more of
+them.
+
+Worse, a repository with no MCP relationship at all - `pallets/flask` was
+the confirmed case - produced a full scored report with MCP-labelled
+categories and no indication anywhere that it was not an MCP server.
+
+### Decision
+
+Remove general-purpose code security from the product entirely, rather than
+moving it to its own tab or hiding it in the frontend.
+
+Removed: Semgrep's registry rulesets (`p/security-audit`,
+`p/owasp-top-ten`, `p/python`), Bandit, Gitleaks, Trivy, OpenSSF Scorecard,
+MCP-Shield, the `STATIC_ANALYSIS` stage, `scorecard_score_to_severity`, and
+the code/MCP/dependency sub-scores. A repository that is not an MCP server
+now ends the scan with a plain statement to that effect.
+
+Kept, with reasons:
+
+- **Semgrep the engine**, running only Aevrin's own MCP taint pack. The
+  rules trace an MCP tool argument to a dangerous sink; that is MCP
+  security and there is no other way to get it.
+- **TruffleHog**, because a credential committed in an MCP server's source
+  is a credential exposed to the agent (MCP01), and TruffleHog's live
+  verification makes a finding provable rather than suggestive. Gitleaks
+  went as the duplicate without that capability.
+- **OSV-Scanner**, because an MCP server's runtime dependencies are part of
+  the agent's attack surface (AS-004). Trivy went as the duplicate CVE
+  source that additionally produced the Dockerfile noise.
+
+### Consequences
+
+The report is dramatically shorter and every finding in it is about the MCP
+surface. The container image loses five binaries and the Node runtime.
+
+Dependency CVEs are now scoped to *production* dependencies of the scanned
+project, and only a proven development scope is dropped - an `UNKNOWN`
+scope is kept, because a dependency whose scope could not be established
+has not been shown to be dev-only. The count of what was excluded is
+reported as its own Info finding rather than vanishing silently.
+
+The honest cost: a repository that ships an MCP server *and* has an
+unrelated SQL-injection bug in its web handler will no longer hear about
+the SQL injection from Aevrin. That is the correct trade for a product that
+claims to answer one question well.
+
+## ADR-028: One risk model, counting up, with a nullable grade
+
+**Status:** accepted, 2026-09-03.
+
+### Context
+
+Two scoring systems existed for the same scan.
+`classification/scoring.compute_score` counted **down** from 100 with its
+own severity weights and per-tier caps; `agents/grade.grade_mcp_server`
+counted **up** with a different set of weights plus override conditions to
+produce an A-D letter. "Score" therefore meant the opposite thing depending
+on which surface you were reading, and the two could disagree about the
+same findings.
+
+Separately, both treated an unreadable target as a good one. A repository
+whose tool registrations could not be parsed produced zero findings, scored
+100/100, and graded A. That is the single most dangerous output a security
+product can produce, and it was the *common* case for any server using
+registration patterns the discovery regexes did not match.
+
+### Decision
+
+One model: `mcp/risk.py`.
+
+Risk counts **up** - 0 clean, 100 "do not use" - with weights Critical 25 /
+High 15 / Medium 8 / Low 2 / Info 0, capped at 100. Grades run A-F with
+boundaries matching the ToolTrust Directory methodology, so an Aevrin grade
+and a tooltrust.dev grade for the same server are comparable rather than
+coincidentally similar. `compute_score`, `verdict` and `grade_mcp_server`
+are deleted.
+
+**Coverage does not fold into the number.** A scan that could not enumerate
+the target's tools, or where a stage that should have run did not, gets no
+grade at all: `GradeResult.grade` is `None`. Not an F - F is a verdict
+about a *server*, and this is a statement about a *scan*.
+
+The old weighted "grade factors" (points and reasons) are replaced by a
+`RiskSummary`: headline, explanation, potential impact, recommended action,
+suggested policy. Factors told a reader how the arithmetic worked; they
+never told them what to do about it.
+
+### Consequences
+
+Migration `0046` renames `scans.score` to `scans.risk_score` and blanks
+every existing row. The two numbers are not convertible - the weights and
+caps behind the old one are gone, so `100 - score` would be a fabricated
+value, not a migration - and renaming rather than reusing the column name
+means nothing can silently read the old meaning out of the new one. A
+historical scan reads as "not scored under the current model," which is
+true. The same treatment applies to `hook_cache.last_score` and
+`mcp_listings.current_security_score`.
+
+Every surface had to learn that a null grade is a state to render rather
+than a field to hide: "?" in neutral tones, labelled "Not graded", with the
+risk summary explaining why.
+
+`permission_recommendation()` projects a reduced score by applying the
+recommendation to a copy of the tool list and running the rules again. The
+rules are pure functions, so the projected number is what the scan would
+actually have produced - never an estimate. Advice the rules cannot score
+is listed separately rather than folded into a projection it did not earn.
+
+## ADR-029: ToolTrust's rules are ported, not shelled out to
+
+**Status:** accepted, 2026-09-03.
+
+### Context
+
+The [ToolTrust Scanner](https://github.com/AgentSafe-AI/tooltrust-scanner)
+(MIT) implements the MCP tool-definition analysis Aevrin needed:
+permission surface, scope mismatch, arbitrary code execution, secret
+handling, DoS resilience, tool shadowing, typosquatting, and supply-chain
+indicators, as rules AS-001 through AS-019. It is a Go binary, also
+published as an npm package and a Docker image.
+
+Aevrin already shells out to scanner binaries, so shelling out to this one
+was the obvious first option.
+
+### Decision
+
+Port the rules to Python inside `scanner-core/mcp/`, with attribution.
+
+The deciding fact: ToolTrust's own repository scan cannot enumerate tools
+from source. It detects an embedded MCP implementation (AS-018) and
+unauthenticated routes (AS-019), but the tool-definition rules need a live
+handshake or a JSON tool list. Aevrin's `analysis/discovery.py` *can* read
+tools out of a repository, which is the highest-value target in this
+product and the one a marketplace submission always is. Shelling out would
+have produced almost nothing for exactly the case that matters most, while
+adding a binary, a Node runtime, and a version-skew surface.
+
+Porting also removed a real constraint: ToolTrust spawns each configured
+MCP server as a subprocess to scan it. Aevrin never executes a submitted
+stdio command, so that path was unavailable regardless.
+
+Rejected alternative: a hybrid (port for repositories, shell out for live
+servers) would have meant two implementations of the same rule set,
+disagreeing at the margins - the exact duplication this codebase forbids.
+
+### Consequences
+
+`EXTERNAL_SCANNERS.md` gained a section recording precisely what was taken,
+what is Aevrin's own, and where the two deliberately differ. The MIT
+licence text is vendored beside the data files at
+`mcp/data/TOOLTRUST-LICENSE.txt`.
+
+Rule ids match upstream so the two products' findings are comparable.
+Upstream rule improvements are not automatic; they require a deliberate
+port, which is the cost of this decision and is accepted.
+
+Two divergences are worth stating because they are corrections rather than
+adaptations:
+
+- **AS-006** additionally fires at Critical when a tool declares `EXEC` and
+  takes a caller-supplied code argument, whatever its description says.
+  Upstream gates the rule behind a keyword vocabulary, which meant
+  `run_command(command: str)` - the most dangerous shape an MCP tool takes
+  - reported as nothing worse than a capability disclosure.
+- **AS-014** does not fire for a source-scanned repository, because the
+  manifests were read directly. Upstream fires on any tool without
+  `metadata.dependencies`, correct for a live handshake and wrong for a
+  repository: it put an identical Info card on every tool in the server and
+  claimed coverage was incomplete when it was not.
+
+## ADR-030: One tool model, one permission vocabulary - but agent capability stays separate
+
+**Status:** accepted, 2026-09-03.
+
+### Context
+
+Four vocabularies described overlapping concepts: `DiscoveredTool` (source
+discovery), `ToolDescriptor` (manifest rules), the untyped dicts a live
+handshake returned, and `agents.Capability` (an agent's granted
+permissions). A rule written against one shape was unavailable to the
+others, which is why the manifest rules only ever ran against a client
+config and the behavior pack only ever ran against source.
+
+### Decision
+
+`McpTool` is the single tool model, produced by every discovery path -
+source, live handshake, pasted config - so a rule written once applies to
+all three. `Permission` is the single declared-capability vocabulary, and
+`capability_summary()` derives the marketplace's five booleans from it
+rather than running a second keyword pass.
+
+`agents.Capability` is **not** merged into it. That was evaluated and
+rejected: an agent capability carries a `Level` (none/ask/limited/full/
+unknown) describing what a human has *granted*, while a tool permission is
+a binary statement about what a tool *declares*. They share word stems, not
+semantics, and a merged enum would have needed a meaningless `Level` on
+tool permissions and a meaningless `MCP_TOOL` member on agent capabilities.
+Two honest models beat one dishonest one; the reasoning is recorded in both
+modules so the next reader does not re-attempt the merge.
+
+### Consequences
+
+`analysis/discovery.py` was split out of `mcp_detection.py`: "is this an
+MCP server" and "what does it expose" are two questions with two failure
+modes. Discovery gained input-schema reading (a Python handler's signature
+*is* its schema; JS/TS gets a bounded search for a `properties` object or a
+Zod field list), which materially improved AS-002, AS-006 and AS-010 -
+those rules read property names, and previously had none for source scans.
+
+One inference change worth recording: a tool whose name *starts* with a
+write verb now infers `FS_WRITE` regardless of its description.
+`delete_repository` previously inferred no permission at all, because the
+pattern required a `<verb>_file`-shaped name. Destructive MCP tools are
+named this way almost universally, and matching only the literal-file
+shape missed every one of them.
+
+## ADR-031: Findings carry a rule id and evidence; prose lives in one catalogue
+
+**Status:** accepted, 2026-09-03.
+
+### Context
+
+A finding stored its own title, description and remediation text. Rewording
+a rule therefore only affected new findings; historical ones kept the old
+prose forever, and the frontend, the CLI and the exported report each
+formatted their own version of the same thing.
+
+Findings also had no machine-readable identity beyond a free-text title,
+which made grouping identical verdicts across tools impossible - hence
+twenty-four separate cards saying the same thing about twenty-four tools.
+
+### Decision
+
+Every finding carries `rule_id`, `evidence` and `affected_tools`
+(migration `0046`). `mcp/catalog.py` is the only place a rule id has prose:
+title, short label, "why this matters", and the fix. Every renderer looks
+it up; the API serialises `impact` from the catalogue at read time rather
+than storing it.
+
+`Finding.evidence` is required in practice for anything above Info: a
+finding with no evidence is an assertion, and this product does not ship
+assertions. Where a rule fired on a heuristic nothing confirmed,
+`confidence` is `"low"` and the severity drops to Info so a guess can never
+inflate a grade.
+
+### Consequences
+
+`classification/grouping.py::group_by_rule` folds identical rule verdicts
+into one card carrying every affected tool. The score is unaffected -
+`occurrence_count` multiplies the severity weight - so grouping is a
+presentation decision, not a discount. Criticals are never grouped: a
+critical is read individually, by name.
+
+Rewording a rule now lands on every existing finding at once, including
+ones already in the database.
+
+## ADR-032: An unreadable manifest is reported, not skipped
+
+**Status:** accepted, 2026-09-03.
+
+### Context
+
+`mcp/supply_chain.py` walked the clone reading `package.json`,
+`requirements.txt` and `go.mod`, with `except OSError: continue` around the
+read. Found while writing its tests: on a Windows machine with endpoint
+protection, opening a `package.json` whose `preinstall` script contains
+`curl https://… | bash` fails with a hard `OSError [Errno 22]` on every
+attempt. The security software refuses to hand that file to any process.
+
+That is precisely the manifest AS-008, AS-015 and AS-016 exist to read. The
+`continue` turned the most dangerous file in the tree into a clean result,
+silently.
+
+### Decision
+
+`_walk_manifests` records every manifest it could not open, and
+`run_supply_chain_rules` emits an AS-014 finding naming them and stating
+that the packages they declare were not checked. Missing coverage is
+reported, not inferred away.
+
+### Consequences
+
+The failure mode was environment-specific and would not have appeared in
+CI, which is exactly why it is worth an entry: the general rule (a check
+that did not run is not a check that passed) already existed for scanner
+stages, and this was the same rule applied one level down, at the file
+read. The affected test uses a `node -e` payload rather than `curl … |
+bash` so it exercises the rule without tripping local endpoint protection,
+with the unreadable case covered by its own test that fakes the `OSError`.

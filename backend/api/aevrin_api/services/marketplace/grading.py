@@ -26,94 +26,36 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from aevrin_scanner_core.agents.grade import TrustGrade, grade_mcp_server
-from aevrin_scanner_core.classification.owasp import OwaspMcpCategory
-from aevrin_scanner_core.classification.scoring import compute_score
-from aevrin_scanner_core.models import Finding, Severity, ToolName
+from aevrin_scanner_core.mcp.risk import GradeResult, grade_scan
+from aevrin_scanner_core.models import Finding, Severity
 
 from aevrin_api.db import SupabaseRest
 
 logger = logging.getLogger("aevrin.marketplace.grading")
 
-# Which scanner produced a finding decides which sub-score it lands in. This
-# is the §25 breakdown: a user seeing "Overall C" deserves to know whether the
-# code, the MCP surface, or the dependency tree earned it.
-_DEPENDENCY_TOOLS = frozenset({ToolName.OSV_SCANNER, ToolName.TRIVY, ToolName.OPENSSF_SCORECARD})
-_MCP_TOOLS = frozenset({
-    ToolName.MCP_SHIELD,
-    ToolName.MCP_SCAN,
-    ToolName.AEVRIN_MANIFEST_RULES,
-})
-# The OWASP categories that are about the MCP surface rather than the code,
-# regardless of which tool happened to notice. A secret scanner finding a
-# hard-coded token is a token-mismanagement problem, and filing it under
-# "code" would hide it from exactly the breakdown that exists to surface it.
-_MCP_CATEGORIES = frozenset({
-    OwaspMcpCategory.TOKEN_MISMANAGEMENT,
-    OwaspMcpCategory.TOOL_POISONING,
-    OwaspMcpCategory.RUG_PULL,
-    OwaspMcpCategory.WEAK_AUTH,
-    OwaspMcpCategory.PROMPT_INJECTION,
-    OwaspMcpCategory.EXCESSIVE_AGENCY,
-    OwaspMcpCategory.WEAK_AUDIT_LOGGING,
-})
-
-
-def _bucket(finding: Finding) -> str:
-    if finding.tool in _DEPENDENCY_TOOLS or finding.owasp_category is OwaspMcpCategory.SUPPLY_CHAIN:
-        return "dependency"
-    if finding.tool in _MCP_TOOLS or finding.owasp_category in _MCP_CATEGORIES:
-        return "mcp"
-    return "code"
-
-
-def sub_scores(findings: list[Finding]) -> dict[str, int | None]:
-    """Code / MCP / dependency scores, using the product's own formula.
-
-    A bucket with no findings scores None, not 100. "We found nothing here"
-    and "there was nothing to find here" are different claims, and only the
-    caller knows which stages actually ran; handing back a confident 100 for
-    a category that was never exercised is the exact failure this codebase
-    exists to avoid.
-    """
-    buckets: dict[str, list[Finding]] = {"code": [], "mcp": [], "dependency": []}
-    for finding in findings:
-        if finding.not_tested or finding.excluded_path:
-            continue
-        buckets[_bucket(finding)].append(finding)
-
-    return {
-        f"{name}_score": (compute_score(items) if items else None)
-        for name, items in buckets.items()
-    }
-
-
 def grade_from_scan(
     findings: list[Finding],
     *,
-    scan_score: int | None,
     coverage_complete: bool,
-    capabilities: dict[str, bool] | None = None,
-    authenticated: bool | None = None,
-    transport: str | None = None,
-) -> TrustGrade:
-    """The A/B/C/D letter for this scan.
+    tools_discovered: int,
+) -> GradeResult:
+    """The A-F letter for this scan.
 
-    Delegates entirely to scanner-core's `grade_mcp_server`, which is the same
-    function the agent posture view and the CLI already use. There is no
+    Delegates entirely to scanner-core's `grade_scan`, the same function the
+    pipeline, the CLI and the agent view already use. There is no
     marketplace-specific rubric: a second one would eventually disagree with
     the first, and two different letters for the same server is worse than
     either letter alone.
+
+    The code/MCP/dependency sub-scores that used to accompany this are gone
+    with the code-security product they described. Three opaque numbers
+    answered "what earned this grade" worse than the finding list does, now
+    that every finding carries a rule id and its own evidence.
     """
-    capabilities = capabilities or {}
-    return grade_mcp_server(
-        findings=findings,
-        scan_score=scan_score,
+    return grade_scan(
+        findings,
         coverage_complete=coverage_complete,
-        authenticated=authenticated,
-        transport=transport,
-        can_execute=capabilities.get("can_execute"),
-        can_write=capabilities.get("can_write"),
+        tools_discovered=tools_discovered,
     )
 
 
@@ -135,14 +77,13 @@ async def record_version_scan(
     listing_id: str,
     version: str,
     scan_id: str,
-    trust: TrustGrade,
+    trust: GradeResult,
     coverage_complete: bool,
     scan_status: str,
     scanner_versions: dict[str, Any] | None = None,
     source_hash: str | None = None,
     package_registry: str | None = None,
     package_identifier: str | None = None,
-    sub: dict[str, int | None] | None = None,
     actor_id: str | None = None,
 ) -> dict[str, Any]:
     """Persist a scan result against a version, and tell the world if the
@@ -157,7 +98,6 @@ async def record_version_scan(
     are a cache of this table, and this is the only writer.
     """
     now = datetime.now(UTC).isoformat()
-    sub = sub or {}
 
     previous_grade: str | None = None
     existing = await db.select(
@@ -173,12 +113,9 @@ async def record_version_scan(
         "listing_id": listing_id,
         "version": version,
         "scan_id": scan_id,
-        "trust_grade": trust.grade.value,
-        "security_score": trust.scan_score,
+        "trust_grade": trust.grade.value if trust.grade else None,
+        "risk_score": trust.risk_score,
         "coverage_complete": coverage_complete,
-        "code_score": sub.get("code_score"),
-        "mcp_score": sub.get("mcp_score"),
-        "dependency_score": sub.get("dependency_score"),
         "scanner_versions": scanner_versions or {},
         "scan_status": scan_status,
         "scanned_at": now,
@@ -193,8 +130,8 @@ async def record_version_scan(
         {"id": listing_id},
         {
             "current_version": version,
-            "current_trust_grade": trust.grade.value,
-            "current_security_score": trust.scan_score,
+            "current_trust_grade": trust.grade.value if trust.grade else None,
+            "current_risk_score": trust.risk_score,
             "current_coverage_complete": coverage_complete,
             "current_scanned_at": now,
             "updated_at": now,
@@ -205,24 +142,33 @@ async def record_version_scan(
         db,
         listing_id=listing_id,
         event_type="scan_completed",
-        new_value=f"{trust.grade.value} ({trust.scan_score}/100)",
-        reason=trust.factors[0].reason if trust.factors else "no risk factors recorded",
+        new_value=(
+            f"{trust.grade.value} (risk {trust.risk_score}/100)"
+            if trust.grade
+            else f"not graded (risk {trust.risk_score}/100, coverage incomplete)"
+        ),
+        reason=trust.summary.headline,
         actor_id=actor_id,
     )
 
-    if previous_grade and previous_grade != trust.grade.value:
+    current_grade = trust.grade.value if trust.grade else None
+    if previous_grade and current_grade and previous_grade != current_grade:
         # Only a move toward risk is loud. A server that improved from D to B
         # is good news, and paging someone about good news trains them to
         # ignore the channel.
-        worsened = _grade_rank(trust.grade.value) > _grade_rank(previous_grade)
+        worsened = _grade_rank(current_grade) > _grade_rank(previous_grade)
         await _record_event(
             db,
             listing_id=listing_id,
             event_type="grade_changed",
             old_value=previous_grade,
-            new_value=trust.grade.value,
-            reason=_grade_change_reason(trust),
-            severity="critical" if worsened and trust.grade.value == "D" else ("warning" if worsened else "info"),
+            new_value=current_grade,
+            reason=trust.summary.explanation,
+            severity=(
+                "critical"
+                if worsened and current_grade in ("D", "F")
+                else ("warning" if worsened else "info")
+            ),
             actor_id=actor_id,
         )
 
@@ -230,16 +176,7 @@ async def record_version_scan(
 
 
 def _grade_rank(grade: str) -> int:
-    return {"A": 0, "B": 1, "C": 2, "D": 3}.get(grade, 4)
-
-
-def _grade_change_reason(trust: TrustGrade) -> str:
-    if not trust.factors:
-        return "no risk factors recorded"
-    # The heaviest factors first: grade.py already sorts nothing, so pick the
-    # top contributors rather than whichever happened to be appended first.
-    ranked = sorted(trust.factors, key=lambda f: -f.points)[:3]
-    return "; ".join(f.reason for f in ranked)
+    return {"A": 0, "B": 1, "C": 2, "D": 3, "F": 4}.get(grade, 5)
 
 
 async def _record_event(

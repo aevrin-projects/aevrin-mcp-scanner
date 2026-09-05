@@ -1,4 +1,4 @@
-"""`inspect_remote_signatures` had no test coverage at all before this - a
+"""`inspect_remote_servers` had no test coverage at all before this - a
 real MCP client session (`streamable_http_client`/`ClientSession`) talking
 over the network, with nothing in this codebase mocking that shape yet.
 `ClientSession` and `streamable_http_client` are patched at the module level
@@ -13,7 +13,8 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from aevrin_scanner_core.analysis import remote_mcp
-from aevrin_scanner_core.analysis.remote_mcp import RemoteToolSignature, inspect_remote_signatures
+from aevrin_scanner_core.analysis.remote_mcp import RemoteInspection, inspect_remote_servers
+from aevrin_scanner_core.mcp.tools import capability_summary
 
 
 class _FakeTool:
@@ -56,38 +57,39 @@ def _patch_handshake(monkeypatch, tools: list[_FakeTool]) -> None:
     monkeypatch.setattr(remote_mcp, "ClientSession", lambda read, write: _FakeSession(tools))
 
 
-def test_inspect_remote_signatures_classifies_declared_capabilities(monkeypatch):
-    """The whole point of this change: a live list_tools() response now
-    feeds the identical capability_summary() the static source path uses,
-    not just a signature hash."""
+def test_inspect_remote_servers_classifies_declared_capabilities(monkeypatch):
+    """A live list_tools() response returns the same `McpTool` the static
+    source path produces, so every rule in mcp/rules.py applies identically
+    to a live server and to a repository."""
     _patch_handshake(monkeypatch, [_FakeTool("run_command", "Executes an arbitrary shell command")])
 
-    results = inspect_remote_signatures({"acme": {"url": "https://acme.example/mcp"}})
+    results = inspect_remote_servers({"acme": {"url": "https://acme.example/mcp"}})
 
     assert len(results) == 1
     result = results[0]
-    assert isinstance(result, RemoteToolSignature)
+    assert isinstance(result, RemoteInspection)
     assert result.server_name == "acme"
     assert result.signature_hash  # a real sha256 hex digest, non-empty
-    assert result.capabilities["can_execute"] is True
-    assert result.capabilities["can_write"] is False
+    assert capability_summary(result.tools)["can_execute"] is True
+    assert capability_summary(result.tools)["can_write"] is False
 
 
-def test_inspect_remote_signatures_no_tools_is_all_false(monkeypatch):
+def test_inspect_remote_servers_no_tools_is_all_false(monkeypatch):
     _patch_handshake(monkeypatch, [])
 
-    results = inspect_remote_signatures({"acme": {"url": "https://acme.example/mcp"}})
+    results = inspect_remote_servers({"acme": {"url": "https://acme.example/mcp"}})
 
-    assert results[0].capabilities == {
+    assert results[0].tools == []
+    assert capability_summary(results[0].tools) == {
         "can_execute": False, "can_write": False, "can_read": False,
         "handles_credentials": False, "makes_network_calls": False,
     }
 
 
-def test_inspect_remote_signatures_one_entry_per_server(monkeypatch):
+def test_inspect_remote_servers_one_entry_per_server(monkeypatch):
     _patch_handshake(monkeypatch, [_FakeTool("get_status", "Returns the current status")])
 
-    results = inspect_remote_signatures({
+    results = inspect_remote_servers({
         "a": {"url": "https://a.example/mcp"},
         "b": {"url": "https://b.example/mcp"},
     })
@@ -95,11 +97,11 @@ def test_inspect_remote_signatures_one_entry_per_server(monkeypatch):
     assert {r.server_name for r in results} == {"a", "b"}
 
 
-def test_inspect_remote_signatures_same_tools_same_hash(monkeypatch):
+def test_inspect_remote_servers_same_tools_same_hash(monkeypatch):
     """Signature hashing is unaffected by this change - pinned here so a
     future edit to this module can't silently break rug-pull detection
     while adding capability data."""
     _patch_handshake(monkeypatch, [_FakeTool("get_status", "Returns the current status")])
-    first = inspect_remote_signatures({"acme": {"url": "https://acme.example/mcp"}})[0]
-    second = inspect_remote_signatures({"acme": {"url": "https://acme.example/mcp"}})[0]
+    first = inspect_remote_servers({"acme": {"url": "https://acme.example/mcp"}})[0]
+    second = inspect_remote_servers({"acme": {"url": "https://acme.example/mcp"}})[0]
     assert first.signature_hash == second.signature_hash

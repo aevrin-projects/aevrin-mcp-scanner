@@ -237,7 +237,7 @@ export function McpInventoryPage() {
                             <TrustGradeBadge
                               grade={asset.trust.grade}
                               label={asset.trust.label}
-                              score={asset.trust.scan_score}
+                              riskScore={asset.trust.risk_score}
                             />
                           </Link>
                         ) : (

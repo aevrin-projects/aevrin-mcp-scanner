@@ -1,38 +1,94 @@
 ---
-title: Scanners and Coverage
-description: Every scanner, what it detects, and how stage reliability is calculated.
+title: Rules and Coverage
+description: Every rule Aevrin runs, what it detects, and how stage reliability is calculated.
 ---
 
-Aevrin normalizes specialist scanners into one finding model. Each scanner contributes evidence
-to a specific stage.
+Aevrin scans MCP servers and the agents that install them. It is **not** a general-purpose
+source-code scanner: there are no findings about Dockerfile style, CI configuration, branch
+protection, repository badges, or fuzzing status. If your MCP server's repository also has an
+unrelated bug in its web handler, Aevrin will not tell you about it.
+
+Most checks are Aevrin's own rules, running in-process against the tools a server exposes. Two
+external scanners contribute evidence that rules cannot produce on their own.
+
+## Tool rules
+
+Run against every tool Aevrin can enumerate, whether read from a repository's source, returned
+by a live server's handshake, or declared in a pasted config.
+
+| Rule | Severity | Detects |
+|---|---|---|
+| AS-001 | Critical | **Tool poisoning** — instruction-shaped text in a description that tries to steer the agent |
+| AS-002 | Info / Medium / Low | **Permission surface** — the capabilities a tool declares; execution combined with filesystem or network reach; an over-broad input schema |
+| AS-003 | High / Medium | **Scope mismatch** — a `get_*` tool that can execute, a `write_*` tool with no local write capability |
+| AS-004 | from CVSS | **Vulnerable dependency** — a published CVE in a production dependency |
+| AS-005 | High | **Privilege escalation** — over-broad OAuth scopes, sudo or impersonation language |
+| AS-006 | Critical / Info | **Arbitrary code execution** — reported at Info when the name suggests it but nothing confirms it |
+| AS-007 | Info | **Insufficient metadata** — no description, so neither an agent nor a reviewer can tell what it does |
+| AS-008 | Critical | **Known compromised package** — an exact version confirmed in a real supply-chain attack |
+| AS-009 | Medium | **Typosquatting** — a name one or two characters from a widely used tool |
+| AS-010 | Low / Medium | **Secret handling** — credentials accepted as tool arguments, or logged |
+| AS-011 | Low | **Missing rate limit or timeout** on a network or execution tool |
+| AS-012 | Critical | **Rug pull** — a tool's definition changed since the last scan of this target |
+| AS-013 | High | **Tool shadowing** — two tools answering to the same name |
+| AS-014 | Info | **Dependency inventory unavailable** — a live server exposing no dependency metadata |
+| AS-015 | Medium / High | **Install-time script** — an npm lifecycle script that runs before anything is reviewed |
+| AS-016 | Critical | **Malicious indicator** in a dependency or install script |
+| AS-017 | Medium | **Data exfiltration** language in a tool description |
+| AS-018 | Info | **Unenumerable tools** — an MCP server whose tools could not be read |
+| AV-001 | Critical / High | **Dangerous launch command** — a stdio entry that pipes a download into a shell |
+| AV-002 | High / Medium | **Weak authentication** — plaintext transport, or no declared credential |
+| AV-003 | Info | **No audit logging** found in source |
+| AV-004 | from the rule | **Unsafe dataflow** — a tool argument reaching a shell, file write, outbound request, or credential read |
+| AV-005 | Critical / Medium | **Committed credential** in the repository's source or history |
+
+The `AS-` rules are adapted from the [ToolTrust Scanner](https://github.com/AgentSafe-AI/tooltrust-scanner)
+(MIT); rule ids match, so an Aevrin finding and a ToolTrust finding refer to the same check. The
+`AV-` rules are Aevrin's own.
+
+One upstream rule is deliberately absent: **AS-019** (unauthenticated MCP HTTP route) needs
+route-level analysis Aevrin does not yet do, so it is not listed rather than listed and never
+fired. Claimed coverage that does not exist is worse than an admitted gap.
+
+## External scanners
 
 | Stage | Scanner | Primary signal |
 |---|---|---|
-| Static analysis | Semgrep | Injection, traversal, SSRF, unsafe subprocess, and framework patterns |
-| Static analysis | Bandit | Python security mistakes and dangerous APIs |
-| Secrets | Gitleaks | High-confidence secret patterns |
-| Secrets | TruffleHog | Secret detection with verification metadata when supported |
-| Dependencies | OSV-Scanner | Known vulnerable packages across manifests and lockfiles |
-| Dependencies | Trivy | Vulnerabilities, secret patterns, and configuration issues |
-| Dependencies | OpenSSF Scorecard | Optional supply-chain posture when `GITHUB_TOKEN` is configured |
-| Tool descriptions | mcp-shield | Hidden instructions and suspicious tool-description language |
-| Tool descriptions | MCP SDK inspection | Safely enumerates tools from public remote endpoints |
-| Tool descriptions | Aevrin rules | Weak auth, missing audit signals, excessive scope, and manifest concerns |
+| MCP behavior | Semgrep, running Aevrin's own MCP rule pack | Whether a tool's own argument reaches a dangerous sink — real dataflow, not a keyword |
+| Credential exposure | TruffleHog | Committed credentials, verified live against the issuing service where supported |
+| Supply chain | OSV-Scanner | Known vulnerable packages across manifests and lockfiles |
+
+AV-004 is the one check that produces *observed* evidence rather than declared evidence. Every
+other rule reads what a tool says about itself; this one reads what the code does.
+
+## Evidence
+
+Every finding carries the specific facts that made its rule fire — the matched text, the
+capability, the input property name, the package version. Where a rule fired on a name or
+description heuristic that nothing independently confirmed, it is marked **Confidence: low** and
+reported at Info so a guess never inflates your grade.
+
+Identical verdicts across tools are shown as one finding with every affected tool listed. A
+server with twenty-four tools that all lack a dependency inventory has one problem, not
+twenty-four. This does not reduce the risk score — the count still multiplies — it just stops
+the report burying the things that matter.
 
 ## Stage outcomes
 
-- **Completed** means at least one required tool ran and its output was parsed.
+- **Completed** means the check ran and its output was parsed.
 - **Failed** means the stage could not produce reliable evidence.
-- **Skipped** means the check is not applicable, such as no discoverable safe MCP entrypoint.
-- **Incomplete scan** means a required category has no reliable tool result. Its score reflects
-  only checks that ran and cannot be treated as a clean pass.
-
-Finding severities and locations come from scanner evidence, then map to a consistent OWASP MCP
-category and remediation field. Raw scanner data remains available for audit, while secrets and
-runtime errors are redacted before display or upload.
+- **Skipped** means the check is not applicable, such as a live-server target with no source to read.
+- **Incomplete scan** means either a required scanner did not run, or no MCP tools could be
+  enumerated. In both cases the scan receives **no grade at all** — see
+  [Concepts](/docs/scanning/concepts).
 
 ## Deliberate limits
 
-Static scanning cannot prove runtime authorization behavior, detect a future rug pull, or
-adversarially test prompt injection in live tool responses. Aevrin records these as limitations;
-it does not manufacture coverage for tests that did not run.
+- Static scanning cannot prove runtime authorization behavior or adversarially test prompt
+  injection in live tool responses (MCP08). Every report says so explicitly.
+- Dataflow analysis is intra-procedural: a tool whose argument reaches a sink only through a
+  helper function it calls is a gap this will miss. Stated rather than hidden.
+- A transitive dependency's own install script lives in that package's registry metadata, not in
+  the repository, so AS-015 and AS-016 cover what your clone contains.
+
+Aevrin records these as limitations; it does not manufacture coverage for tests that did not run.

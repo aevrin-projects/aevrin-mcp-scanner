@@ -34,7 +34,7 @@ import type {
 
 interface RawSecurity {
   grade: string | null;
-  score: number | null;
+  risk_score: number | null;
   scanned_version: string | null;
   latest_version: string | null;
   coverage_complete: boolean | null;
@@ -91,7 +91,7 @@ function toListing(raw: RawListing): Listing {
     favorited: Boolean(raw.is_favorited),
     security: {
       grade: (security?.grade as Listing["security"]["grade"]) ?? null,
-      score: security?.score ?? null,
+      risk_score: security?.risk_score ?? null,
       scannedVersion: security?.scanned_version ?? null,
       latestVersion: security?.latest_version ?? null,
       coverageComplete: security?.coverage_complete ?? null,
@@ -179,11 +179,8 @@ export async function getListing(slug: string): Promise<ListingDetail> {
       id: String(v.id),
       version: String(v.version),
       trustGrade: (v.trust_grade as ListingDetail["security"]["grade"]) ?? null,
-      securityScore: (v.security_score as number) ?? null,
+      riskScore: (v.risk_score as number) ?? null,
       coverageComplete: (v.coverage_complete as boolean) ?? null,
-      codeScore: (v.code_score as number) ?? null,
-      mcpScore: (v.mcp_score as number) ?? null,
-      dependencyScore: (v.dependency_score as number) ?? null,
       scanId: (v.scan_id as string) ?? null,
       scannedAt: (v.scanned_at as string) ?? null,
       firstSeenAt: String(v.first_seen_at ?? ""),

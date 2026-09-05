@@ -1,5 +1,7 @@
 export type {
   DashboardTargetType,
+  Grade,
+  RiskSummary,
   Scan,
   ScanDiff,
   ScanDiffEntry,
@@ -10,6 +12,7 @@ export type {
   StageStatus,
   TargetType,
 } from "./model/types";
+export { GRADE_LABELS, GRADE_STYLES } from "./model/grade";
 export {
   SCAN_SOURCE_LABELS,
   SCAN_STATUS_LABELS,

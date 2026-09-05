@@ -9,13 +9,14 @@ from contextlib import suppress
 from typing import Any, cast
 from uuid import UUID, uuid4
 
-from aevrin_scanner_core import TargetType
+from aevrin_scanner_core import Finding, TargetType, grade_scan, rule_for
 from fastapi import BackgroundTasks, HTTPException, UploadFile, status
 
 from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest
 from aevrin_api.routes.deps import enforce_rate_limit
 from aevrin_api.schemas import CreateScanRequest, FindingOut, ScanOut, ScanStageOut
+from aevrin_api.schemas.scans import RiskSummaryOut
 from aevrin_api.services.quota import check_and_increment_quota
 from aevrin_api.services.scan import start_scan
 from aevrin_api.services.source_upload import (
@@ -226,10 +227,38 @@ async def clear_scan_history(user_id: str, db: SupabaseRest) -> None:
 
 
 async def get_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> ScanOut:
+    """One scan, with the risk summary derived from its own findings.
+
+    The summary is computed here rather than stored: it is a reading of the
+    findings, and a stored copy would drift the moment a finding is triaged.
+    Triage is exactly what changes the answer - a critical marked as a false
+    positive should stop driving the headline - so deriving it on read is the
+    only version that stays true.
+    """
     rows = await db.select("scans", {"id": str(scan_id), "user_id": user_id})
     if not rows:
         raise _SCAN_NOT_FOUND
-    return ScanOut(**rows[0])
+    row = rows[0]
+    if row["status"] in ("queued", "running"):
+        return ScanOut(**row)
+
+    finding_rows = await db.select("findings", {"scan_id": str(scan_id), "user_id": user_id})
+    findings = [Finding.model_validate(r) for r in finding_rows]
+    result = grade_scan(
+        findings,
+        coverage_complete=not (row.get("unreliable_stages") or []),
+        tools_discovered=len(row.get("mcp_tools_declared") or []),
+    )
+    return ScanOut(
+        **row,
+        risk_summary=RiskSummaryOut(
+            headline=result.summary.headline,
+            explanation=result.summary.explanation,
+            potential_impact=result.summary.potential_impact,
+            recommended_action=result.summary.recommended_action,
+            suggested_policy=result.summary.suggested_policy.value,
+        ),
+    )
 
 
 async def delete_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> None:
@@ -258,4 +287,9 @@ async def get_scan_findings(scan_id: UUID, user_id: str, db: SupabaseRest) -> li
     # scanner happened to finish first led the list, so a critical could sit
     # below a dozen lows on the one screen that has to convey urgency.
     rows.sort(key=_finding_sort_key)
-    return [FindingOut(**r) for r in rows]
+    # `impact` is looked up from the rule catalogue here, not stored on the
+    # row: one place owns the prose, and the client never needs a copy of it.
+    return [
+        FindingOut(**r, impact=(rule.impact if (rule := rule_for(r.get("rule_id"))) else None))
+        for r in rows
+    ]

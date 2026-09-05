@@ -210,7 +210,7 @@ export function DashboardPreview({
                 </div>
                 <div className="flex items-center gap-1">
                   <div className="flex shrink-0 flex-col items-center gap-1 border-r border-border px-3 py-3">
-                    <ScoreGauge score={at(92)} size={92} />
+                    <ScoreGauge riskScore={at(18)} size={92} />
                     <p className="max-w-[92px] truncate font-mono text-[8.5px] text-muted-foreground">
                       mcp.context7.com
                     </p>

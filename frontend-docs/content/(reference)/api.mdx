@@ -40,7 +40,7 @@ dashboard and `aevrin findings triage` need to call them.
 | `POST /scans` | JWT | Start a scan (dashboard-initiated). Runs async; poll stages/status. |
 | `GET /scans` | JWT | List your 25 most recent scans, newest first. |
 | `GET /scans/{id}` | JWT | Get one scan's status, score, and reliability info. |
-| `GET /scans/{id}/stages` | JWT | Per-stage status (cloning, static analysis, secrets, dependencies, tool description check, aggregating). |
+| `GET /scans/{id}/stages` | JWT | Per-stage status (cloning, discovery, mcp_rules, mcp_behavior, secrets, dependencies, aggregating). |
 | `GET /scans/{id}/findings` | JWT | Full findings list for a scan. |
 | `GET /scans/{id}/export` | JWT | OWASP MCP-mapped HTML report with Print / Save as PDF (Hobby, Pro, and Team only). |
 | `DELETE /scans/{id}` | JWT | Delete one owned scan with its stages and findings. |

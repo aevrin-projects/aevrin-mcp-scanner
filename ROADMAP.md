@@ -75,6 +75,23 @@ marketplace/AI/admin/providers work is fully live)
   static (source, manifest, declared description); what a tool actually
   does when invoked is out of scope for the current pipeline. See
   `docs/features/MCP_SCANNING.md#limitations`.
+- **Tool discovery misses indirect registrations.** A server that builds
+  its tool list dynamically, or registers through a wrapper these
+  patterns cannot read, produces no tools - which now correctly yields
+  *no grade* rather than a flattering one (`DECISIONS.md` ADR-028), but
+  it is still coverage Aevrin does not have. AS-018 names the case.
+  Widening `analysis/discovery.py` is the highest-value improvement
+  available to the scanner today.
+- **AS-019 (unauthenticated MCP route) has no detector yet.** The rule is
+  in the catalogue and nothing emits it: it needs route-level source
+  analysis of an embedded MCP HTTP server, which is a real piece of work
+  rather than a pattern. Listed here rather than quietly omitted from
+  the rule table.
+- **Dependency install scripts are only read from the clone.** A
+  transitive dependency's own `postinstall` lives in that package's
+  registry metadata, so AS-015/AS-016 cover what the repository
+  contains. Closing this means a bounded registry lookup per dependency;
+  worth doing, not yet designed.
 
 ## Under consideration, not committed
 
@@ -93,6 +110,11 @@ marketplace/AI/admin/providers work is fully live)
   marketplace links to a publisher's own pricing page and always will;
   see `docs/features/MCP_MARKETPLACE.md`.
 - A second, parallel trust-grading rubric for the marketplace, agent
-  posture, or anything else - `grade_mcp_server()` is the only grader and
-  stays that way; see `CLAUDE.md`'s
+  posture, or anything else - `mcp/risk.py::grade_scan()` is the only
+  grader and stays that way; see `CLAUDE.md`'s
   [anti-overengineering rules](CLAUDE.md#anti-overengineering-rules).
+- **General-purpose code security.** Removed deliberately, not deferred:
+  SAST, generic dependency hygiene, repository-practice scoring and
+  Dockerfile/CI findings are not MCP security and will not return. See
+  `DECISIONS.md` ADR-027 for what was removed and the one honest cost of
+  removing it.

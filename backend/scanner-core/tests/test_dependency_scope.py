@@ -93,7 +93,7 @@ def test_non_dependency_tool_finding_is_ignored(tmp_path):
     (tmp_path / "package.json").write_text(json.dumps({"devDependencies": {"eslint": "^9"}}))
     finding = Finding(
         scan_id=uuid4(),
-        tool=ToolName.SEMGREP,
+        tool=ToolName.AEVRIN_MCP_BEHAVIOR,
         owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
         severity=Severity.HIGH,
         title="eslint in eslint",

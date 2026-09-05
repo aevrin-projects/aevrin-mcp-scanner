@@ -86,26 +86,39 @@ The engine. Structure:
 models.py        Scan, Finding, ScanStage, and every enum (Severity,
                   ToolName, TargetType, ScanStatus, StageName,
                   TriageStatus, DependencyScope).
-adapters/         One module per scanner binary: semgrep, bandit,
-                  gitleaks, trufflehog, osv_scanner, trivy, scorecard,
-                  mcp_shield, plus base.py for the shared adapter contract.
+mcp/              The MCP security engine. tools.py (McpTool and the one
+                  Permission vocabulary), rules.py (AS-001..AS-019),
+                  supply_chain.py (manifest-driven AS-008/015/016),
+                  catalog.py (the only place a rule id has prose),
+                  risk.py (risk score, A-F grade, policy, risk summary,
+                  permission recommendations), data/ (vendored threat
+                  intelligence, MIT).
+adapters/         One module per external scanner: trufflehog,
+                  osv_scanner, mcp_behavior (Aevrin's own Semgrep taint
+                  pack), plus base.py for the shared adapter contract.
 analysis/         mcp_detection.py (is this an MCP server, and how sure),
-                  manifest_rules.py (Aevrin's own tool-description rules),
-                  remote_mcp.py (live server checks), rug_pull.py.
-classification/   owasp.py (OwaspMcpCategory, MCP01-MCP10), scoring.py,
-                  grouping.py (collapses duplicate findings across
-                  locations), severity_utils.py.
+                  discovery.py (what tools does it expose),
+                  manifest_rules.py (launch command, transport auth,
+                  audit logging), capability_map.py, declared_vs_observed.py,
+                  remote_mcp.py (live handshake), rug_pull.py.
+classification/   owasp.py (OwaspMcpCategory, MCP01-MCP10), grouping.py
+                  (collapses duplicate findings across locations and
+                  across tools), severity_utils.py.
 enrichment/       epss.py (FIRST.org exploit prediction), kev.py (CISA
                   Known Exploited Vulnerabilities), dependency_scope.py
                   (prod vs. dev dependency split).
 execution/        runner.py (subprocess/Docker execution), paths.py,
                   fixture_paths.py (excludes tests/fixtures from scoring),
-                  network_safety.py (SSRF guard for any scanner that
-                  reaches a remote URL -- reused by the marketplace
-                  submission path).
+                  semgrep_ignore.py, network_safety.py (SSRF guard for
+                  any scanner that reaches a remote URL -- reused by the
+                  marketplace submission path).
 agents/            AI-agent discovery and posture: claude_code.py,
                   codex.py, common.py, identity.py, models.py, posture.py,
-                  grade.py, attack_paths.py.
+                  attack_paths.py. `agents.Capability` is an agent's
+                  granted permission *level*, a different concept from
+                  `mcp.Permission` (a tool's declared surface); the two
+                  share word stems, not semantics, and are deliberately
+                  not merged.
 pipeline/          orchestrator.py (the actual scan sequence),
                   postprocess.py, not_tested.py.
 ```
@@ -115,14 +128,21 @@ Import discipline: `scanner-core` never imports from `backend/api` or
 
 ### Stage sequence
 
-`CLONING → STATIC_ANALYSIS (Semgrep, Bandit) → SECRETS (Gitleaks,
-TruffleHog) → DEPENDENCIES (OSV-Scanner, Trivy, OpenSSF Scorecard) →
-TOOL_DESCRIPTION_CHECK (mcp-shield + Aevrin's manifest rules) →
-AGGREGATING`. Any stage where every tool in its category failed to run
-(Docker down, binary missing, network unreachable) is recorded in
-`Scan.unreliable_stages`; a scan with a non-empty list is `INCOMPLETE`,
-never presented as clean. See
-[`../features/MCP_SCANNING.md`](../features/MCP_SCANNING.md).
+`CLONING → DISCOVERY (is it an MCP server, what does it expose) →
+MCP_RULES (AS-001..AS-019 plus Aevrin's own AV rules) → MCP_BEHAVIOR
+(Aevrin's Semgrep taint pack) → SECRETS (TruffleHog) → DEPENDENCIES
+(OSV-Scanner) → AGGREGATING`.
+
+Two conditions make a scan `INCOMPLETE`, and either withholds the letter
+grade entirely:
+
+1. A stage where the scanner failed to run (Docker down, binary missing,
+   network unreachable) is recorded in `Scan.unreliable_stages`.
+2. **No MCP tools could be enumerated.** This is the more common one and
+   the more dangerous: zero findings from a server nobody could read looks
+   exactly like a perfect result.
+
+See [`../features/MCP_SCANNING.md`](../features/MCP_SCANNING.md).
 
 ## backend/cli (`aevrin`)
 

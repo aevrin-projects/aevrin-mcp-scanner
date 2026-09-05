@@ -18,7 +18,7 @@ frontend/CI-only variables.
 | `UPSTASH_FALLBACK_REDIS_REST_URL` / `..._TOKEN` | no | token is secret | Failover instance; unset means callers fail open if the primary refuses. |
 | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_S3_ENDPOINT` | yes | keys are secret | Cloudflare R2 (S3-compatible), scan report storage. |
 | `R2_BUCKET` | no (default `aevrin-report`) | no | Bucket name. |
-| `GITHUB_TOKEN` | no | **yes** | Plain PAT for Scorecard/OSV rate limits and private clone - distinct from the GitHub App below. |
+| `GITHUB_TOKEN` | no | **yes** | Plain PAT for OSV rate limits and private clone - distinct from the GitHub App below. |
 | `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_APP_SLUG` | no (all three, or none) | private key is secret | "Connect GitHub." Unset disables Connect (returns 503), not an error. |
 | `TRUSTED_PROXY_HOPS` | no (default `1`) | no | How many reverse proxies append to `X-Forwarded-For`. Must match the real deployment topology - see `docs/architecture/DEPLOYMENT.md`. |
 | `DEFECTDOJO_URL` / `DEFECTDOJO_API_KEY` | no | key is secret | DefectDojo integration; unset disables it. |

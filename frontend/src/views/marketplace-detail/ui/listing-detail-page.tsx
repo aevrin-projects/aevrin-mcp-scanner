@@ -148,7 +148,7 @@ export function ListingDetailPage({ slug }: { slug: string }) {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <GradeBadge
               grade={security.grade}
-              score={security.score}
+              riskScore={security.risk_score}
               state={security.state}
               size="lg"
             />
@@ -181,17 +181,6 @@ export function ListingDetailPage({ slug }: { slug: string }) {
                 <span className="font-medium">v{security.latestVersion}</span>, which has
                 not been scanned. Do not read the grade as applying to it.
               </p>
-            </div>
-          ) : null}
-
-          {/* Sub-scores. The whole point of showing three numbers is that
-              "overall C" is unactionable and "MCP surface D, dependencies A"
-              tells you where to look. */}
-          {scannedVersion ? (
-            <div className="grid gap-3 sm:grid-cols-3">
-              <SubScore label="Code security" value={scannedVersion.codeScore} />
-              <SubScore label="MCP security" value={scannedVersion.mcpScore} />
-              <SubScore label="Dependencies" value={scannedVersion.dependencyScore} />
             </div>
           ) : null}
 
@@ -306,7 +295,7 @@ export function ListingDetailPage({ slug }: { slug: string }) {
                   {version.trustGrade ? (
                     <span className="text-xs text-muted-foreground">
                       {version.trustGrade} · {GRADE_LABELS[version.trustGrade]}
-                      {version.securityScore !== null ? ` · ${version.securityScore}/100` : ""}
+                      {version.riskScore !== null ? ` · risk ${version.riskScore}/100` : ""}
                     </span>
                   ) : (
                     <span className="text-xs text-muted-foreground">Not scanned</span>
@@ -368,24 +357,6 @@ export function ListingDetailPage({ slug }: { slug: string }) {
         onOpenChange={setInstallOpen}
       />
       <ReportDialog listing={listing} open={reportOpen} onOpenChange={setReportOpen} />
-    </div>
-  );
-}
-
-function SubScore({ label, value }: { label: string; value: number | null }) {
-  return (
-    <div className="rounded-lg border border-border p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-semibold tabular-nums">
-        {/* "Not assessed" rather than a confident 100. A category with no
-            findings and a category that was never examined are different
-            claims, and only one of them is good news. */}
-        {value === null ? (
-          <span className="text-sm font-normal text-muted-foreground">Not assessed</span>
-        ) : (
-          `${value}/100`
-        )}
-      </p>
     </div>
   );
 }

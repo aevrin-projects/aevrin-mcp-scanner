@@ -20,7 +20,6 @@ def _make_scan(*, status: ScanStatus, unreliable_stages: list[StageName]) -> Sca
         target_type=TargetType.GITHUB_REPO,
         target="https://github.com/example/repo",
         status=status,
-        score=100,
         unreliable_stages=unreliable_stages,
     )
 
@@ -28,14 +27,15 @@ def _make_scan(*, status: ScanStatus, unreliable_stages: list[StageName]) -> Sca
 def test_json_report_marks_incomplete_scan_distinctly(capsys):
     scan = _make_scan(
         status=ScanStatus.INCOMPLETE,
-        unreliable_stages=[StageName.STATIC_ANALYSIS, StageName.SECRETS],
+        unreliable_stages=[StageName.DEPENDENCIES, StageName.SECRETS],
     )
     output.print_json_report(scan)
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "incomplete"
-    assert payload["unreliable_stages"] == ["static_analysis", "secrets"]
-    assert payload["verdict"] != "Clean: no significant issues found"
-    assert "not a reliable result" in payload["verdict"]
+    assert payload["unreliable_stages"] == ["dependencies", "secrets"]
+    assert payload["scan_incomplete"] is True
+    assert payload["grade"] is None
+    assert payload["risk_summary"]["headline"] == "Scan Incomplete"
 
 
 def test_json_report_completed_scan_unaffected(capsys):
@@ -53,7 +53,6 @@ def test_json_report_includes_mcp_detection_evidence(capsys):
         target_type=TargetType.GITHUB_REPO,
         target="https://github.com/example/repo",
         status=ScanStatus.COMPLETED,
-        score=100,
         mcp_detected=True,
         mcp_detection_confidence="high",
         mcp_detection_evidence=["sdk_dependency: depends on fastmcp"],
@@ -74,52 +73,53 @@ def test_json_report_includes_mcp_detection_evidence(capsys):
     }
 
 
-def test_terminal_trust_grade_reflects_declared_capabilities(capsys):
-    """`_print_trust_grade` used to call `grade_mcp_server()` with no
-    capability arguments at all, so an execute-capable MCP server's own
-    trust grade never reflected it. `scan.mcp_capabilities` (migration
-    0045) is now read and passed through."""
+def test_the_report_leads_with_the_grade_and_the_risk_summary(capsys):
     scan = Scan(
         target_type=TargetType.GITHUB_REPO,
         target="https://github.com/example/repo",
         status=ScanStatus.COMPLETED,
-        score=100,
         mcp_detected=True,
-        mcp_capabilities={"can_execute": True, "can_write": False, "can_read": True,
-                          "handles_credentials": False, "makes_network_calls": False},
+        mcp_tools_declared=["read_file", "write_file"],
     )
     output.print_terminal_report(scan)
     text = plain(capsys.readouterr().out)
-    assert "command-execution" in text
+    assert "Risk score: 0/100" in text
+    assert "Risk summary" in text
+    assert "Potential impact:" in text
+    assert "Recommended action:" in text
+    assert "Suggested policy:" in text
 
 
-def test_terminal_trust_grade_distinguishes_unestablished_from_confirmed_none(capsys):
-    """Unestablished (`mcp_capabilities=None`, e.g. a repo that isn't an MCP
-    server) must not read identically to confirmed-none capabilities - the
-    same distinction ADR-020's follow-up fix makes inside grade_mcp_server()
-    itself, now observable through the CLI's own report too."""
-    established_none = Scan(
+def test_an_ungradeable_scan_shows_a_question_mark_not_a_letter(capsys):
+    """A repository whose tools could not be read has no grade. Printing an
+    A there is the worst thing this tool can do."""
+    scan = Scan(
         target_type=TargetType.GITHUB_REPO,
         target="https://github.com/example/repo",
         status=ScanStatus.COMPLETED,
-        score=100,
         mcp_detected=True,
-        mcp_capabilities={"can_execute": False, "can_write": False, "can_read": True,
-                          "handles_credentials": False, "makes_network_calls": False},
+        mcp_tools_declared=[],
     )
-    output.print_terminal_report(established_none)
-    established_text = plain(capsys.readouterr().out)
-    assert "capability could not be established" not in established_text
+    output.print_terminal_report(scan)
+    text = plain(capsys.readouterr().out)
+    assert "Scan Incomplete" in text
+    assert "No tool definitions were found" in text
 
-    unestablished = Scan(
-        target_type=TargetType.LIVE_MCP_SERVER,
-        target="https://example.com/mcp",
+
+def test_a_non_mcp_repository_is_told_it_is_out_of_scope(capsys):
+    """Aevrin no longer audits general source code, so there is no report to
+    print for a repository that is not an MCP server - and printing a grade
+    for one would be a number about the wrong thing."""
+    scan = Scan(
+        target_type=TargetType.GITHUB_REPO,
+        target="https://github.com/example/repo",
         status=ScanStatus.COMPLETED,
-        score=100,
+        mcp_detected=False,
     )
-    output.print_terminal_report(unestablished)
-    unestablished_text = plain(capsys.readouterr().out)
-    assert "capability could not be established" in unestablished_text
+    output.print_terminal_report(scan)
+    text = plain(capsys.readouterr().out)
+    assert "does not look like an MCP server" in text
+    assert "Risk summary" not in text
 
 
 def test_terminal_report_warns_on_incomplete_scan(capsys):
@@ -140,7 +140,7 @@ def _finding(
 ) -> Finding:
     return Finding(
         scan_id=uuid4(),
-        tool=ToolName.SEMGREP,
+        tool=ToolName.AEVRIN_MCP_BEHAVIOR,
         owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
         severity=Severity.CRITICAL,
         title="Real finding" if not excluded_path else "Fixture finding",
@@ -208,13 +208,13 @@ def test_a_stage_that_finished_with_a_failed_tool_is_not_shown_as_clean(capsys):
     print_stage_update(
         "dependencies",
         "done",
-        "trivy: docker unreachable; openssf-scorecard: skipped, no GITHUB_TOKEN configured",
+        "osv-scanner: docker unreachable",
     )
     line = plain(capsys.readouterr().err)
 
     assert "[!]" in line
     assert "[✓]" not in line
-    assert "trivy" in line
+    assert "osv-scanner" in line
 
 
 def test_a_stage_with_nothing_to_report_still_shows_a_tick(capsys):
@@ -232,7 +232,7 @@ def test_a_stage_where_nothing_ran_stays_a_cross(capsys):
     ran with a caveat, everything ran."""
     from aevrin_cli.rendering.output import print_stage_update
 
-    print_stage_update("static_analysis", "failed", "semgrep: docker unreachable")
+    print_stage_update("mcp_behavior", "failed", "aevrin-mcp-behavior: docker unreachable")
     line = plain(capsys.readouterr().err)
 
     assert "[✗]" in line
@@ -240,8 +240,8 @@ def test_a_stage_where_nothing_ran_stays_a_cross(capsys):
 
 
 def _incomplete_scan_with_a_partial_stage() -> Scan:
-    """The live shape: static analysis and secrets dead, dependencies half
-    covered because osv-scanner ran and trivy could not reach Docker."""
+    """The live shape: secrets dead, and the MCP rules stage covered but with
+    something it could not check."""
     from aevrin_scanner_core.models import ScanStage, StageStatus
 
     scan_id = uuid4()
@@ -250,34 +250,33 @@ def _incomplete_scan_with_a_partial_stage() -> Scan:
         target_type=TargetType.LOCAL_PATH,
         target="/some/repo",
         status=ScanStatus.INCOMPLETE,
-        score=100,
-        unreliable_stages=[StageName.STATIC_ANALYSIS, StageName.SECRETS],
+        mcp_detected=True,
+        mcp_tools_declared=["run_command"],
+        unreliable_stages=[StageName.SECRETS],
     )
     scan.stages = [
-        ScanStage(scan_id=scan_id, name=StageName.STATIC_ANALYSIS, status=StageStatus.FAILED,
-                  error="semgrep: docker unreachable"),
         ScanStage(scan_id=scan_id, name=StageName.SECRETS, status=StageStatus.FAILED,
-                  error="gitleaks: docker unreachable"),
+                  error="trufflehog: docker unreachable"),
         ScanStage(scan_id=scan_id, name=StageName.DEPENDENCIES, status=StageStatus.DONE,
-                  error="trivy: docker unreachable"),
+                  error="osv-scanner: no manifest files found"),
     ]
     return scan
 
 
-def test_an_incomplete_scan_never_prints_its_score_in_green(capsys):
-    """100/100 in green is the most reassuring thing this tool can print, and
-    it was printing it for its least reliable result: a scan where almost
-    nothing ran scores 100 precisely because nothing ran to find anything.
-    The words beside it said inconclusive; the colour said all clear.
-    """
+def test_an_incomplete_scan_never_prints_a_reassuring_letter(capsys):
+    """A risk score of 0 in green is the most reassuring thing this tool can
+    print, and it was printing it for its least reliable result: a scan where
+    almost nothing ran scores 0 precisely because nothing ran to find
+    anything. Now there is no letter at all."""
     from aevrin_cli.rendering.output import print_terminal_report
 
     print_terminal_report(_incomplete_scan_with_a_partial_stage())
-    raw = capsys.readouterr().out
+    out = plain(capsys.readouterr().out)
 
-    score_line = next(line for line in raw.splitlines() if "100/100" in line)
-    assert "green" not in score_line.lower()
-    assert "not a reliable result" in plain(raw)
+    assert "SCAN INCOMPLETE" in out
+    assert "Scan Incomplete" in out
+    grade_line = next(line for line in out.splitlines() if "Risk score:" in line)
+    assert grade_line.strip().startswith("?")
 
 
 def test_a_half_covered_stage_is_named_rather_than_left_to_the_stage_log(capsys):
@@ -291,4 +290,5 @@ def test_a_half_covered_stage_is_named_rather_than_left_to_the_stage_log(capsys)
     out = plain(capsys.readouterr().out)
 
     assert "PARTIAL COVERAGE" in out
-    assert "Dependencies" in out.split("PARTIAL COVERAGE")[1].split("\n\n")[0]
+    partial_block = out.split("PARTIAL COVERAGE")[1].split("\n\n")[0]
+    assert "Supply chain" in partial_block

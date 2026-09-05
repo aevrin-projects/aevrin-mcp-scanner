@@ -12,7 +12,7 @@ export type {
   CredentialRef,
   Device,
   EffectiveCapability,
-  GradeFactor,
+  RiskSummary,
   HookRef,
   IdentityConfidence,
   McpAsset,

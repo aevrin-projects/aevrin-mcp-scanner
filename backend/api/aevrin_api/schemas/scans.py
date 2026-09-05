@@ -41,13 +41,33 @@ class CreateScanRequest(BaseModel):
         return self
 
 
+class RiskSummaryOut(BaseModel):
+    """The five questions a scan report has to answer, in order.
+
+    Computed by scanner-core's one grader rather than reassembled here or in
+    the client: there is a single place that turns findings into a verdict,
+    and every surface reads its output.
+    """
+
+    headline: str
+    explanation: str
+    potential_impact: str
+    recommended_action: str
+    suggested_policy: str
+
+
 class ScanOut(BaseModel):
     id: UUID
     target_type: str
     target: str
     status: str
     source: str = "dashboard"
-    score: int | None
+    # 0-100, higher is worse. See mcp/risk.py: this replaced a score that
+    # counted down from 100 and meant the opposite thing.
+    risk_score: int | None = None
+    # "A".."F", or null when coverage was incomplete. Null is a state the UI
+    # must render - "not graded" - not a missing field to hide.
+    grade: str | None = None
     error: str | None = None
     mcp_detected: bool | None = None
     # How confidently mcp_detected was established, and the evidence lines
@@ -60,7 +80,7 @@ class ScanOut(BaseModel):
     # docs/features/MCP_SCANNING.md.
     mcp_tools_declared: list[str] = Field(default_factory=list)
     mcp_components: list[dict[str, Any]] = Field(default_factory=list)
-    # capability_summary() over mcp_tools_declared's own tools - the declared
+    # mcp.tools.capability_summary() over the discovered tools - the declared
     # surface, not observed behavior. Null (not a dict of all-false) when
     # tool discovery never ran for this target, same reasoning as
     # mcp_detection_confidence above.
@@ -69,6 +89,10 @@ class ScanOut(BaseModel):
     # Set when AI review covered only part of the findings, so a capped scan
     # never reads as fully reviewed.
     triage_note: str | None = None
+    # Populated only by the single-scan endpoint, which loads the findings it
+    # is derived from. Null in list responses because computing it there
+    # would mean loading every finding of every scan to render a table.
+    risk_summary: RiskSummaryOut | None = None
     created_at: datetime
     completed_at: datetime | None = None
 
@@ -85,6 +109,19 @@ class FindingOut(BaseModel):
     id: UUID
     scan_id: UUID
     tool: str
+    # The rule that produced this, e.g. "AS-006".
+    rule_id: str | None = None
+    # "Why this matters", looked up from the rule catalogue at serialization
+    # time rather than stored per finding. One place owns the prose, so
+    # rewording a rule never requires rewriting stored rows - and the
+    # frontend never needs its own copy of the catalogue.
+    impact: str | None = None
+    # The specific facts that made the rule fire. A finding with no evidence
+    # is an assertion, and this product does not ship assertions.
+    evidence: list[str] = Field(default_factory=list)
+    # Every declared MCP tool this finding applies to; more than one once
+    # identical rule verdicts have been folded into a single card.
+    affected_tools: list[str] = Field(default_factory=list)
     owasp_category: str
     severity: str
     title: str

@@ -42,7 +42,11 @@ class CliUploadRequest(BaseModel):
     scan_id: UUID | None = None
     target_type: str
     target: str = Field(min_length=1, max_length=8000)
-    score: int | None
+    # 0-100, higher is worse. Recomputed server-side from the uploaded
+    # findings regardless of what the client sends - see routes/cli.py.
+    risk_score: int | None = None
+    # "A".."F", or null for an incomplete scan. Also recomputed server-side.
+    grade: str | None = None
     status: str = "completed"
     created_at: datetime | None = None
     completed_at: datetime | None = None

@@ -42,15 +42,37 @@ added `findings.capability` - the normalized capability vocabulary term a
 behavior finding is about (`analysis/declared_vs_observed.py`'s input) -
 see [`../features/MCP_SCANNING.md`](../features/MCP_SCANNING.md#data).
 `0045_scan_mcp_capabilities.sql` added `scans.mcp_capabilities` (jsonb) -
-`analysis.mcp_detection.capability_summary()`'s result
+`mcp.tools.capability_summary()`'s result
 (`can_execute`/`can_write`/`can_read`/`handles_credentials`/`makes_network_calls`),
 computed by the pipeline on every scan whose tool discovery ran and, before
 this migration, discarded rather than persisted anywhere. Null (not a dict
 of all-false) for a target where tool discovery never ran at all. This is
-what lets the marketplace grade finally read real declared-capability
-evidence instead of always passing `capabilities=None` to `grade_mcp_server()` -
+what lets the marketplace read real declared-capability evidence -
 see [`../features/MCP_MARKETPLACE.md`](../features/MCP_MARKETPLACE.md) and
 `DECISIONS.md` ADR-020.
+
+`0046_risk_score_and_grade.sql` is the migration that turned the score
+around, and it is the one to read before touching any scoring code.
+`scans.score` counted **down** from 100 (higher was better); it became
+`scans.risk_score`, which counts **up** from 0 (higher is worse). The two
+are not convertible - the severity weights and tier caps behind the old
+number are gone, so `100 - score` would be a fabricated value rather than a
+migration - so every existing row is set to `NULL` rather than
+arithmetic-converted, and the column is renamed so nothing can silently
+read the old meaning out of the new name. A historical scan reads as "not
+scored under the current model", which is true, instead of as its own
+inverse, which would be a lie about a security result. The same treatment
+is applied to `hook_cache.last_score` and
+`mcp_listings.current_security_score`.
+
+The same migration adds `scans.grade` (`A`-`F`, **nullable**), where NULL is
+a real state rather than a missing value: a scan whose MCP tools could not
+be enumerated has no evidence to make a claim from, so it gets no letter.
+It adds `findings.rule_id`/`evidence`/`affected_tools` (the report
+contract), narrows the `scan_stages.name` check to the new stage set, and
+drops `mcp_listing_versions`' `code_score`/`mcp_score`/`dependency_score` -
+three numbers that described a code-security product that no longer exists
+and that nothing user-facing read. See `DECISIONS.md` ADR-027/ADR-028.
 
 **Auth, tiering, billing** (`0003_tiering_auth_billing.sql`, `0005`, `0013`,
 `0016`, `0028`, `0033`)
@@ -134,7 +156,7 @@ percentage entirely.
   `sync_favorite_count()` trigger. Both exist because a read-then-write in
   application code loses concurrent increments.
 - **A maintained projection needs one documented writer.** `mcp_listings`
-  carries `current_version`/`current_trust_grade`/`current_security_score`/
+  carries `current_version`/`current_trust_grade`/`current_risk_score`/
   `current_coverage_complete`/`current_scanned_at` purely so "sort/filter by
   security" doesn't need a join per row. `services/marketplace/grading.py`
   is the only code that writes those columns - follow that pattern (one

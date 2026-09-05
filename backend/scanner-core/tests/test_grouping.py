@@ -1,275 +1,216 @@
+"""Grouping and dedup: fewer, richer findings, without losing evidence.
+
+Cross-scanner dedup has one CVE source now that Trivy is gone, so the cases
+that mattered when two scanners raced on the same advisory are covered by
+the alias path alone. The weight of this file has moved to rule grouping,
+which is what turns "twenty-four tools each missing a dependency inventory"
+into one card the reader will actually finish.
+"""
+
 from uuid import uuid4
 
-from aevrin_scanner_core.classification.grouping import dedupe_cross_scanner, group_by_root_cause
+from aevrin_scanner_core.classification.grouping import (
+    dedupe_cross_scanner,
+    dedupe_exact,
+    group_by_root_cause,
+    group_by_rule,
+)
 from aevrin_scanner_core.classification.owasp import OwaspMcpCategory
-from aevrin_scanner_core.classification.scoring import compute_score
+from aevrin_scanner_core.mcp.risk import risk_score
 from aevrin_scanner_core.models import Finding, Location, Severity, ToolName
 
 
-def _osv_finding(vuln_id: str, pkg: str, description: str = "short") -> Finding:
+def _osv_finding(vuln_id: str, pkg: str, aliases: list[str] | None = None) -> Finding:
     return Finding(
         scan_id=uuid4(),
         tool=ToolName.OSV_SCANNER,
+        rule_id="AS-004",
         owasp_category=OwaspMcpCategory.SUPPLY_CHAIN,
         severity=Severity.HIGH,
         title=f"{vuln_id} in {pkg}@1.0.0",
-        description=description,
+        description="short",
         location=Location(file_path="package-lock.json"),
         remediation="Upgrade.",
-        raw={"id": vuln_id, "aliases": [], "summary": description},
+        raw={"id": vuln_id, "aliases": aliases or [], "summary": "short"},
     )
 
 
-def _trivy_finding(vuln_id: str, pkg: str, description: str = "a much longer and more detailed description") -> Finding:
+def _behavior_finding(check_id: str, file_path: str, severity: Severity = Severity.MEDIUM) -> Finding:
     return Finding(
         scan_id=uuid4(),
-        tool=ToolName.TRIVY,
-        owasp_category=OwaspMcpCategory.SUPPLY_CHAIN,
-        severity=Severity.HIGH,
-        title=f"{vuln_id} in {pkg}",
-        description=description,
-        location=Location(file_path="package-lock.json"),
-        remediation="Upgrade.",
-        raw={"VulnerabilityID": vuln_id, "PkgName": pkg, "Title": description},
-    )
-
-
-def _semgrep_finding(check_id: str, file_path: str) -> Finding:
-    return Finding(
-        scan_id=uuid4(),
-        tool=ToolName.SEMGREP,
+        tool=ToolName.AEVRIN_MCP_BEHAVIOR,
+        rule_id="AV-004",
         owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
-        severity=Severity.MEDIUM,
-        title="issue",
-        description="issue",
-        location=Location(file_path=file_path),
-        remediation="fix it",
+        severity=severity,
+        title="MCP tool input reaches shell execution",
+        description="tool argument flows into subprocess",
+        location=Location(file_path=file_path, line_start=10),
+        remediation="Validate the argument.",
         raw={"check_id": check_id},
     )
 
 
-def _trufflehog_finding(file_path: str) -> Finding:
+def _rule_finding(
+    rule_id: str,
+    tool_name: str,
+    description: str,
+    severity: Severity = Severity.LOW,
+    title: str = "Missing Rate-Limit or Timeout",
+) -> Finding:
     return Finding(
         scan_id=uuid4(),
-        tool=ToolName.TRUFFLEHOG,
-        owasp_category=OwaspMcpCategory.TOKEN_MISMANAGEMENT,
-        severity=Severity.CRITICAL,
-        title="Verified secret: aws",
-        description="secret",
-        location=Location(file_path=file_path),
-        remediation="rotate",
-        raw={"DetectorName": "aws"},
+        tool=ToolName.AEVRIN_MCP_RULES,
+        rule_id=rule_id,
+        owasp_category=OwaspMcpCategory.EXCESSIVE_AGENCY,
+        severity=severity,
+        title=title,
+        description=f"{tool_name}: {description}",
+        remediation="Declare limits.",
+        evidence=["capability: network"],
+        affected_tools=[tool_name],
+        mcp_tool=tool_name,
+        location=Location(tool_name_in_manifest=tool_name),
     )
 
 
-# --- cross-scanner dedup (accuracy fix #2) ---------------------------------
-
-
-def test_dedup_collapses_same_cve_same_package_across_tools():
-    findings = [_trivy_finding("CVE-2024-1234", "lodash"), _osv_finding("CVE-2024-1234", "lodash")]
-    result = dedupe_cross_scanner(findings)
-    assert len(result) == 1
-
-
-def test_dedup_notes_corroboration_instead_of_dropping_silently():
-    findings = [_trivy_finding("CVE-2024-1234", "lodash"), _osv_finding("CVE-2024-1234", "lodash")]
-    result = dedupe_cross_scanner(findings)
-    assert result[0].corroborated_by == [ToolName.OSV_SCANNER]
-
-
-def test_dedup_keeps_the_more_detailed_finding():
-    trivy = _trivy_finding("CVE-2024-1234", "lodash", description="a much longer and more detailed description")
-    osv = _osv_finding("CVE-2024-1234", "lodash", description="short")
-    result = dedupe_cross_scanner([trivy, osv])
-    assert result[0].tool == ToolName.TRIVY
-
-
-def test_dedup_leaves_different_packages_alone():
-    findings = [_trivy_finding("CVE-2024-1234", "lodash"), _osv_finding("CVE-2024-9999", "express")]
-    result = dedupe_cross_scanner(findings)
-    assert len(result) == 2
+# --------------------------------------------------------------------------
+# Cross-scanner dedup
 
 
 def test_dedup_matches_via_osv_alias_list():
-    trivy = _trivy_finding("CVE-2024-1234", "lodash")
-    osv = _osv_finding("GHSA-xxxx-yyyy-zzzz", "lodash")
-    osv.raw["aliases"] = ["CVE-2024-1234"]
-    result = dedupe_cross_scanner([trivy, osv])
-    assert len(result) == 1
+    findings = [_osv_finding("GHSA-xxxx", "lodash", aliases=["CVE-2021-1234"])]
+    assert len(dedupe_cross_scanner(findings)) == 1
 
 
-def test_dedup_reduces_score_impact_of_corroborated_finding():
-    findings = [_trivy_finding("CVE-2024-1234", "lodash"), _osv_finding("CVE-2024-1234", "lodash")]
-    deduped = dedupe_cross_scanner(findings)
-    # One HIGH finding, not two.
-    assert compute_score(deduped) == 100 - 20
+def test_dedup_leaves_different_packages_alone():
+    findings = [_osv_finding("CVE-2021-1234", "lodash"), _osv_finding("CVE-2021-1234", "axios")]
+    assert len(dedupe_cross_scanner(findings)) == 2
 
 
-# --- root-cause grouping (accuracy fix #3) ---------------------------------
+# --------------------------------------------------------------------------
+# Root-cause grouping
 
 
-def test_same_rule_across_many_files_becomes_one_finding():
-    findings = [_semgrep_finding("unpinned-action-tag", f"workflows/{i}.yml") for i in range(44)]
-    result = group_by_root_cause(findings)
-    assert len(result) == 1
-    assert result[0].occurrence_count == 44
-    assert len(result[0].additional_locations) == 43
+def test_same_behavior_rule_across_many_files_becomes_one_finding():
+    findings = [_behavior_finding("mcp-shell-exec", f"handlers/tool_{i}.py") for i in range(12)]
+    (grouped,) = group_by_root_cause(findings)
+    assert grouped.occurrence_count == 12
+    assert len(grouped.additional_locations) == 11
 
 
-def test_grouped_finding_only_deducts_once():
-    findings = [_semgrep_finding("unpinned-action-tag", f"workflows/{i}.yml") for i in range(44)]
-    grouped = group_by_root_cause(findings)
-    assert compute_score(grouped) == 100 - 8  # single Medium deduction, not 44x
-
-
-def test_different_rules_are_not_grouped_together():
-    findings = [_semgrep_finding("rule-a", "a.py"), _semgrep_finding("rule-b", "b.py")]
-    result = group_by_root_cause(findings)
-    assert len(result) == 2
+def test_different_behavior_rules_are_not_grouped_together():
+    findings = [
+        _behavior_finding("mcp-shell-exec", "a.py"),
+        _behavior_finding("mcp-fs-write", "a.py"),
+    ]
+    assert len(group_by_root_cause(findings)) == 2
 
 
 def test_secrets_are_never_grouped_even_with_same_detector():
-    findings = [_trufflehog_finding("a.env"), _trufflehog_finding("b.env")]
-    result = group_by_root_cause(findings)
-    assert len(result) == 2
-
-
-def test_single_occurrence_is_left_untouched():
-    findings = [_semgrep_finding("rule-a", "a.py")]
-    result = group_by_root_cause(findings)
-    assert result[0].occurrence_count == 1
-    assert result[0].additional_locations == []
-
-
-# --- non-dependency findings must survive dependency dedup ------------------
-#
-# `groups` only grows for dependency findings, but `kept` grows for every
-# finding. Treating them as positionally aligned meant `kept[match]` addressed
-# an unrelated finding and the `kept[match] = survivor` write silently
-# destroyed it. Confirmed live on a real scan: a critical bandit
-# `subprocess_popen_with_shell_equals_true` never reached the report because a
-# later dependency dedup had overwritten its slot.
-
-
-def _bandit_finding(title: str, severity: Severity = Severity.CRITICAL) -> Finding:
-    return Finding(
-        scan_id=uuid4(),
-        tool=ToolName.BANDIT,
-        owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
-        severity=severity,
-        title=title,
-        description="shell=True",
-        location=Location(file_path="src/run.py", line_start=4),
-        remediation="Avoid shell=True.",
-        raw={"test_id": "B602"},
-    )
-
-
-def test_static_findings_survive_a_dependency_dedup_that_follows_them():
-    """The static finding is emitted *before* the pair that dedupes, so a
-    stale index would overwrite exactly this one."""
-    bandit = _bandit_finding("subprocess_popen_with_shell_equals_true")
-    result = dedupe_cross_scanner(
-        [bandit, _osv_finding("CVE-2024-1", "requests"), _trivy_finding("CVE-2024-1", "requests")]
-    )
-
-    titles = [f.title for f in result]
-    assert "subprocess_popen_with_shell_equals_true" in titles
-    assert sum(1 for f in result if f.tool == ToolName.BANDIT) == 1
-    # The dependency pair still collapses to one, with the other tool recorded.
-    assert sum(1 for f in result if f.owasp_category == OwaspMcpCategory.SUPPLY_CHAIN) == 1
-
-
-def test_many_interleaved_static_findings_all_survive():
-    findings = [
-        _bandit_finding("b1"),
-        _osv_finding("CVE-2024-1", "requests"),
-        _bandit_finding("b2"),
-        _trivy_finding("CVE-2024-1", "requests"),
-        _bandit_finding("b3"),
-        _osv_finding("CVE-2024-2", "urllib3"),
-        _trivy_finding("CVE-2024-2", "urllib3"),
+    """Each credential is independently exploitable; collapsing two into
+    "x2" would let a reader rotate one and think they were done."""
+    secrets = [
+        Finding(
+            scan_id=uuid4(),
+            tool=ToolName.TRUFFLEHOG,
+            rule_id="AV-005",
+            owasp_category=OwaspMcpCategory.TOKEN_MISMANAGEMENT,
+            severity=Severity.CRITICAL,
+            title="Verified secret: AWS",
+            description="live",
+            location=Location(file_path=path),
+            remediation="Rotate.",
+            raw={"DetectorName": "AWS"},
+        )
+        for path in ("a.env", "b.env")
     ]
-    result = dedupe_cross_scanner(findings)
-
-    assert sorted(f.title for f in result if f.tool == ToolName.BANDIT) == ["b1", "b2", "b3"]
-    assert sum(1 for f in result if f.owasp_category == OwaspMcpCategory.SUPPLY_CHAIN) == 2
+    assert len(group_by_root_cause(secrets)) == 2
 
 
-def test_a_critical_static_finding_still_drives_the_score():
-    """The user-visible consequence: losing the finding also silently
-    inflated the score."""
-    findings = dedupe_cross_scanner(
-        [_bandit_finding("subprocess_popen_with_shell_equals_true"), _osv_finding("CVE-2024-1", "requests"), _trivy_finding("CVE-2024-1", "requests")]
-    )
-    assert compute_score(findings) < compute_score(
-        dedupe_cross_scanner([_osv_finding("CVE-2024-1", "requests"), _trivy_finding("CVE-2024-1", "requests")])
-    )
+# --------------------------------------------------------------------------
+# Rule grouping
 
 
-def test_dedupe_exact_collapses_a_double_reported_secret():
-    """Observed in production: Gitleaks reported the same private key at
-    src/redact.test.ts:61 twice in every scan, same rule and same commit.
-    Root-cause grouping never touches secrets on purpose (two different
-    credentials are two findings), which left this pair uncollapsed."""
-    from aevrin_scanner_core.classification.grouping import dedupe_exact
-
-    scan_id = uuid4()
-    def _secret():
-        return Finding(
-            scan_id=scan_id,
-            tool=ToolName.GITLEAKS,
-            owasp_category=OwaspMcpCategory.TOKEN_MISMANAGEMENT,
-            severity=Severity.HIGH,
-            title="Hardcoded secret: private-key",
-            description="Identified a Private Key.",
-            location=Location(file_path="src/redact.test.ts", line_start=61),
-            remediation="Rotate it.",
-        )
-
-    kept = dedupe_exact([_secret(), _secret()])
-    assert len(kept) == 1
+def test_identical_rule_verdict_across_tools_becomes_one_card():
+    findings = [
+        _rule_finding("AS-011", name, "performs network work but declares no timeout.")
+        for name in ("browser_navigate", "browser_tabs", "browser_click")
+    ]
+    (grouped,) = group_by_rule(findings)
+    assert grouped.occurrence_count == 3
+    assert grouped.affected_tools == ["browser_click", "browser_navigate", "browser_tabs"]
+    # The card no longer claims to be about one tool.
+    assert grouped.mcp_tool is None
+    assert not grouped.description.startswith("browser_navigate")
 
 
-def test_dedupe_exact_keeps_two_different_secrets_in_one_file():
-    """Each credential is independently exploitable, so different lines stay
-    separate findings."""
-    from aevrin_scanner_core.classification.grouping import dedupe_exact
-
-    scan_id = uuid4()
-    def _secret(line):
-        return Finding(
-            scan_id=scan_id,
-            tool=ToolName.GITLEAKS,
-            owasp_category=OwaspMcpCategory.TOKEN_MISMANAGEMENT,
-            severity=Severity.HIGH,
-            title="Hardcoded secret: private-key",
-            description="Identified a Private Key.",
-            location=Location(file_path="src/redact.test.ts", line_start=line),
-            remediation="Rotate it.",
-        )
-
-    assert len(dedupe_exact([_secret(61), _secret(94)])) == 2
+def test_rule_grouping_separates_different_verdicts_of_the_same_rule():
+    """AS-002's capability disclosure must not collapse "network access"
+    into "code execution": the whole value of that card is which capability
+    the listed tools actually declare."""
+    findings = [
+        _rule_finding("AS-002", "a", "declares: network access.", title="Declared Capability Surface"),
+        _rule_finding("AS-002", "b", "declares: network access.", title="Declared Capability Surface"),
+        _rule_finding("AS-002", "c", "declares: code/command execution.", title="Declared Capability Surface"),
+    ]
+    grouped = group_by_rule(findings)
+    assert len(grouped) == 2
+    by_count = sorted(grouped, key=lambda f: -f.occurrence_count)
+    assert by_count[0].occurrence_count == 2
+    assert by_count[1].occurrence_count == 1
 
 
-def test_dedupe_exact_preserves_order_and_keeps_the_first_copy():
-    from aevrin_scanner_core.classification.grouping import dedupe_exact
+def test_criticals_are_never_grouped():
+    """A critical is read individually, by name. Folding four into "x4" is
+    exactly the wrong economy."""
+    findings = [
+        _rule_finding("AS-006", name, "can execute arbitrary code.", severity=Severity.CRITICAL)
+        for name in ("run_a", "run_b")
+    ]
+    assert len(group_by_rule(findings)) == 2
 
-    scan_id = uuid4()
-    def _f(title, verified=None):
-        return Finding(
-            scan_id=scan_id,
-            tool=ToolName.GITLEAKS,
-            owasp_category=OwaspMcpCategory.TOKEN_MISMANAGEMENT,
-            severity=Severity.HIGH,
-            title=title,
-            description="d",
-            location=Location(file_path="a.ts", line_start=1),
-            remediation="r",
-            verified=verified,
-        )
 
-    # The first copy carries enrichment the second lacks; it must survive.
-    kept = dedupe_exact([_f("a", verified=True), _f("a"), _f("b")])
-    assert [f.title for f in kept] == ["a", "b"]
-    assert kept[0].verified is True
+def test_grouped_finding_still_scores_once_per_affected_tool():
+    """Five tools missing a timeout is five tools' worth of risk, shown
+    once - the grouping is a presentation decision, not a discount."""
+    def five() -> list[Finding]:
+        return [
+            _rule_finding("AS-011", f"tool_{i}", "performs network work but declares no timeout.")
+            for i in range(5)
+        ]
+
+    # Grouping mutates the representative in place, so the ungrouped
+    # comparison is built separately rather than read back afterwards.
+    ungrouped_score = risk_score(five())
+    grouped = group_by_rule(five())
+    assert len(grouped) == 1
+    assert risk_score(grouped) == ungrouped_score == 10  # 5 x LOW(2)
+
+
+def test_grouped_evidence_is_deduplicated_and_bounded():
+    findings = [
+        _rule_finding("AS-011", f"tool_{i}", "performs network work but declares no timeout.")
+        for i in range(40)
+    ]
+    (grouped,) = group_by_rule(findings)
+    assert grouped.evidence == ["capability: network"]
+
+
+# --------------------------------------------------------------------------
+# Exact dedup
+
+
+def test_dedupe_exact_collapses_a_double_reported_finding():
+    def one() -> Finding:
+        return _behavior_finding("mcp-shell-exec", "server.py")
+
+    assert len(dedupe_exact([one(), one()])) == 1
+
+
+def test_dedupe_exact_keeps_two_different_findings_in_one_file():
+    findings = [
+        _behavior_finding("mcp-shell-exec", "server.py"),
+        _behavior_finding("mcp-fs-write", "server.py"),
+    ]
+    findings[1].title = "MCP tool input reaches filesystem write"
+    assert len(dedupe_exact(findings)) == 2

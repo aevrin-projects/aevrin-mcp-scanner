@@ -154,7 +154,8 @@ def _mark_scan_failed(rest: _SyncRest, scan_id: UUID, user_id: str) -> None:
         {"id": str(scan_id), "user_id": user_id},
         {
             "status": "failed",
-            "score": None,
+            "risk_score": None,
+            "grade": None,
             "error": (
                 "The scan worker could not finalize this scan. Retry once; "
                 "if it repeats, review the failed stage or contact support."
@@ -178,7 +179,8 @@ def _persist_completed_scan(
         {"id": str(scan.id), "user_id": user_id},
         {
             "status": scan.status.value,
-            "score": scan.score,
+            "risk_score": scan.risk_score,
+            "grade": scan.grade,
             "mcp_detected": scan.mcp_detected,
             "mcp_detection_confidence": scan.mcp_detection_confidence,
             "mcp_detection_evidence": scan.mcp_detection_evidence,
@@ -212,7 +214,8 @@ def _persist_completed_scan(
             "user_id": user_id,
             "target": durable_target,
             "last_scan_id": str(scan.id),
-            "last_score": scan.score,
+            "last_risk_score": scan.risk_score,
+            "last_grade": scan.grade,
             "last_status": scan.status.value,
             "checked_at": completed_at,
         },

@@ -20,6 +20,112 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ## [Unreleased]
 
+### Changed
+
+- **Aevrin is now an MCP-only security product.** General-purpose code
+  security was removed rather than moved to another tab or hidden in the
+  frontend: Semgrep's registry rulesets, Bandit, Gitleaks, Trivy, OpenSSF
+  Scorecard and MCP-Shield are gone, along with the `static_analysis` stage
+  and the code/MCP/dependency sub-scores. Scanning an MCP repository no
+  longer produces findings about Dockerfile `HEALTHCHECK`, OpenSSF badges,
+  fuzzing status, branch protection, code-review percentage, dependency
+  hash pinning, or dev-only CVEs. A repository that is not an MCP server
+  now says so and stops, instead of producing a scored report with
+  MCP-labelled categories about something that has nothing to do with MCP.
+  See `DECISIONS.md` ADR-027.
+- **One risk model, counting up.** `scans.score` (100 = good) became
+  `scans.risk_score` (0 = clean, 100 = "do not use"), and grades run A-F.
+  The two numbers are not convertible, so migration `0046` blanks existing
+  rows rather than inventing a conversion; a historical scan reads as "not
+  scored under the current model". `compute_score`, `verdict` and
+  `grade_mcp_server` are deleted - there is now exactly one grader,
+  `mcp/risk.py::grade_scan`, and the CLI, dashboard, exported report and
+  marketplace all read its output. See `DECISIONS.md` ADR-028.
+- **A scan that could not read a server's tools now gets no grade at all.**
+  Previously it produced zero findings, scored 100/100 and graded A - which
+  is indistinguishable from a perfect server and was the common case for
+  any server whose registration patterns discovery could not parse. The
+  grade is `null`, the status is `incomplete`, and every surface renders
+  that as its own state ("?", "Not graded") with a summary explaining why.
+- **The scan report is restructured** around what a developer actually
+  needs: grade and risk score, then a risk summary (what is wrong, why it
+  matters, what could happen, what to change, what policy to apply), then
+  the findings with their evidence. Findings carry a rule id, the evidence
+  that made the rule fire, and every affected tool.
+- **Identical rule verdicts across tools are one card.** Twenty-four tools
+  missing a dependency inventory is one finding with twenty-four affected
+  tools, not twenty-four cards. The risk score is unaffected -
+  `occurrence_count` multiplies the severity weight - so grouping is
+  presentation, not a discount. Criticals are never grouped.
+- **Dependency CVEs are scoped to production dependencies.** Only a proven
+  development scope is dropped; an unknown scope is kept, because a
+  dependency whose scope could not be established has not been shown to be
+  dev-only. What was excluded is reported as its own finding rather than
+  vanishing.
+- The API container image drops five scanner binaries and the Node runtime.
+  Semgrep the *engine* stays, running only Aevrin's own MCP taint pack.
+
+### Added
+
+- **The MCP rule engine** (`scanner-core/mcp/`): rules AS-001 through
+  AS-018 adapted from the [ToolTrust Scanner](https://github.com/AgentSafe-AI/tooltrust-scanner)
+  (MIT, attribution and divergences recorded in `EXTERNAL_SCANNERS.md`),
+  plus Aevrin's own `AV-` rules for launch commands, transport
+  authentication, audit logging, taint findings and committed credentials.
+  Tool poisoning, permission surface, scope mismatch, arbitrary code
+  execution, privilege escalation, secret handling, typosquatting, tool
+  shadowing, DoS resilience, compromised packages, npm lifecycle scripts
+  and malicious indicators, all with evidence.
+- **`mcp/catalog.py`**, the single place a rule id has prose. Every
+  renderer looks up title, impact and fix from it, so rewording a rule
+  lands on every existing finding at once.
+- **Permission recommendations** with a computed projection: the rules are
+  pure functions of a tool list, so the recommendation is applied to a copy
+  and the rules are run again. The projected risk score is what the scan
+  would actually have produced, never an estimate.
+- **Input-schema reading during tool discovery.** A Python handler's own
+  signature is its schema; JS/TS registration sites get a bounded search
+  for a JSON Schema `properties` object or a Zod field list. Several rules
+  read property names and previously had none for source scans.
+- `GET /scans/{id}` returns `risk_summary`; `GET /scans/{id}/findings`
+  returns `rule_id`, `impact`, `evidence` and `affected_tools`.
+
+### Fixed
+
+- **`run_command(command: str)` reported as nothing worse than a capability
+  disclosure.** AS-006 now fires at Critical whenever a tool declares
+  execution capability *and* takes a caller-supplied code argument,
+  regardless of whether its description uses interpreter vocabulary. This
+  is the most dangerous shape an MCP tool takes and the keyword gate was
+  hiding it.
+- **`delete_repository` inferred no permission at all.** Filesystem-write
+  inference required a `<verb>_file`-shaped name, which missed every
+  destructive tool not operating on a literal file. A tool whose name
+  starts with a write verb now infers `FS_WRITE`; matched on the leading
+  segment only, so `get_update_status` stays a read.
+- **A manifest that could not be opened was skipped in silence.** Found on
+  a machine with endpoint protection, where reading a `package.json` whose
+  install script contains `curl … | bash` fails outright - precisely the
+  file the supply-chain rules exist to read. Unreadable manifests are now
+  reported as missing coverage. See `DECISIONS.md` ADR-032.
+- **A grouped finding read the wrong tool name** when stripping the
+  tool-name prefix from its description, because the merged list was
+  written before the original was read.
+- **AS-014 fired on every tool of every source-scanned repository**, claiming
+  dependency coverage was incomplete when the manifests had been read
+  directly. It is now scoped to live servers, where it is correct.
+
+### Removed
+
+- Semgrep's registry rulesets, Bandit, Gitleaks, Trivy, OpenSSF Scorecard,
+  MCP-Shield, and the Node runtime that existed only for MCP-Shield.
+- `classification/scoring.py`, `agents/grade.py`,
+  `scorecard_score_to_severity`, the `SubScore` UI component, and the
+  code/MCP/dependency columns on `mcp_listing_versions`.
+- The `DiscoveredTool` / `ToolDescriptor` / raw-dict tool shapes,
+  consolidated into one `McpTool`; and the separate declared-capability
+  keyword vocabulary, consolidated into one `Permission` enum.
+
 ### Added
 
 - **Availability history.** `service_checks` (migration `0039`) records one

@@ -1,15 +1,15 @@
 from uuid import uuid4
 
 from aevrin_scanner_core.classification.owasp import OwaspMcpCategory
-from aevrin_scanner_core.classification.scoring import compute_score
 from aevrin_scanner_core.execution.fixture_paths import is_fixture_path, mark_excluded_paths
+from aevrin_scanner_core.mcp.risk import risk_score
 from aevrin_scanner_core.models import Finding, Location, Severity, ToolName
 
 
 def _finding(file_path: str | None, severity: Severity = Severity.CRITICAL) -> Finding:
     return Finding(
         scan_id=uuid4(),
-        tool=ToolName.SEMGREP,
+        tool=ToolName.AEVRIN_MCP_BEHAVIOR,
         owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
         severity=severity,
         title="t",
@@ -102,10 +102,10 @@ def test_mark_excluded_paths_sets_flag_without_removing_finding():
 def test_excluded_fixture_finding_does_not_affect_score():
     findings = [_finding("tests/fixtures/vuln.py")]
     mark_excluded_paths(findings)
-    assert compute_score(findings) == 100
+    assert risk_score(findings) == 0
 
 
 def test_non_fixture_finding_still_affects_score_after_marking():
     findings = [_finding("src/app.py")]
     mark_excluded_paths(findings)
-    assert compute_score(findings) == 60  # 100 - 40 (critical)
+    assert risk_score(findings) == 25  # one critical

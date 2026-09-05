@@ -4,7 +4,7 @@
 
 Aevrin scans Model Context Protocol (MCP) servers and the repositories that
 implement them for security problems, using established open-source
-scanners rather than a proprietary black box, and reports what it could
+scanners where one exists, and reports what it could
 **not** check as clearly as what it did. On top of that engine sits a
 public marketplace of MCP servers, each carrying a real security scan
 rather than a popularity ranking dressed up as one, plus an optional AI
@@ -13,7 +13,7 @@ to invent one.
 
 Three things run identically across surfaces, by construction rather than
 by convention: `backend/scanner-core` is the one scanning engine imported
-by both the API and the CLI, `grade_mcp_server()` is the one trust-grading
+by both the API and the CLI, `grade_scan()` is the one trust-grading
 function read by the marketplace, the CLI, and the agent-posture view, and
 the OWASP MCP Top 10 category codes (`OwaspMcpCategory`, `MCP01`–`MCP10`)
 are the one finding vocabulary used everywhere a finding is shown.
@@ -22,7 +22,7 @@ are the one finding vocabulary used everywhere a finding is shown.
 
 | Component | What it is |
 |---|---|
-| `backend/scanner-core` | The scanning engine: adapters for Semgrep, Bandit, Gitleaks, TruffleHog, OSV-Scanner, Trivy, OpenSSF Scorecard, mcp-shield, plus Aevrin's own manifest rules, MCP-server detection, trust grading, and agent-posture scoring. |
+| `backend/scanner-core` | The scanning engine: the MCP rule engine (AS-001..AS-019 plus Aevrin's own AV rules), the risk/grade model, MCP-server detection and tool discovery, Aevrin's Semgrep taint pack, adapters for TruffleHog and OSV-Scanner, and agent-posture scoring. |
 | `backend/api` | FastAPI service: scan orchestration, billing (Razorpay), the MCP marketplace, AI explanations, admin, auth. |
 | `backend/cli` | The `aevrin` Python CLI - `scan`, `agent scan`, `login`/`logout`, `hook setup`/`allow`, `findings triage`. Published to PyPI. |
 | `backend/cli-npm` | An npm wrapper (`npm install -g aevrin`) that installs the Python CLI underneath. |
@@ -49,8 +49,8 @@ the user-facing explanation - see the
 ```
 CLI / hook / dashboard "New scan"
     -> backend/api (auth, quota check)
-    -> scanner-core pipeline (clone/fetch target, run adapters, classify,
-       score, grade)
+    -> scanner-core pipeline (clone/fetch target, discover tools, run the
+       MCP rules, classify, score risk, grade)
     -> Scan + Finding rows in Supabase
     -> dashboard reads them back; CLI/hook render the same Scan object
        directly, without a round-trip through storage

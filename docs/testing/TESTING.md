@@ -58,14 +58,20 @@ when the repository is public (`if: ${{ !github.event.repository.private }}`)
 - CodeQL's licence does not permit generating a database during automated
 analysis/CI against a private repository without a paid GitHub Advanced
 Security entitlement, which this repository does not have; see
-`DECISIONS.md` ADR-018. While private, static coverage comes from Semgrep
-and Bandit in the scan pipeline itself, which are not licence-gated for
-this use.
+`DECISIONS.md` ADR-018. Note that this is CodeQL scanning *Aevrin's own*
+source; Aevrin's product no longer performs general source-code analysis
+of the targets it scans (`DECISIONS.md` ADR-027), so there is no longer a
+Semgrep/Bandit pass in the pipeline standing in for it here.
 
 ## Test suite shape, by package
 
-- **`backend/scanner-core/tests/`** - adapters (bandit, semgrep,
-  trufflehog, mcp-behavior), the pipeline's reliability/fallback behavior,
+- **`backend/scanner-core/tests/`** - the MCP rules (`test_mcp_rules.py`,
+  weighted toward the false-positive suppressions rather than the happy
+  path), the risk model (`test_risk.py` - score direction, grade
+  boundaries, and the ungraded state that is the product's central honesty
+  claim), manifest-driven supply chain (`test_supply_chain.py`, including
+  the unreadable-manifest case), adapters (trufflehog, mcp-behavior), the
+  pipeline's reliability/fallback behavior,
   MCP detection (including component detection and tool discovery's
   line-range capture), capability join (`test_capability_map.py` - an AST
   fixture pinning that a sink past a tool's declaration span, in its real
@@ -100,8 +106,7 @@ this use.
   populated end to end, not just inside `inspect_remote_signatures` in
   isolation.
   `test_mcp_behavior_adapter.py` tests `parse_output` against Semgrep's
-  captured JSON shape, the same convention `test_semgrep_adapter.py` and
-  `test_bandit_adapter.py` already use - none of this suite invokes a real
+  captured JSON shape - none of this suite invokes a real
   scanner binary, for portability across machines that may not have Docker
   running or a tool on PATH. The `rules/mcp/*.yaml` pack's actual matching
   behavior (true positive at the exact tainted line, true negative on a
@@ -121,12 +126,12 @@ this use.
   `rule_pack_corpus/` is **not** placed under `tests/` because Semgrep's
   own default ignore patterns silently skip any path containing a directory
   literally named `tests`, confirmed empirically while building this test -
-  a real gap in `SemgrepAdapter`/`McpBehaviorAdapter` themselves too, since
-  neither disabled Semgrep's default for an actual scanned target
+  a real gap in `McpBehaviorAdapter` itself too, since it did not disable
+  Semgrep's default for an actual scanned target
   (`docs/features/MCP_SCANNING.md`'s Security section, `DECISIONS.md`
   ADR-025 for how it was found and ADR-026 for the fix -
   `execution/semgrep_ignore.py`, covered by `test_semgrep_ignore.py` and a
-  `run()`-wiring test in each adapter's own test file).
+  `run()`-wiring test in the adapter's own test file).
   `test_pipeline_reliability.py` additionally pins
   `StageName.MCP_ANALYSIS`'s real wiring end to end - a faked
   `McpBehaviorAdapter` finding reaches `scan.findings` with `mcp_tool` set

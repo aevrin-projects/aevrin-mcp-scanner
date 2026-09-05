@@ -40,14 +40,15 @@ async def upload_scan(
     """CLI already ran the full local scan (same scanner-core pipeline as
     the backend); this just persists the result to the user's account. It
     never re-runs the pipeline server-side, so the findings list itself is
-    still self-reported; the score is not, though; see below.
+    still self-reported; the risk score and grade are not, though; see below.
 
-    We never trust the client-submitted `score`; it's recomputed here from
-    the submitted findings using the same shared `compute_score` the CLI
-    itself used, and that recomputed value is what gets stored. This closes
-    the cheapest tampering vector (a hand-crafted upload claiming a better
-    score than its own findings justify) without requiring a full
-    server-side re-scan, which isn't feasible for local/private targets.
+    We never trust the client-submitted `risk_score` or `grade`; both are
+    recomputed here from the submitted findings using the same shared
+    `grade_scan` the CLI itself used, and those recomputed values are what
+    get stored. This closes the cheapest tampering vector (a hand-crafted
+    upload claiming a better letter than its own findings justify) without
+    requiring a full server-side re-scan, which isn't feasible for
+    local/private targets.
     The findings list itself remains self-reported, a fuller integrity
     story (signed local attestation, spot-check re-scans of public repo
     targets) is a documented future improvement, not something this

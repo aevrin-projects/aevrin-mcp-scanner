@@ -40,7 +40,7 @@ _MAX_DEPTH = 4
 _TITLE_PKG_RE = re.compile(r"^\S+ in (?P<pkg>.+)$")
 _REQ_LINE_RE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)")
 
-_DEPENDENCY_TOOLS = frozenset({ToolName.OSV_SCANNER, ToolName.TRIVY})
+_DEPENDENCY_TOOLS = frozenset({ToolName.OSV_SCANNER})
 
 
 def _package_name(finding: Finding) -> str | None:

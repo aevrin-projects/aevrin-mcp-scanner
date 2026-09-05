@@ -8,8 +8,8 @@ detection.
 
 ## The contract
 
-**The scanners decide what is true.** Semgrep, Bandit, Gitleaks, TruffleHog, OSV, Trivy, Scorecard,
-mcp-shield and Aevrin's own manifest rules produce the evidence. The model explains it.
+**The scanners and rules decide what is true.** Aevrin's MCP tool rules, its dataflow rule pack,
+TruffleHog and OSV-Scanner produce the evidence. The model explains it.
 
 **The AI cannot produce a finding.** It cannot create, alter, or remove one; it cannot move a score;
 it cannot change a grade. Nothing in the AI layer writes to the scans, findings, or version tables.
@@ -43,7 +43,7 @@ attack paths, and coverage.
 
 Excluded, by construction:
 
-- **The scanner's raw payload.** TruffleHog and Gitleaks put the credential they found in it.
+- **The scanner's raw payload.** TruffleHog puts the credential it found in it.
 - **Any credential value.** Credential metadata carries kind, source and presence, never a value.
 - **Source code, environment variables, and full file contents.**
 - **Anything matching a credential pattern**, in any field. Tokens, keys, JWTs and private-key

@@ -4,7 +4,7 @@ Four numbers exist in this product and they answer different questions. Keeping
 them apart is the point:
 
   MCP scan score     how many problems does this server have
-  MCP trust grade    should I let this server run          (grade.py)
+  MCP trust grade    should I let this server run          (mcp/risk.py)
   Agent posture      how much can this agent already do on this machine
   Blast radius       what does that reach if it is misused (part of posture,
                      surfaced as its own factors rather than a fifth number)
@@ -50,7 +50,10 @@ AUTO_APPROVED_CAP = 15
 
 # A server this agent can call that a scan actually graded badly. Only ever
 # applied from a real grade; an unscanned server contributes nothing here and
-# is accounted for as missing evidence instead.
+# is accounted for as missing evidence instead. F is the letter the MCP
+# grade reserves for "do not use", so a configured F server outweighs every
+# other single fact in this list.
+GRADE_F_SERVER = 30
 GRADE_D_SERVER = 20
 GRADE_C_SERVER = 8
 
@@ -178,7 +181,9 @@ def assess_posture(
         )
 
     for name, grade in sorted((mcp_grades or {}).items()):
-        if grade == "D":
+        if grade == "F":
+            deduct(GRADE_F_SERVER, f"calls {name}, graded F (do not use) by its own scan")
+        elif grade == "D":
             deduct(GRADE_D_SERVER, f"calls {name}, graded D (high risk) by its own scan")
         elif grade == "C":
             deduct(GRADE_C_SERVER, f"calls {name}, graded C (caution) by its own scan")
@@ -209,7 +214,7 @@ def assess_posture(
         unattended=agent.unattended,
         shell=shell,
         has_credentials=has_credentials,
-        has_grade_d=any(grade == "D" for grade in (mcp_grades or {}).values()),
+        has_failing_server=any(grade in ("D", "F") for grade in (mcp_grades or {}).values()),
         coverage_complete=coverage_complete,
     )
     confidence = _confidence_from(
@@ -238,7 +243,7 @@ def _risk_from(
     unattended: bool,
     shell: Level,
     has_credentials: bool,
-    has_grade_d: bool,
+    has_failing_server: bool,
     coverage_complete: bool,
 ) -> PostureRisk:
     """Bands, except where one fact should outrank the arithmetic."""
@@ -250,8 +255,8 @@ def _risk_from(
     # whatever those credentials open.
     if shell is Level.FULL and has_credentials:
         return PostureRisk.CRITICAL
-    # A server its own scan called high-risk, wired into this agent.
-    if has_grade_d:
+    # A server its own scan called high-risk or unusable, wired into this agent.
+    if has_failing_server:
         return PostureRisk.CRITICAL
 
     if score < _CRITICAL_BELOW:

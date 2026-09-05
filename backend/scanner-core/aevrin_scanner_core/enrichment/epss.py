@@ -36,7 +36,7 @@ _BATCH_SIZE = 100
 _LOW_EPSS_THRESHOLD = 0.02
 
 # Tools whose findings can plausibly carry a CVE ID.
-_CVE_BEARING_TOOLS = frozenset({ToolName.TRIVY, ToolName.OSV_SCANNER})
+_CVE_BEARING_TOOLS = frozenset({ToolName.OSV_SCANNER})
 
 
 def finding_cve_id(finding: Finding) -> str | None:
@@ -46,12 +46,8 @@ def finding_cve_id(finding: Finding) -> str | None:
     GHSA-primary entry often aliases the CVE for the same issue)."""
     if finding.tool not in _CVE_BEARING_TOOLS or not finding.raw:
         return None
-    candidates: list[str] = []
-    if finding.tool == ToolName.TRIVY:
-        candidates.append(str(finding.raw.get("VulnerabilityID") or ""))
-    else:
-        candidates.append(str(finding.raw.get("id") or ""))
-        candidates.extend(str(a) for a in finding.raw.get("aliases") or [])
+    candidates: list[str] = [str(finding.raw.get("id") or "")]
+    candidates.extend(str(a) for a in finding.raw.get("aliases") or [])
     return next((c.upper() for c in candidates if _CVE_RE.fullmatch(c)), None)
 
 

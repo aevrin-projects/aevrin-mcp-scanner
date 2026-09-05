@@ -8,13 +8,19 @@ from __future__ import annotations
 
 import html
 from datetime import UTC, datetime
+from uuid import UUID
 
 from aevrin_scanner_core import (
     NOT_TESTED_NOTE,
     STAGE_LABELS,
+    Finding,
     OwaspMcpCategory,
+    Severity,
     StageName,
+    ToolName,
+    TriageStatus,
     category_label,
+    grade_scan,
 )
 
 from .styles import REPORT_CSS
@@ -40,15 +46,7 @@ _STATUS_LABELS = {
     "failed": "Failed",
 }
 
-_STAGE_ORDER = [
-    StageName.CLONING,
-    StageName.STATIC_ANALYSIS,
-    StageName.SECRETS,
-    StageName.DEPENDENCIES,
-    StageName.MCP_ANALYSIS,
-    StageName.TOOL_DESCRIPTION_CHECK,
-    StageName.AGGREGATING,
-]
+_STAGE_ORDER = list(StageName)
 
 _SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"]
 
@@ -83,38 +81,50 @@ def _str_or_none(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _score_color(score: int | None) -> str:
-    if score is None:
-        return _STAGE_STATUS_COLORS["skipped"]
-    if score < 40:
-        return _SEVERITY_COLORS["critical"]
-    if score < 70:
-        return _SEVERITY_COLORS["high"]
-    if score < 90:
-        return _SEVERITY_COLORS["medium"]
-    return _STAGE_STATUS_COLORS["done"]
+def _int_or(value: object, fallback: int) -> int:
+    return value if isinstance(value, int) else fallback
 
 
-def _verdict_line(status: str, score: object, counts: dict[str, int]) -> str:
-    """The conclusion, stated.
+def _scoring_finding(row: dict[str, object], scan: dict[str, object]) -> Finding:
+    """The minimum a finding needs to be scored, built defensively.
 
-    The report showed a score and left the reader to decide what it meant.
-    A number without a sentence beside it is the part of a security report
-    people misread most.
+    This renderer is handed plain row dicts rather than validated models, and
+    full validation made the whole report fail on one row missing an optional
+    column. Only the fields the risk model actually reads are taken; anything
+    absent falls back to the value that counts the finding *against* the
+    target, never for it.
     """
-    if status == "failed":
-        return "This scan did not complete"
-    if counts["critical"]:
-        return "Critical issues need attention before use"
-    if counts["high"]:
-        return "High-risk findings need review"
-    if status == "incomplete":
-        return "Inconclusive: some checks did not run"
-    if isinstance(score, int) and score >= 90:
-        return "No significant issues in the checks that ran"
-    if isinstance(score, int) and score >= 70:
-        return "Lower-severity issues found"
-    return "Review the findings before use"
+    return Finding(
+        scan_id=UUID(str(row.get("scan_id") or scan.get("id"))),
+        tool=ToolName(str(row.get("tool") or ToolName.AEVRIN_MCP_RULES.value)),
+        rule_id=_str_or_none(row.get("rule_id")),
+        owasp_category=OwaspMcpCategory(str(row.get("owasp_category") or "MCP09")),
+        severity=Severity(str(row.get("severity") or "info")),
+        title=str(row.get("title") or ""),
+        description=str(row.get("description") or ""),
+        remediation=str(row.get("remediation") or ""),
+        not_tested=bool(row.get("not_tested")),
+        excluded_path=bool(row.get("excluded_path")),
+        occurrence_count=_int_or(row.get("occurrence_count"), 1),
+        triage_status=TriageStatus(str(row.get("triage_status") or "open")),
+    )
+
+
+def _risk_color(risk_score: int | None) -> str:
+    """Colour tracks risk, which now counts up: 0 is clean, 100 is "do not
+    use". Bands match the grade boundaries in scanner-core's mcp/risk.py, so
+    the number and the letter beside it can never disagree."""
+    if risk_score is None:
+        return _STAGE_STATUS_COLORS["skipped"]
+    if risk_score <= 9:
+        return _STAGE_STATUS_COLORS["done"]
+    if risk_score <= 24:
+        return _SEVERITY_COLORS["low"]
+    if risk_score <= 49:
+        return _SEVERITY_COLORS["medium"]
+    if risk_score <= 74:
+        return _SEVERITY_COLORS["high"]
+    return _SEVERITY_COLORS["critical"]
 
 
 def _distribution_html(counts: dict[str, int]) -> str:
@@ -268,13 +278,23 @@ def render_report_html(
     resolved_findings = [f for f in real_findings if f.get("triage_status") not in (None, "open")]
     counts = _severity_counts(findings)
     status = str(scan.get("status", "queued"))
-    score = scan.get("score")
+    risk_score = scan.get("risk_score")
+    grade = scan.get("grade")
     unreliable = scan.get("unreliable_stages")
     unreliable_names = unreliable if isinstance(unreliable, list) else []
     unreliable_labels = [STAGE_LABELS.get(StageName(name), str(name)) for name in unreliable_names]
 
+    declared_tools = scan.get("mcp_tools_declared")
     trustworthy = status == "completed"
-    verdict = _verdict_line(status, score, counts)
+    # The headline comes from the one grader rather than being re-derived
+    # here from severity counts. A second opinion about the same findings is
+    # how two surfaces end up disagreeing about the same scan.
+    summary = grade_scan(
+        [_scoring_finding(f, scan) for f in findings],
+        coverage_complete=not unreliable_names,
+        tools_discovered=len(declared_tools if isinstance(declared_tools, list) else []),
+    ).summary
+    verdict = summary.headline
     open_total = sum(counts[s] for s in _SEVERITY_ORDER)
     finding_word = "finding" if open_total == 1 else "findings"
     verdict_note = (
@@ -282,6 +302,16 @@ def render_report_html(
         if trustworthy
         else "Some checks did not run, so this result is inconclusive rather than clean."
     )
+    summary_html = f"""
+    <div class="notice">
+      <p class="notice-title">{_esc(summary.headline)}</p>
+      <p>{_esc(summary.explanation)}</p>
+      <p><strong>Potential impact:</strong> {_esc(summary.potential_impact)}</p>
+      <p><strong>Recommended action:</strong> {_esc(summary.recommended_action)}</p>
+      <p><strong>Suggested policy:</strong> {_esc(summary.suggested_policy.value.replace("_", " "))}
+      (a recommendation, not an automatic action).</p>
+    </div>
+    """
 
     notice_html = ""
     if status == "incomplete":
@@ -289,9 +319,9 @@ def render_report_html(
         notice_html = f"""
         <div class="notice notice-warning">
           <p class="notice-title">{_esc(named)} did not complete</p>
-          <p>The score reflects only the checks that actually ran. Usually this is Docker not
-          running, a missing scanner binary, or no network access. Treat the result as
-          inconclusive, not clean.</p>
+          <p>No grade is given for this scan. The findings below are real, but they do not add
+          up to a complete assessment. Usually this is Docker not running, a missing scanner
+          binary, or no network access. Treat the result as inconclusive, not clean.</p>
         </div>
         """
     elif status == "failed":
@@ -356,7 +386,8 @@ def render_report_html(
     generated_at = _stamp(datetime.now(UTC))
     done_stages = sum(1 for s in stages if str(s.get("status")) == "done")
     stage_total = len(stages) or 6
-    score_text = str(score) if isinstance(score, int) else "N/A"
+    risk_text = str(risk_score) if isinstance(risk_score, int) else "N/A"
+    grade_text = str(grade) if grade else "?"
     mcp_text = (
         "Yes" if scan.get("mcp_detected") else ("No" if scan.get("mcp_detected") is False else "Not determined")
     )
@@ -391,12 +422,14 @@ def render_report_html(
         <p class="verdict-note">{_esc(verdict_note)}</p>
       </div>
       <div class="score">
-        <div class="score-number" style="color:{_score_color(score if isinstance(score, int) else None)}">
-          {_esc(score_text)}<span class="score-of">/100</span>
+        <div class="score-number" style="color:{_risk_color(risk_score if isinstance(risk_score, int) else None)}">
+          {_esc(grade_text)}
         </div>
-        <div class="score-label">Score</div>
+        <div class="score-label">{_esc(risk_text)}/100 risk</div>
       </div>
     </div>
+
+    {summary_html}
 
     {_distribution_html(counts)}
 

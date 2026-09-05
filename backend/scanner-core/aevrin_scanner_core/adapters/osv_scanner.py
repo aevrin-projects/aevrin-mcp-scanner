@@ -1,9 +1,17 @@
-"""OSV-Scanner adapter.
+"""OSV-Scanner adapter: published CVEs in the MCP server's dependency tree.
 
-Invocation confirmed live: `scan source --format json /src` against
-ghcr.io/google/osv-scanner:latest, valid JSON on stdout, exit 0 even with
-vulnerabilities present (OSV-Scanner only exits non-zero with --fail-on-vuln
-type flags, which we don't set; we drive severity off the JSON body).
+This is AS-004, and it is the *only* dependency scanning left in the
+product. Trivy was removed as a second source for the same advisories - and
+because it also emitted Dockerfile misconfiguration findings, which are not
+MCP security and were the loudest single source of noise in an MCP report.
+
+Findings from here are scoped to production dependencies before they reach
+the report (`pipeline/postprocess.py`): a CVE in a test-only package is not
+part of what an agent runs, and listing it under MCP security was the other
+half of that noise.
+
+Invocation confirmed live: `scan source --format json /src`, valid JSON on
+stdout, exit 1 when vulnerabilities are present, which is still a clean run.
 """
 
 from __future__ import annotations
@@ -11,10 +19,10 @@ from __future__ import annotations
 import json
 from uuid import UUID
 
-from ..classification.owasp import OwaspMcpCategory
 from ..classification.severity_utils import cvss_vector_to_severity, ghsa_severity
 from ..execution.paths import relative_to_mount
 from ..execution.runner import DockerRunSpec, LocalCommandSpec
+from ..mcp.catalog import RULE_CATALOG
 from ..models import Finding, Location, Severity, ToolName
 from .base import ScannerAdapter
 
@@ -66,13 +74,19 @@ class OsvScannerAdapter(ScannerAdapter):
                         Finding(
                             scan_id=scan_id,
                             tool=self.tool,
-                            owasp_category=OwaspMcpCategory.SUPPLY_CHAIN,
+                            rule_id="AS-004",
+                            owasp_category=RULE_CATALOG["AS-004"].owasp,
                             severity=severity,
                             title=f"{vuln_id} in {pkg_label}",
                             description=vuln.get("summary")
                             or vuln.get("details", "")[:500]
                             or f"Known vulnerability in {pkg_label}",
                             location=Location(file_path=source_path),
+                            evidence=[
+                                f"package: {pkg_label}",
+                                f"advisory: {vuln_id}",
+                                f"manifest: {source_path}" if source_path else "manifest: unknown",
+                            ],
                             remediation=(
                                 f"Upgrade {package_info.get('name')} past the vulnerable "
                                 f"range; see {vuln_id} advisory for the fixed version."

@@ -206,7 +206,7 @@ SORT_ORDERS: dict[str, str] = {
     # ascending grade puts A first and unscanned last: sorting on the letter
     # alone would rank D above A, since 'D' < 'A' is false but 'A' < 'D' is
     # true only in the direction nobody wants for "most secure first".
-    "security": "current_trust_grade.asc.nullslast,current_security_score.desc.nullslast",
+    "security": "current_trust_grade.asc.nullslast,current_risk_score.asc.nullslast",
     "popular": "github_stars.desc.nullslast",
     "recently_updated": "registry_updated_at.desc.nullslast",
     "recently_added": "created_at.desc",

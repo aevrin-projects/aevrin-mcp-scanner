@@ -5,7 +5,7 @@ visibility, moderation. An admin makes the marketplace legible.
 
 What an admin cannot do here is make something look safer than it is. There is
 no code path in this file that writes `current_trust_grade`,
-`current_security_score`, or any column on `mcp_listing_versions`. Those are
+`current_risk_score`, or any column on `mcp_listing_versions`. Those are
 written only by `grading.py`, from a scan. An admin who disagrees with a grade
 can force a rescan and get a new one on the evidence; they cannot type a
 better letter.

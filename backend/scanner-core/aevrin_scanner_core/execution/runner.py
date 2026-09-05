@@ -36,14 +36,10 @@ from dataclasses import dataclass, field
 # An error that says a tool is missing without saying how to get it just
 # moves the work to a search engine.
 INSTALL_HINTS = {
+    # Semgrep runs Aevrin's own MCP taint pack, not a generic ruleset.
     "semgrep": "pip install semgrep",
-    "bandit": "pip install bandit",
-    "trivy": "https://trivy.dev/latest/getting-started/installation/",
-    "gitleaks": "https://github.com/gitleaks/gitleaks#installing",
     "trufflehog": "https://github.com/trufflesecurity/trufflehog#floppy_disk-installation",
     "osv-scanner": "https://google.github.io/osv-scanner/installation/",
-    "scorecard": "https://github.com/ossf/scorecard#installation",
-    "mcp-shield": "npm install -g mcp-shield",
 }
 
 
@@ -157,7 +153,7 @@ class DockerRunSpec:
     cpus: str = "2.0"
     workdir: str | None = None
     env: dict[str, str] = field(default_factory=dict)
-    # Some tools (semgrep, trivy, osv-scanner...) exit non-zero when findings
+    # Some tools (semgrep, osv-scanner) exit non-zero when findings
     # are present; that's not an execution failure. Adapters declare which
     # exit codes are "ran successfully" vs. "actually crashed".
     ok_exit_codes: tuple[int, ...] = (0,)
@@ -168,7 +164,7 @@ def _host_platform() -> str | None:
 
     On Apple Silicon, `--pull missing` will happily reuse an amd64 image that
     was cached earlier, and Docker then runs it under QEMU. Go binaries do
-    not survive that: gitleaks, trufflehog, osv-scanner, trivy and scorecard
+    not survive that: trufflehog and osv-scanner
     all die at startup with a `runtime.systemstack_switch` panic and exit 2,
     which surfaced as five simultaneous "scanner failed" stages with pages of
     Go stack trace. Naming the platform explicitly makes Docker select (and
@@ -254,7 +250,7 @@ def run_container(tool: str, spec: DockerRunSpec) -> tuple[str, str, int]:
     # Checked before the exit code is trusted at all. `docker run` reports
     # its own failures using the status of the command it could not run,
     # and for several scanners that status is inside ok_exit_codes -- 1
-    # means "found something" for osv-scanner and bandit. A daemon that
+    # means "found something" for osv-scanner. A daemon that
     # refused the container therefore looked like a successful run with no
     # output, and osv-scanner's parser reads empty output as an empty
     # result set: a clean dependency report from a scanner that never
@@ -320,9 +316,9 @@ def _resource_limits() -> None:  # pragma: no cover - exercised only on Linux/ma
     """preexec_fn: caps what a scanner subprocess can consume, since there's
     no per-tool container ceiling in this mode. Deliberately does NOT set
     RLIMIT_AS (virtual address space): confirmed live that it kills
-    gitleaks (and likely other Go binaries using WASM runtimes like
-    wazero/go-re2, which reserve large virtual address space unrelated to
-    actual physical memory use). Real memory protection here comes from
+    some Go binaries using WASM runtimes (wazero/go-re2 and similar reserve
+    large virtual address space unrelated to actual physical memory use).
+    Real memory protection here comes from
     the container-level cgroup limit the runtime applies (RSS-based, not
     virtual);
     RLIMIT_CPU/NPROC plus the subprocess timeout are what's safe to enforce

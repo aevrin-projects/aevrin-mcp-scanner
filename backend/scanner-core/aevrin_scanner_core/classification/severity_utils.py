@@ -44,19 +44,6 @@ def ghsa_severity(label: str | None, fallback: Severity = Severity.MEDIUM) -> Se
     return mapping.get(label.upper(), fallback)
 
 
-def scorecard_score_to_severity(score: float) -> Severity | None:
-    """Scorecard scores each check 0-10, higher is better. We only emit a
-    finding when a check scores below the 'healthy' threshold, and bucket
-    severity by how far below it falls."""
-    if score >= 8:
-        return None
-    if score < 3:
-        return Severity.HIGH
-    if score < 6:
-        return Severity.MEDIUM
-    return Severity.LOW
-
-
 _SEVERITY_ORDER = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
 
 

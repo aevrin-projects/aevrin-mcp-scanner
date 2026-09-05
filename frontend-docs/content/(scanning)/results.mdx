@@ -1,31 +1,41 @@
 ---
 title: Reading Results
-description: Understand score, verdict, stage evidence, findings, and scan status.
+description: Understand the grade, the risk summary, stage evidence, findings, and scan status.
 ---
 
-Read a result in this order: reliability, stage coverage, open critical/high findings, then score.
-A high score cannot override an incomplete warning.
+Read a result in this order: the grade, the risk summary, then the findings. A grade of `?`
+means the scan could not be graded at all, and no amount of clean-looking detail below it
+changes that.
 
 ## Result header
 
+- **Grade**: A to F, or `?` when the scan could not be graded.
+- **Risk score**: 0–100, where **0 is clean and 100 is "do not use"**, calculated from active
+  findings produced by completed checks.
 - **Status**: running, completed, incomplete, or failed.
-- **Score**: 0–100, calculated from active findings produced by completed checks.
 - **Source**: dashboard, CLI, or hook.
 - **Target type**: repository, local path, live server, or pasted configuration.
 - **MCP detected**: whether a known MCP SDK or entrypoint was identified in source.
 
 ## Stage timeline
 
-The stage list shows cloning, static analysis, secrets, dependencies, tool-description check, and
-aggregation separately. Expand errors before acting on an empty findings list. Scanner stderr is
+The stage list shows cloning, tool discovery, MCP tool rules, MCP behavior analysis, credential
+exposure, supply chain, and aggregation separately. Expand errors before acting on an empty findings list. Scanner stderr is
 redacted and shortened, but retains enough context to distinguish a finding exit code from a tool
 failure, timeout, image problem, or invalid response.
 
 ## Findings
 
-Each finding includes severity, source scanner, OWASP MCP category, title, explanation, location,
-remediation, triage status, and verification metadata where available. Open the detail page for
-the complete evidence rather than deciding from the list-row title alone.
+Each finding includes severity, rule id, title, the tools it affects, the evidence that made the
+rule fire, why it matters, and the fix. Open the detail page for the complete evidence rather
+than deciding from the list-row title alone.
+
+A finding marked **Confidence: low** fired on a name or description heuristic that nothing
+independently confirmed. It is reported so you can judge it, at Info severity so the guess
+never moves your grade.
+
+A finding showing `×5` is one rule verdict covering five tools, all named on the card. The risk
+score still counts all five; the grouping only stops the report burying what matters.
 
 ## AI review
 

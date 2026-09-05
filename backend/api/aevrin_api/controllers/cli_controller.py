@@ -17,7 +17,7 @@ from aevrin_scanner_core import (
     OwaspMcpCategory,
     Severity,
     ToolName,
-    compute_score,
+    grade_scan,
 )
 from fastapi import BackgroundTasks, HTTPException, status
 from pydantic import ValidationError
@@ -78,14 +78,21 @@ def _assert_id_is_reusable(persisted: dict[str, object], body: CliUploadRequest,
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Scan ID is already in use")
 
 
-def _scan_row(body: CliUploadRequest, user_id: str, score: int | None, now: datetime) -> dict[str, object]:
+def _scan_row(
+    body: CliUploadRequest,
+    user_id: str,
+    risk_score: int | None,
+    grade: str | None,
+    now: datetime,
+) -> dict[str, object]:
     return {
         "user_id": user_id,
         "target_type": body.target_type,
         "target": body.target,
         "status": body.status,
         "source": "cli",
-        "score": score,
+        "risk_score": risk_score,
+        "grade": grade,
         "mcp_detected": body.mcp_detected,
         "mcp_detection_confidence": body.mcp_detection_confidence,
         "mcp_detection_evidence": body.mcp_detection_evidence,
@@ -139,13 +146,19 @@ def _finding_rows(body: CliUploadRequest, scan_id: UUID, user_id: str) -> list[d
 
 
 def _hook_cache_row(
-    body: CliUploadRequest, scan_id: UUID, user_id: str, score: int | None, now: datetime
+    body: CliUploadRequest,
+    scan_id: UUID,
+    user_id: str,
+    risk_score: int | None,
+    grade: str | None,
+    now: datetime,
 ) -> dict[str, object]:
     return {
         "user_id": user_id,
         "target": body.target,
         "last_scan_id": str(scan_id),
-        "last_score": score,
+        "last_risk_score": risk_score,
+        "last_grade": grade,
         "last_status": body.status,
         "checked_at": (body.completed_at or now).isoformat(),
     }
@@ -166,11 +179,24 @@ async def upload_scan(
     except (ValidationError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
-    recomputed_score = compute_score(core_findings) if body.status != "failed" else None
-    if recomputed_score != body.score:
+    # The client is not trusted to grade its own upload. Recomputed here from
+    # the findings it actually sent, with the same function the pipeline used,
+    # so a modified CLI cannot publish a flattering letter for a server.
+    if body.status == "failed":
+        recomputed_risk: int | None = None
+        recomputed_grade: str | None = None
+    else:
+        result = grade_scan(
+            core_findings,
+            coverage_complete=body.status != "incomplete",
+            tools_discovered=len(body.mcp_tools_declared),
+        )
+        recomputed_risk = result.risk_score
+        recomputed_grade = result.grade.value if result.grade else None
+    if recomputed_risk != body.risk_score or recomputed_grade != body.grade:
         logger.warning(
-            "cli upload score mismatch for user %s target %s: client sent %s, recomputed %s",
-            user_id, body.target, body.score, recomputed_score,
+            "cli upload grade mismatch for user %s target %s: client sent %s/%s, recomputed %s/%s",
+            user_id, body.target, body.risk_score, body.grade, recomputed_risk, recomputed_grade,
         )
 
     existing = await db.select("scans", {"id": str(scan_id)})
@@ -183,7 +209,7 @@ async def upload_scan(
         await check_and_increment_quota(settings, db, user_id, "cli")
 
     now = datetime.now(UTC)
-    scan_payload = _scan_row(body, user_id, recomputed_score, now)
+    scan_payload = _scan_row(body, user_id, recomputed_risk, recomputed_grade, now)
     if existing:
         scan_rows = await db.update("scans", {"id": str(scan_id), "user_id": user_id}, scan_payload)
     else:
@@ -195,7 +221,7 @@ async def upload_scan(
         await db.insert("findings", _finding_rows(body, scan_id, user_id), upsert_on="id")
     await db.insert(
         "hook_cache",
-        _hook_cache_row(body, scan_id, user_id, recomputed_score, now),
+        _hook_cache_row(body, scan_id, user_id, recomputed_risk, recomputed_grade, now),
         upsert_on="user_id,target",
     )
 

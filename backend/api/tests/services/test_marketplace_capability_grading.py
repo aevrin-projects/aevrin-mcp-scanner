@@ -1,20 +1,12 @@
-"""`scan.mcp_capabilities` (migration 0045) is the first real caller of
-scanner-core's `capability_summary()` - it existed with its own unit test
-long before anything read the result. This pins the other end of that wire:
-`apply_completed_scan` must read the column back off the scan row and pass
-it through to `grade_from_scan`, not silently drop it the way `capabilities`
-was always passed as `None` before this.
+"""`apply_completed_scan` must grade a listing from the scan row it just
+read, and must not invent a letter for a scan that could not be graded.
 
-Asserted by spying on `grade_from_scan` itself, not by checking the letter
-`apply_completed_scan` ends up writing: with zero findings, the modest
-`UNKNOWN_CAPABILITY_WEIGHT` this scan_row difference alone contributes does
-not reliably cross a letter boundary (both an unestablished and a
-confirmed-none capability land on the same grade here, since the
-always-present unknown-authentication factor already dominates that
-threshold check) - a letter-based assertion would be coupled to today's
-exact weights for no real reason. What must actually be true is narrower
-and more durable: the dict read off the scan row reaches `grade_from_scan`'s
-`capabilities` argument unchanged.
+The capability plumbing this file originally pinned is gone: capabilities no
+longer feed the grade as separate weighted factors, they feed the rules that
+produce findings, and the findings are what the grade is computed from. What
+still has to be true - and is the more important property - is that a
+listing whose tools could not be enumerated ends up with a null grade rather
+than an A.
 """
 
 from __future__ import annotations
@@ -29,8 +21,9 @@ from aevrin_api.services.marketplace import scanning
 class _Db:
     """Enough of SupabaseRest for apply_completed_scan's read path."""
 
-    def __init__(self, *, mcp_capabilities: dict[str, bool] | None):
-        self._mcp_capabilities = mcp_capabilities
+    def __init__(self, *, tools: list[str], status: str = "completed"):
+        self._tools = tools
+        self._status = status
         self.updates: list[tuple[str, dict[str, Any]]] = []
         self.inserts: list[tuple[str, Any]] = []
 
@@ -50,17 +43,19 @@ class _Db:
             return [
                 {
                     "id": "scan-1",
-                    "score": 100,
-                    "status": "completed",
+                    "risk_score": 0,
+                    "grade": "A",
+                    "status": self._status,
                     "mcp_detected": True,
-                    "mcp_capabilities": self._mcp_capabilities,
+                    "mcp_tools_declared": self._tools,
+                    "mcp_capabilities": None,
                     "unreliable_stages": [],
                     "completed_at": "2026-01-01T00:00:00Z",
                 }
             ]
         if table == "mcp_listings":
             return [{"id": "listing-1", "slug": "acme-server"}]
-        return []  # "findings": no findings, isolates the capability signal
+        return []  # "findings": none, which isolates the coverage signal
 
     async def insert(self, table: str, rows, **kwargs):
         self.inserts.append((table, rows))
@@ -74,44 +69,41 @@ class _Db:
         return None
 
 
-@pytest.mark.asyncio
-async def test_declared_capabilities_reach_grade_from_scan(monkeypatch):
-    captured: dict[str, Any] = {}
-    real_grade_from_scan = scanning.grade_from_scan
-
-    def spy(*args, **kwargs):
-        captured.update(kwargs)
-        return real_grade_from_scan(*args, **kwargs)
-
-    monkeypatch.setattr(scanning, "grade_from_scan", spy)
-
-    row = await scanning.apply_completed_scan(
-        _Db(mcp_capabilities={"can_execute": True, "can_write": False}), scan_id="scan-1"
-    )
-
-    assert row is not None
-    assert captured["capabilities"] == {"can_execute": True, "can_write": False}
+def _listing_patch(db: _Db) -> dict[str, Any]:
+    return next(patch for table, patch in db.updates if "current_trust_grade" in patch)
 
 
 @pytest.mark.asyncio
-async def test_no_capabilities_reach_grade_from_scan_as_none_not_a_dict(monkeypatch):
-    """A scan where tool discovery never ran (a live server, a pasted
-    config) must pass `capabilities=None` through, not `{}` - the two are
-    different claims to `grade_mcp_server()` since this session's follow-up
-    fix (`can_execute`/`can_write: None` now costs real points, distinctly
-    from a confirmed `False`; `.get()` on `{}` and on `None or {}` both
-    produce `None` for each key either way, but asserting the exact value
-    read off the row is what actually pins this wiring)."""
-    captured: dict[str, Any] = {}
-    real_grade_from_scan = scanning.grade_from_scan
+async def test_a_readable_listing_with_no_findings_is_graded_a():
+    db = _Db(tools=["read_file", "write_file"])
 
-    def spy(*args, **kwargs):
-        captured.update(kwargs)
-        return real_grade_from_scan(*args, **kwargs)
-
-    monkeypatch.setattr(scanning, "grade_from_scan", spy)
-
-    row = await scanning.apply_completed_scan(_Db(mcp_capabilities=None), scan_id="scan-1")
+    row = await scanning.apply_completed_scan(db, scan_id="scan-1")
 
     assert row is not None
-    assert captured["capabilities"] is None
+    assert row["trust_grade"] == "A"
+    assert row["risk_score"] == 0
+    assert _listing_patch(db)["current_trust_grade"] == "A"
+
+
+@pytest.mark.asyncio
+async def test_a_listing_whose_tools_could_not_be_read_gets_no_letter():
+    """Zero findings from a server nobody could enumerate is not an A. This
+    is the failure mode a marketplace makes worst: the badge is the whole
+    product, and a wrong one is worse than none."""
+    db = _Db(tools=[])
+
+    row = await scanning.apply_completed_scan(db, scan_id="scan-1")
+
+    assert row is not None
+    assert row["trust_grade"] is None
+    assert _listing_patch(db)["current_trust_grade"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_incomplete_scan_gets_no_letter_either():
+    db = _Db(tools=["read_file"], status="incomplete")
+
+    row = await scanning.apply_completed_scan(db, scan_id="scan-1")
+
+    assert row is not None
+    assert row["trust_grade"] is None

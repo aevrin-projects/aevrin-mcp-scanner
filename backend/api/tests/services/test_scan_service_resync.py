@@ -14,7 +14,7 @@ from aevrin_api.services.scan import _resync_postprocessed_findings, _SyncRest
 def _finding(**overrides) -> Finding:
     defaults: dict = {
         "scan_id": uuid4(),
-        "tool": ToolName.TRIVY,
+        "tool": ToolName.OSV_SCANNER,
         "owasp_category": OwaspMcpCategory.SUPPLY_CHAIN,
         "severity": Severity.MEDIUM,
         "title": "Vulnerable package",

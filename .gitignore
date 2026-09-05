@@ -51,3 +51,7 @@ blob-report/
 .cloudflare-keys
 .npmjs-key
 .prompts
+
+# One-off operational migration script, not repository tooling. Delete the
+# file once the migration has landed.
+apply-0046.ps1

@@ -1,7 +1,7 @@
 import { GRADE_LABELS, type ScanState, type TrustGrade } from "../model/types";
 
 /**
- * The A/B/C/D letter, and the one component allowed to render it.
+ * The A-F letter, and the one component allowed to render it.
  *
  * It refuses to display a grade without its context. `state` is required, not
  * optional, so there is no way to call this and get a bare confident letter
@@ -14,7 +14,8 @@ const GRADE_STYLES: Record<TrustGrade, string> = {
   A: "bg-severity-low/12 text-severity-low border-severity-low/25",
   B: "bg-chart-1/12 text-chart-1 border-chart-1/25",
   C: "bg-severity-medium/12 text-severity-medium border-severity-medium/25",
-  D: "bg-severity-critical/12 text-severity-critical border-severity-critical/25",
+  D: "bg-severity-high/12 text-severity-high border-severity-high/25",
+  F: "bg-severity-critical/12 text-severity-critical border-severity-critical/25",
 };
 
 // An unscanned or stale grade is drawn in neutral tones whatever the letter
@@ -30,13 +31,15 @@ const STATE_NOTE: Record<ScanState, string> = {
 
 export function GradeBadge({
   grade,
-  score,
+  riskScore,
   state,
   size = "md",
   variant = "full",
 }: {
   grade: TrustGrade | null;
-  score?: number | null;
+  /** 0-100, higher is worse. Labelled "risk" wherever it is shown, because
+   *  the same numeral used to mean the opposite. */
+  riskScore?: number | null;
   state: ScanState;
   size?: "sm" | "md" | "lg";
   /**
@@ -108,9 +111,9 @@ export function GradeBadge({
       <div className="min-w-0">
         <p className="text-sm font-medium">
           {GRADE_LABELS[grade]}
-          {typeof score === "number" ? (
+          {typeof riskScore === "number" ? (
             <span className="ml-1.5 font-normal text-muted-foreground tabular-nums">
-              {score}/100
+              risk {riskScore}/100
             </span>
           ) : null}
         </p>

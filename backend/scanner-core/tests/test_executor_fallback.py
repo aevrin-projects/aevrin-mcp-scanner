@@ -11,7 +11,11 @@ from __future__ import annotations
 
 import pytest
 
-from aevrin_scanner_core.adapters import BanditAdapter, GitleaksAdapter, SemgrepAdapter
+from aevrin_scanner_core.adapters import (
+    McpBehaviorAdapter,
+    OsvScannerAdapter,
+    TruffleHogAdapter,
+)
 from aevrin_scanner_core.execution import runner
 from aevrin_scanner_core.execution.runner import ToolExecutionError, resolve_execution
 
@@ -70,14 +74,14 @@ def test_docker_down_and_nothing_installed_says_how_to_fix_it(monkeypatch):
 
 
 def test_the_fallback_is_decided_per_tool(monkeypatch):
-    """One machine can have bandit and not trivy. Deciding globally meant the
-    installed one was skipped along with the missing one."""
+    """One machine can have semgrep and not osv-scanner. Deciding globally
+    meant the installed one was skipped along with the missing one."""
     _docker(monkeypatch, False)
-    _on_path(monkeypatch, {"bandit"})
+    _on_path(monkeypatch, {"semgrep"})
 
-    assert resolve_execution("bandit", "bandit") == "subprocess"
+    assert resolve_execution("semgrep", "semgrep") == "subprocess"
     with pytest.raises(ToolExecutionError):
-        resolve_execution("trivy", "trivy")
+        resolve_execution("osv-scanner", "osv-scanner")
 
 
 @pytest.mark.parametrize("pinned", ["docker", "subprocess"])
@@ -98,7 +102,11 @@ def test_an_unknown_mode_is_rejected(monkeypatch):
 
 @pytest.mark.parametrize(
     ("adapter", "expected"),
-    [(SemgrepAdapter, "semgrep"), (BanditAdapter, "bandit"), (GitleaksAdapter, "gitleaks")],
+    [
+        (McpBehaviorAdapter, "semgrep"),
+        (OsvScannerAdapter, "osv-scanner"),
+        (TruffleHogAdapter, "trufflehog"),
+    ],
 )
 def test_local_binary_comes_from_the_command_that_would_run(adapter, expected):
     """Derived rather than declared, so a rename of the binary in
@@ -120,7 +128,7 @@ def test_a_refused_container_is_never_read_as_a_clean_run(monkeypatch):
     """The worst outcome this scanner can produce.
 
     `docker run` exits with the status of the command it could not start, and
-    osv-scanner and bandit both list 1 as a normal "found something" code. So
+    osv-scanner lists 1 as a normal "found something" code. So
     a stopped daemon returned exit 1 with empty stdout, which passed the
     exit-code check, and osv-scanner's parser turns empty output into an empty
     result set. The scan reported no dependency vulnerabilities from a scanner

@@ -33,7 +33,10 @@ def _serialize_scan(scan: Scan) -> dict[str, Any]:
         "scan_id": str(scan.id),
         "target_type": scan.target_type.value,
         "target": scan.target,
-        "score": scan.score,
+        # Sent for the server to compare against, not to be trusted: the API
+        # recomputes both from the findings in this same payload.
+        "risk_score": scan.risk_score,
+        "grade": scan.grade,
         "status": scan.status.value,
         "created_at": scan.created_at.isoformat(),
         "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,

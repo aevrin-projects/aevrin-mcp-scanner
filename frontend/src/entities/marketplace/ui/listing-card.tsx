@@ -54,7 +54,7 @@ export function ListingCard({ listing }: { listing: Listing }) {
         {/* Security lives in its own tile, never inline with the metrics. */}
         <GradeBadge
           grade={security.grade}
-          score={security.score}
+          riskScore={security.risk_score}
           state={security.state}
           size="sm"
           variant="tile"

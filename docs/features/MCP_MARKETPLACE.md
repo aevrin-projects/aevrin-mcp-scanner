@@ -49,7 +49,7 @@ displays one in place of the other.
 
 ## User workflow
 
-Browse/search (`/marketplace`), view a listing's grade and sub-scores
+Browse/search (`/marketplace`), view a listing's grade and risk score
 (`/marketplace/[slug]`), save one (`/marketplace/saved`), submit a new one
 for review (`/marketplace/submit`), install via a generated config
 snippet with blank secrets (never a real value). Admins moderate via
@@ -79,7 +79,7 @@ snippet with blank secrets (never a real value). Admins moderate via
   security component - never a neutral default that could be mistaken for
   "checked and fine."
 - **`grading.py`** - delegates entirely to `scanner-core`'s
-  `grade_mcp_server()`. No second rubric exists here. Writes the grade
+  `grade_scan()`. No second rubric exists here. Writes the grade
   onto a specific `mcp_listing_versions` row, and only that function
   writes `mcp_listings.current_*` (the maintained projection - see
   [`../architecture/DATABASE.md`](../architecture/DATABASE.md)). Its

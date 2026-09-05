@@ -379,7 +379,7 @@ export function DashboardPage() {
           <div className="@container h-full">
             <div className="grid h-full divide-border @2xl:grid-cols-[auto_1fr] @2xl:divide-x">
               <div className="flex flex-col items-center justify-center gap-3 border-b border-border px-6 py-5 @2xl:border-b-0">
-                <ScoreGauge score={latest?.score ?? null} />
+                <ScoreGauge riskScore={latest?.risk_score ?? null} />
                 {latest ? (
                   <div className="max-w-[180px] text-center">
                     <p className="truncate text-[13px]">{latest.target.replace(/^https?:\/\//, "")}</p>
@@ -647,7 +647,7 @@ function ScanRow({ summary }: { summary: ScanSummary }) {
           {counts.critical === 0 && counts.high === 0 ? <span>None urgent</span> : null}
         </div>
       </TD>
-      <TD className="text-right text-sm font-medium tabular-nums">{summary.scan.score ?? "-"}</TD>
+      <TD className="text-right text-sm font-medium tabular-nums">{summary.scan.risk_score ?? "-"}</TD>
     </TR>
   );
 }

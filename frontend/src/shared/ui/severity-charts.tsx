@@ -27,24 +27,33 @@ export type SeverityCounts = {
 
 /* ------------------------------------------------------------------ gauge */
 
-/** Score band → color. Matches how the product talks about scores elsewhere:
- *  a score is a risk signal, so the color is a severity color, not the brand
- *  accent. A 40/100 rendered in calm blue would undersell the result. */
-function scoreBand(score: number) {
-  if (score >= 80) return { color: "var(--chart-1)", label: "Low risk" };
-  if (score >= 60) return { color: "var(--severity-medium)", label: "Moderate risk" };
-  if (score >= 40) return { color: "var(--severity-high)", label: "Significant risk" };
+/** Risk band → color. The number counts UP now: 0 is clean and 100 is "do
+ *  not use", the opposite of the score this gauge used to render. Bands match
+ *  the grade boundaries in the backend's mcp/risk.py exactly, so the ring and
+ *  the letter can never disagree. */
+function riskBand(riskScore: number) {
+  if (riskScore <= 9) return { color: "var(--chart-1)", label: "Low risk" };
+  if (riskScore <= 24) return { color: "var(--severity-low)", label: "Minor risk" };
+  if (riskScore <= 49) return { color: "var(--severity-medium)", label: "Moderate risk" };
+  if (riskScore <= 74) return { color: "var(--severity-high)", label: "High risk" };
   return { color: "var(--severity-critical)", label: "Severe risk" };
 }
 
-export function ScoreGauge({ score, size = 132 }: { score: number | null; size?: number }) {
+/** The gauge fills with risk, so an empty ring is a clean result and a full
+ *  one is a dangerous server. `riskScore === null` means the scan could not
+ *  be graded, and renders as an empty ring with "Not graded" - never as a
+ *  reassuring zero. */
+export function ScoreGauge({ riskScore, size = 132 }: { riskScore: number | null; size?: number }) {
   const radius = size / 2 - 9;
   const circumference = 2 * Math.PI * radius;
   // 270° arc, opening at the bottom; a full ring reads as a progress spinner.
   const arcFraction = 0.75;
   const arcLength = circumference * arcFraction;
-  const filled = score == null ? 0 : (Math.max(0, Math.min(100, score)) / 100) * arcLength;
-  const band = score == null ? { color: "var(--muted-foreground)", label: "No scans yet" } : scoreBand(score);
+  const filled = riskScore == null ? 0 : (Math.max(0, Math.min(100, riskScore)) / 100) * arcLength;
+  const band =
+    riskScore == null
+      ? { color: "var(--muted-foreground)", label: "Not graded" }
+      : riskBand(riskScore);
 
   return (
     <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
@@ -94,13 +103,13 @@ export function ScoreGauge({ score, size = 132 }: { score: number | null; size?:
           className="leading-none font-semibold tracking-tight tabular-nums text-foreground"
           style={{ fontSize: `${(32 / 132) * size}px` }}
         >
-          {score ?? "-"}
+          {riskScore ?? "-"}
         </span>
         <span
           className="text-muted-foreground"
           style={{ fontSize: `${(10 / 132) * size}px`, marginTop: `${(4 / 132) * size}px` }}
         >
-          out of 100
+          risk / 100
         </span>
         <span
           className="font-medium"

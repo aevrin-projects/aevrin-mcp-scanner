@@ -35,7 +35,6 @@ from aevrin_api.services.ai.explain import invalidate_for_subject
 from aevrin_api.services.marketplace.grading import (
     grade_from_scan,
     record_version_scan,
-    sub_scores,
 )
 
 logger = logging.getLogger("aevrin.marketplace.scanning")
@@ -327,20 +326,14 @@ async def _apply_scan_to_version(
         not unreliable and str(scan_row.get("status")) == ScanStatus.COMPLETED.value
     )
 
+    # A listing whose tools could not be enumerated gets no letter, exactly
+    # as the pipeline decided. Re-deriving it here from the same inputs keeps
+    # one grader in the product; passing the tool count is what lets this
+    # agree with the scan row rather than guessing at completeness.
     trust = grade_from_scan(
         findings,
-        scan_score=scan_row.get("score"),
         coverage_complete=coverage_complete,
-        # scan.mcp_capabilities (migration 0045): capability_summary() over
-        # this scan's declared tools - can_execute/can_write, from tool
-        # names/descriptions, not observed behavior. None for a scan where
-        # tool discovery never ran (a live server, a pasted config, or a
-        # repository that isn't an MCP server), which grade_mcp_server()
-        # currently treats the same as "confirmed no capability" for these
-        # two factors specifically - see that function's own docstring
-        # caveat on where this differs from how it treats an unknown
-        # `authenticated`.
-        capabilities=scan_row.get("mcp_capabilities"),
+        tools_discovered=len(scan_row.get("mcp_tools_declared") or []),
     )
 
     row = await record_version_scan(
@@ -351,7 +344,6 @@ async def _apply_scan_to_version(
         trust=trust,
         coverage_complete=coverage_complete,
         scan_status=str(scan_row.get("status") or ""),
-        sub=sub_scores(findings),
         source_hash=version.get("source_hash"),
         package_registry=version.get("package_registry"),
         package_identifier=version.get("package_identifier"),
@@ -363,10 +355,11 @@ async def _apply_scan_to_version(
     await db.update("mcp_listings", {"id": listing["id"]}, {"status": "published"})
 
     logger.info(
-        "mcp_scan_completed listing=%s version=%s grade=%s",
+        "mcp_scan_completed listing=%s version=%s grade=%s risk=%s",
         listing.get("slug"),
         version["version"],
-        trust.grade.value,
+        trust.grade.value if trust.grade else "none",
+        trust.risk_score,
     )
     return row
 

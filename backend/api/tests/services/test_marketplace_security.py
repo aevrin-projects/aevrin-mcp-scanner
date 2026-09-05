@@ -21,7 +21,6 @@ from aevrin_api.services.marketplace.grading import (
     grade_from_scan,
     scan_freshness,
     severity_counts,
-    sub_scores,
 )
 from aevrin_api.services.marketplace.ranking import WEIGHTS, compute_ranking
 
@@ -112,53 +111,38 @@ def test_ranking_shows_its_working():
 
 
 def test_grade_comes_from_scanner_core_not_a_second_rubric():
-    findings = [_finding(Severity.CRITICAL, ToolName.SEMGREP, OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF)]
-    trust = grade_from_scan(findings, scan_score=30, coverage_complete=True)
-    # A critical finding is D by override in grade.py, not by arithmetic here.
-    assert trust.grade.value == "D"
-    assert trust.factors
-
-
-def test_incomplete_coverage_cannot_produce_grade_a():
-    trust = grade_from_scan([], scan_score=100, coverage_complete=False)
-    assert trust.grade.value != "A"
-
-
-def test_sub_scores_split_by_what_produced_the_finding():
     findings = [
-        _finding(Severity.HIGH, ToolName.SEMGREP, OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF),
-        _finding(Severity.HIGH, ToolName.TRIVY, OwaspMcpCategory.SUPPLY_CHAIN),
-        _finding(Severity.MEDIUM, ToolName.MCP_SHIELD, OwaspMcpCategory.TOOL_POISONING),
+        _finding(Severity.CRITICAL, ToolName.AEVRIN_MCP_RULES, OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF)
     ]
-    scores = sub_scores(findings)
-    assert scores["code_score"] is not None
-    assert scores["dependency_score"] is not None
-    assert scores["mcp_score"] is not None
+    trust = grade_from_scan(findings, coverage_complete=True, tools_discovered=3)
+    # 25 risk points from one critical lands in C's band (25-49) by the same
+    # arithmetic mcp/risk.py applies everywhere else - there is no
+    # marketplace rubric of its own.
+    assert trust.grade is not None
+    assert trust.grade.value == "C"
+    assert trust.risk_score == 25
 
 
-def test_a_secret_finding_counts_as_mcp_not_code():
-    """A hard-coded token is a token-mismanagement problem. Filing it under
-    "code" would hide it from the breakdown that exists to surface it."""
-    findings = [_finding(Severity.HIGH, ToolName.GITLEAKS, OwaspMcpCategory.TOKEN_MISMANAGEMENT)]
-    scores = sub_scores(findings)
-    assert scores["mcp_score"] is not None
-    assert scores["code_score"] is None
+def test_incomplete_coverage_produces_no_letter_at_all():
+    """Not a worse grade - no grade. A letter is a claim about evidence."""
+    trust = grade_from_scan([], coverage_complete=False, tools_discovered=3)
+    assert trust.grade is None
+    assert trust.incomplete is True
 
 
-def test_an_empty_bucket_scores_none_not_one_hundred():
-    """"We found nothing here" and "there was nothing to find" are different
-    claims, and a confident 100 for a category that never ran is the exact
-    failure this codebase exists to avoid."""
-    scores = sub_scores([_finding(Severity.LOW, ToolName.SEMGREP, OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF)])
-    assert scores["dependency_score"] is None
-    assert scores["mcp_score"] is None
+def test_a_listing_whose_tools_could_not_be_read_is_never_graded_a():
+    """The failure mode this matters most for: an unreadable server produces
+    zero findings, which is indistinguishable from a perfect one."""
+    trust = grade_from_scan([], coverage_complete=True, tools_discovered=0)
+    assert trust.grade is None
+    assert trust.summary.headline == "Scan Incomplete"
 
 
 def test_severity_counts_ignore_placeholders_and_fixtures():
-    real = _finding(Severity.HIGH, ToolName.SEMGREP, OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF)
-    placeholder = _finding(Severity.INFO, ToolName.SEMGREP, OwaspMcpCategory.PROMPT_INJECTION)
+    real = _finding(Severity.HIGH, ToolName.AEVRIN_MCP_RULES, OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF)
+    placeholder = _finding(Severity.INFO, ToolName.AEVRIN_MCP_RULES, OwaspMcpCategory.PROMPT_INJECTION)
     placeholder.not_tested = True
-    fixture = _finding(Severity.CRITICAL, ToolName.SEMGREP, OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF)
+    fixture = _finding(Severity.CRITICAL, ToolName.AEVRIN_MCP_RULES, OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF)
     fixture.excluded_path = True
 
     counts = severity_counts([real, placeholder, fixture])
@@ -226,7 +210,7 @@ def test_an_admin_cannot_edit_anything_security_bearing():
     server look safe by typing."""
     forbidden = {
         "current_trust_grade",
-        "current_security_score",
+        "current_risk_score",
         "current_coverage_complete",
         "current_version",
         "current_scanned_at",

@@ -1,8 +1,8 @@
 """Regression coverage: /cli/upload must never trust the client-submitted
-score; it's recomputed server-side from the submitted findings using the
-same shared compute_score the CLI itself used, closing the cheapest
-tampering vector (a hand-crafted upload claiming a better score than its
-own findings justify)."""
+risk score or grade. Both are recomputed server-side from the submitted
+findings using the same shared `grade_scan` the CLI itself used, closing the
+cheapest tampering vector - a hand-crafted upload claiming a better letter
+than its own findings justify."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from aevrin_scanner_core import compute_score
+from aevrin_scanner_core import grade_scan
 from fastapi import BackgroundTasks, HTTPException
 
 from aevrin_api.controllers import cli_controller as cli
@@ -24,7 +24,7 @@ from aevrin_api.schemas import CliUploadFinding, CliUploadRequest, CliUploadStag
 def _finding(severity: str) -> CliUploadFinding:
     return CliUploadFinding(
         id=uuid4(),
-        tool="bandit",
+        tool="aevrin-mcp-rules",
         owasp_category="MCP05",
         severity=severity,
         title="Example finding",
@@ -33,29 +33,45 @@ def _finding(severity: str) -> CliUploadFinding:
     )
 
 
-def test_recomputed_score_ignores_a_falsely_low_client_score():
-    scan_id = uuid4()
-    findings = [_finding("info")]  # info findings never affect score
-    recomputed = compute_score([_to_core_finding(f, scan_id) for f in findings])
-    claimed_by_client = 0  # a malicious/broken client claiming "critical, do not use"
-    assert recomputed == 100
-    assert recomputed != claimed_by_client
+def _regrade(findings, scan_id, tools_declared: int = 3):
+    return grade_scan(
+        [_to_core_finding(f, scan_id) for f in findings],
+        coverage_complete=True,
+        tools_discovered=tools_declared,
+    )
 
 
-def test_recomputed_score_ignores_a_falsely_high_client_score():
+def test_recomputed_risk_ignores_a_falsely_high_client_score():
+    """A client claiming "critical, do not use" for a scan that found only
+    informational notes."""
     scan_id = uuid4()
-    findings = [_finding("critical")]
-    recomputed = compute_score([_to_core_finding(f, scan_id) for f in findings])
-    claimed_by_client = 100  # a malicious client hiding a real critical finding's impact
-    assert recomputed < 100
-    assert recomputed != claimed_by_client
+    result = _regrade([_finding("info")], scan_id)
+    assert result.risk_score == 0
+    assert result.grade is not None and result.grade.value == "A"
+
+
+def test_recomputed_risk_ignores_a_falsely_low_client_score():
+    """The dangerous direction: a client hiding a real critical finding."""
+    scan_id = uuid4()
+    result = _regrade([_finding("critical")], scan_id)
+    assert result.risk_score > 0
+    assert result.grade is not None and result.grade.value != "A"
+
+
+def test_a_client_cannot_claim_a_grade_for_a_scan_with_no_tools():
+    """A modified CLI reporting an A for a target whose tools it never
+    enumerated. The letter is withheld regardless of what was submitted."""
+    scan_id = uuid4()
+    result = _regrade([_finding("info")], scan_id, tools_declared=0)
+    assert result.grade is None
+    assert result.incomplete is True
 
 
 def test_to_core_finding_round_trips_location_fields():
     scan_id = uuid4()
     f = CliUploadFinding(
         id=uuid4(),
-        tool="semgrep",
+        tool="aevrin-mcp-behavior",
         owasp_category="MCP01",
         severity="high",
         title="t",
@@ -137,7 +153,8 @@ def test_cli_upload_is_idempotent_and_preserves_full_dashboard_record(monkeypatc
         scan_id=scan_id,
         target_type="local_path",
         target="/workspace/example-server",
-        score=60,
+        risk_score=60,
+        grade="D",
         status="completed",
         created_at=started,
         completed_at=completed,
@@ -150,7 +167,7 @@ def test_cli_upload_is_idempotent_and_preserves_full_dashboard_record(monkeypatc
                           "handles_credentials": False, "makes_network_calls": False},
         stages=[
             CliUploadStage(
-                name="static_analysis",
+                name="mcp_rules",
                 status="done",
                 started_at=started,
                 finished_at=completed,
@@ -220,7 +237,8 @@ def test_cli_upload_cannot_overwrite_an_unrelated_scan(
         scan_id=scan_id,
         target_type="local_path",
         target="/workspace/example-server",
-        score=100,
+        risk_score=0,
+        grade="A",
         status="completed",
         findings=[],
     )

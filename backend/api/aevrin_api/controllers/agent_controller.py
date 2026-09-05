@@ -17,7 +17,6 @@ from uuid import UUID
 
 from aevrin_scanner_core import Finding
 from aevrin_scanner_core.agents.attack_paths import find_attack_paths
-from aevrin_scanner_core.agents.grade import grade_mcp_server
 from aevrin_scanner_core.agents.identity import mcp_identity
 from aevrin_scanner_core.agents.models import (
     ConfigScope,
@@ -25,6 +24,7 @@ from aevrin_scanner_core.agents.models import (
     McpServerRef,
 )
 from aevrin_scanner_core.agents.posture import assess_posture
+from aevrin_scanner_core.mcp.risk import GRADE_LABELS, GRADE_POLICIES, Grade, grade_scan
 from fastapi import HTTPException, status
 
 from aevrin_api.config import Settings
@@ -36,12 +36,12 @@ from aevrin_api.schemas.agents import (
     AgentSummaryOut,
     AttackPathOut,
     AttackStepOut,
-    GradeFactorOut,
     McpAssetOut,
     McpInstallationOut,
     McpTrustOut,
     PermissionOut,
     PostureFactorOut,
+    RiskSummaryOut,
     SkillOut,
 )
 from aevrin_api.services.quota import (
@@ -180,8 +180,13 @@ async def _grades_for_agents(
         servers[row["id"]] = [(s.name, mcp_identity(s).key) for s in agent.mcp_servers]
 
     trust = await _trust_by_identity({key for pairs in servers.values() for _, key in pairs}, user_id, db)
+    # An ungraded server (`grade is None`, coverage incomplete) is dropped
+    # rather than passed through as a letter-shaped null: posture scoring
+    # reads these as grades, and "we could not grade it" is not a grade. The
+    # agent's own coverage signal already accounts for what was not read.
+    graded = {key: entry.grade for key, entry in trust.items() if entry.grade is not None}
     return {
-        row_id: {name: trust[key].grade for name, key in pairs if key in trust}
+        row_id: {name: graded[key] for name, key in pairs if key in graded}
         for row_id, pairs in servers.items()
     }
 
@@ -257,32 +262,35 @@ async def _trust_by_identity(
 
     trust: dict[str, McpTrustOut] = {}
     for key, scan in latest.items():
-        capabilities = scan.get("mcp_capabilities") or {}
-        result = grade_mcp_server(
-            findings=findings_by_scan.get(scan["id"], []),
-            scan_score=scan["score"],
-            # A scan that did not finish cannot support the top of the scale,
-            # the same rule the CLI applies to the same grade.
+        # The grade is read back from the scan that produced it rather than
+        # recomputed here. There is one grader (`mcp.risk.grade_scan`, run by
+        # the pipeline), and a second call site re-deriving a letter from a
+        # subset of the same inputs is exactly how two surfaces end up
+        # disagreeing about the same server.
+        stored_grade = scan.get("grade")
+        grade = Grade(stored_grade) if stored_grade else None
+        findings = findings_by_scan.get(scan["id"], [])
+        summary = grade_scan(
+            findings,
             coverage_complete=scan["status"] != "incomplete",
-            transport=scan["target"],
-            # scan.mcp_capabilities for a live_mcp_server scan comes from
-            # analysis/remote_mcp.py's own list_tools() handshake - the same
-            # one that already produced the rug-pull signature hash for
-            # this target - not from discover_tools() (there is no source
-            # to read here). None when that handshake itself failed, which
-            # correctly costs UNKNOWN_CAPABILITY_WEIGHT rather than reading
-            # as a confirmed-clean server.
-            can_execute=capabilities.get("can_execute"),
-            can_write=capabilities.get("can_write"),
-        )
+            tools_discovered=len(scan.get("mcp_tools_declared") or []),
+        ).summary
         trust[key] = McpTrustOut(
             scan_id=UUID(scan["id"]),
             scanned_at=scan["created_at"],
-            scan_score=result.scan_score,
-            grade=result.grade.value,
-            label=result.label,
-            recommended_action=result.recommended_action,
-            factors=[GradeFactorOut(points=f.points, reason=f.reason) for f in result.factors],
+            risk_score=scan.get("risk_score"),
+            grade=stored_grade,
+            label="Not graded" if grade is None else GRADE_LABELS[grade],
+            recommended_action=(
+                GRADE_POLICIES[grade].value if grade else "REQUIRE_APPROVAL"
+            ),
+            summary=RiskSummaryOut(
+                headline=summary.headline,
+                explanation=summary.explanation,
+                potential_impact=summary.potential_impact,
+                recommended_action=summary.recommended_action,
+                suggested_policy=summary.suggested_policy.value,
+            ),
         )
     return trust
 

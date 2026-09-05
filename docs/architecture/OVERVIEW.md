@@ -55,7 +55,8 @@ fallback. See [`DEPLOYMENT.md`](DEPLOYMENT.md).
 - The `Scan` / `Finding` / `ScanStage` Pydantic models (single source of
   truth for what a finding *is*, everywhere).
 - The scanner adapters and the pipeline orchestrator.
-- OWASP MCP Top 10 classification, scoring, and `grade_mcp_server()`.
+- The MCP rule engine (AS-001..AS-019 plus Aevrin's AV rules), OWASP MCP
+  Top 10 classification, and the one risk/grade model (`grade_scan()`).
 - MCP-server detection and agent-posture scoring.
 
 Nothing above `scanner-core` re-implements any of this. A finding rendered

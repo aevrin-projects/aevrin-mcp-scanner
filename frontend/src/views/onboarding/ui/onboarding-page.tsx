@@ -50,9 +50,9 @@ const PATHS: {
     id: "repository",
     icon: GitBranch,
     title: "Scan a repository",
-    tagline: "Broadest coverage: source, dependencies, and secrets together.",
+    tagline: "Broadest coverage: tool rules, behavior, credentials, and supply chain together.",
     features: [
-      { icon: ScanSearch, label: "Static analysis and secret detection" },
+      { icon: ScanSearch, label: "MCP tool rules and committed-credential detection" },
       { icon: ShieldCheck, label: "Dependency CVEs with EPSS and CISA KEV" },
       { icon: RefreshCcw, label: "Re-scan to verify a fix actually landed" },
     ],

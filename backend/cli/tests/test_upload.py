@@ -26,7 +26,7 @@ def test_cli_upload_contract_preserves_dashboard_fields() -> None:
     scan_id = uuid4()
     finding = Finding(
         scan_id=scan_id,
-        tool=ToolName.SEMGREP,
+        tool=ToolName.AEVRIN_MCP_BEHAVIOR,
         owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
         severity=Severity.HIGH,
         title="Unsafe command construction",
@@ -38,7 +38,7 @@ def test_cli_upload_contract_preserves_dashboard_fields() -> None:
     )
     stage = ScanStage(
         scan_id=scan_id,
-        name=StageName.STATIC_ANALYSIS,
+        name=StageName.MCP_RULES,
         status=StageStatus.DONE,
         started_at=started,
         finished_at=completed,
@@ -48,7 +48,8 @@ def test_cli_upload_contract_preserves_dashboard_fields() -> None:
         target_type=TargetType.LOCAL_PATH,
         target="/workspace/example-server",
         status=ScanStatus.COMPLETED,
-        score=80,
+        risk_score=35,
+        grade="C",
         mcp_detected=True,
         mcp_detection_confidence="high",
         mcp_detection_evidence=["sdk_dependency: depends on fastmcp"],

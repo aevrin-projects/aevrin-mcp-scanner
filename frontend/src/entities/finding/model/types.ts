@@ -5,6 +5,21 @@ export interface Finding {
   id: string;
   scan_id: string;
   tool: string;
+  /** The rule that produced this, e.g. "AS-006". The rule catalogue is the
+   *  only place that says what an id means, so a finding carries the id and
+   *  its evidence and the prose is looked up. Null for a finding whose
+   *  producing tool has no rule identity of its own. */
+  rule_id: string | null;
+  /** "Why this matters", from the rule catalogue. Null for a finding whose
+   *  rule id this build does not know - never generic filler. */
+  impact: string | null;
+  /** The specific facts that made the rule fire: matched text, a capability,
+   *  an input property, a package version. A finding with no evidence is an
+   *  assertion, and this product does not ship assertions. */
+  evidence: string[];
+  /** Every declared MCP tool this finding applies to. More than one once
+   *  identical rule verdicts have been folded into a single card. */
+  affected_tools: string[];
   owasp_category: string;
   severity: Severity;
   title: string;

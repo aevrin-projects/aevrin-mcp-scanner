@@ -59,9 +59,20 @@ class AgentDetailOut(AgentSummaryOut):
     snapshot: DiscoveredAgent
 
 
-class GradeFactorOut(BaseModel):
-    points: int
-    reason: str
+class RiskSummaryOut(BaseModel):
+    """The five things a reader needs, in the order they need them.
+
+    Replaces the old list of weighted grade factors. Points and reasons told
+    a reader how the arithmetic worked; they never told them what to do about
+    it, which is the only question anyone actually has in front of an install
+    prompt.
+    """
+
+    headline: str
+    explanation: str
+    potential_impact: str
+    recommended_action: str
+    suggested_policy: str
 
 
 class McpTrustOut(BaseModel):
@@ -74,11 +85,16 @@ class McpTrustOut(BaseModel):
 
     scan_id: UUID
     scanned_at: datetime
-    scan_score: int | None
-    grade: str
+    # 0-100, higher is worse. None only when the scan never reached scoring.
+    risk_score: int | None
+    # "A".."F", or None when coverage was incomplete. Null is a real state,
+    # not a missing value: a scan that could not read a server's tools has no
+    # evidence to make a claim from, and the UI must render that as its own
+    # thing rather than as an absent field.
+    grade: str | None
     label: str
     recommended_action: str
-    factors: list[GradeFactorOut]
+    summary: RiskSummaryOut | None = None
 
 
 class McpInstallationOut(BaseModel):

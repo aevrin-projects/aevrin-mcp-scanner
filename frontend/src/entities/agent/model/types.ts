@@ -139,23 +139,29 @@ export interface AgentDetail extends AgentSummary {
   snapshot: AgentSnapshot;
 }
 
-export type TrustGrade = "A" | "B" | "C" | "D";
+export type TrustGrade = "A" | "B" | "C" | "D" | "F";
 
-export interface GradeFactor {
-  points: number;
-  reason: string;
+/** What the report answers, in the order a reader needs it. */
+export interface RiskSummary {
+  headline: string;
+  explanation: string;
+  potential_impact: string;
+  recommended_action: string;
+  suggested_policy: string;
 }
 
 /** Present only when a scan of this exact target actually ran. A grade is a
- *  claim about evidence, so there is no value here meaning "probably fine". */
+ *  claim about evidence, so there is no value here meaning "probably fine".
+ *  `grade` is additionally null when that scan could not be graded at all -
+ *  a different state again, and one the UI must render rather than hide. */
 export interface McpTrust {
   scan_id: string;
   scanned_at: string;
-  scan_score: number | null;
-  grade: TrustGrade;
+  risk_score: number | null;
+  grade: TrustGrade | null;
   label: string;
   recommended_action: string;
-  factors: GradeFactor[];
+  summary: RiskSummary | null;
 }
 
 /** One place a server is configured: one agent, on one device, at one scope. */

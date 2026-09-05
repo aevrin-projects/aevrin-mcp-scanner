@@ -119,6 +119,7 @@ class McpBehaviorAdapter(ScannerAdapter):
                 Finding(
                     scan_id=scan_id,
                     tool=self.tool,
+                    rule_id="AV-004",
                     owasp_category=owasp_category,
                     severity=severity,
                     title=f"MCP tool input reaches {label}",
@@ -133,6 +134,13 @@ class McpBehaviorAdapter(ScannerAdapter):
                         "purpose. If it does, document that scope explicitly; if it doesn't, "
                         "remove the capability rather than leaving it reachable from tool input."
                     ),
+                    evidence=[
+                        f"rule: {check_id}",
+                        f"sink: {label}",
+                        "location: "
+                        + f"{relative_to_mount(result.get('path'))}:"
+                        + f"{result.get('start', {}).get('line')}",
+                    ],
                     capability=capability,
                     raw=result,
                 )

@@ -12,28 +12,28 @@ from aevrin_scanner_core.models import Finding, Location, Severity, ToolName
 _EPSS_URL = "https://api.first.org/data/v1/epss"
 
 
-def _trivy_finding(cve: str, severity: Severity = Severity.HIGH) -> Finding:
+def _osv_finding(cve: str, severity: Severity = Severity.HIGH) -> Finding:
     return Finding(
         scan_id=uuid4(),
-        tool=ToolName.TRIVY,
+        tool=ToolName.OSV_SCANNER,
         owasp_category=OwaspMcpCategory.SUPPLY_CHAIN,
         severity=severity,
         title=f"{cve} in lodash",
         description="vuln",
         location=Location(file_path="package-lock.json"),
         remediation="upgrade",
-        raw={"VulnerabilityID": cve},
+        raw={"id": cve, "aliases": []},
     )
 
 
-def test_finding_cve_id_reads_trivy_vulnerability_id():
-    assert finding_cve_id(_trivy_finding("CVE-2024-1234")) == "CVE-2024-1234"
+def test_finding_cve_id_reads_the_osv_vulnerability_id():
+    assert finding_cve_id(_osv_finding("CVE-2024-1234")) == "CVE-2024-1234"
 
 
 def test_finding_cve_id_ignores_non_cve_tools():
     finding = Finding(
         scan_id=uuid4(),
-        tool=ToolName.SEMGREP,
+        tool=ToolName.AEVRIN_MCP_BEHAVIOR,
         owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
         severity=Severity.MEDIUM,
         title="t",
@@ -85,7 +85,7 @@ def test_apply_epss_stores_score_and_downweights_low_prediction():
     respx.get(_EPSS_URL).mock(
         return_value=httpx.Response(200, json={"data": [{"cve": "CVE-2024-1234", "epss": "0.001"}]})
     )
-    finding = _trivy_finding("CVE-2024-1234", severity=Severity.HIGH)
+    finding = _osv_finding("CVE-2024-1234", severity=Severity.HIGH)
     apply_epss([finding])
     assert finding.epss_score == 0.001
     assert finding.severity == Severity.MEDIUM
@@ -97,7 +97,7 @@ def test_apply_epss_never_upweights_high_prediction():
     respx.get(_EPSS_URL).mock(
         return_value=httpx.Response(200, json={"data": [{"cve": "CVE-2024-1234", "epss": "0.9"}]})
     )
-    finding = _trivy_finding("CVE-2024-1234", severity=Severity.HIGH)
+    finding = _osv_finding("CVE-2024-1234", severity=Severity.HIGH)
     apply_epss([finding])
     assert finding.epss_score == 0.9
     assert finding.severity == Severity.HIGH  # unchanged, EPSS never sharpens severity
@@ -107,7 +107,7 @@ def test_apply_epss_never_upweights_high_prediction():
 @respx.mock
 def test_apply_epss_leaves_finding_unset_when_fetch_fails():
     respx.get(_EPSS_URL).mock(side_effect=httpx.TimeoutException("timed out"))
-    finding = _trivy_finding("CVE-2024-1234", severity=Severity.HIGH)
+    finding = _osv_finding("CVE-2024-1234", severity=Severity.HIGH)
     apply_epss([finding])  # must not raise
     assert finding.epss_score is None
     assert finding.severity == Severity.HIGH

@@ -76,29 +76,14 @@ function buildReasons(listing: ListingDetail, version: ListingVersion | null): s
       }.`,
     );
 
-    // Lowest sub-score first: that is the one that decided the letter, and it
-    // is what a reader should go and look at.
-    const parts = [
-      { label: "code security", value: version.codeScore },
-      { label: "MCP surface", value: version.mcpScore },
-      { label: "dependencies", value: version.dependencyScore },
-    ].filter((p): p is { label: string; value: number } => p.value !== null);
-
-    if (parts.length > 0) {
-      const weakest = parts.reduce((a, b) => (a.value <= b.value ? a : b));
+    // The three sub-scores that used to be summarised here are gone with the
+    // code-security product they described. The finding list is the better
+    // answer: every finding now carries a rule id and its own evidence, so
+    // "which part carried the letter" is readable from the findings
+    // themselves rather than from three opaque numbers.
+    if (version.riskScore !== null) {
       reasons.push(
-        `The weakest area is ${weakest.label}, at ${weakest.value}/100. That is the part carrying the overall letter.`,
-      );
-    }
-
-    const unassessed = [
-      { label: "Code security", value: version.codeScore },
-      { label: "MCP surface", value: version.mcpScore },
-      { label: "Dependencies", value: version.dependencyScore },
-    ].filter((p) => p.value === null);
-    if (unassessed.length > 0) {
-      reasons.push(
-        `${unassessed.map((p) => p.label).join(", ")} produced no findings in this scan. That is not the same as being clean if coverage was incomplete.`,
+        `Its risk score was ${version.riskScore} out of 100, where 0 is clean and 100 is "do not use".`,
       );
     }
   }

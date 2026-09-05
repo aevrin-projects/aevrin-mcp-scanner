@@ -258,7 +258,8 @@ async def _scan_evidence(
         },
         context={
             "target_type": scan.get("target_type"),
-            "score": scan.get("score"),
+            "risk_score": scan.get("risk_score"),
+            "grade": scan.get("grade"),
             "mcp_detected": scan.get("mcp_detected"),
         },
     )
@@ -278,7 +279,7 @@ async def _listing_evidence(
         "mcp_listings",
         {"id": listing_id, "visibility": "eq.public", "status": "eq.published"},
         columns="id,slug,title,current_version,latest_version,current_trust_grade,"
-        "current_security_score,current_coverage_complete,install_targets,installation,license",
+        "current_risk_score,current_coverage_complete,install_targets,installation,license",
         limit=1,
     )
     if not rows:
@@ -288,7 +289,7 @@ async def _listing_evidence(
     version_rows = await db.select(
         "mcp_listing_versions",
         {"listing_id": listing_id, "version": f"eq.{listing.get('current_version')}"},
-        columns="scan_id,code_score,mcp_score,dependency_score,trust_grade,security_score",
+        columns="scan_id,trust_grade,risk_score",
         limit=1,
     )
     findings: list[dict[str, Any]] = []
@@ -297,15 +298,13 @@ async def _listing_evidence(
             "findings", {"scan_id": str(version_rows[0]["scan_id"])}, limit=100
         )
 
-    sub = version_rows[0] if version_rows else {}
     return evidence.build_evidence(
         subject_type=subject_type,
         subject_id=listing_id,
         findings=findings,
         trust_grade={
             "grade": listing.get("current_trust_grade"),
-            "scan_score": listing.get("current_security_score"),
-            "factors": [],
+            "risk_score": listing.get("current_risk_score"),
         },
         coverage={
             "complete": listing.get("current_coverage_complete"),
@@ -316,8 +315,5 @@ async def _listing_evidence(
             "scanned_version": listing.get("current_version"),
             "latest_version": listing.get("latest_version"),
             "license": listing.get("license"),
-            "code_score": sub.get("code_score"),
-            "mcp_score": sub.get("mcp_score"),
-            "dependency_score": sub.get("dependency_score"),
         },
     )

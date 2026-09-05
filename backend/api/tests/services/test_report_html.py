@@ -28,8 +28,10 @@ def scan(**over: Any) -> dict[str, Any]:
         "target_type": "github_repo",
         "source": "cli",
         "status": "completed",
-        "score": 92,
+        "risk_score": 8,
+        "grade": "A",
         "mcp_detected": True,
+        "mcp_tools_declared": ["read_file", "write_file"],
         "unreliable_stages": [],
         "created_at": (NOW - timedelta(minutes=1)).isoformat(),
         "completed_at": NOW.isoformat(),
@@ -43,7 +45,7 @@ def finding(**over: Any) -> dict[str, Any]:
         "severity": "high",
         "title": "Command built from unvalidated input",
         "description": "A tool argument reaches a shell.",
-        "tool": "semgrep",
+        "tool": "aevrin-mcp-behavior",
         "owasp_category": "MCP05",
         "file_path": "src/run.ts",
         "line_start": 12,
@@ -61,11 +63,11 @@ def finding(**over: Any) -> dict[str, Any]:
 
 STAGES = [
     {"name": "cloning", "status": "done", "error": None},
-    {"name": "static_analysis", "status": "done", "error": None},
+    {"name": "discovery", "status": "done", "error": None},
+    {"name": "mcp_rules", "status": "done", "error": None},
+    {"name": "mcp_behavior", "status": "done", "error": None},
     {"name": "secrets", "status": "done", "error": None},
     {"name": "dependencies", "status": "done", "error": None},
-    {"name": "mcp_analysis", "status": "done", "error": None},
-    {"name": "tool_description_check", "status": "done", "error": None},
     {"name": "aggregating", "status": "done", "error": None},
 ]
 
@@ -125,12 +127,28 @@ def test_the_title_is_usable_as_a_filename():
 
 def test_the_report_states_a_conclusion_not_only_a_score():
     """A number with nothing beside it is the part of a security report
-    people misread most."""
-    critical = render_report_html(scan(score=20), [finding(severity="critical")], STAGES)
-    assert "Critical issues need attention before use" in text_of(critical)
+    people misread most. The conclusion comes from the one grader, so the
+    report and the dashboard can never disagree about the same scan."""
+    critical = render_report_html(
+        scan(risk_score=75, grade="F"), [finding(severity="critical") for _ in range(3)], STAGES
+    )
+    critical_text = text_of(critical)
+    assert "Block In Production" in critical_text
+    # And it says what to do, not only what is wrong.
+    assert "Recommended action:" in critical_text
+    assert "Suggested policy:" in critical_text
 
-    clean = render_report_html(scan(score=98), [], STAGES)
-    assert "No significant issues in the checks that ran" in text_of(clean)
+    clean = render_report_html(scan(), [], STAGES)
+    assert "Safe With Normal Controls" in text_of(clean)
+
+
+def test_a_scan_with_no_readable_tools_is_never_reported_as_clean():
+    """Zero findings from a server whose tools could not be enumerated has no
+    grade, and the report has to say so rather than printing an A."""
+    html = render_report_html(scan(grade=None, mcp_tools_declared=[]), [], STAGES)
+    text = text_of(html)
+    assert "Scan Incomplete" in text
+    assert "No tool definitions were found" in text
 
 
 def test_an_incomplete_scan_never_reads_as_a_clean_one():

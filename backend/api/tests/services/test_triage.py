@@ -17,7 +17,7 @@ _COMPLETIONS = f"{BASE_URL}/chat/completions"
 def _finding(severity: Severity, **overrides) -> Finding:
     defaults: dict = {
         "scan_id": uuid4(),
-        "tool": ToolName.SEMGREP,
+        "tool": ToolName.AEVRIN_MCP_BEHAVIOR,
         "owasp_category": OwaspMcpCategory.TOKEN_MISMANAGEMENT,
         "severity": severity,
         "title": "Hardcoded secret",

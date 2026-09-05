@@ -7,12 +7,29 @@ export type ScanStatus = "queued" | "running" | "completed" | "failed" | "incomp
 export type StageStatus = "pending" | "running" | "done" | "failed" | "skipped";
 export type StageName =
   | "cloning"
-  | "static_analysis"
+  | "discovery"
+  | "mcp_rules"
+  | "mcp_behavior"
   | "secrets"
   | "dependencies"
-  | "mcp_analysis"
-  | "tool_description_check"
   | "aggregating";
+
+/** A-F, or null when coverage was incomplete. Null is a state to render, not
+ *  a missing value: a scan that could not read a server's tools has no
+ *  evidence to make a claim from, and showing nothing there would read as a
+ *  loading state rather than as "we could not tell". */
+export type Grade = "A" | "B" | "C" | "D" | "F";
+
+/** What the report answers, in the order a reader needs it. Computed by the
+ *  backend's single grader so the dashboard, the CLI and the exported report
+ *  never disagree about the same scan. */
+export interface RiskSummary {
+  headline: string;
+  explanation: string;
+  potential_impact: string;
+  recommended_action: string;
+  suggested_policy: string;
+}
 
 export interface Scan {
   id: string;
@@ -20,12 +37,19 @@ export interface Scan {
   target: string;
   status: ScanStatus;
   source: ScanSource;
-  score: number | null;
+  /** 0-100, higher is worse. The inverse of the old `score`, which counted
+   *  down from 100 - see the backend's mcp/risk.py. */
+  risk_score: number | null;
+  grade: Grade | null;
   error: string | null;
   mcp_detected: boolean | null;
   unreliable_stages: StageName[];
   /** Set when AI review covered only part of the findings (per-scan cap). */
   triage_note: string | null;
+  /** Derived server-side from this scan's own findings. Present only on the
+   *  single-scan response; a list response has no findings loaded to derive
+   *  it from. */
+  risk_summary: RiskSummary | null;
   created_at: string;
   completed_at: string | null;
 }

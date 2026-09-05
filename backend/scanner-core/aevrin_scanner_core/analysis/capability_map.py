@@ -1,6 +1,6 @@
 """Attributing a behavior finding's sink to the specific tool it belongs to.
 
-`analysis.mcp_detection.DiscoveredTool.line_start`/`line_end` is a
+`mcp.tools.McpTool.line_start`/`line_end` is a
 *declaration* span - for Python, the decorator through the end of the
 docstring - deliberately not a function-body range (see that field's own
 docstring on why claiming one would have been dishonest given a regex is
@@ -14,7 +14,7 @@ tool's actual dangerous sink lives in the function body, which starts
         result = subprocess.run(command, shell=True)  line 5 <- the sink
         return result.stdout.decode()                 line 6
 
-`DiscoveredTool`'s span here is lines 2-4. The sink is on line 5, outside
+`McpTool`'s span here is lines 2-4. The sink is on line 5, outside
 it. Confirmed empirically before writing a line of this module: regex-based
 declaration spans and function-body ranges are two different things, and
 conflating them would have silently misattributed (or failed to attribute)
@@ -38,8 +38,8 @@ from __future__ import annotations
 
 import ast
 
+from ..mcp.tools import McpTool
 from ..models import Finding
-from .mcp_detection import DiscoveredTool
 
 
 def python_function_ranges(content: str) -> dict[str, tuple[int, int]]:
@@ -49,7 +49,7 @@ def python_function_ranges(content: str) -> dict[str, tuple[int, int]]:
     ranges can't be established, not one with none, so a caller must treat
     an empty result as "unknown", never as "no functions".
 
-    Keyed by name, not by the decorator's line number: `DiscoveredTool`
+    Keyed by name, not by the decorator's line number: `McpTool`
     already resolves and dedupes tools by name (see discover_tools), and a
     name is exactly what both sides of this join already agree on.
 
@@ -79,7 +79,7 @@ def python_function_ranges(content: str) -> dict[str, tuple[int, int]]:
 
 
 def attribute_findings_to_tools(
-    tools: list[DiscoveredTool], findings: list[Finding], sources: dict[str, str]
+    tools: list[McpTool], findings: list[Finding], sources: dict[str, str]
 ) -> None:
     """Sets `Finding.mcp_tool` in place wherever a finding's location falls
     inside a known tool's real function body, in the same file.
@@ -101,9 +101,11 @@ def attribute_findings_to_tools(
             ranges_by_path[path] = python_function_ranges(content) if content is not None else {}
         return ranges_by_path[path]
 
-    tools_by_path: dict[str, list[DiscoveredTool]] = {}
+    tools_by_path: dict[str, list[McpTool]] = {}
     for tool in tools:
-        tools_by_path.setdefault(tool.file_path, []).append(tool)
+        # A live-handshake tool has no file to attribute a source finding to.
+        if tool.file_path:
+            tools_by_path.setdefault(tool.file_path, []).append(tool)
 
     for finding in findings:
         path = finding.location.file_path

@@ -290,8 +290,10 @@ def scan_row(
     target: str,
     *,
     status: str = "completed",
-    score: int = 100,
+    risk_score: int = 0,
+    grade: str | None = "A",
     mcp_capabilities: dict[str, bool] | None = None,
+    mcp_tools_declared: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "id": scan_id,
@@ -299,8 +301,10 @@ def scan_row(
         "target": target,
         "target_type": "live_mcp_server",
         "status": status,
-        "score": score,
+        "risk_score": risk_score,
+        "grade": grade,
         "mcp_capabilities": mcp_capabilities,
+        "mcp_tools_declared": mcp_tools_declared or ["run_command"],
         "created_at": datetime.now(UTC).isoformat(),
     }
 
@@ -310,7 +314,7 @@ def finding_row(scan_id: str, severity: str) -> dict[str, Any]:
         "id": str(uuid4()),
         "scan_id": scan_id,
         "user_id": USER,
-        "tool": "semgrep",
+        "tool": "aevrin-mcp-behavior",
         "owasp_category": "MCP01",
         "severity": severity,
         "title": "Example",
@@ -330,40 +334,42 @@ def test_a_stdio_server_is_reported_unscanned_rather_than_assumed_clean():
 
 
 def test_a_scanned_http_server_carries_the_grade_from_its_own_scan():
+    """The letter is read back off the scan that produced it, not recomputed
+    here from a subset of the same inputs - one grader in the product."""
     scan_id = str(uuid4())
     db = FakeDb(
         [row(http_server_snapshot())],
-        scans=[scan_row(scan_id, "https://mcp.context7.com/mcp", score=72)],
+        scans=[scan_row(scan_id, "https://mcp.context7.com/mcp", risk_score=23, grade="B")],
         findings=[finding_row(scan_id, "high"), finding_row(scan_id, "medium")],
     )
     trust = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0].trust
     assert trust is not None
     assert str(trust.scan_id) == scan_id
-    assert trust.scan_score == 72
-    assert trust.grade in {"B", "C", "D"}
-    # The letter arrives with the factors that produced it, or it is an
+    assert trust.risk_score == 23
+    assert trust.grade == "B"
+    # The letter arrives with something the reader can act on, or it is an
     # opinion with better typography.
-    assert any("high-severity" in factor.reason for factor in trust.factors)
+    assert trust.summary is not None
+    assert trust.summary.recommended_action
 
 
-def test_live_capability_data_reaches_the_agent_posture_grade():
+def test_a_live_servers_capabilities_are_carried_on_its_scan(): 
     """scan.mcp_capabilities for a live_mcp_server scan comes from
-    remote_mcp.py's own handshake, not discover_tools() - before this was
-    wired up, _trust_by_identity never read the column at all, so a live
-    server's real, established capability evidence never reached its own
-    grade here (ADR-022)."""
+    remote_mcp.py's own handshake. The grade itself is the scan's, so what
+    this pins is that the row is read rather than the column being dropped."""
     scan_id = str(uuid4())
     db = FakeDb(
         [row(http_server_snapshot())],
         scans=[scan_row(
-            scan_id, "https://mcp.context7.com/mcp", score=100,
+            scan_id, "https://mcp.context7.com/mcp", risk_score=25, grade="C",
             mcp_capabilities={"can_execute": True, "can_write": False, "can_read": True,
                               "handles_credentials": False, "makes_network_calls": False},
         )],
     )
     trust = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0].trust
     assert trust is not None
-    assert any("command-execution" in factor.reason for factor in trust.factors)
+    assert trust.grade == "C"
+    assert trust.recommended_action == "REQUIRE_APPROVAL"
 
 
 def test_an_http_server_that_was_never_scanned_has_no_grade():
@@ -371,16 +377,22 @@ def test_an_http_server_that_was_never_scanned_has_no_grade():
     assert asyncio.run(agent_controller.list_mcp_assets(USER, db))[0].trust is None
 
 
-def test_an_incomplete_scan_cannot_produce_the_top_grade():
+def test_an_incomplete_scan_carries_no_letter_at_all():
+    """Not a worse letter - none. And the summary has to say why, or a null
+    grade in the UI is indistinguishable from a loading state."""
     scan_id = str(uuid4())
     db = FakeDb(
         [row(http_server_snapshot())],
-        scans=[scan_row(scan_id, "https://mcp.context7.com/mcp", status="incomplete", score=100)],
+        scans=[scan_row(
+            scan_id, "https://mcp.context7.com/mcp", status="incomplete", risk_score=0, grade=None
+        )],
     )
     trust = asyncio.run(agent_controller.list_mcp_assets(USER, db))[0].trust
     assert trust is not None
-    assert trust.grade != "A"
-    assert any("incomplete" in factor.reason for factor in trust.factors)
+    assert trust.grade is None
+    assert trust.label == "Not graded"
+    assert trust.summary is not None
+    assert trust.summary.headline == "Scan Incomplete"
 
 
 def test_the_newest_scan_of_a_target_wins():

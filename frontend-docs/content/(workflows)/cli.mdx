@@ -49,7 +49,8 @@ Runs the full scan pipeline against `TARGET` and prints a report.
 
 <Tabs items={['Source target', 'Live server']}>
   <Tab value="Source target">
-    Full pipeline: cloning (repos only), static analysis, secrets, dependencies, then the tool
+    Full pipeline: cloning (repos only), tool discovery, MCP tool rules, behavior analysis,
+    credential exposure, supply chain, then the tool
     description check. See [Introduction](/docs/#what-a-scan-actually-checks).
   </Tab>
   <Tab value="Live server">

@@ -1,29 +1,28 @@
-"""Our own rule-lookup heuristics for the three OWASP MCP categories the
-master spec explicitly says are "not a model", plain presence/schema checks,
-per Section 4 rows 6, 9, and 10. These run in-process (no container), inside
-the `tool_description_check` stage alongside MCP-Shield and SDK inspection.
+"""Aevrin's own MCP rules, the ones with no ToolTrust equivalent: what a
+server's launch command runs, whether its transport carries authentication,
+and whether it logs anything at all.
+
+Everything here reads a declaration - a config entry, a URL, an import line
+- and runs in-process. Nothing is executed and nothing is connected to.
+
+Two checks that used to live here are gone. `check_excessive_agency` scored
+tool names against a keyword regex and `check_tool_name_shadowing` compared
+them with `difflib`; both are now covered properly by `mcp/rules.py`
+(AS-002/AS-003 read inferred permissions rather than keywords, AS-013
+matches normalized names rather than a similarity ratio that fired on every
+legitimate get/set pair). Keeping a weaker second implementation of a rule
+the engine already runs is exactly the duplication this codebase forbids.
 """
 
 from __future__ import annotations
 
-import difflib
 import os
 import re
+from dataclasses import dataclass
 from uuid import UUID
 
-from ..classification.owasp import OwaspMcpCategory
+from ..mcp.catalog import RULE_CATALOG
 from ..models import Finding, Location, Severity, ToolName
-from .mcp_detection import DiscoveredTool
-
-# Row 9: tool names/descriptions implying broad, dangerous capability with no
-# apparent scoping. Presence of these terms doesn't prove overreach, but their
-# presence with no counterbalancing scope declaration is the signal we can
-# check statically without a model.
-_HIGH_PRIVILEGE_TERMS = re.compile(
-    r"\b(?:exec(?:ute)?|shell|sudo|admin|delete|drop\s+table|rm\s+-rf|chmod|"
-    r"write[_\s]?file|read[_\s]?any|full[_\s]?access|unrestricted)\b",
-    re.IGNORECASE,
-)
 
 _LOGGING_IMPORT_PATTERNS = [
     re.compile(r"^\s*import\s+logging\b", re.MULTILINE),
@@ -37,163 +36,103 @@ _LOGGING_IMPORT_PATTERNS = [
 _SOURCE_EXTENSIONS = (".py", ".js", ".ts", ".mjs", ".cjs", ".go", ".rb")
 
 
-class ToolDescriptor:
-    def __init__(self, name: str, description: str):
-        self.name = name
-        self.description = description
-
-
+@dataclass(frozen=True)
 class TransportInfo:
-    def __init__(self, url: str | None, has_auth_header: bool, has_api_key_env: bool):
-        self.url = url
-        self.has_auth_header = has_auth_header
-        self.has_api_key_env = has_api_key_env
+    url: str | None
+    has_auth_header: bool
+    has_api_key_env: bool
 
 
-def check_excessive_agency(scan_id: UUID, tools: list[ToolDescriptor]) -> list[Finding]:
-    findings: list[Finding] = []
-    for t in tools:
-        matches = sorted({m.lower() for m in _HIGH_PRIVILEGE_TERMS.findall(t.description + " " + t.name)})
-        if not matches:
-            continue
-        findings.append(
-            Finding(
-                scan_id=scan_id,
-                tool=ToolName.AEVRIN_MANIFEST_RULES,
-                owasp_category=OwaspMcpCategory.EXCESSIVE_AGENCY,
-                severity=Severity.MEDIUM,
-                title=f"Broad-capability tool declared: {t.name}",
-                description=(
-                    f"Tool '{t.name}' description implies high-privilege capability "
-                    f"({', '.join(matches)}) with no scoping declared. Declared-scope check "
-                    "only; this does not confirm actual overreach, only that the manifest "
-                    "doesn't limit it."
-                ),
-                location=Location(manifest_field="tools[].description", tool_name_in_manifest=t.name),
-                remediation=(
-                    "Scope this tool to the minimum capability it needs, and document the "
-                    "scope explicitly in its description."
-                ),
-                raw={"tool": t.name, "matched_terms": matches},
-            )
-        )
-    return findings
+def _finding(
+    scan_id: UUID,
+    rule_id: str,
+    severity: Severity,
+    title: str,
+    description: str,
+    *,
+    evidence: list[str],
+    location: Location | None = None,
+    remediation: str | None = None,
+    affected_tools: list[str] | None = None,
+    raw: dict[str, object] | None = None,
+) -> Finding:
+    rule = RULE_CATALOG[rule_id]
+    return Finding(
+        scan_id=scan_id,
+        tool=ToolName.AEVRIN_MANIFEST_RULES,
+        rule_id=rule_id,
+        owasp_category=rule.owasp,
+        severity=severity,
+        title=title,
+        description=description,
+        remediation=remediation or rule.fix,
+        evidence=evidence,
+        affected_tools=affected_tools or [],
+        location=location or Location(),
+        raw=raw,
+    )
 
 
-# A presence/schema check in the same spirit as the rest of this module: two
-# declared tools whose *names* are close enough
-# to be picked interchangeably. Whoever chooses which tool to call - a human
-# skimming a list, or an agent doing its own fuzzy name matching - is choosing
-# by name alone; a name crafted to be almost indistinguishable from a trusted
-# one is exactly the shape of a deliberate shadow. This checks spelling only:
-# it cannot and does not claim to know intent from static text.
-_SHADOW_SIMILARITY_THRESHOLD = 0.82
-_SHADOW_MIN_NAME_LENGTH = 4
-# O(n^2) pairwise comparison guard. A real server's declared tool count is in
-# the tens; a repository that reports more than this is already pathological
-# for this check, and skipping it here costs one heuristic, not the stage.
-_SHADOW_MAX_TOOLS = 200
-_SHADOW_ESCALATING_CAPABILITIES = frozenset({"execute", "delete", "credential"})
-
-
-def check_tool_name_shadowing(scan_id: UUID, tools: list[DiscoveredTool]) -> list[Finding]:
-    findings: list[Finding] = []
-    candidates = [t for t in tools if len(t.name) >= _SHADOW_MIN_NAME_LENGTH]
-    if len(candidates) > _SHADOW_MAX_TOOLS:
-        return findings
-
-    for i, a in enumerate(candidates):
-        for b in candidates[i + 1 :]:
-            if a.name == b.name:
-                continue  # discover_tools() already dedupes by exact name
-            ratio = difflib.SequenceMatcher(None, a.name.lower(), b.name.lower()).ratio()
-            if ratio < _SHADOW_SIMILARITY_THRESHOLD:
-                continue
-
-            capability_gap = (set(a.capabilities) ^ set(b.capabilities)) & _SHADOW_ESCALATING_CAPABILITIES
-            severity = Severity.HIGH if capability_gap else Severity.MEDIUM
-            findings.append(
-                Finding(
-                    scan_id=scan_id,
-                    tool=ToolName.AEVRIN_MANIFEST_RULES,
-                    owasp_category=OwaspMcpCategory.CROSS_ORIGIN_ESCALATION,
-                    severity=severity,
-                    title=f"Near-identical tool names: '{a.name}' and '{b.name}'",
-                    description=(
-                        f"'{a.name}' and '{b.name}' are {ratio:.0%} similar by character "
-                        "sequence - close enough to be picked interchangeably by a human "
-                        "skimming a tool list, or by an agent's own fuzzy name matching."
-                        + (
-                            f" Only one declares {'/'.join(sorted(capability_gap))} "
-                            "capability, so picking the wrong one changes what actually runs."
-                            if capability_gap
-                            else ""
-                        )
-                        + " Name-similarity check only; this does not confirm either tool is "
-                        "malicious, only that the pair is easy to confuse."
-                    ),
-                    location=Location(manifest_field="tools[].name", tool_name_in_manifest=a.name),
-                    remediation=(
-                        "Rename one of these tools to something clearly distinct, or merge "
-                        "them if they are meant to do the same thing."
-                    ),
-                    raw={"tool_a": a.name, "tool_b": b.name, "similarity": round(ratio, 3)},
-                )
-            )
-    return findings
+# --------------------------------------------------------------------------
+# AV-002  Transport authentication
 
 
 def check_weak_auth(scan_id: UUID, transport: TransportInfo) -> list[Finding]:
     findings: list[Finding] = []
     if transport.url and transport.url.startswith("http://"):
         findings.append(
-            Finding(
-                scan_id=scan_id,
-                tool=ToolName.AEVRIN_MANIFEST_RULES,
-                owasp_category=OwaspMcpCategory.WEAK_AUTH,
-                severity=Severity.HIGH,
-                title="MCP server reachable over plaintext HTTP",
-                description=f"{transport.url} is not served over TLS.",
+            _finding(
+                scan_id,
+                "AV-002",
+                Severity.HIGH,
+                "MCP server reachable over plaintext HTTP",
+                f"{transport.url} is not served over TLS, so tool arguments and results, "
+                "including any credential they carry, travel in the clear.",
+                evidence=[f"url: {transport.url}"],
                 location=Location(manifest_field="url"),
-                remediation="Serve this MCP endpoint over HTTPS.",
             )
         )
     if transport.url and not transport.has_auth_header and not transport.has_api_key_env:
         findings.append(
-            Finding(
-                scan_id=scan_id,
-                tool=ToolName.AEVRIN_MANIFEST_RULES,
-                owasp_category=OwaspMcpCategory.WEAK_AUTH,
-                severity=Severity.MEDIUM,
-                title="No authentication declared for this MCP server",
-                description=(
-                    "Presence-only check: no Authorization header or API-key environment "
-                    "variable found in the server config. This does not confirm the server "
-                    "is actually open, only that the config doesn't declare auth."
+            _finding(
+                scan_id,
+                "AV-002",
+                Severity.MEDIUM,
+                "No authentication declared for this MCP server",
+                (
+                    "Presence check only: no Authorization header and no API-key environment "
+                    "variable appear in this server's configuration. That does not confirm the "
+                    "endpoint is open, only that nothing here declares a credential for it."
                 ),
+                evidence=["authorization header: absent", "api key environment variable: absent"],
                 location=Location(manifest_field="headers/env"),
-                remediation="Require an API key, bearer token, or OAuth flow for this server.",
             )
         )
     return findings
 
 
-# Row 1: what a stdio MCP entry actually *executes* on your machine the
-# moment you install it. This is the only signal available for a stdio
-# server: there is no URL to probe and, for a pasted config, no source to
-# scan. Every pattern here is a literal command shape, not a guess about
-# intent.
-_SHELL_INTERPRETERS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "cmd", "cmd.exe", "powershell", "pwsh"})
+# --------------------------------------------------------------------------
+# AV-001  What a stdio entry actually executes on install
+#
+# The only signal available for a stdio server: there is no URL to probe
+# and, for a pasted config, no source to read. Every pattern is a literal
+# command shape, not a guess about intent.
+
+_SHELL_INTERPRETERS = frozenset({
+    "sh", "bash", "zsh", "dash", "ksh", "cmd", "cmd.exe", "powershell", "pwsh",
+})
 
 # Fetch piped straight into an interpreter: the classic remote-code-execution
 # install shape.
 _PIPE_TO_SHELL = re.compile(
-    r"\b(?:curl|wget|iwr|invoke-webrequest)\b[^|;&]*[|]\s*(?:sudo\s+)?(?:sh|bash|zsh|python[23]?|node|perl|ruby)\b",
+    r"\b(?:curl|wget|iwr|invoke-webrequest)\b[^|;&]*[|]\s*(?:sudo\s+)?"
+    r"(?:sh|bash|zsh|python[23]?|node|perl|ruby)\b",
     re.IGNORECASE,
 )
 # Decode-then-execute, the usual way an obfuscated payload is smuggled.
 _ENCODED_EXEC = re.compile(
-    r"\b(?:base64\s+(?:-d|--decode)|atob|frombase64string)\b[^|;&]*[|]\s*(?:sh|bash|python[23]?|node)\b"
+    r"\b(?:base64\s+(?:-d|--decode)|atob|frombase64string)\b[^|;&]*[|]\s*"
+    r"(?:sh|bash|python[23]?|node)\b"
     r"|\b(?:eval|exec)\s*\(\s*(?:atob|base64)",
     re.IGNORECASE,
 )
@@ -204,11 +143,10 @@ def check_dangerous_launch_command(
 ) -> list[Finding]:
     """Inspects the command a stdio MCP entry runs on install.
 
-    A pasted config previously produced no findings at all for stdio
-    servers: clone/static/secrets/dependency stages are all skipped for that
-    target type, and the remaining checks need either a URL or declared
-    tools. A config whose server ran `sh -c "curl …|sh"` therefore scored a
-    clean 100/100; the exact install this product exists to warn about.
+    A pasted stdio config has no repository to read and no endpoint to
+    probe, so without this it produced no findings at all - a server
+    launching `sh -c "curl …|sh"` scored perfectly clean. This is the check
+    that has to survive when every other one is inapplicable.
     """
     findings: list[Finding] = []
     for name, entry in entries.items():
@@ -225,23 +163,19 @@ def check_dangerous_launch_command(
 
         if _PIPE_TO_SHELL.search(full) or _ENCODED_EXEC.search(full):
             findings.append(
-                Finding(
-                    scan_id=scan_id,
-                    tool=ToolName.AEVRIN_MANIFEST_RULES,
-                    owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
-                    severity=Severity.CRITICAL,
-                    title=f"Server '{name}' pipes downloaded content into a shell",
-                    description=(
+                _finding(
+                    scan_id,
+                    "AV-001",
+                    Severity.CRITICAL,
+                    f"Server '{name}' pipes downloaded content into a shell",
+                    (
                         f"The launch command for '{name}' fetches remote content and executes it "
-                        f"directly: {full[:300]}. Installing this server runs whatever that URL "
-                        "serves, at the moment of install and on every subsequent start, with "
-                        "your user's privileges."
+                        "directly. Installing this server runs whatever that URL serves, at "
+                        "install time and on every subsequent start, with your user's privileges."
                     ),
+                    evidence=[f"launch command: {full[:300]}"],
                     location=Location(manifest_field="command/args", tool_name_in_manifest=name),
-                    remediation=(
-                        "Do not install this server. If you control it, pin an installed package "
-                        "or a checked-in script instead of executing fetched content."
-                    ),
+                    affected_tools=[name],
                     raw={"server": name, "command": command, "args": args},
                 )
             )
@@ -249,34 +183,33 @@ def check_dangerous_launch_command(
 
         if basename in _SHELL_INTERPRETERS:
             findings.append(
-                Finding(
-                    scan_id=scan_id,
-                    tool=ToolName.AEVRIN_MANIFEST_RULES,
-                    owasp_category=OwaspMcpCategory.EXCESSIVE_AGENCY,
-                    severity=Severity.HIGH,
-                    title=f"Server '{name}' launches through a shell interpreter",
-                    description=(
+                _finding(
+                    scan_id,
+                    "AV-001",
+                    Severity.HIGH,
+                    f"Server '{name}' launches through a shell interpreter",
+                    (
                         f"'{name}' starts via '{command}' rather than running a program directly, "
-                        f"so its full command line is interpreted by a shell: {full[:300]}. That "
-                        "allows shell metacharacters, chained commands, and redirection at "
-                        "startup. This reports the launch shape only; it does not confirm the "
-                        "command is malicious."
+                        "so its whole command line is interpreted by a shell: metacharacters, "
+                        "chained commands and redirection all apply at startup. This reports the "
+                        "launch shape; it does not claim the command is malicious."
                     ),
+                    evidence=[f"interpreter: {basename}", f"launch command: {full[:300]}"],
                     location=Location(manifest_field="command/args", tool_name_in_manifest=name),
-                    remediation=(
-                        "Invoke the server binary or package entrypoint directly instead of "
-                        "wrapping it in a shell."
-                    ),
+                    affected_tools=[name],
                     raw={"server": name, "command": command, "args": args},
                 )
             )
     return findings
 
 
+# --------------------------------------------------------------------------
+# AV-003  Audit logging presence
+
+
 def check_audit_logging_presence(scan_id: UUID, repo_dir: str) -> list[Finding]:
-    """Informational only, per Section 4 row 10: presence of *any* logging
-    import is a weak positive signal, absence is a weak negative signal.
-    Walks up to 500 source files to stay fast on large repos."""
+    """Presence of any logging import is a weak positive signal; absence is a
+    weak negative one. Bounded to 500 source files to stay fast on a monorepo."""
     found_logging = False
     scanned = 0
     for root, _dirs, files in os.walk(repo_dir):
@@ -288,35 +221,31 @@ def check_audit_logging_presence(scan_id: UUID, repo_dir: str) -> list[Finding]:
             scanned += 1
             if scanned > 500:
                 break
-            path = os.path.join(root, name)
             try:
-                with open(path, encoding="utf-8", errors="ignore") as f:
-                    content = f.read(20_000)
+                with open(os.path.join(root, name), encoding="utf-8", errors="ignore") as handle:
+                    content = handle.read(20_000)
             except OSError:
                 continue
-            if any(p.search(content) for p in _LOGGING_IMPORT_PATTERNS):
+            if any(pattern.search(content) for pattern in _LOGGING_IMPORT_PATTERNS):
                 found_logging = True
                 break
         if found_logging or scanned > 500:
             break
 
     if found_logging:
-        return []  # clean, no finding, but the "informational only" caveat still applies at report level
+        return []
 
     return [
-        Finding(
-            scan_id=scan_id,
-            tool=ToolName.AEVRIN_MANIFEST_RULES,
-            owasp_category=OwaspMcpCategory.WEAK_AUDIT_LOGGING,
-            severity=Severity.INFO,
-            title="No logging library usage detected",
-            description=(
-                "Source presence check only: no logging/audit-log imports found in the "
-                "first 500 scanned source files. This is informational, not a confirmed gap; "
-                "the project may log via a mechanism this heuristic doesn't recognize."
+        _finding(
+            scan_id,
+            "AV-003",
+            Severity.INFO,
+            "No logging library usage detected",
+            (
+                f"Source presence check only: no logging or audit-log import was found in the "
+                f"{min(scanned, 500)} source files read. This is informational, not a confirmed "
+                "gap - the project may log through a mechanism this does not recognise."
             ),
-            location=Location(),
-            remediation="Add structured audit logging for tool invocations, especially "
-            "privileged ones.",
+            evidence=[f"source files read: {min(scanned, 500)}", "logging import: none found"],
         )
     ]

@@ -141,15 +141,14 @@ def build_evidence(
             }
 
     if trust_grade:
+        # `grade: null` is meaningful and is sent as-is: it tells the model
+        # the scan could not be graded, which is exactly the case where it
+        # must not speak as if the server had been assessed.
         document["trust_grade"] = {
             "grade": trust_grade.get("grade"),
             "label": trust_grade.get("label"),
-            "scan_score": trust_grade.get("scan_score"),
+            "risk_score": trust_grade.get("risk_score"),
             "recommended_action": trust_grade.get("recommended_action"),
-            "factors": [
-                {"points": f.get("points"), "reason": _redact(f.get("reason"))}
-                for f in (trust_grade.get("factors") or [])[:20]
-            ],
         }
 
     if permissions:

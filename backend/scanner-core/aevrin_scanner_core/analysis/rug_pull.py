@@ -15,7 +15,7 @@ import json
 from dataclasses import dataclass
 from uuid import UUID
 
-from ..classification.owasp import OwaspMcpCategory
+from ..mcp.catalog import RULE_CATALOG
 from ..models import Finding, Location, Severity, ToolName
 
 
@@ -32,7 +32,6 @@ class PinnedSignature:
 
 def diff_signatures(
     scan_id: UUID,
-    tool: ToolName,
     previous: list[PinnedSignature],
     current: list[PinnedSignature],
 ) -> list[Finding]:
@@ -48,21 +47,23 @@ def diff_signatures(
         findings.append(
             Finding(
                 scan_id=scan_id,
-                tool=tool,
-                owasp_category=OwaspMcpCategory.RUG_PULL,
+                tool=ToolName.AEVRIN_MANIFEST_RULES,
+                rule_id="AS-012",
+                owasp_category=RULE_CATALOG["AS-012"].owasp,
                 severity=Severity.CRITICAL,
-                title=f"Tool description changed since last scan: {entry.server_name}",
+                title=RULE_CATALOG["AS-012"].title,
                 description=(
-                    f"The pinned tool description hash for '{entry.server_name}' no "
-                    "longer matches what was recorded on a previous scan. This server's "
-                    "behavior may have changed after install/approval, a classic rug pull."
+                    f"The pinned tool-definition hash for '{entry.server_name}' no longer "
+                    "matches what a previous scan of this same target recorded. What this "
+                    "server tells an agent it does has changed since it was last reviewed."
                 ),
+                remediation=RULE_CATALOG["AS-012"].fix,
+                evidence=[
+                    f"previous signature: {prior_hash[:16]}",
+                    f"current signature: {entry.signature_hash[:16]}",
+                ],
+                affected_tools=[entry.server_name],
                 location=Location(tool_name_in_manifest=entry.server_name),
-                remediation=(
-                    "Review what changed before trusting this server further. If the "
-                    "change is expected (a legitimate update), re-approve it to re-pin "
-                    "the new hash."
-                ),
                 raw={"previous_hash": prior_hash, "current_hash": entry.signature_hash},
             )
         )

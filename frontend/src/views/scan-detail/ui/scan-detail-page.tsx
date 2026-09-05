@@ -12,7 +12,7 @@ import { scanApi } from "@/entities/scan";
 import type { Finding, Severity } from "@/entities/finding";
 import type { Scan, ScanDiff, ScanStage } from "@/entities/scan";
 import { OWASP_CATEGORY_LABELS } from "@/entities/finding";
-import { STAGE_LABELS, STAGE_ORDER } from "@/entities/scan";
+import { GRADE_LABELS, GRADE_STYLES, STAGE_LABELS, STAGE_ORDER } from "@/entities/scan";
 import { summarizeFindings } from "@/entities/finding";
 import { SCAN_SOURCE_LABELS, TARGET_TYPE_LABELS, summarizeCoverage, verdictLabel } from "@/entities/scan";
 import { formatDateTime, formatDuration } from "@/shared/lib/format";
@@ -214,12 +214,37 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
               <span className="text-sm text-muted-foreground">{SCAN_SOURCE_LABELS[scan.source]}</span>
             </div>
             <div className="break-all text-2xl font-semibold tracking-tight">{scan.target}</div>
-            <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{resultSummary}</p>
 
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <span
+                className={`grid size-16 shrink-0 place-items-center rounded-xl border text-3xl font-semibold tabular-nums ${
+                  scan.grade ? GRADE_STYLES[scan.grade] : "border-border bg-muted text-muted-foreground"
+                }`}
+                role="img"
+                aria-label={
+                  scan.grade
+                    ? `Grade ${scan.grade}: ${GRADE_LABELS[scan.grade]}`
+                    : "Not graded: this scan could not be graded"
+                }
+              >
+                {scan.grade ?? "?"}
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-medium">
+                  {scan.grade ? GRADE_LABELS[scan.grade] : "Not graded"}
+                </p>
+                <p className="text-sm text-muted-foreground tabular-nums">
+                  {scan.risk_score === null
+                    ? "Risk score unavailable"
+                    : `Risk score ${scan.risk_score}/100`}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{resultSummary}</p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
               <MetaBlock label="Scanned at" value={formatDateTime(scan.completed_at ?? scan.created_at)} />
               <MetaBlock label="Duration" value={formatDuration(scan.created_at, scan.completed_at)} />
-              <MetaBlock label="Score" value={scan.score === null ? "Not available" : `${scan.score}/100`} />
               <MetaBlock label="Coverage" value={`${coverage.completed}/${stages.length || 6} stages complete`} />
             </div>
           </div>
@@ -236,12 +261,54 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
         </CardContent>
       </Card>
 
+      {/* SCAN -> EVIDENCE -> RISK -> EXPLANATION -> RECOMMENDATION -> POLICY.
+          This is the explanation and recommendation, ahead of the finding
+          list rather than under it: a reader who stops here should already
+          know what to do, and one who continues should know what they are
+          looking for. */}
+      {scan.risk_summary ? (
+        <SectionCard
+          title="Risk summary"
+          description="What this scan found, what it could mean, and what to do about it."
+        >
+          <div className="space-y-4">
+            <p className="text-lg font-medium">{scan.risk_summary.headline}</p>
+            <p className="max-w-3xl text-sm leading-6">{scan.risk_summary.explanation}</p>
+            <dl className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <dt className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                  Potential impact
+                </dt>
+                <dd className="mt-1.5 text-sm leading-6">{scan.risk_summary.potential_impact}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                  Recommended action
+                </dt>
+                <dd className="mt-1.5 text-sm leading-6">{scan.risk_summary.recommended_action}</dd>
+              </div>
+            </dl>
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-background/70 px-4 py-3">
+              <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                Suggested policy
+              </span>
+              <span className="font-mono text-sm font-medium">
+                {scan.risk_summary.suggested_policy.replace(/_/g, " ")}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                A recommendation, not an automatic action.
+              </span>
+            </div>
+          </div>
+        </SectionCard>
+      ) : null}
+
       {scan.status === "incomplete" ? (
         <Alert variant="destructive">
           <AlertTriangle className="size-4" />
           <AlertTitle>Partial scan coverage</AlertTitle>
           <AlertDescription>
-            Required scanners did not complete for {scan.unreliable_stages.map((stage) => STAGE_LABELS[stage]).join(", ")}. The score reflects only the checks that actually ran.
+            Required scanners did not complete for {scan.unreliable_stages.map((stage) => STAGE_LABELS[stage]).join(", ")}. No grade is given for this scan: the findings below are real, but they do not add up to a complete assessment.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -272,7 +339,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
           <AlertTriangle className="size-4" />
           <AlertTitle>Uploaded from the authenticated CLI</AlertTitle>
           <AlertDescription>
-            Aevrin recomputed the score from the uploaded findings and preserved the CLI stages, timestamps, and evidence. The local findings are client-reported and were not independently re-scanned by the API.
+            Aevrin recomputed the risk score and grade from the uploaded findings and preserved the CLI stages, timestamps, and evidence. The local findings are client-reported and were not independently re-scanned by the API.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -427,6 +494,24 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                         <div className="space-y-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <SeverityBadge severity={finding.severity} />
+                            {finding.rule_id ? (
+                              <span className="rounded-full border border-border bg-muted px-2 py-0.5 font-mono text-xs font-medium">
+                                {finding.rule_id}
+                              </span>
+                            ) : null}
+                            {/* One card per rule verdict, with the count, not
+                                one card per affected tool. Five tools missing
+                                a timeout is one thing to fix. */}
+                            {finding.occurrence_count > 1 ? (
+                              <span className="text-xs text-muted-foreground tabular-nums">
+                                ×{finding.occurrence_count}
+                              </span>
+                            ) : null}
+                            {finding.confidence === "low" ? (
+                              <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                                Confidence: low
+                              </span>
+                            ) : null}
                             {finding.in_kev ? (
                               <span className="rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
                                 KEV
@@ -451,6 +536,26 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                           <p className="text-sm leading-6 text-muted-foreground line-clamp-2">
                             {finding.description}
                           </p>
+                          {finding.affected_tools.length > 0 ? (
+                            <p className="text-xs text-muted-foreground">
+                              <span className="uppercase tracking-[0.12em]">Affected tools</span>{" "}
+                              <span className="font-mono">
+                                {finding.affected_tools.slice(0, 6).join(", ")}
+                                {finding.affected_tools.length > 6
+                                  ? ` +${finding.affected_tools.length - 6} more`
+                                  : ""}
+                              </span>
+                            </p>
+                          ) : null}
+                          {finding.evidence.length > 0 ? (
+                            <p className="text-xs text-muted-foreground">
+                              <span className="uppercase tracking-[0.12em]">Evidence</span>{" "}
+                              <span className="font-mono">{finding.evidence[0]}</span>
+                              {finding.evidence.length > 1
+                                ? ` +${finding.evidence.length - 1} more`
+                                : ""}
+                            </p>
+                          ) : null}
                           {/* Only surfaced in the list when the AI disagreed
                               with the scanner. "AI agrees" on every row would
                               be noise on the one screen that has to stay

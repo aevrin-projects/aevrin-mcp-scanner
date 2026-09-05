@@ -291,7 +291,7 @@ async def list_submissions(
         rows = await db.select(
             "mcp_listings",
             {"id": f"in.({','.join(listing_ids)})"},
-            columns="id,slug,title,status,current_trust_grade,current_security_score,"
+            columns="id,slug,title,status,current_trust_grade,current_risk_score,"
             "current_coverage_complete,current_version,latest_version,repository_url",
         )
         listings = {row["id"]: row for row in rows}

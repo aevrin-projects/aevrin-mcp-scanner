@@ -199,7 +199,7 @@ def _auto_approved_server_paths(
         if not (server.auto_approved and server.enabled):
             continue
         grade = mcp_grades.get(server.name)
-        if grade not in ("C", "D"):
+        if grade not in ("C", "D", "F"):
             continue
         paths.append(_server_path(agent, server, grade))
     return paths
@@ -211,7 +211,7 @@ def _server_path(agent: DiscoveredAgent, server: McpServerRef, grade: str) -> At
         title=f"{server.name} runs without approval and its own scan graded it {grade}",
         source=agent.agent.name if agent.agent else agent.kind.value,
         target=f"every tool {server.name} exposes",
-        severity=PathSeverity.CRITICAL if grade == "D" else PathSeverity.HIGH,
+        severity=PathSeverity.CRITICAL if grade in ("D", "F") else PathSeverity.HIGH,
         confidence=PathConfidence.MEDIUM,
         steps=[
             AttackStep(

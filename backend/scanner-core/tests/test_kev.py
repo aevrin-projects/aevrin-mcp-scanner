@@ -12,17 +12,17 @@ from aevrin_scanner_core.models import Finding, Location, Severity, ToolName
 _KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
 
-def _trivy_finding(cve: str, severity: Severity = Severity.LOW) -> Finding:
+def _osv_finding(cve: str, severity: Severity = Severity.LOW) -> Finding:
     return Finding(
         scan_id=uuid4(),
-        tool=ToolName.TRIVY,
+        tool=ToolName.OSV_SCANNER,
         owasp_category=OwaspMcpCategory.SUPPLY_CHAIN,
         severity=severity,
         title=f"{cve} in lodash",
         description="vuln",
         location=Location(file_path="package-lock.json"),
         remediation="upgrade",
-        raw={"VulnerabilityID": cve},
+        raw={"id": cve, "aliases": []},
     )
 
 
@@ -50,7 +50,7 @@ def test_fetch_kev_catalog_fails_open_on_bad_json():
 
 
 def test_apply_kev_flags_and_elevates_matching_finding():
-    finding = _trivy_finding("CVE-2024-1234", severity=Severity.LOW)
+    finding = _osv_finding("CVE-2024-1234", severity=Severity.LOW)
     apply_kev([finding], frozenset({"CVE-2024-1234"}))
     assert finding.in_kev is True
     assert finding.severity == Severity.CRITICAL
@@ -58,14 +58,14 @@ def test_apply_kev_flags_and_elevates_matching_finding():
 
 
 def test_apply_kev_leaves_non_matching_findings_alone():
-    finding = _trivy_finding("CVE-2024-9999", severity=Severity.LOW)
+    finding = _osv_finding("CVE-2024-9999", severity=Severity.LOW)
     apply_kev([finding], frozenset({"CVE-2024-1234"}))
     assert finding.in_kev is False
     assert finding.severity == Severity.LOW
 
 
 def test_apply_kev_overrides_prior_epss_downweight():
-    finding = _trivy_finding("CVE-2024-1234", severity=Severity.MEDIUM)
+    finding = _osv_finding("CVE-2024-1234", severity=Severity.MEDIUM)
     finding.original_severity = Severity.HIGH  # simulating a prior EPSS downweight
     finding.epss_score = 0.001
     apply_kev([finding], frozenset({"CVE-2024-1234"}))
@@ -76,7 +76,7 @@ def test_apply_kev_overrides_prior_epss_downweight():
 
 
 def test_apply_kev_is_a_noop_with_empty_catalog():
-    finding = _trivy_finding("CVE-2024-1234", severity=Severity.LOW)
+    finding = _osv_finding("CVE-2024-1234", severity=Severity.LOW)
     apply_kev([finding], frozenset())
     assert finding.in_kev is False
     assert finding.severity == Severity.LOW

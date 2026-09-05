@@ -22,19 +22,20 @@ ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates gnupg xz-utils \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Go-binary scanners: prebuilt release binaries, no Go toolchain needed ---
+#
+# Two, down from five, and Node is gone with them. Removed alongside the
+# code-security product (DECISIONS.md ADR-027): Gitleaks duplicated
+# TruffleHog without its live credential verification; Trivy duplicated
+# OSV-Scanner and additionally emitted Dockerfile misconfiguration findings,
+# which are not MCP security and were the loudest single source of noise in
+# an MCP report; OpenSSF Scorecard produced only repository-practice findings
+# (badges, fuzzing status, branch protection); and MCP-Shield, the sole
+# reason Node was installed here at all, is superseded by Aevrin's own rule
+# engine, which needs no binary and no network.
 WORKDIR /tmp/install
-
-RUN GL_ARCH=$(if [ "$TARGETARCH" = "arm64" ]; then echo arm64; else echo x64; fi) \
-    && curl -sSL -o gitleaks.tar.gz \
-      "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_${GL_ARCH}.tar.gz" \
-    && tar -xzf gitleaks.tar.gz gitleaks \
-    && install -m 0755 gitleaks /usr/local/bin/gitleaks \
-    && rm -rf /tmp/install/*
 
 RUN curl -sSL -o trufflehog.tar.gz \
       "https://github.com/trufflesecurity/trufflehog/releases/download/v3.96.0/trufflehog_3.96.0_linux_${TARGETARCH}.tar.gz" \
@@ -46,22 +47,6 @@ RUN curl -sSL -o osv-scanner \
       "https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_${TARGETARCH}" \
     && install -m 0755 osv-scanner /usr/local/bin/osv-scanner \
     && rm -rf /tmp/install/*
-
-RUN TRIVY_ARCH=$(if [ "$TARGETARCH" = "arm64" ]; then echo ARM64; else echo 64bit; fi) \
-    && curl -sSL -o trivy.tar.gz \
-      "https://github.com/aquasecurity/trivy/releases/download/v0.73.0/trivy_0.73.0_Linux-${TRIVY_ARCH}.tar.gz" \
-    && tar -xzf trivy.tar.gz trivy \
-    && install -m 0755 trivy /usr/local/bin/trivy \
-    && rm -rf /tmp/install/*
-
-RUN curl -sSL -o scorecard.tar.gz \
-      "https://github.com/ossf/scorecard/releases/download/v5.5.0/scorecard_5.5.0_linux_${TARGETARCH}.tar.gz" \
-    && tar -xzf scorecard.tar.gz \
-    && install -m 0755 scorecard /usr/local/bin/scorecard \
-    && rm -rf /tmp/install/*
-
-# --- npm-based scanner ---
-RUN npm install -g mcp-shield@1.0.4
 
 # backend/api/pyproject.toml points at its sibling package as
 # "../scanner-core", mirror that same one-level relationship inside the
@@ -76,14 +61,19 @@ ENV UV_PYTHON=3.11
 ENV UV_PYTHON_DOWNLOADS=never
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 ENV UV_TOOL_DIR=/opt/uv-tools
-# Keep scanner applications in separate tool environments: current Semgrep
-# declares an older MCP SDK solely for its optional MCP surface. The scanner
-# command has been exercised with the patched SDK and setuptools versions
-# below; keeping them current removes known vulnerabilities from the image.
+# Semgrep the *engine* stays; Semgrep the generic ruleset is gone. It now
+# runs only Aevrin's own MCP taint pack (scanner-core/rules/mcp/*.yaml),
+# which traces an MCP tool argument to a dangerous sink rather than auditing
+# source code at large, and needs no network because those rules are local
+# files. Bandit was removed outright: it had no MCP-specific rules at all.
+#
+# Kept in its own tool environment: current Semgrep declares an older MCP SDK
+# solely for its optional MCP surface. The scanner command has been exercised
+# with the patched SDK and setuptools versions below; keeping them current
+# removes known vulnerabilities from the image.
 RUN uv tool install semgrep==1.172.0 \
     && uv pip install --python /opt/uv-tools/semgrep/bin/python \
-      mcp==1.28.1 setuptools==83.0.0 \
-    && uv tool install bandit==1.9.4
+      mcp==1.28.1 setuptools==83.0.0
 
 COPY backend/scanner-core /repo/backend/scanner-core
 COPY backend/api /repo/backend/api
@@ -103,11 +93,10 @@ ENV AEVRIN_EXECUTOR=subprocess
 # whether /repo is executable. Editable package links still point at the
 # read-only application sources under /repo.
 
-# uv's Python-tool launchers point into /opt, so expose small launchers from
-# /usr/local/bin that run the same pinned modules through the system Python.
-# Go and Node scanners are already installed directly under /usr/local.
-RUN install -m 0755 docker-bin/semgrep /usr/local/bin/semgrep \
-    && install -m 0755 docker-bin/bandit /usr/local/bin/bandit
+# uv's Python-tool launcher points into /opt, so expose a small launcher from
+# /usr/local/bin that runs the same pinned module through the system Python.
+# The Go scanners are already installed directly under /usr/local.
+RUN install -m 0755 docker-bin/semgrep /usr/local/bin/semgrep
 
 # The API and every scanner run without root privileges. Scanner workspaces
 # live under /tmp and Semgrep's cache lives in this user's writable home.

@@ -34,12 +34,14 @@ from ..models import Finding, Severity, ToolName
 from .owasp import OwaspMcpCategory
 
 # Tools that can independently surface the same CVE/GHSA/GO advisory for the
-# same dependency, with a structured ID we can compare.
-_DEDUPE_TOOLS = frozenset({ToolName.TRIVY, ToolName.OSV_SCANNER})
+# same dependency, with a structured ID we can compare. One entry today:
+# Trivy was removed as a duplicate CVE source, and cross-scanner
+# corroboration is kept because a second source may return later, and
+# because `corroborated_by` is part of the finding contract either way.
+_DEDUPE_TOOLS = frozenset({ToolName.OSV_SCANNER})
 
-# Both adapters format their title identically: f"{vuln_id} in {pkg_label}",
-# the one place a bare package name is available for a Trivy finding, whose
-# raw dict doesn't carry it under its own key separate from the title.
+# The adapter formats its title as f"{vuln_id} in {pkg_label}", which is
+# where a bare package name is available for comparison.
 _TITLE_ID_PKG_RE = re.compile(r"^(?P<id>\S+) in (?P<pkg>.+)$")
 
 
@@ -51,16 +53,13 @@ def _advisory_ids_and_package(finding: Finding) -> tuple[set[str], str | None]:
         return set(), None
     pkg = match.group("pkg").split("@")[0].strip().lower()
     ids = {match.group("id").upper()}
-    if finding.tool == ToolName.TRIVY:
-        vuln_id = finding.raw.get("VulnerabilityID")
-        if vuln_id:
-            ids.add(str(vuln_id).upper())
-    else:  # OSV_SCANNER; osv.dev vulnerability objects carry an aliases list
-        osv_id = finding.raw.get("id")
-        if osv_id:
-            ids.add(str(osv_id).upper())
-        for alias in finding.raw.get("aliases") or []:
-            ids.add(str(alias).upper())
+    # osv.dev vulnerability objects carry an aliases list; a GHSA-primary
+    # entry usually aliases the CVE for the same issue.
+    osv_id = finding.raw.get("id")
+    if osv_id:
+        ids.add(str(osv_id).upper())
+    for alias in finding.raw.get("aliases") or []:
+        ids.add(str(alias).upper())
     return ids, pkg
 
 
@@ -165,15 +164,8 @@ def _root_cause_key(finding: Finding) -> str | None:
     detector rule caught several of them."""
     if finding.owasp_category == OwaspMcpCategory.TOKEN_MISMANAGEMENT or not finding.raw:
         return None
-    if finding.tool == ToolName.SEMGREP:
-        return finding.raw.get("check_id")
-    if finding.tool == ToolName.BANDIT:
-        return finding.raw.get("test_id")
-    if finding.tool == ToolName.TRIVY:
-        vuln_id = finding.raw.get("VulnerabilityID")
-        if vuln_id:
-            return f"{vuln_id}:{finding.raw.get('PkgName', '')}"
-        return finding.raw.get("ID")  # misconfig rule ID, e.g. AVD-GHA-0006
+    if finding.tool == ToolName.AEVRIN_MCP_BEHAVIOR:
+        return str(finding.raw.get("check_id") or "") or None
     if finding.tool == ToolName.OSV_SCANNER:
         vuln_id = finding.raw.get("id")
         if not vuln_id:
@@ -181,8 +173,6 @@ def _root_cause_key(finding: Finding) -> str | None:
         match = _TITLE_ID_PKG_RE.match(finding.title)
         pkg = match.group("pkg").split("@")[0].strip().lower() if match else ""
         return f"{vuln_id}:{pkg}"
-    if finding.tool == ToolName.OPENSSF_SCORECARD:
-        return finding.raw.get("name")
     return None
 
 
@@ -218,3 +208,103 @@ def group_by_root_cause(findings: list[Finding]) -> list[Finding]:
         result.append(representative)
     result.extend(ungrouped)
     return result
+
+
+def _rule_group_key(finding: Finding) -> tuple[str, str, Severity, str] | None:
+    """Identical rule verdicts across different tools become one card.
+
+    A server with twenty-four tools that all lack a dependency inventory has
+    one problem, not twenty-four; rendering it as twenty-four cards is how a
+    report becomes something a developer scrolls past. The key includes the
+    description with the tool's own name stripped from the front, so AS-002
+    still separates "network access" from "code execution, filesystem
+    write" - the grouping the reader actually wants - rather than collapsing
+    every capability disclosure into one line.
+
+    Only rules keyed to a single tool are grouped. A finding already
+    covering several tools (AS-013, which is inherently about a collision
+    between two) is left alone.
+    """
+    if not finding.rule_id or len(finding.affected_tools) != 1:
+        return None
+    if finding.severity is Severity.CRITICAL:
+        # A critical is read individually, by name. Folding four of them
+        # into "×4" is exactly the wrong economy.
+        return None
+    tool_name = finding.affected_tools[0]
+    signature = finding.description
+    for prefix in (f"{tool_name}: ", f"{tool_name} "):
+        if signature.startswith(prefix):
+            signature = signature[len(prefix) :]
+            break
+    return (finding.rule_id, finding.title, finding.severity, signature)
+
+
+def group_by_rule(findings: list[Finding]) -> list[Finding]:
+    """Collapse repeated rule verdicts into one finding per (rule, verdict),
+    carrying every affected tool name on the survivor.
+
+    `occurrence_count` is set to the number of tools folded in, which is
+    what the risk score multiplies by: five tools missing a timeout is five
+    tools' worth of risk, shown once.
+    """
+    groups: dict[tuple[str, str, Severity, str], list[Finding]] = defaultdict(list)
+    ungrouped: list[Finding] = []
+    for finding in findings:
+        key = _rule_group_key(finding)
+        if key is None:
+            ungrouped.append(finding)
+            continue
+        groups[key].append(finding)
+
+    result: list[Finding] = []
+    for members in groups.values():
+        representative = members[0]
+        if len(members) > 1:
+            # Read before the reassignment below: `representative` *is*
+            # members[0], so overwriting affected_tools first would leave the
+            # prefix strip looking for the merged name instead of the one
+            # actually in the description.
+            original_tool = representative.affected_tools[0]
+            representative.affected_tools = sorted(
+                {name for member in members for name in member.affected_tools}
+            )
+            representative.occurrence_count = len(members)
+            representative.additional_locations = [m.location for m in members[1:]]
+            representative.evidence = _merged_evidence(members)
+            # The description named one tool; the card now names all of them.
+            representative.description = _strip_tool_prefix(
+                representative.description, original_tool
+            )
+            representative.mcp_tool = None
+        result.append(representative)
+    result.extend(ungrouped)
+    return result
+
+
+def _strip_tool_prefix(description: str, tool_name: str) -> str:
+    """Remove the leading tool name from a grouped card's description.
+
+    The remainder is re-capitalised in both prefix forms: "delete_repository
+    exposed neither a dependency list" becomes "Exposed neither...", not
+    "exposed neither...". A card that starts mid-sentence reads like a bug.
+    """
+    for prefix in (f"{tool_name}: ", f"{tool_name} "):
+        if description.startswith(prefix):
+            remainder = description[len(prefix) :]
+            return remainder[:1].upper() + remainder[1:]
+    return description
+
+
+def _merged_evidence(members: list[Finding]) -> list[str]:
+    """Deduplicated, order-preserving, and bounded - a grouped finding must
+    not carry two hundred near-identical evidence lines into a report or an
+    AI prompt."""
+    seen: set[str] = set()
+    merged: list[str] = []
+    for member in members:
+        for line in member.evidence:
+            if line not in seen:
+                seen.add(line)
+                merged.append(line)
+    return merged[:20]

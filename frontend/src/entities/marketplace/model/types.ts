@@ -7,7 +7,7 @@
  * safety signal, because the two never sit in the same object.
  */
 
-export type TrustGrade = "A" | "B" | "C" | "D";
+export type TrustGrade = "A" | "B" | "C" | "D" | "F";
 
 /**
  * How much the stored grade can be trusted to describe what someone is about
@@ -43,7 +43,8 @@ export type PolicyAction = "allow" | "require_approval" | "block";
 
 export interface ListingSecurity {
   grade: TrustGrade | null;
-  score: number | null;
+  /** 0-100, higher is worse. */
+  risk_score: number | null;
   /** The version the grade actually belongs to. */
   scannedVersion: string | null;
   latestVersion: string | null;
@@ -108,11 +109,12 @@ export interface ListingVersion {
   id: string;
   version: string;
   trustGrade: TrustGrade | null;
-  securityScore: number | null;
+  /** 0-100, higher is worse. The code/MCP/dependency sub-scores that used to
+   *  sit beside this are gone with the code-security product they described;
+   *  the finding list, where each finding carries a rule id and its own
+   *  evidence, answers "what earned this grade" better than they did. */
+  riskScore: number | null;
   coverageComplete: boolean | null;
-  codeScore: number | null;
-  mcpScore: number | null;
-  dependencyScore: number | null;
   scanId: string | null;
   scannedAt: string | null;
   firstSeenAt: string;
@@ -204,6 +206,7 @@ export const GRADE_LABELS: Record<TrustGrade, string> = {
   B: "Generally safe",
   C: "Caution",
   D: "High risk",
+  F: "Do not use",
 };
 
 export const PRICE_LABELS: Record<PriceType, string> = {

@@ -71,7 +71,7 @@ export function SubmitPage() {
         <PanelBody>
           <ol className="space-y-3 text-sm text-muted-foreground">
             <li>1. Aevrin fetches the source and derives the metadata.</li>
-            <li>2. The server is scanned: code security, MCP surface, dependencies.</li>
+            <li>2. The server is scanned: MCP tool rules, behavior, credentials, supply chain.</li>
             <li>3. An administrator reviews the result.</li>
             <li>
               4. If approved, it is published with its grade.{" "}

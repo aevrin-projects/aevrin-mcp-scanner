@@ -13,17 +13,17 @@ _EPSS_URL = "https://api.first.org/data/v1/epss"
 _KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
 
-def _trivy_finding(cve: str, severity: Severity = Severity.HIGH) -> Finding:
+def _osv_finding(cve: str, severity: Severity = Severity.HIGH) -> Finding:
     return Finding(
         scan_id=uuid4(),
-        tool=ToolName.TRIVY,
+        tool=ToolName.OSV_SCANNER,
         owasp_category=OwaspMcpCategory.SUPPLY_CHAIN,
         severity=severity,
         title=f"{cve} in lodash",
         description="vuln",
         location=Location(file_path="package-lock.json"),
         remediation="upgrade",
-        raw={"VulnerabilityID": cve},
+        raw={"id": cve, "aliases": []},
     )
 
 
@@ -35,8 +35,8 @@ def test_kev_confirmed_exploit_wins_over_low_epss_downweight():
     respx.get(_KEV_URL).mock(
         return_value=httpx.Response(200, json={"vulnerabilities": [{"cveID": "CVE-2024-1234"}]})
     )
-    findings = [_trivy_finding("CVE-2024-1234", severity=Severity.HIGH)]
-    result = postprocess_findings(findings, repo_dir=None)
+    findings = [_osv_finding("CVE-2024-1234", severity=Severity.HIGH)]
+    result = postprocess_findings(uuid4(), findings, repo_dir=None)
     assert result[0].epss_score == 0.001
     assert result[0].in_kev is True
     assert result[0].severity == Severity.CRITICAL  # KEV overrides the EPSS downweight
@@ -49,7 +49,7 @@ def test_no_cve_bearing_findings_skips_the_kev_fetch_entirely():
     findings = [
         Finding(
             scan_id=uuid4(),
-            tool=ToolName.SEMGREP,
+            tool=ToolName.AEVRIN_MCP_BEHAVIOR,
             owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
             severity=Severity.MEDIUM,
             title="t",
@@ -59,7 +59,7 @@ def test_no_cve_bearing_findings_skips_the_kev_fetch_entirely():
             raw={"check_id": "x"},
         )
     ]
-    postprocess_findings(findings, repo_dir=None)
+    postprocess_findings(uuid4(), findings, repo_dir=None)
     assert kev_route.call_count == 0
 
 
@@ -68,7 +68,7 @@ def test_fixture_excluded_finding_survives_the_full_pipeline_unscored():
     findings = [
         Finding(
             scan_id=uuid4(),
-            tool=ToolName.SEMGREP,
+            tool=ToolName.AEVRIN_MCP_BEHAVIOR,
             owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
             severity=Severity.CRITICAL,
             title="t",
@@ -78,6 +78,6 @@ def test_fixture_excluded_finding_survives_the_full_pipeline_unscored():
             raw={"check_id": "x"},
         )
     ]
-    result = postprocess_findings(findings, repo_dir=None)
+    result = postprocess_findings(uuid4(), findings, repo_dir=None)
     assert len(result) == 1
     assert result[0].excluded_path is True

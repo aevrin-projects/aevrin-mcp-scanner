@@ -75,7 +75,7 @@ not need a source checkout, but still needs outbound HTTPS.
 
 Docker is the recommended setup, not a hard requirement. When the daemon is unreachable, each
 scanner falls back to a copy on your `PATH`, per tool: if `bandit` is installed and `trivy` is
-not, the static analysis runs and the dependency check reports itself as missing. A scanner that
+not, the tool rules still run and the dependency check reports itself as missing. A scanner that
 is neither containerised nor installed names the command that would install it.
 
 ```bash

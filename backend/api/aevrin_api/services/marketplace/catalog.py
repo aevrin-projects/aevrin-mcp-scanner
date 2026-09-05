@@ -38,7 +38,7 @@ LIST_COLUMNS = (
     "billing_period,pricing_url,install_targets,github_stars,github_forks,github_open_issues,"
     "github_last_commit_at,github_latest_release,github_language,npm_downloads_last_month,"
     "favorite_count,ranking_score,featured,status,visibility,latest_version,"
-    "current_version,current_trust_grade,current_security_score,current_coverage_complete,"
+    "current_version,current_trust_grade,current_risk_score,current_coverage_complete,"
     "current_scanned_at,registry_updated_at,created_at,updated_at"
 )
 
@@ -99,7 +99,7 @@ def decorate(listing: dict[str, Any], *, favorited: bool = False) -> dict[str, A
         "is_favorited": favorited,
         "security": {
             "grade": grade,
-            "score": listing.get("current_security_score"),
+            "risk_score": listing.get("current_risk_score"),
             "scanned_version": freshness["scanned_version"],
             "latest_version": listing.get("latest_version"),
             "coverage_complete": listing.get("current_coverage_complete"),

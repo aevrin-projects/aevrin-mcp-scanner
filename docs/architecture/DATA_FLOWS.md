@@ -91,7 +91,7 @@ A listing gets scanned
        or an admin forcing a rescan -- never by a timer
     -> services/marketplace/scanning.py runs the same scanner-core
        pipeline used everywhere else, then services/marketplace/grading.py
-       calls scanner-core's grade_mcp_server() (the same function the CLI
+       calls scanner-core's grade_scan() (the same function the CLI
        and agent-posture view use) and writes the result onto that
        specific mcp_listing_versions row
     -> mcp_listings.current_* columns (a maintained projection) are

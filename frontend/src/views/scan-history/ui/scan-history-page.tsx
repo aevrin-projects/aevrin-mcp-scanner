@@ -334,7 +334,7 @@ function TargetFolder({
             </span>
           ) : null}
           <StatusBadge status={latest.scan.status} />
-          <span className="w-8 text-right text-sm font-medium tabular-nums">{latest.scan.score ?? "-"}</span>
+          <span className="w-8 text-right text-sm font-medium tabular-nums">{latest.scan.risk_score ?? "-"}</span>
         </span>
       </button>
 
@@ -413,7 +413,7 @@ function ScanHistoryRow({
               <span className="sr-only"> high findings</span>
             </span>
           ) : null}
-          <span className="w-8 text-right text-[13px] font-medium tabular-nums">{summary.scan.score ?? "-"}</span>
+          <span className="w-8 text-right text-[13px] font-medium tabular-nums">{summary.scan.risk_score ?? "-"}</span>
         </span>
       </Link>
       <Button

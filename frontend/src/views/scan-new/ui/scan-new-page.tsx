@@ -37,7 +37,7 @@ const MODE_CONTENT: Record<
   github_repo: {
     label: "GitHub repository URL",
     example: "https://github.com/owner/repo",
-    coverage: "Source, secret, dependency, and MCP manifest checks when the repository contents are discoverable.",
+    coverage: "MCP tool rules, behavior analysis, credential exposure, and supply chain, when the repository’s tool registrations are readable.",
     limitations: "Live runtime prompt-injection testing is still out of scope.",
     icon: <FolderGit2 className="size-4 text-brand-text" />,
     cta: "Scan repository",
@@ -45,8 +45,8 @@ const MODE_CONTENT: Record<
   live_mcp_server: {
     label: "Live MCP server URL",
     example: "https://server.example.com/mcp",
-    coverage: "Manifest and MCP tool-description checks when source code is not available.",
-    limitations: "No repository-level static analysis, dependency, or secret scanning.",
+    coverage: "Every MCP tool rule, run against the tools the server answers with over a live handshake.",
+    limitations: "No source to read, so behavior analysis, credential exposure, and supply-chain checks do not run.",
     icon: <Globe className="size-4 text-brand-text" />,
     cta: "Scan live server",
   },

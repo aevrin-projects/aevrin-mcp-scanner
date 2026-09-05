@@ -13,7 +13,6 @@ import os
 import tempfile
 from uuid import UUID
 
-from ..classification.owasp import OwaspMcpCategory
 from ..execution.paths import relative_to_mount
 from ..execution.runner import (
     DockerRunSpec,
@@ -22,6 +21,7 @@ from ..execution.runner import (
     run_container,
     run_local_command,
 )
+from ..mcp.catalog import RULE_CATALOG
 from ..models import Finding, Location, Severity, ToolName
 from .base import ScannerAdapter
 
@@ -98,7 +98,8 @@ class TruffleHogAdapter(ScannerAdapter):
                 Finding(
                     scan_id=scan_id,
                     tool=self.tool,
-                    owasp_category=OwaspMcpCategory.TOKEN_MISMANAGEMENT,
+                    rule_id="AV-005",
+                    owasp_category=RULE_CATALOG["AV-005"].owasp,
                     severity=Severity.CRITICAL if verified else Severity.MEDIUM,
                     title=f"{'Verified' if verified else 'Unverified'} secret: "
                     f"{record.get('DetectorName', 'unknown detector')}",
@@ -109,6 +110,12 @@ class TruffleHogAdapter(ScannerAdapter):
                         "verify it against the live service."
                     ),
                     location=Location(file_path=relative_to_mount(meta.get("file"))),
+                    evidence=[
+                        f"detector: {record.get('DetectorName', 'unknown')}",
+                        f"file: {relative_to_mount(meta.get('file')) or 'unknown'}",
+                        "live verification: confirmed" if verified else "live verification: not confirmed",
+                    ],
+                    confidence=None if verified else "low",
                     verified=verified,
                     remediation=(
                         "Revoke this credential immediately and rotate it; it was "

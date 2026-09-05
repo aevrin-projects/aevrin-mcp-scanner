@@ -1,6 +1,6 @@
 """Every adapter mounts the scan target at /src inside its container.
 Tools disagree on whether they report paths relative to that mount
-(gitleaks, trivy) or as the absolute in-container path (semgrep, bandit);
+(trufflehog) or as the absolute in-container path (semgrep);
 normalize to always-relative so `file_path` reads the same regardless of
 which tool found it, on both the website and the CLI.
 """

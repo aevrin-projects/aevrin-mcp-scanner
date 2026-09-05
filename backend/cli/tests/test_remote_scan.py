@@ -32,7 +32,7 @@ def _row(scan_id: str) -> dict:
         "target_type": "local_path",
         "target": r"B:\Developer\project",
         "status": "completed",
-        "score": 56,
+        "risk_score": 56,
         "created_at": "2026-08-25T21:15:34.551692Z",
     }
 
@@ -50,7 +50,7 @@ def _stage(name: str) -> dict:
 
 def test_stages_are_accepted_even_though_the_api_omits_scan_id(monkeypatch):
     scan_id = str(uuid4())
-    stages = [_stage(n) for n in ("cloning", "static_analysis", "secrets", "aggregating")]
+    stages = [_stage(n) for n in ("cloning", "mcp_rules", "secrets", "aggregating")]
 
     def fake_get(url, **_kwargs):
         return _Resp(stages) if url.endswith("/stages") else _Resp([])
@@ -63,7 +63,7 @@ def test_stages_are_accepted_even_though_the_api_omits_scan_id(monkeypatch):
     # Filled in from the URL rather than by widening the API response.
     assert all(str(stage.scan_id) == scan_id for stage in scan.stages)
     assert scan.target == r"B:\Developer\project"
-    assert scan.score == 56
+    assert scan.risk_score == 56
 
 
 def test_a_failed_findings_fetch_is_an_error_not_an_empty_report(monkeypatch):
