@@ -21,11 +21,7 @@ class CliUploadFinding(BaseModel):
     line_end: int | None = None
     manifest_field: str | None = None
     tool_name_in_manifest: str | None = None
-    mcp_tool: str | None = None
-    capability: str | None = None
     remediation: str
-    verified: bool | None = None
-    not_tested: bool = False
     raw: dict[str, Any] | None = None
     created_at: datetime | None = None
 
@@ -42,20 +38,18 @@ class CliUploadRequest(BaseModel):
     scan_id: UUID | None = None
     target_type: str
     target: str = Field(min_length=1, max_length=8000)
-    # 0-100, higher is worse. Recomputed server-side from the uploaded
-    # findings regardless of what the client sends - see routes/cli.py.
+    # 0-100, higher is worse. Client-reported: the engine produced it on the
+    # machine that ran the scan, and the API cannot re-derive it without
+    # launching the server itself. Checked for self-consistency, not recomputed.
     risk_score: int | None = None
-    # "A".."F", or null for an incomplete scan. Also recomputed server-side.
+    # "A".."F", or null for an incomplete scan. Client-reported, and refused
+    # when it contradicts the findings uploaded alongside it.
     grade: str | None = None
     status: str = "completed"
     created_at: datetime | None = None
     completed_at: datetime | None = None
     mcp_detected: bool | None = None
-    mcp_detection_confidence: str | None = None
-    mcp_detection_evidence: list[str] = Field(default_factory=list)
     mcp_tools_declared: list[str] = Field(default_factory=list)
-    mcp_components: list[dict[str, Any]] = Field(default_factory=list)
-    mcp_capabilities: dict[str, bool] | None = None
     unreliable_stages: list[str] = Field(default_factory=list)
     stages: list[CliUploadStage] = Field(default_factory=list)
     findings: list[CliUploadFinding]

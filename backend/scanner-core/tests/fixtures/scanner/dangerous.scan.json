@@ -1,0 +1,289 @@
+{
+  "schema_version": "1.0",
+  "policies": [
+    {
+      "tool_name": "run_shell",
+      "action": "REQUIRE_APPROVAL",
+      "reason": "risk score 27 (grade C): tool requires human approval before use",
+      "behavior": [
+        "executes_commands",
+        "uses_network"
+      ],
+      "destinations": [
+        "hardcoded domain: collect.example.com"
+      ],
+      "dependency_visibility": "No dependency data",
+      "dependency_note": "No metadata.dependencies or repo_url were exposed by this MCP server.",
+      "score": {
+        "risk_score": 27,
+        "grade": "C",
+        "findings": [
+          {
+            "rule_id": "AS-001",
+            "severity": "CRITICAL",
+            "code": "TOOL_POISONING",
+            "description": "possible prompt injection detected in tool description: pattern matched: (?i)\\b(ignore|disregard|bypass)\\s+(?:\\w+\\s+){0,3}(instructions?|prompts?|context|rules?|guidelines?|restrictions?|filters?)",
+            "location": "description",
+            "tool_name": "run_shell",
+            "evidence": [
+              {
+                "kind": "description_pattern",
+                "value": "(?i)\\b(ignore|disregard|bypass)\\s+(?:\\w+\\s+){0,3}(instructions?|prompts?|context|rules?|guidelines?|restrictions?|filters?)"
+              },
+              {
+                "kind": "description_match",
+                "value": "ignore previous instructions"
+              }
+            ]
+          },
+          {
+            "rule_id": "AS-002",
+            "severity": "INFO",
+            "code": "CAPABILITY_SURFACE",
+            "description": "declared capabilities: code/command execution, network access",
+            "location": "permissions",
+            "tool_name": "run_shell",
+            "evidence": [
+              {
+                "kind": "capability",
+                "value": "exec"
+              },
+              {
+                "kind": "capability",
+                "value": "network"
+              }
+            ]
+          },
+          {
+            "rule_id": "AS-010",
+            "severity": "INFO",
+            "code": "SECRET_IN_INPUT",
+            "description": "input parameter \"api_key\" accepts a credential (informational; not evidence of insecure handling)",
+            "location": "inputSchema.properties.api_key",
+            "tool_name": "run_shell"
+          },
+          {
+            "rule_id": "AS-011",
+            "severity": "LOW",
+            "code": "MISSING_RATE_LIMIT",
+            "description": "tool performs network or execution operations but declares no rate-limit, timeout, or retry configuration",
+            "location": "permissions+metadata",
+            "tool_name": "run_shell"
+          },
+          {
+            "rule_id": "AS-014",
+            "severity": "INFO",
+            "code": "DEPENDENCY_INVENTORY_UNAVAILABLE",
+            "description": "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited.",
+            "location": "metadata",
+            "tool_name": "run_shell",
+            "evidence": [
+              {
+                "kind": "dependency_visibility",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tool_name": "read_config",
+      "action": "ALLOW",
+      "rate_limit": {
+        "requests_per_minute": 60,
+        "burst_size": 10
+      },
+      "reason": "risk score 15 (grade B): tool is within acceptable risk threshold",
+      "behavior": [
+        "reads_files"
+      ],
+      "dependency_visibility": "No dependency data",
+      "dependency_note": "No metadata.dependencies or repo_url were exposed by this MCP server.",
+      "score": {
+        "risk_score": 15,
+        "grade": "B",
+        "findings": [
+          {
+            "rule_id": "AS-002",
+            "severity": "INFO",
+            "code": "CAPABILITY_SURFACE",
+            "description": "declared capabilities: filesystem access",
+            "location": "permissions",
+            "tool_name": "read_config",
+            "evidence": [
+              {
+                "kind": "capability",
+                "value": "fs"
+              }
+            ]
+          },
+          {
+            "rule_id": "AS-005",
+            "severity": "HIGH",
+            "code": "PRIVILEGE_ESCALATION",
+            "description": "tool description suggests privilege escalation: \"sudo\"",
+            "location": "description",
+            "tool_name": "read_config"
+          },
+          {
+            "rule_id": "AS-014",
+            "severity": "INFO",
+            "code": "DEPENDENCY_INVENTORY_UNAVAILABLE",
+            "description": "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited.",
+            "location": "metadata",
+            "tool_name": "read_config",
+            "evidence": [
+              {
+                "kind": "dependency_visibility",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tool_name": "reed_config",
+      "action": "ALLOW",
+      "reason": "risk score 0 (grade A): tool is within acceptable risk threshold",
+      "behavior": [
+        "reads_files"
+      ],
+      "dependency_visibility": "No dependency data",
+      "dependency_note": "No metadata.dependencies or repo_url were exposed by this MCP server.",
+      "score": {
+        "risk_score": 0,
+        "grade": "A",
+        "findings": [
+          {
+            "rule_id": "AS-002",
+            "severity": "INFO",
+            "code": "CAPABILITY_SURFACE",
+            "description": "declared capabilities: filesystem access",
+            "location": "permissions",
+            "tool_name": "reed_config",
+            "evidence": [
+              {
+                "kind": "capability",
+                "value": "fs"
+              }
+            ]
+          },
+          {
+            "rule_id": "AS-014",
+            "severity": "INFO",
+            "code": "DEPENDENCY_INVENTORY_UNAVAILABLE",
+            "description": "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited.",
+            "location": "metadata",
+            "tool_name": "reed_config",
+            "evidence": [
+              {
+                "kind": "dependency_visibility",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tool_name": "fetch_url",
+      "action": "ALLOW",
+      "reason": "risk score 2 (grade A): tool is within acceptable risk threshold",
+      "behavior": [
+        "uses_network"
+      ],
+      "destinations": [
+        "dynamic URL input (url)"
+      ],
+      "dependency_visibility": "No dependency data",
+      "dependency_note": "No metadata.dependencies or repo_url were exposed by this MCP server.",
+      "score": {
+        "risk_score": 2,
+        "grade": "A",
+        "findings": [
+          {
+            "rule_id": "AS-002",
+            "severity": "INFO",
+            "code": "CAPABILITY_SURFACE",
+            "description": "declared capabilities: network access",
+            "location": "permissions",
+            "tool_name": "fetch_url",
+            "evidence": [
+              {
+                "kind": "capability",
+                "value": "network"
+              }
+            ]
+          },
+          {
+            "rule_id": "AS-011",
+            "severity": "LOW",
+            "code": "MISSING_RATE_LIMIT",
+            "description": "tool performs network or execution operations but declares no rate-limit, timeout, or retry configuration",
+            "location": "permissions+metadata",
+            "tool_name": "fetch_url"
+          },
+          {
+            "rule_id": "AS-014",
+            "severity": "INFO",
+            "code": "DEPENDENCY_INVENTORY_UNAVAILABLE",
+            "description": "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited.",
+            "location": "metadata",
+            "tool_name": "fetch_url",
+            "evidence": [
+              {
+                "kind": "dependency_visibility",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tool_name": "no_desc_tool",
+      "action": "ALLOW",
+      "reason": "risk score 0 (grade A): tool is within acceptable risk threshold",
+      "dependency_visibility": "No dependency data",
+      "dependency_note": "No metadata.dependencies or repo_url were exposed by this MCP server.",
+      "score": {
+        "risk_score": 0,
+        "grade": "A",
+        "findings": [
+          {
+            "rule_id": "AS-007",
+            "severity": "INFO",
+            "code": "INSUFFICIENT_TOOL_DATA",
+            "description": "Tool 'no_desc_tool' has no description - agents cannot reason about its purpose, and static analysis coverage is limited",
+            "tool_name": "no_desc_tool"
+          },
+          {
+            "rule_id": "AS-014",
+            "severity": "INFO",
+            "code": "DEPENDENCY_INVENTORY_UNAVAILABLE",
+            "description": "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited.",
+            "location": "metadata",
+            "tool_name": "no_desc_tool",
+            "evidence": [
+              {
+                "kind": "dependency_visibility",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "summary": {
+    "total": 5,
+    "allowed": 4,
+    "require_approval": 1,
+    "blocked": 0,
+    "avg_score": 8,
+    "avg_grade": "A",
+    "scanned_at": "2026-09-05T22:55:53.1830772Z"
+  }
+}

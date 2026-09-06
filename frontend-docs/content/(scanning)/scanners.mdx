@@ -8,13 +8,14 @@ source-code scanner: there are no findings about Dockerfile style, CI configurat
 protection, repository badges, or fuzzing status. If your MCP server's repository also has an
 unrelated bug in its web handler, Aevrin will not tell you about it.
 
-Most checks are Aevrin's own rules, running in-process against the tools a server exposes. Two
-external scanners contribute evidence that rules cannot produce on their own.
+Every finding comes from one engine, running against the tools a **live server** actually
+returns. Aevrin starts the server, completes the MCP handshake, reads its tool definitions, and
+analyses those. A repository is only ever a way of finding out which server to start — it is
+not itself the thing being assessed.
 
 ## Tool rules
 
-Run against every tool Aevrin can enumerate, whether read from a repository's source, returned
-by a live server's handshake, or declared in a pasted config.
+Run against every tool the running server returns from its handshake.
 
 | Rule | Severity | Detects |
 |---|---|---|
@@ -29,66 +30,60 @@ by a live server's handshake, or declared in a pasted config.
 | AS-009 | Medium | **Typosquatting** — a name one or two characters from a widely used tool |
 | AS-010 | Low / Medium | **Secret handling** — credentials accepted as tool arguments, or logged |
 | AS-011 | Low | **Missing rate limit or timeout** on a network or execution tool |
-| AS-012 | Critical | **Rug pull** — a tool's definition changed since the last scan of this target |
 | AS-013 | High | **Tool shadowing** — two tools answering to the same name |
 | AS-014 | Info | **Dependency inventory unavailable** — a live server exposing no dependency metadata |
 | AS-015 | Medium / High | **Install-time script** — an npm lifecycle script that runs before anything is reviewed |
 | AS-016 | Critical | **Malicious indicator** in a dependency or install script |
 | AS-017 | Medium | **Data exfiltration** language in a tool description |
 | AS-018 | Info | **Unenumerable tools** — an MCP server whose tools could not be read |
-| AV-001 | Critical / High | **Dangerous launch command** — a stdio entry that pipes a download into a shell |
-| AV-002 | High / Medium | **Weak authentication** — plaintext transport, or no declared credential |
-| AV-003 | Info | **No audit logging** found in source |
-| AV-004 | from the rule | **Unsafe dataflow** — a tool argument reaching a shell, file write, outbound request, or credential read |
-| AV-005 | Critical / Medium | **Committed credential** in the repository's source or history |
 
-The `AS-` rules are adapted from the [ToolTrust Scanner](https://github.com/AgentSafe-AI/tooltrust-scanner)
-(MIT); rule ids match, so an Aevrin finding and a ToolTrust finding refer to the same check. The
-`AV-` rules are Aevrin's own.
+## What Aevrin no longer reports
 
-One upstream rule is deliberately absent: **AS-019** (unauthenticated MCP HTTP route) needs
-route-level analysis Aevrin does not yet do, so it is not listed rather than listed and never
-fired. Claimed coverage that does not exist is worse than an admitted gap.
+Repository security is not MCP security, and mixing the two buried the findings that matter.
+Aevrin no longer produces generic dependency CVEs across a repository's whole tree, committed-
+credential findings, source-level dataflow results, or anything about Dockerfiles, CI
+configuration, branch protection or repository badges.
 
-## External scanners
-
-| Stage | Scanner | Primary signal |
-|---|---|---|
-| MCP behavior | Semgrep, running Aevrin's own MCP rule pack | Whether a tool's own argument reaches a dangerous sink — real dataflow, not a keyword |
-| Credential exposure | TruffleHog | Committed credentials, verified live against the issuing service where supported |
-| Supply chain | OSV-Scanner | Known vulnerable packages across manifests and lockfiles |
-
-AV-004 is the one check that produces *observed* evidence rather than declared evidence. Every
-other rule reads what a tool says about itself; this one reads what the code does.
+Supply-chain coverage continues through **AS-004**, **AS-008**, **AS-015** and **AS-016**, scoped
+to the dependencies the scanned server itself exposes. Where a server exposes none, that is
+reported as **AS-014** — limited coverage, stated rather than assumed clean.
 
 ## Evidence
 
 Every finding carries the specific facts that made its rule fire — the matched text, the
 capability, the input property name, the package version. Where a rule fired on a name or
-description heuristic that nothing independently confirmed, it is marked **Confidence: low** and
-reported at Info so a guess never inflates your grade.
+description heuristic that nothing independently confirmed, the engine reports it at Info so a
+guess never inflates your grade.
 
 Identical verdicts across tools are shown as one finding with every affected tool listed. A
 server with twenty-four tools that all lack a dependency inventory has one problem, not
-twenty-four. This does not reduce the risk score — the count still multiplies — it just stops
-the report burying the things that matter.
+twenty-four. Critical findings are never grouped: a critical is read individually, by name.
 
-## Stage outcomes
+## Stages
 
-- **Completed** means the check ran and its output was parsed.
-- **Failed** means the stage could not produce reliable evidence.
-- **Skipped** means the check is not applicable, such as a live-server target with no source to read.
-- **Incomplete scan** means either a required scanner did not run, or no MCP tools could be
-  enumerated. In both cases the scan receives **no grade at all** — see
-  [Concepts](/docs/scanning/concepts).
+A scan has five stages, and each one is a real step:
+
+1. **Resolving** — work out the command that starts this server.
+2. **Launching** — start it, in an isolated container.
+3. **Enumerating** — complete the MCP handshake and read its tools.
+4. **Analyzing** — run the rules over those tool definitions.
+5. **Grading** — roll the per-tool verdicts up.
+
+A scan that stops at any of them is **incomplete** and receives **no grade at all**, with the
+reason attached. A server that will not start, or that returns no tools, has not been shown to
+be safe — it has not been assessed. See [Concepts](/docs/scanning/concepts).
+
+Your grade is the **worst tool's** grade, not an average of them. You install the whole server,
+and the worst tool is the one that reaches your data.
 
 ## Deliberate limits
 
-- Static scanning cannot prove runtime authorization behavior or adversarially test prompt
-  injection in live tool responses (MCP08). Every report says so explicitly.
-- Dataflow analysis is intra-procedural: a tool whose argument reaches a sink only through a
-  helper function it calls is a gap this will miss. Stated rather than hidden.
-- A transitive dependency's own install script lives in that package's registry metadata, not in
-  the repository, so AS-015 and AS-016 cover what your clone contains.
+- Only servers that can actually be started can be graded. A server needing API keys, a browser,
+  or a private registry is reported as unassessed rather than guessed at.
+- The rules read what a tool **declares**. A tool whose description is unremarkable and whose
+  behaviour at call time is not is outside what static tool-definition analysis can see.
+- A grade describes one version at one moment. Reinstalling later can get different code.
+- Aevrin cannot adversarially test prompt injection in live tool responses (MCP08). Every report
+  says so explicitly.
 
 Aevrin records these as limitations; it does not manufacture coverage for tests that did not run.

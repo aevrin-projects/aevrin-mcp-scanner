@@ -28,7 +28,7 @@ from aevrin_scanner_core import (
     grade_scan,
     rule_for,
 )
-from aevrin_scanner_core.mcp.risk import GradeResult
+from aevrin_scanner_core.mcp.risk import Grade, GradeResult
 from rich.console import Console
 
 
@@ -105,8 +105,14 @@ def _grade(scan: Scan) -> GradeResult:
     """Recomputed from the scan's own findings rather than read off
     `scan.grade`, so the terminal output, the JSON output and the dashboard
     all render the same object - one grader, one summary, three surfaces."""
+    # The scan already carries the engine's verdict. This call only chooses
+    # the wording and the policy shown beside it; the CLI does not re-grade a
+    # result, because a terminal disagreeing with the dashboard about the same
+    # server is the exact failure one engine exists to prevent.
     return grade_scan(
         scan.findings,
+        engine_risk_score=scan.risk_score,
+        engine_grade=Grade(scan.grade) if scan.grade else None,
         coverage_complete=scan.status != ScanStatus.INCOMPLETE,
         tools_discovered=len(scan.mcp_tools_declared),
     )
@@ -162,15 +168,13 @@ def _finding_heading(finding: Finding) -> str:
     )
     if finding.occurrence_count > 1:
         heading += f" [dim]x{finding.occurrence_count}[/dim]"
-    if finding.confidence == "low":
-        heading += " [dim](confidence: low)[/dim]"
     return heading
 
 
 def _print_findings(scan: Scan) -> None:
-    real = [f for f in scan.findings if not f.not_tested and not f.excluded_path]
-    excluded = [f for f in scan.findings if f.excluded_path]
-    not_tested = [f for f in scan.findings if f.not_tested]
+    # Every finding a scan reports is shown. The fixture-path and not-tested
+    # splits that used to divide this list went with source scanning.
+    real = scan.findings
 
     stdout_console.print()
     stdout_console.print(f"[bold]Security findings ({len(real)})[/bold]")
@@ -198,15 +202,6 @@ def _print_findings(scan: Scan) -> None:
             stdout_console.print(f"  [dim]Why this matters:[/dim] {rule.impact}")
         stdout_console.print(f"  [dim]Fix:[/dim] {finding.remediation}")
 
-    if excluded:
-        stdout_console.print()
-        stdout_console.print(
-            f"[dim]{len(excluded)} additional finding(s) in test/fixture paths excluded from the "
-            "risk score and hidden here; rerun with --json to inspect them.[/dim]"
-        )
-    for finding in not_tested:
-        stdout_console.print()
-        stdout_console.print(f"[dim]Note: {finding.description}[/dim]")
 
 
 def print_terminal_report(scan: Scan) -> None:
@@ -277,11 +272,7 @@ def print_json_report(scan: Scan) -> None:
             "suggested_policy": grade.summary.suggested_policy.value,
         },
         "mcp_detected": scan.mcp_detected,
-        "mcp_detection_confidence": scan.mcp_detection_confidence,
-        "mcp_detection_evidence": scan.mcp_detection_evidence,
         "mcp_tools_declared": scan.mcp_tools_declared,
-        "mcp_components": scan.mcp_components,
-        "mcp_capabilities": scan.mcp_capabilities,
         "unreliable_stages": [s.value for s in scan.unreliable_stages],
         "disclaimer": (
             "Self-reported by the scanning client, not independently re-verified by Aevrin."
@@ -302,18 +293,7 @@ def print_json_report(scan: Scan) -> None:
                 "line_start": f.location.line_start,
                 "line_end": f.location.line_end,
                 "manifest_field": f.location.manifest_field,
-                "mcp_tool": f.mcp_tool,
-                "capability": f.capability,
                 "remediation": f.remediation,
-                "verified": f.verified,
-                "not_tested": f.not_tested,
-                "excluded_path": f.excluded_path,
-                "confidence": f.confidence,
-                "original_severity": f.original_severity.value if f.original_severity else None,
-                "epss_score": f.epss_score,
-                "in_kev": f.in_kev,
-                "dependency_scope": f.dependency_scope.value if f.dependency_scope else None,
-                "corroborated_by": [t.value for t in f.corroborated_by],
                 "occurrence_count": f.occurrence_count,
                 "additional_locations": [
                     {

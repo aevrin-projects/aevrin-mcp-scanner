@@ -1,109 +1,35 @@
-"""Two execution backends for the same scanner adapters.
+"""Running the scan container, and nothing else on the host.
 
-`run_container` runs each tool in its own disposable `docker run --rm`
-container, the default, and what local/self-hosted deployments use.
+There used to be two execution backends here, selected by `AEVRIN_EXECUTOR`:
+Docker, or the scanner binary invoked directly as a subprocess. The
+subprocess mode existed because the analysers were static - they read files
+and never executed what they read - so running them beside the API was
+merely inelegant rather than dangerous.
 
-`run_local_command` runs the tool as a plain subprocess against a binary
-installed directly in the host image. This exists because managed
-container runtimes (AWS Fargate, Azure Container Apps, and PaaS hosts
-generally) run non-privileged containers with no Docker-in-Docker support: `docker run` simply isn't available there. When
-Docker isn't an option, every scanner binary is baked into backend/api's own
-Dockerfile at build time instead (see backend/api/Dockerfile), and each
-adapter's `build_local_command()` runs it directly against a temp-directory
-clone. This mode never installs dependencies from or executes code out of
-the scanned repo; only the fixed set of static-analysis binaries run, same
-as in Docker mode, just without container-level isolation. Select the mode
-via the `AEVRIN_EXECUTOR` env var (`docker`, the default, or `subprocess`).
+That is no longer true, and the fallback is gone with it. Scanning an MCP
+server means *starting* it, which means executing code published by someone
+else, whose npm lifecycle scripts run before a single tool is enumerated.
+The API process holds the Supabase service-role key, and the service role
+bypasses RLS - so a fallback that quietly ran that code on the host would
+turn a stopped Docker daemon into a full compromise of every tenant's data.
 
-Both backends isolate failures per tool: a crashing scanner raises
-ToolExecutionError, which the orchestrator (backend/api) catches per-adapter so
-one broken scanner never takes down the rest of the scan.
+A scan without Docker is now a scan that does not run. That is the correct
+outcome: an unavailable sandbox is an unavailable scan, never a scan
+performed without one.
+
+`run_local_command` remains for host-side helpers that execute nothing from
+the target (`git clone`), with its own sanitised environment.
 """
 
 from __future__ import annotations
 
 # This module intentionally runs versioned scanner argv without a shell.
-import functools
 import os
 import platform
 import re
 import shlex
-import shutil
 import subprocess  # nosec B404
 from dataclasses import dataclass, field
-
-# How to install each scanner if it is neither containerised nor on PATH.
-# An error that says a tool is missing without saying how to get it just
-# moves the work to a search engine.
-INSTALL_HINTS = {
-    # Semgrep runs Aevrin's own MCP taint pack, not a generic ruleset.
-    "semgrep": "pip install semgrep",
-    "trufflehog": "https://github.com/trufflesecurity/trufflehog#floppy_disk-installation",
-    "osv-scanner": "https://google.github.io/osv-scanner/installation/",
-}
-
-
-def get_executor_mode() -> str:
-    """`auto` (the default), `docker`, or `subprocess`.
-
-    `auto` prefers Docker, because a container is the isolated way to run an
-    untrusted scanner over untrusted source, and falls back to a binary on
-    PATH only when the daemon cannot be reached. Setting the variable
-    explicitly pins one mode and disables the fallback, which is what the API
-    container wants: its scanners are baked in and there is no Docker inside
-    it to fall back from.
-    """
-    mode = os.environ.get("AEVRIN_EXECUTOR", "auto").lower()
-    if mode not in ("auto", "docker", "subprocess"):
-        raise ValueError(f"AEVRIN_EXECUTOR must be 'auto', 'docker' or 'subprocess', got {mode!r}")
-    return mode
-
-
-@functools.lru_cache(maxsize=1)
-def docker_available() -> bool:
-    """Whether a Docker daemon is actually reachable, not merely whether the
-    CLI exists.
-
-    `docker info` rather than `docker version`: the latter succeeds against a
-    stopped daemon by reporting only the client. Cached, so a scan pays for
-    this once rather than once per scanner, and short-timeout, because a
-    stopped Docker Desktop on Windows can hang a connection attempt for a
-    long time and this is a fast-path check, not the work.
-    """
-    try:
-        proc = subprocess.run(  # nosec B603 B607
-            ["docker", "info", "--format", "{{.ServerVersion}}"],
-            capture_output=True,
-            timeout=15,
-            check=False,
-        )
-    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
-        return False
-    return proc.returncode == 0
-
-
-def resolve_execution(tool: str, binary: str) -> str:
-    """Which mode this specific tool should use right now: "docker" or
-    "subprocess".
-
-    Raises rather than returning a mode that cannot work, so the failure names
-    both routes and how to fix either. Previously every tool was hard-wired to
-    Docker, so a stopped daemon failed the whole scan even when the scanner
-    was sitting on PATH.
-    """
-    mode = get_executor_mode()
-    if mode != "auto":
-        return mode
-    if docker_available():
-        return "docker"
-    if shutil.which(binary):
-        return "subprocess"
-    hint = INSTALL_HINTS.get(tool)
-    raise ToolExecutionError(
-        tool,
-        f"no Docker daemon and no local '{binary}' binary"
-        + (f"; start Docker, or install it with: {hint}" if hint else "; start Docker or install it"),
-    )
 
 
 class ToolExecutionError(Exception):
@@ -153,9 +79,32 @@ class DockerRunSpec:
     cpus: str = "2.0"
     workdir: str | None = None
     env: dict[str, str] = field(default_factory=dict)
-    # Some tools (semgrep, osv-scanner) exit non-zero when findings
-    # are present; that's not an execution failure. Adapters declare which
-    # exit codes are "ran successfully" vs. "actually crashed".
+    # Hardening for the one workload that is genuinely hostile: an MCP server
+    # published by someone else, installed from a public registry and executed
+    # so its tools can be read. `npm install` alone runs that stranger's
+    # lifecycle scripts before a single tool is enumerated, so this container
+    # is assumed compromised from the moment it starts.
+    #
+    # `env` is the reason this can be said at all: it is an explicit
+    # allow-list, so no Supabase service-role key, provider key or AWS
+    # credential is ever inherited from the API process. See
+    # docs/security/SECURITY.md.
+    read_only_rootfs: bool = False
+    # Writable scratch that vanishes with the container. Needed alongside
+    # read_only_rootfs because npm and npx cannot install into a read-only
+    # filesystem. container_path -> mount options, e.g.
+    # {"/tmp": "rw,nosuid,size=512m"}.
+    #
+    # Options are the caller's to choose because `noexec` is not always
+    # available here: npx installs shell shims into its prefix and execs them,
+    # so a noexec install directory does not harden the scan, it prevents it.
+    # `nosuid` is always safe and should always be present.
+    tmpfs: dict[str, str] = field(default_factory=dict)
+    # Run as this uid:gid rather than the image default. Untrusted code should
+    # not be root even inside a disposable container.
+    user: str | None = None
+    # The engine exits non-zero when `--fail-on` is triggered, which is a
+    # result rather than a crash. Callers declare which codes mean "ran".
     ok_exit_codes: tuple[int, ...] = (0,)
 
 
@@ -163,11 +112,9 @@ def _host_platform() -> str | None:
     """Docker platform string for this machine, or None if unremarkable.
 
     On Apple Silicon, `--pull missing` will happily reuse an amd64 image that
-    was cached earlier, and Docker then runs it under QEMU. Go binaries do
-    not survive that: trufflehog and osv-scanner
-    all die at startup with a `runtime.systemstack_switch` panic and exit 2,
-    which surfaced as five simultaneous "scanner failed" stages with pages of
-    Go stack trace. Naming the platform explicitly makes Docker select (and
+    was cached earlier, and Docker then runs it under QEMU. Go binaries do not
+    survive that - they die at startup with a `runtime.systemstack_switch`
+    panic and exit 2. Naming the platform explicitly makes Docker select (and
     pull) the matching variant instead of whatever happens to be cached.
     """
     machine = platform.machine().lower()
@@ -201,6 +148,12 @@ def run_container(tool: str, spec: DockerRunSpec) -> tuple[str, str, int]:
         "--pull",
         "missing",
     ]
+    if spec.read_only_rootfs:
+        cmd += ["--read-only"]
+    for mount_point, options in spec.tmpfs.items():
+        cmd += ["--tmpfs", f"{mount_point}:{options}"]
+    if spec.user:
+        cmd += ["--user", spec.user]
     host_platform = _host_platform()
     if host_platform:
         cmd += ["--platform", host_platform]
@@ -219,7 +172,7 @@ def run_container(tool: str, spec: DockerRunSpec) -> tuple[str, str, int]:
     cmd += [spec.image, *spec.args]
 
     try:
-        # argv comes from trusted, versioned adapters; shell=False.
+        # argv is built here from a pinned image and fixed flags; shell=False.
         proc = subprocess.run(  # nosec B603
             cmd,
             capture_output=True,
@@ -389,7 +342,7 @@ def run_local_command(tool: str, spec: LocalCommandSpec, target_dir: str) -> tup
     cmd = [spec.binary, *spec.args]
     env = sanitized_subprocess_env(spec.env)
     try:
-        # argv comes from trusted, versioned adapters; shell=False.
+        # argv is built here from a pinned image and fixed flags; shell=False.
         proc = subprocess.run(  # nosec B603
             cmd,
             cwd=spec.cwd or target_dir,

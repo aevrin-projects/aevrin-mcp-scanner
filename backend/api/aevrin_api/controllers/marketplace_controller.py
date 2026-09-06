@@ -410,6 +410,77 @@ async def admin_scan(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+# How many listings one "rescan the ungraded ones" press may enqueue. The
+# ceiling is the point: each scan launches a stranger's server in a container,
+# so an unbounded sweep over the whole catalogue is a self-inflicted load
+# spike. The admin presses it again for the next batch, and the response says
+# how many are left.
+REGRADE_BATCH_LIMIT = 25
+
+
+async def admin_regrade_ungraded(
+    db: SupabaseRest,
+    settings: Settings,
+    *,
+    actor_id: str,
+    schedule: Callable[..., Any],
+    limit: int = REGRADE_BATCH_LIMIT,
+) -> dict[str, Any]:
+    """Queue scans for catalogued listings that currently carry no grade.
+
+    Replacing the engine withdrew every stored grade, because a letter issued
+    by the previous one is not comparable to one issued by this one. That is
+    the honest state, but it leaves the whole catalogue reading "not yet
+    scanned" until something rescans it, and doing that one listing at a time
+    through the detail page is not a realistic recovery path.
+
+    Each listing goes through `scan_listing_version` exactly as the single
+    button does, so this queues ordinary scans - there is no bulk path with
+    its own rules. Listings that cannot be scanned (no repository, no version,
+    nothing published) are counted and named rather than retried: an
+    unlaunchable server stays ungraded, and that is a result, not an error.
+    """
+    rows = await db.select(
+        "mcp_listings",
+        {"current_trust_grade": "is.null", "status": "neq.rejected"},
+        columns="id,slug",
+        limit=limit,
+    )
+
+    queued: list[str] = []
+    skipped: list[dict[str, str]] = []
+    for listing in rows:
+        try:
+            await admin_scan(
+                db,
+                settings,
+                listing_id=str(listing["id"]),
+                version_id=None,
+                force=True,
+                actor_id=actor_id,
+                schedule=schedule,
+            )
+            queued.append(str(listing.get("slug") or listing["id"]))
+        except HTTPException as exc:
+            # Expected for remote-only and unpublished servers. Reported so an
+            # admin can see why the catalogue will still show gaps afterwards.
+            skipped.append({"listing": str(listing.get("slug") or listing["id"]),
+                            "reason": str(exc.detail)})
+
+    remaining = await db.select(
+        "mcp_listings",
+        {"current_trust_grade": "is.null", "status": "neq.rejected"},
+        columns="id",
+        limit=1000,
+    )
+    return {
+        "queued": len(queued),
+        "listings": queued,
+        "skipped": skipped,
+        "remaining_ungraded": max(0, len(remaining) - len(queued)),
+    }
+
+
 async def admin_submissions(db: SupabaseRest, *, review_status: str | None) -> list[dict[str, Any]]:
     return await submissions.list_submissions(db, status=review_status)
 

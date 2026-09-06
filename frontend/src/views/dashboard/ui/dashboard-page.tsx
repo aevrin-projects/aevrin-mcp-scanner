@@ -59,7 +59,7 @@ const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2,
 /** Findings a person still has to act on: triaged and untested ones are
  *  records, not work. Every count on this page uses this one filter. */
 function openFindings(findings: Finding[]) {
-  return findings.filter((f) => !f.not_tested && !f.excluded_path && f.triage_status === "open");
+  return findings.filter((f) => f.triage_status === "open");
 }
 
 export function DashboardPage() {
@@ -127,7 +127,7 @@ export function DashboardPage() {
 
     for (const summary of summaries) {
       const counts = summarizeFindings(
-        summary.findings.filter((f) => !f.not_tested && f.triage_status === "open"),
+        summary.findings.filter((f) => f.triage_status === "open"),
       );
       critical += counts.critical;
       high += counts.high;
@@ -363,7 +363,7 @@ export function DashboardPage() {
           className="lg:col-span-2"
           style={{ "--i": 4 } as React.CSSProperties}
           title="Security posture"
-          description="Latest score, and open findings per scan over time."
+          description="Latest risk score, and open findings per scan over time."
           action={
             latest ? (
               <Link
@@ -518,7 +518,7 @@ export function DashboardPage() {
           className={insights && insights.topTargets.length > 0 ? "lg:col-span-2" : "lg:col-span-3"}
           style={{ "--i": 9 } as React.CSSProperties}
           title="Recent scans"
-          description="Target, coverage, and the score each scan actually produced."
+          description="Target, coverage, and the risk score each scan actually produced."
           action={
             <Link
               href="/scans/history"

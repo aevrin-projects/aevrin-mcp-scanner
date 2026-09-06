@@ -200,7 +200,7 @@ async def _owned_scan(db: SupabaseRest, *, user_id: str, scan_id: str) -> dict[s
     rows = await db.select(
         "scans",
         {"id": scan_id},
-        columns="id,user_id,org_id,score,status,unreliable_stages,target,target_type,mcp_detected",
+        columns="id,user_id,org_id,risk_score,grade,status,unreliable_stages,target,target_type,mcp_detected",
         limit=1,
     )
     if not rows:

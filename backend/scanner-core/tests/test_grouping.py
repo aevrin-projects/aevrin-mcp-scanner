@@ -10,44 +10,11 @@ into one card the reader will actually finish.
 from uuid import uuid4
 
 from aevrin_scanner_core.classification.grouping import (
-    dedupe_cross_scanner,
     dedupe_exact,
-    group_by_root_cause,
     group_by_rule,
 )
 from aevrin_scanner_core.classification.owasp import OwaspMcpCategory
-from aevrin_scanner_core.mcp.risk import risk_score
 from aevrin_scanner_core.models import Finding, Location, Severity, ToolName
-
-
-def _osv_finding(vuln_id: str, pkg: str, aliases: list[str] | None = None) -> Finding:
-    return Finding(
-        scan_id=uuid4(),
-        tool=ToolName.OSV_SCANNER,
-        rule_id="AS-004",
-        owasp_category=OwaspMcpCategory.SUPPLY_CHAIN,
-        severity=Severity.HIGH,
-        title=f"{vuln_id} in {pkg}@1.0.0",
-        description="short",
-        location=Location(file_path="package-lock.json"),
-        remediation="Upgrade.",
-        raw={"id": vuln_id, "aliases": aliases or [], "summary": "short"},
-    )
-
-
-def _behavior_finding(check_id: str, file_path: str, severity: Severity = Severity.MEDIUM) -> Finding:
-    return Finding(
-        scan_id=uuid4(),
-        tool=ToolName.AEVRIN_MCP_BEHAVIOR,
-        rule_id="AV-004",
-        owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
-        severity=severity,
-        title="MCP tool input reaches shell execution",
-        description="tool argument flows into subprocess",
-        location=Location(file_path=file_path, line_start=10),
-        remediation="Validate the argument.",
-        raw={"check_id": check_id},
-    )
 
 
 def _rule_finding(
@@ -59,7 +26,7 @@ def _rule_finding(
 ) -> Finding:
     return Finding(
         scan_id=uuid4(),
-        tool=ToolName.AEVRIN_MCP_RULES,
+        tool=ToolName.MCP_SCANNER,
         rule_id=rule_id,
         owasp_category=OwaspMcpCategory.EXCESSIVE_AGENCY,
         severity=severity,
@@ -68,7 +35,6 @@ def _rule_finding(
         remediation="Declare limits.",
         evidence=["capability: network"],
         affected_tools=[tool_name],
-        mcp_tool=tool_name,
         location=Location(tool_name_in_manifest=tool_name),
     )
 
@@ -77,54 +43,8 @@ def _rule_finding(
 # Cross-scanner dedup
 
 
-def test_dedup_matches_via_osv_alias_list():
-    findings = [_osv_finding("GHSA-xxxx", "lodash", aliases=["CVE-2021-1234"])]
-    assert len(dedupe_cross_scanner(findings)) == 1
-
-
-def test_dedup_leaves_different_packages_alone():
-    findings = [_osv_finding("CVE-2021-1234", "lodash"), _osv_finding("CVE-2021-1234", "axios")]
-    assert len(dedupe_cross_scanner(findings)) == 2
-
-
 # --------------------------------------------------------------------------
 # Root-cause grouping
-
-
-def test_same_behavior_rule_across_many_files_becomes_one_finding():
-    findings = [_behavior_finding("mcp-shell-exec", f"handlers/tool_{i}.py") for i in range(12)]
-    (grouped,) = group_by_root_cause(findings)
-    assert grouped.occurrence_count == 12
-    assert len(grouped.additional_locations) == 11
-
-
-def test_different_behavior_rules_are_not_grouped_together():
-    findings = [
-        _behavior_finding("mcp-shell-exec", "a.py"),
-        _behavior_finding("mcp-fs-write", "a.py"),
-    ]
-    assert len(group_by_root_cause(findings)) == 2
-
-
-def test_secrets_are_never_grouped_even_with_same_detector():
-    """Each credential is independently exploitable; collapsing two into
-    "x2" would let a reader rotate one and think they were done."""
-    secrets = [
-        Finding(
-            scan_id=uuid4(),
-            tool=ToolName.TRUFFLEHOG,
-            rule_id="AV-005",
-            owasp_category=OwaspMcpCategory.TOKEN_MISMANAGEMENT,
-            severity=Severity.CRITICAL,
-            title="Verified secret: AWS",
-            description="live",
-            location=Location(file_path=path),
-            remediation="Rotate.",
-            raw={"DetectorName": "AWS"},
-        )
-        for path in ("a.env", "b.env")
-    ]
-    assert len(group_by_root_cause(secrets)) == 2
 
 
 # --------------------------------------------------------------------------
@@ -140,7 +60,6 @@ def test_identical_rule_verdict_across_tools_becomes_one_card():
     assert grouped.occurrence_count == 3
     assert grouped.affected_tools == ["browser_click", "browser_navigate", "browser_tabs"]
     # The card no longer claims to be about one tool.
-    assert grouped.mcp_tool is None
     assert not grouped.description.startswith("browser_navigate")
 
 
@@ -170,21 +89,17 @@ def test_criticals_are_never_grouped():
     assert len(group_by_rule(findings)) == 2
 
 
-def test_grouped_finding_still_scores_once_per_affected_tool():
-    """Five tools missing a timeout is five tools' worth of risk, shown
-    once - the grouping is a presentation decision, not a discount."""
-    def five() -> list[Finding]:
-        return [
-            _rule_finding("AS-011", f"tool_{i}", "performs network work but declares no timeout.")
-            for i in range(5)
-        ]
-
-    # Grouping mutates the representative in place, so the ungrouped
-    # comparison is built separately rather than read back afterwards.
-    ungrouped_score = risk_score(five())
-    grouped = group_by_rule(five())
-    assert len(grouped) == 1
-    assert risk_score(grouped) == ungrouped_score == 10  # 5 x LOW(2)
+def test_grouping_records_the_spread_it_folded():
+    """Grouping is a presentation decision and must not lose the count. The
+    engine already scored each tool before any of this ran, so the number
+    here exists to let a card say "AS-011 x5" and name all five."""
+    findings = [
+        _rule_finding("AS-011", f"tool_{i}", "performs network work but declares no timeout.")
+        for i in range(5)
+    ]
+    (grouped,) = group_by_rule(findings)
+    assert grouped.occurrence_count == 5
+    assert len(grouped.affected_tools) == 5
 
 
 def test_grouped_evidence_is_deduplicated_and_bounded():
@@ -202,15 +117,14 @@ def test_grouped_evidence_is_deduplicated_and_bounded():
 
 def test_dedupe_exact_collapses_a_double_reported_finding():
     def one() -> Finding:
-        return _behavior_finding("mcp-shell-exec", "server.py")
+        return _rule_finding("AS-011", "fetch", "declares no timeout.")
 
     assert len(dedupe_exact([one(), one()])) == 1
 
 
-def test_dedupe_exact_keeps_two_different_findings_in_one_file():
+def test_dedupe_exact_keeps_two_different_findings_on_one_tool():
     findings = [
-        _behavior_finding("mcp-shell-exec", "server.py"),
-        _behavior_finding("mcp-fs-write", "server.py"),
+        _rule_finding("AS-011", "fetch", "declares no timeout."),
+        _rule_finding("AS-002", "fetch", "declares: network access."),
     ]
-    findings[1].title = "MCP tool input reaches filesystem write"
     assert len(dedupe_exact(findings)) == 2

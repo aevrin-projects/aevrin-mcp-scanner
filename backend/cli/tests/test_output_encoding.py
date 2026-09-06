@@ -40,8 +40,8 @@ output.print_terminal_report(
         target_type=TargetType.LOCAL_PATH,
         target="/tmp/project",
         status=ScanStatus.INCOMPLETE,
-        score=100,
-        unreliable_stages=[StageName.DEPENDENCIES],
+        risk_score=0,
+        unreliable_stages=[StageName.LAUNCHING],
     )
 )
 """
@@ -84,8 +84,8 @@ def test_an_incomplete_scan_exits_3_not_1() -> None:
         target_type=TargetType.LOCAL_PATH,
         target="/tmp/project",
         status=ScanStatus.INCOMPLETE,
-        score=100,
-        unreliable_stages=[StageName.DEPENDENCIES],
+        risk_score=0,
+        unreliable_stages=[StageName.LAUNCHING],
     )
     # Independent of --fail-on: an environment too broken to scan is not a
     # pass at any threshold, and is not the same answer as "found something".

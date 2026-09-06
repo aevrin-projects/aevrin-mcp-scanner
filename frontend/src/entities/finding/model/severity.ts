@@ -1,12 +1,14 @@
 import type { Finding, Severity } from "./types";
 
-/** How much one finding of this severity moves the 0-100 scan score. */
-export function scoreImpactForSeverity(severity: Severity) {
-  if (severity === "critical") return "-40";
-  if (severity === "high") return "-20";
-  if (severity === "medium") return "-8";
-  if (severity === "low") return "-3";
-  return "No score impact";
+/** How much one finding of this severity adds to the 0-100 risk score.
+ *  Mirrors SEVERITY_WEIGHTS in the backend's `mcp/risk.py`; risk counts up,
+ *  so these are additions, not the deductions the old score used. */
+export function riskImpactForSeverity(severity: Severity) {
+  if (severity === "critical") return "+25";
+  if (severity === "high") return "+15";
+  if (severity === "medium") return "+8";
+  if (severity === "low") return "+2";
+  return "No risk impact";
 }
 
 export function summarizeFindings(findings: Finding[]): Record<Severity, number> {

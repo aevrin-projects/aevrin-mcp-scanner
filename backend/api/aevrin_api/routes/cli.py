@@ -37,20 +37,28 @@ async def upload_scan(
     db: Db,
     settings: Config,
 ) -> ScanOut:
-    """CLI already ran the full local scan (same scanner-core pipeline as
-    the backend); this just persists the result to the user's account. It
-    never re-runs the pipeline server-side, so the findings list itself is
-    still self-reported; the risk score and grade are not, though; see below.
+    """The CLI already ran the scan; this persists the result to the account.
 
-    We never trust the client-submitted `risk_score` or `grade`; both are
-    recomputed here from the submitted findings using the same shared
-    `grade_scan` the CLI itself used, and those recomputed values are what
-    get stored. This closes the cheapest tampering vector (a hand-crafted
-    upload claiming a better letter than its own findings justify) without
-    requiring a full server-side re-scan, which isn't feasible for
-    local/private targets.
-    The findings list itself remains self-reported, a fuller integrity
-    story (signed local attestation, spot-check re-scans of public repo
-    targets) is a documented future improvement, not something this
-    upload-and-trust-the-findings model can close on its own."""
+    The pipeline is never re-run server-side, so an upload is a
+    client-reported result end to end - findings, risk score and grade alike.
+    Aevrin says so rather than implying otherwise: `invocation_channel`
+    records that the result arrived from the CLI, and the scan detail view
+    labels it. Re-deriving a grade here would mean either launching the
+    server (which needs a sandbox and the exact package the CLI ran) or
+    writing a second scoring algorithm beside the engine's, and two graders
+    eventually disagree about one server. See ADR-033.
+
+    Two things are still refused, because both compare the client's claims
+    against the client's own evidence rather than recomputing anything:
+
+    - a grade with no enumerated tools, since a grade is a claim about tools
+      that were read;
+    - a grade in the ALLOW band (A/B) alongside a Critical or High finding in
+      the same payload, which is self-contradictory whatever produced it, and
+      is the shape a tampered CLI takes to make a dangerous server install
+      quietly.
+
+    Closing the rest needs a signed local attestation or a server-side
+    spot-check rescan; neither is implemented, and this model cannot close it
+    alone."""
     return await cli_controller.upload_scan(body, background, user.id, db, settings)

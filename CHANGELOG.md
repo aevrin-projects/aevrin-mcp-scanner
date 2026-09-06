@@ -20,7 +20,149 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ## [Unreleased]
 
+### Fixed
+
+- **A CLI upload could publish any grade it liked.** The guard refusing a
+  grade from a scan that enumerated no tools had been deleted during an
+  unrelated field removal: its body ended up attached to the `except` clause
+  above it, dead code after a `raise`, and the `else` silently rebound to the
+  `try`. The file parsed, mypy passed, and the test covering the rule passed
+  because it called `grade_scan` in scanner-core instead of the endpoint. The
+  guard is restored and is now asserted against `upload_scan` itself.
+- **A failed launch pasted the engine's manual into a user-facing error.** A
+  scan of a package that does not exist ended with the scanner's binary name
+  and full flag list in the stage error shown to the user, plus a broken
+  character where a tail-truncated excerpt had cut a UTF-8 sequence in half -
+  the actual cause was the part that got dropped. Launch failures now report
+  the cause and never name the engine (found by running a live scan, not by
+  reading the code).
+- **Every scan recorded `invocation_channel = dashboard`.** The scan service
+  built its pipeline config without a channel, so the column said "dashboard"
+  whatever had actually asked, including catalogue scans.
+
+### Added
+
+- **`POST /admin/marketplace/mcp/regrade-ungraded`** queues scans, in bounded
+  batches, for catalogued listings carrying no grade - the recovery path after
+  an engine change withdraws every stored grade at once. Listings that cannot
+  be scanned are reported as skipped with the reason rather than retried.
+- **Marketplace scans launch a listing's published package directly** when its
+  version records one (`npm` -> `npx -y`, `pypi` -> `uvx`), instead of always
+  resolving the repository manifest. Identifiers containing whitespace or
+  shell punctuation are refused.
+- **An upload whose grade contradicts its own findings is refused** - an
+  ALLOW-band letter (A/B) alongside a Critical or High finding cannot be true
+  whatever produced it, and is the shape a tampered CLI takes to make a
+  dangerous server install without a prompt. No grade is recomputed; see
+  `DECISIONS.md` ADR-037.
+
 ### Changed
+
+- **The MCP security engine is now the ToolTrust Scanner, and the security
+  target is the running server.** Aevrin resolves a target to a launch
+  command, starts the server, completes the MCP handshake, and analyses the
+  tools it actually returns. It no longer decides what is a vulnerability,
+  how severe it is, or what grade a server earns - the engine does, and
+  Aevrin presents that verdict unchanged. The Python ports of the AS- rules,
+  the manifest supply-chain checks, the permission-inference model and
+  Aevrin's own risk scoring are deleted; there is no severity-weight table
+  left in this codebase. See `DECISIONS.md` ADR-033.
+- **Scans have five stages that describe what actually happens**: resolving,
+  launching, enumerating, analyzing, grading. The previous seven existed
+  because seven tools ran over a cloned repository. A scan that stops early
+  now stops at a named stage with a reason attached.
+- **The displayed grade is the worst tool's, not an average.** The engine
+  grades per tool and offers only `summary.avg_grade`; on a real run that
+  average reported **A** for a server whose `run_shell` tool carried a
+  Critical tool-poisoning finding, because four unremarkable tools outvoted
+  it. You install the whole server, so the worst tool decides the grade.
+- **A GitHub target is resolved from the project's own manifest**, never from
+  the repository name. `microsoft/playwright-mcp` publishes as
+  `@playwright/mcp`; a different package called `playwright-mcp` exists on
+  npm under a different author. Guessing from the slug would scan that one
+  and attribute the grade to Microsoft. See ADR-035.
+- **CLI**: `aevrin scan mcp "npx -y @playwright/mcp"` scans a server by the
+  command that starts it - the only form that needs no resolution at all.
+
+### Added
+
+- **A disposable sandbox for untrusted servers.** Starting an MCP server runs
+  code published by a stranger, and npm lifecycle scripts run before any
+  scanning begins. That now happens in a one-shot container with no Aevrin
+  environment, a read-only rootfs, non-root uid, every capability dropped,
+  resource ceilings and a hard timeout - never in the API process, which
+  holds the Supabase service-role key. See ADR-034 and
+  `backend/scanner-image/Dockerfile`.
+- **Reproducibility fields on every scan**: `server_command`, `scanner_name`,
+  `scanner_version`, `invocation_channel`. The command is the one that makes
+  a resolution mistake visible after the fact.
+- **A schema-projection test** (`tests/workflows/test_schema_projections.py`)
+  that replays every migration and fails if any `columns=` projection names a
+  column no migration defines.
+
+### Fixed
+
+- **The agents and attack-paths pages would not load**, and neither would
+  account usage, AI explanations, or the Claude Code hook's cache check.
+  Migration `0046` renamed `scans.score` to `risk_score` and
+  `hook_cache.last_score` to `last_risk_score`, but five `select` projections
+  kept naming the old columns. PostgREST rejects those, which the error
+  middleware reports as "Upstream data store error" - so the failure surfaced
+  as a dead page rather than anything naming a column.
+- **A marketplace listing could never be graded.** `_apply_scan_to_version`
+  reads `mcp_tools_declared` to decide whether enumeration succeeded, but the
+  projection feeding it never selected that column, so every listing graded as
+  "tools could not be enumerated".
+- **An `F` listing counted as unscanned** in the admin marketplace summary,
+  because the grade tally was still `{A, B, C, D}` from before `F` existed.
+- **The hook received no grade and no score**: `HookCacheResponse` still
+  carried a field named `score` while `hook_script.py` had moved to
+  `risk_score`/`grade`.
+- **The exported report and the public site described the deleted score** -
+  a number counting down from 100, and a gauge rendering 92 as "Low risk".
+
+### Removed
+
+- **Every scanner except the engine**: Semgrep (and Aevrin's MCP taint pack),
+  TruffleHog, OSV-Scanner, and with them EPSS enrichment, CISA KEV lookup and
+  dependency-scope classification. A repository-wide dependency dump is not an
+  MCP security assessment; CVE coverage continues through AS-004, scoped to
+  the scanned server's own dependencies.
+- **Rug-pull / tool-drift tracking**, and the `rug_pull_signatures` table.
+- **`AEVRIN_EXECUTOR`.** The subprocess fallback was safe when analysers only
+  read files. It is not safe now that scanning executes the target, and a
+  stopped Docker daemon must fail the scan rather than run it unsandboxed.
+- **Scan fields with no producer left**: `mcp_detection_confidence`,
+  `mcp_detection_evidence`, `mcp_components`, `mcp_capabilities`, and the
+  finding-level `epss_score`, `in_kev`, `dependency_scope`,
+  `corroborated_by`, `original_severity`. Dropped in migration `0047`.
+- **The permission-recommendation projection.** It computed a projected score
+  by re-running Aevrin's own rules over narrowed tools; with the engine owning
+  the rules, that projection can no longer be calculated rather than guessed,
+  and a guessed reduction is worse than none.
+
+### Security
+
+- Untrusted MCP servers no longer execute anywhere near the Supabase
+  service-role key (ADR-034). Residual exposure is network egress, which the
+  container needs to fetch the package; on the deployed host EC2 IMDSv2 with
+  a hop limit of 1 is what stops it reaching instance credentials, and that is
+  now a documented deployment precondition.
+- **Known regression**: the API can no longer independently recompute a
+  CLI-uploaded grade, because recomputing means launching the server. A CLI
+  upload is a client-reported result and is now labelled as one. The floor
+  that remains is that an upload claiming a grade while enumerating no tools
+  is refused.
+
+
+### Earlier in this cycle
+
+The MCP-only refocus that preceded the engine replacement above. Kept
+separate because it shipped as its own piece of work, and because the
+entries below describe the state the change above then built on.
+
+
+#### Changed
 
 - **Aevrin is now an MCP-only security product.** General-purpose code
   security was removed rather than moved to another tab or hidden in the
@@ -65,7 +207,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 - The API container image drops five scanner binaries and the Node runtime.
   Semgrep the *engine* stays, running only Aevrin's own MCP taint pack.
 
-### Added
+#### Added
 
 - **The MCP rule engine** (`scanner-core/mcp/`): rules AS-001 through
   AS-018 adapted from the [ToolTrust Scanner](https://github.com/AgentSafe-AI/tooltrust-scanner)
@@ -90,7 +232,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 - `GET /scans/{id}` returns `risk_summary`; `GET /scans/{id}/findings`
   returns `rule_id`, `impact`, `evidence` and `affected_tools`.
 
-### Fixed
+#### Fixed
 
 - **`run_command(command: str)` reported as nothing worse than a capability
   disclosure.** AS-006 now fires at Critical whenever a tool declares
@@ -114,8 +256,35 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 - **AS-014 fired on every tool of every source-scanned repository**, claiming
   dependency coverage was incomplete when the manifests had been read
   directly. It is now scoped to live servers, where it is correct.
+- **The agents and attack-paths pages would not load**, and neither would
+  account usage, AI explanations, or the Claude Code hook's cache check.
+  Migration `0046` renamed `scans.score` to `scans.risk_score` and
+  `hook_cache.last_score` to `last_risk_score`, but five `select` projections
+  kept naming the old columns. PostgREST rejects a projection naming a column
+  that does not exist, which the error middleware reports as "Upstream data
+  store error" - so the failure surfaced as a dead page rather than as
+  anything pointing at a column name.
+- **A marketplace listing could never be graded.** `_apply_scan_to_version`
+  reads `scan_row["mcp_tools_declared"]` to decide whether tool enumeration
+  succeeded, but the projection feeding it never selected that column. Every
+  listing therefore graded as "tools could not be enumerated" and came back
+  letterless no matter how the scan had actually gone.
+- **An `F` listing counted as unscanned** in the admin marketplace summary,
+  because the grade tally was still `{A, B, C, D}` from before `F` existed.
+  The tile that reads "Grade C or worse" now includes it.
+- **The hook received no grade and no score.** `HookCacheResponse` still
+  carried a field named `score` while `hook_script.py` had moved on to
+  reading `risk_score` and `grade`, so every hook message said "no grade
+  (scan incomplete)" even for a scan that graded cleanly.
+- **The exported HTML report explained the deleted score.** Its footer still
+  described a number starting at 100 and subtracting critical/high/medium/low
+  at 40/20/8/3, and warned that "a high score from a scan that only half ran"
+  says little - advice that is now backwards. It describes the risk score and
+  the A-F boundaries.
+- **The public site advertised the old score direction**, rendering a 92 as
+  "Low risk" on a gauge the dashboard had already inverted.
 
-### Removed
+#### Removed
 
 - Semgrep's registry rulesets, Bandit, Gitleaks, Trivy, OpenSSF Scorecard,
   MCP-Shield, and the Node runtime that existed only for MCP-Shield.
@@ -126,7 +295,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   consolidated into one `McpTool`; and the separate declared-capability
   keyword vocabulary, consolidated into one `Permission` enum.
 
-### Added
+#### Added
 
 - **Availability history.** `service_checks` (migration `0039`) records one
   sample per service, written hourly by a new
@@ -151,7 +320,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   of `AEVRIN_ENV_OVERRIDES`, which is write-only outside a workflow run but
   readable inside one. See `DECISIONS.md` ADR-013.
 
-### Added
+#### Added
 
 - **Admin marketplace catalogue now scrolls.** The `ScrollArea` height
   constraint moved from the outer wrapper to the viewport element so the
@@ -168,7 +337,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   Settings → API keys page shows a "Clear revoked" button whenever any
   revoked keys exist.
 
-### Changed
+#### Changed
 
 - **Admin marketplace page redesigned.** Filters and search now work
   correctly: search is debounced 300 ms so API calls only fire after the
@@ -194,7 +363,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   layout put an empty model dropdown in front of the key that would have
   filled it.
 
-### Fixed
+#### Fixed
 
 - **An admin could not scan a catalogue server at all.** Two defects, either
   one sufficient. `_start_scan` awaited the pipeline *inside the request*,
@@ -277,7 +446,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   or short enum values), but a retention sweep written against it would
   have silently never pruned anything.
 
-### Changed
+#### Changed
 
 - The status page (`mcp.aevrin.net/status`) is now a detailed service view:
   an overall state badge, a metrics row, and a per-service card carrying its
@@ -290,7 +459,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   timeline: incidents are human-authored and Aevrin has nowhere to author
   them. See `docs/architecture/FRONTEND.md`.
 
-### Fixed
+#### Fixed
 
 - **Marketplace browse cards rendered with no title at all.** `GradeBadge`'s
   full form pairs its tile with an explanation ("No security evidence. Not a
@@ -338,7 +507,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   dropdown, never the scheduled job, which still never touches a customer
   credential. See `DECISIONS.md` ADR-012.
 
-### Added
+#### Added
 
 - Marketplace listings now show the publisher's real logo: their GitHub
   owner avatar, read from the owner segment of their declared
@@ -349,7 +518,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   broken. See `docs/architecture/FRONTEND.md`.
 
 
-### Changed
+#### Changed
 
 - The docs site (`docs.mcp.aevrin.net`) is now its own app and Cloudflare
   Worker, `frontend-docs/`, split out of `frontend/`. The combined bundle
@@ -419,7 +588,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   fields, a clearer separator before the submit action - the layout had
   read as cramped.
 
-### Added
+#### Added
 
 - MCP marketplace: registry ingestion from the official MCP Registry,
   search and category browsing, security-first ranking, submissions,
@@ -440,7 +609,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 - This documentation system: `CLAUDE.md`, `AGENT.md`, `docs/`,
   `DECISIONS.md`, `ROADMAP.md`, this file.
 
-### Changed
+#### Changed
 
 - GitHub-repository scanning now runs MCP-specific analysis (tool
   discovery, capability classification) directly against a server's own
@@ -452,7 +621,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   settings, an `or_filter`/`offset` query capability) to support the
   above without introducing a second query or permission mechanism.
 
-### Security
+#### Security
 
 - Marketplace submissions and any live-URL check reuse the same SSRF
   protections as live-target scanning (`network_safety.py`), including
@@ -461,7 +630,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   every credential-shaped string stripped, even from fields that
   "shouldn't" contain one.
 
-### Fixed
+#### Fixed
 
 - The AI providers model dropdown offered every model a key could see,
   including ones that cannot answer a `/chat/completions` request at all -
@@ -496,7 +665,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   Aevrin's own rug-pull signature diff, not the Invariant Labs `mcp-scan`
   CLI, which does not run in this pipeline.
 
-### Added
+#### Added
 
 - **MCP component detection.** `detect_mcp_server()` now also identifies
   which specific directories inside a repository independently look like
@@ -564,7 +733,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   it. Not one of `_CORE_STAGES`, the same reasoning that already excludes
   `TOOL_DESCRIPTION_CHECK`.
 
-### Fixed
+#### Fixed
 
 - `services/reports/html.py`'s exported-PDF stage list (`_STAGE_ORDER`)
   and the dashboard's `StageName` union/label maps
@@ -578,7 +747,7 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   `npx eslint src`, and `npm run build` all pass, though this was not
   additionally verified against a running dev server in a browser.
 
-### Added
+#### Added
 
 - **Declared vs observed** (`analysis/declared_vs_observed.py`): compares
   a behavior finding's observed capability (`Finding.capability`, migration

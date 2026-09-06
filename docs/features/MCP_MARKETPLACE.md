@@ -141,6 +141,29 @@ snippet with blank secrets (never a real value). Admins moderate via
   (before/after/reason/actor/timestamp). Publish refuses an unscanned
   listing.
 
+## Rescanning the catalogue
+
+A listing is scanned through `scan_listing_version`, which calls the same
+`start_scan` the dashboard uses. There is no marketplace scanner, and the
+scan records `invocation_channel = marketplace` so the surface that asked is
+visible without changing what was found.
+
+The launch command comes from the version's own registry metadata when it has
+any - `npm` becomes `npx -y <identifier>`, `pypi` becomes `uvx <identifier>` -
+because the identifier a listing publishes is the string a user would actually
+run. Anything else falls through to resolving the repository's manifest.
+Identifiers carrying whitespace or shell punctuation are refused outright:
+submissions come from the public, and a package name that looks like a command
+line is not a package name.
+
+`POST /admin/marketplace/mcp/regrade-ungraded` queues scans for listings that
+currently carry no grade, in bounded batches. It exists because replacing the
+engine withdraws every stored grade at once - a letter from the previous
+engine is not comparable to one from this one - and regrading a catalogue one
+listing at a time through the detail page is not a realistic recovery path.
+Listings that cannot be scanned are reported as skipped, with the reason. An
+unlaunchable server stays ungraded, which is a result rather than an error.
+
 ## The letters
 
 | Grade | Label | Recommended action |

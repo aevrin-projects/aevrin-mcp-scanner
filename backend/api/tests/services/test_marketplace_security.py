@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from aevrin_scanner_core.classification.owasp import OwaspMcpCategory
+from aevrin_scanner_core.mcp.risk import Grade
 from aevrin_scanner_core.models import Finding, Severity, ToolName
 
 from aevrin_api.services.marketplace.admin import (
@@ -110,22 +111,34 @@ def test_ranking_shows_its_working():
 # Grading
 
 
-def test_grade_comes_from_scanner_core_not_a_second_rubric():
+def test_grade_comes_from_the_engine_not_a_marketplace_rubric():
+    """The marketplace displays the same verdict the scan produced.
+
+    It no longer derives a letter of its own from the findings - it is handed
+    the engine's score and grade and passes them through. A marketplace rubric
+    would eventually disagree with the scan detail page about the same server,
+    and two different letters is worse than either letter alone.
+    """
     findings = [
-        _finding(Severity.CRITICAL, ToolName.AEVRIN_MCP_RULES, OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF)
+        _finding(Severity.CRITICAL, ToolName.MCP_SCANNER, OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF)
     ]
-    trust = grade_from_scan(findings, coverage_complete=True, tools_discovered=3)
-    # 25 risk points from one critical lands in C's band (25-49) by the same
-    # arithmetic mcp/risk.py applies everywhere else - there is no
-    # marketplace rubric of its own.
-    assert trust.grade is not None
-    assert trust.grade.value == "C"
-    assert trust.risk_score == 25
+    trust = grade_from_scan(
+        findings,
+        engine_risk_score=27,
+        engine_grade=Grade.C,
+        coverage_complete=True,
+        tools_discovered=3,
+    )
+    assert trust.grade is Grade.C
+    assert trust.risk_score == 27
 
 
 def test_incomplete_coverage_produces_no_letter_at_all():
     """Not a worse grade - no grade. A letter is a claim about evidence."""
-    trust = grade_from_scan([], coverage_complete=False, tools_discovered=3)
+    trust = grade_from_scan(
+        [], engine_risk_score=0, engine_grade=Grade.A,
+        coverage_complete=False, tools_discovered=3,
+    )
     assert trust.grade is None
     assert trust.incomplete is True
 
@@ -133,26 +146,25 @@ def test_incomplete_coverage_produces_no_letter_at_all():
 def test_a_listing_whose_tools_could_not_be_read_is_never_graded_a():
     """The failure mode this matters most for: an unreadable server produces
     zero findings, which is indistinguishable from a perfect one."""
-    trust = grade_from_scan([], coverage_complete=True, tools_discovered=0)
+    trust = grade_from_scan(
+        [], engine_risk_score=0, engine_grade=Grade.A,
+        coverage_complete=True, tools_discovered=0,
+    )
     assert trust.grade is None
     assert trust.summary.headline == "Scan Incomplete"
 
 
-def test_severity_counts_ignore_placeholders_and_fixtures():
-    real = _finding(Severity.HIGH, ToolName.AEVRIN_MCP_RULES, OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF)
-    placeholder = _finding(Severity.INFO, ToolName.AEVRIN_MCP_RULES, OwaspMcpCategory.PROMPT_INJECTION)
-    placeholder.not_tested = True
-    fixture = _finding(Severity.CRITICAL, ToolName.AEVRIN_MCP_RULES, OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF)
-    fixture.excluded_path = True
+def test_severity_counts_ignore_triaged_findings() -> None:
+    """Triage is the one remaining reason a finding is shown but not counted.
+    The placeholder and fixture-path exclusions went with source scanning."""
+    from aevrin_scanner_core.models import TriageStatus
 
-    counts = severity_counts([real, placeholder, fixture])
+    open_finding = _finding(Severity.HIGH, ToolName.MCP_SCANNER, OwaspMcpCategory.EXCESSIVE_AGENCY)
+    fixed = _finding(Severity.HIGH, ToolName.MCP_SCANNER, OwaspMcpCategory.EXCESSIVE_AGENCY)
+    fixed.triage_status = TriageStatus.FIXED
+
+    counts = severity_counts([open_finding, fixed])
     assert counts["high"] == 1
-    assert counts["critical"] == 0
-
-
-# --------------------------------------------------------------------------
-# Freshness — the stale-grade guard
-
 
 def test_a_grade_for_an_older_version_is_reported_as_outdated():
     freshness = scan_freshness(

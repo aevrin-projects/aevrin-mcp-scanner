@@ -240,7 +240,7 @@ async def _trust_by_identity(
     scans = await db.select(
         "scans",
         {"user_id": user_id, "target_type": "live_mcp_server"},
-        columns="id,target,score,status,created_at,mcp_capabilities",
+        columns="id,target,risk_score,grade,status,created_at,mcp_tools_declared",
         order="created_at.desc",
         limit=GRADE_SCAN_LOOKBACK,
     )
@@ -272,6 +272,8 @@ async def _trust_by_identity(
         findings = findings_by_scan.get(scan["id"], [])
         summary = grade_scan(
             findings,
+            engine_risk_score=scan.get("risk_score"),
+            engine_grade=grade,
             coverage_complete=scan["status"] != "incomplete",
             tools_discovered=len(scan.get("mcp_tools_declared") or []),
         ).summary

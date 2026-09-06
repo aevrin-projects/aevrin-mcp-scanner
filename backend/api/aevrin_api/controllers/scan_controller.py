@@ -9,7 +9,7 @@ from contextlib import suppress
 from typing import Any, cast
 from uuid import UUID, uuid4
 
-from aevrin_scanner_core import Finding, TargetType, grade_scan, rule_for
+from aevrin_scanner_core import Finding, Grade, TargetType, grade_scan, rule_for
 from fastapi import BackgroundTasks, HTTPException, UploadFile, status
 
 from aevrin_api.config import Settings
@@ -244,8 +244,12 @@ async def get_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> ScanOut:
 
     finding_rows = await db.select("findings", {"scan_id": str(scan_id), "user_id": user_id})
     findings = [Finding.model_validate(r) for r in finding_rows]
+    # The stored verdict is the engine's. This call chooses the wording and
+    # the policy around it; it never recomputes a grade from the finding rows.
     result = grade_scan(
         findings,
+        engine_risk_score=row.get("risk_score"),
+        engine_grade=Grade(str(row["grade"])) if row.get("grade") else None,
         coverage_complete=not (row.get("unreliable_stages") or []),
         tools_discovered=len(row.get("mcp_tools_declared") or []),
     )

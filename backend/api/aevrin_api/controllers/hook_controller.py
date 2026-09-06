@@ -164,7 +164,8 @@ async def check_cache(
 
     return HookCacheResponse(
         decision=decision,
-        score=row.get("last_score"),
+        risk_score=row.get("last_risk_score"),
+        grade=row.get("last_grade"),
         scan_id=row.get("last_scan_id"),
         checked_at=row.get("checked_at"),
         findings_summary=findings_summary,

@@ -73,18 +73,13 @@ class ScanOut(BaseModel):
     # How confidently mcp_detected was established, and the evidence lines
     # behind it - "high"/"medium"/"low"/"none", null where MCP-ness is by
     # construction (live_mcp_server, config_paste targets never set these).
-    mcp_detection_confidence: str | None = None
-    mcp_detection_evidence: list[str] = Field(default_factory=list)
     # Tool names read out of the repository's own registration sites. Empty
     # means none found, not "this server exposes nothing" - see
     # docs/features/MCP_SCANNING.md.
     mcp_tools_declared: list[str] = Field(default_factory=list)
-    mcp_components: list[dict[str, Any]] = Field(default_factory=list)
     # mcp.tools.capability_summary() over the discovered tools - the declared
     # surface, not observed behavior. Null (not a dict of all-false) when
     # tool discovery never ran for this target, same reasoning as
-    # mcp_detection_confidence above.
-    mcp_capabilities: dict[str, bool] | None = None
     unreliable_stages: list[str] = Field(default_factory=list)
     # Set when AI review covered only part of the findings, so a capped scan
     # never reads as fully reviewed.
@@ -134,25 +129,14 @@ class FindingOut(BaseModel):
     # Which declared MCP tool this finding's sink was found inside
     # (analysis.capability_map). Null when not applicable or not
     # established - never a guess at the nearest tool.
-    mcp_tool: str | None = None
     # The normalized capability vocabulary term this finding is about
     # (adapters/mcp_behavior.py). Null for every other tool.
-    capability: str | None = None
     remediation: str
-    verified: bool | None = None
-    not_tested: bool
     triage_status: str
     triage_reason: str | None = None
     triaged_at: datetime | None = None
     created_at: datetime
     # Deterministic accuracy layer (addendum §1): always present, every tier.
-    excluded_path: bool = False
-    confidence: str | None = None
-    original_severity: str | None = None
-    epss_score: float | None = None
-    in_kev: bool = False
-    dependency_scope: str | None = None
-    corroborated_by: list[str] = Field(default_factory=list)
     occurrence_count: int = 1
     additional_locations: list[dict[str, Any]] = Field(default_factory=list)
     # AI review layer (addendum §2): runs on every tier, None when not run.

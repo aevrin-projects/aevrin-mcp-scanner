@@ -48,7 +48,6 @@ class _Db:
                     "status": self._status,
                     "mcp_detected": True,
                     "mcp_tools_declared": self._tools,
-                    "mcp_capabilities": None,
                     "unreliable_stages": [],
                     "completed_at": "2026-01-01T00:00:00Z",
                 }

@@ -2,7 +2,7 @@
 
 Detection stays 100% deterministic (backend/scanner-core); this is a
 second pass that reads each *surviving* finding (already filtered/scored by
-scanner-core's Section-1 fixes; excluded_path/not_tested findings are
+scanner-core's deterministic result; triaged findings are
 skipped here, there's no point spending a model call on something that
 already doesn't count toward the score) alongside its own description and
 classifies it: confirmed / likely_false_positive / needs_review, with an
@@ -106,23 +106,17 @@ Rules:
 - A finding with a verified live credential, or one listed in CISA KEV, must never be "likely_false_positive".
 - Vague uncertainty is "needs_review", never a dismissal.
 
-Findings reaching you have already passed deterministic filtering: they are not test or fixture code and are not excluded from scoring. Your job is the judgment a static rule cannot make."""
+Findings reaching you were produced by a deterministic scan of a live MCP server's tool definitions. Your job is the judgment a static rule cannot make."""
 
 
 def _prompt(finding: Finding) -> str:
     signals: list[str] = []
-    if finding.epss_score is not None:
-        signals.append(f"EPSS exploitation probability (next 30 days): {finding.epss_score:.3f}")
-    if finding.in_kev:
-        signals.append("Listed in CISA's Known Exploited Vulnerabilities catalog, confirmed real-world exploitation.")
-    if finding.dependency_scope is not None:
-        signals.append(f"Dependency scope: {finding.dependency_scope.value}")
-    if finding.corroborated_by:
-        signals.append(f"Independently corroborated by: {', '.join(t.value for t in finding.corroborated_by)}")
-    if finding.confidence:
-        signals.append(f"Scanner-reported confidence: {finding.confidence}")
-    if finding.verified is not None:
-        signals.append(f"Verified live credential: {finding.verified}")
+    if finding.rule_id:
+        signals.append(f"Rule: {finding.rule_id}")
+    if finding.affected_tools:
+        signals.append(f"Affected tools: {', '.join(finding.affected_tools)}")
+    for line in finding.evidence:
+        signals.append(f"Evidence: {line}")
     signal_block = "\n".join(f"- {s}" for s in signals) or "- none"
 
     location = finding.location.file_path or finding.location.manifest_field or "unknown location"
@@ -153,7 +147,11 @@ async def triage_findings(
         logger.info("triage: no DeepSeek key configured, skipping")
         return [], None
 
-    candidates = [f for f in findings if not f.excluded_path and not f.not_tested]
+    # Everything the scan reported is a candidate. The fixture-path and
+    # not-tested exclusions that used to filter this list went with source
+    # scanning: a finding now describes a tool a live server returned, and
+    # there is no file path for it to be under a `tests/` directory.
+    candidates = list(findings)
     if not candidates:
         return [], None
 

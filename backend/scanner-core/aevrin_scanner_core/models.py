@@ -35,25 +35,20 @@ class Severity(str, Enum):
 class ToolName(str, Enum):
     """What produced a finding.
 
-    Five entries, down from eleven. Semgrep's generic rulesets, Bandit,
-    Gitleaks, Trivy, OpenSSF Scorecard and MCP-Shield were removed with the
-    code-security product they belonged to; see DECISIONS.md ADR-027 for
-    what each one was doing and why none of it was MCP security.
+    One entry, down from eleven. There is exactly one MCP security engine and
+    every finding in the product comes from it, so this field no longer
+    distinguishes between scanners - it records that a finding is a scanner
+    result rather than something Aevrin inferred on its own.
+
+    The value is deliberately the generic `mcp-scanner` rather than the
+    upstream project's name. It reaches API responses, CLI JSON and stored
+    finding rows, and which engine Aevrin runs is an implementation detail
+    rather than something a user needs to reason about. The engine's identity
+    and pinned version are recorded per scan instead (`Scan.scanner_version`),
+    which is what reproducing a result actually requires.
     """
 
-    # Aevrin's MCP tool-definition rules (the AS-* catalogue and the
-    # manifest-driven supply-chain checks): mcp/rules.py, mcp/supply_chain.py.
-    AEVRIN_MCP_RULES = "aevrin-mcp-rules"
-    # Aevrin's own Semgrep taint rule pack (adapters/mcp_behavior.py,
-    # rules/mcp/*.yaml): does an MCP tool argument reach a dangerous sink,
-    # not "does a dangerous API exist somewhere in the repository".
-    AEVRIN_MCP_BEHAVIOR = "aevrin-mcp-behavior"
-    # Launch-command inspection, transport authentication, audit-logging
-    # presence, and tool-signature drift: analysis/manifest_rules.py,
-    # analysis/rug_pull.py. Aevrin rules with no ToolTrust equivalent.
-    AEVRIN_MANIFEST_RULES = "aevrin-manifest-rules"
-    TRUFFLEHOG = "trufflehog"
-    OSV_SCANNER = "osv-scanner"
+    MCP_SCANNER = "mcp-scanner"
 
 
 class TargetType(str, Enum):
@@ -86,46 +81,51 @@ class StageStatus(str, Enum):
 
 
 class StageName(str, Enum):
-    """The pipeline, in execution order.
+    """What actually happens during an MCP scan, in execution order.
 
-    `static_analysis` is gone: it ran Semgrep's generic rulesets and Bandit
-    over the whole repository, which is code security, not MCP security.
-    `tool_description_check` became `mcp_rules`, which is what it now
-    actually is - the AS-rule engine over discovered tools rather than one
-    external description scanner.
+    These are the real steps of scanning a live MCP server, not a list of
+    scanners that happen to be installed. The previous seven stages existed
+    because seven different tools ran over a cloned repository; with one
+    engine and a live server, the honest breakdown is: work out what to run,
+    run it, read its tools, analyse them, grade the result.
+
+    `RESOLVING` is a stage rather than a preamble because it is where most
+    scans legitimately stop: a server with no published package and no
+    documented launch command cannot be enumerated, and the reason a scan
+    ended there is exactly what the reader needs to see.
     """
 
-    CLONING = "cloning"
-    DISCOVERY = "discovery"
-    MCP_RULES = "mcp_rules"
-    MCP_BEHAVIOR = "mcp_behavior"
-    SECRETS = "secrets"
-    DEPENDENCIES = "dependencies"
-    AGGREGATING = "aggregating"
+    RESOLVING = "resolving"
+    LAUNCHING = "launching"
+    ENUMERATING = "enumerating"
+    ANALYZING = "analyzing"
+    GRADING = "grading"
 
 
 STAGE_LABELS: dict[StageName, str] = {
-    StageName.CLONING: "Cloning",
-    StageName.DISCOVERY: "Tool discovery",
-    StageName.MCP_RULES: "MCP tool rules",
-    StageName.MCP_BEHAVIOR: "MCP behavior analysis",
-    StageName.SECRETS: "Credential exposure",
-    StageName.DEPENDENCIES: "Supply chain",
-    StageName.AGGREGATING: "Aggregating",
+    StageName.RESOLVING: "Resolving MCP server",
+    StageName.LAUNCHING: "Launching server",
+    StageName.ENUMERATING: "Enumerating tools",
+    StageName.ANALYZING: "Analyzing tools",
+    StageName.GRADING: "Calculating grade",
 }
 
-# Which tools run within which stage. Used by the runner to drive stage
-# transitions and by the frontend/CLI to render consistent stage-to-tool
-# grouping.
-STAGE_TOOLS: dict[StageName, list[ToolName]] = {
-    StageName.CLONING: [],
-    StageName.DISCOVERY: [],
-    StageName.MCP_RULES: [ToolName.AEVRIN_MCP_RULES, ToolName.AEVRIN_MANIFEST_RULES],
-    StageName.MCP_BEHAVIOR: [ToolName.AEVRIN_MCP_BEHAVIOR],
-    StageName.SECRETS: [ToolName.TRUFFLEHOG],
-    StageName.DEPENDENCIES: [ToolName.OSV_SCANNER],
-    StageName.AGGREGATING: [],
-}
+
+class InvocationChannel(str, Enum):
+    """Which interface asked for this scan.
+
+    Recorded for reproducibility, never to vary the result: the same server
+    scanned through any of these must produce the same findings, grade and
+    policy. A channel that changed the security assessment would mean the
+    dashboard and CI could disagree about whether a server is safe.
+    """
+
+    DASHBOARD = "dashboard"
+    CLI = "cli"
+    HOOK = "hook"
+    CI = "ci"
+    MCP = "mcp"
+    MARKETPLACE = "marketplace"
 
 
 class TriageStatus(str, Enum):
@@ -180,34 +180,23 @@ class Finding(BaseModel):
     # per-tool finding; several once `classification/grouping.py` has folded
     # an identical rule result across tools into one card.
     affected_tools: list[str] = Field(default_factory=list)
-    verified: bool | None = None  # e.g. TruffleHog's live credential verification
-    not_tested: bool = False  # true only for the synthetic MCP08 placeholder
     # True when location.file_path falls under a fixtures/tests/examples-style
-    # directory (see fixture_paths.py). Excluded from scoring the same way
-    # not_tested is, but never dropped, still a real finding worth showing.
-    excluded_path: bool = False
     # "low" when a rule fired on a name or description heuristic that nothing
     # independently confirmed. None when the rule had direct evidence.
-    confidence: str | None = None
     # Set when this finding's severity was changed from what the rule itself
     # assigned (low confidence, EPSS predicts negligible exploitation, the
     # dependency is dev-only, or a capability was observed that the tool never
     # declared). The original stays here so the change is auditable.
-    original_severity: Severity | None = None
     # FIRST.org Exploit Prediction Scoring System probability (0-1) that this
     # CVE sees exploitation in the wild in the next 30 days. None means EPSS
     # had no data, the finding isn't CVE-bearing, or the fetch failed; never
     # a guessed score.
-    epss_score: float | None = None
     # True when this CVE appears in CISA's Known Exploited Vulnerabilities
     # catalog - confirmed exploitation, not a prediction. Always wins over
     # any EPSS-driven downweighting.
-    in_kev: bool = False
     # Dev-only/prod split for dependency findings, from manifest parsing.
-    dependency_scope: DependencyScope | None = None
     # Other tools that independently reported this same advisory for this
     # same package. A non-empty list is a confidence signal, not noise.
-    corroborated_by: list[ToolName] = Field(default_factory=list)
     # How many locations or tools this one logical finding was collapsed
     # from. 1 for everything that wasn't grouped. See grouping.py.
     occurrence_count: int = 1
@@ -220,11 +209,9 @@ class Finding(BaseModel):
     # analysis.capability_map.attribute_findings_to_tools. None means either
     # this finding isn't tool-shaped, or it is but no known tool's function
     # body could be shown to contain it - never a guess at the nearest one.
-    mcp_tool: str | None = None
     # The normalized capability this finding is about - "shell_execution",
     # "credential_access", etc; the vocabulary adapters/mcp_behavior.py sinks
     # are organised around. Set only by that adapter.
-    capability: str | None = None
     triage_status: TriageStatus = TriageStatus.OPEN
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -258,29 +245,23 @@ class Scan(BaseModel):
     # nothing to say about the target: it is not an MCP server, and this
     # product no longer scans anything else.
     mcp_detected: bool | None = None
-    # How sure that answer is, and on what evidence. "high" | "medium" |
-    # "low" | "none".
-    mcp_detection_confidence: str | None = None
-    # Short human-readable evidence lines, e.g. "sdk_dependency: depends on
-    # fastmcp". Shown in the report so the claim can be checked rather than
-    # taken on trust.
-    mcp_detection_evidence: list[str] = Field(default_factory=list)
-    # Tools read out of the repository's own registration sites, or returned
-    # by a live handshake. Empty for a server that registers none and for one
-    # whose registrations this could not parse -- which is why an empty list
-    # is never reported as "exposes nothing", only as "none found", and why
-    # it forces the scan to grade as incomplete.
+    # Every tool the running server returned from the MCP handshake. Empty
+    # means the server exposed none or could not be reached, which is never
+    # reported as "exposes nothing" - it forces the scan to end ungraded.
     mcp_tools_declared: list[str] = Field(default_factory=list)
-    # Which directories inside this repository independently look like a
-    # self-contained MCP server, from analysis.mcp_detection.McpComponent.
-    mcp_components: list[dict[str, Any]] = Field(default_factory=list)
-    # mcp.tools.capability_summary() over the discovered tools' inferred
-    # permissions: {"can_execute": bool, "can_write": bool, "can_read": bool,
-    # "handles_credentials": bool, "makes_network_calls": bool} - the
-    # declared surface, not observed behavior. None (not a dict of all-False)
-    # for a target where tool discovery never ran at all, because "never
-    # established" and "established as no capabilities" are different claims.
-    mcp_capabilities: dict[str, bool] | None = None
+    # The command that was actually run to start the server, e.g.
+    # `npx -y @playwright/mcp`. Stored because it is the single most useful
+    # thing for reproducing a result, and because it is the one place a
+    # resolution mistake becomes visible: a grade attributed to the wrong
+    # package is worse than no grade at all.
+    server_command: str | None = None
+    # Engine identity and pinned version (§20). Internal - the report does not
+    # show a user which binary produced their findings, but a support request
+    # cannot be answered without knowing.
+    scanner_name: str | None = None
+    scanner_version: str | None = None
+    # Which surface requested this scan. Never changes the assessment.
+    invocation_channel: InvocationChannel | None = None
     # Names of stages where every check in that category failed to execute.
     # Non-empty means the findings above are incomplete, not a clean bill of
     # health for those categories.

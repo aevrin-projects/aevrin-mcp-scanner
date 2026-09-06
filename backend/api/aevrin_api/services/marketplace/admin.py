@@ -206,7 +206,10 @@ async def admin_summary(db: SupabaseRest) -> dict[str, Any]:
         limit=10000,
     )
 
-    grades: dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0}
+    # 'F' is a grade, not the absence of one. Leaving it out of this map sent
+    # every "do not use" listing into the `unscanned` bucket below -- the one
+    # place an admin looks to find servers that need attention.
+    grades: dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0, "F": 0}
     statuses: dict[str, int] = {}
     scanned = unscanned = stale = partial = 0
 

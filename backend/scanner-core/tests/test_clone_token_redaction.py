@@ -10,12 +10,11 @@ import subprocess
 
 import pytest
 
-from aevrin_scanner_core.models import ScanStage, StageName, StageStatus
+from aevrin_scanner_core.mcp.resolve import UnresolvableTarget
 from aevrin_scanner_core.pipeline.orchestrator import (
     PipelineConfig,
-    PipelineError,
+    _clone,
     _redact_token,
-    _run_clone_stage,
 )
 
 _FAKE_TOKEN = "synthetic-token-value-for-redaction-test"
@@ -38,29 +37,20 @@ def test_redact_token_strips_credential_pattern_even_without_known_token():
     assert "***" in redacted
 
 
-def test_clone_failure_never_leaks_token_in_stage_error(monkeypatch, tmp_path):
+def test_clone_failure_never_leaks_token_into_the_scan(monkeypatch, tmp_path):
+    """The clone failure now surfaces as UnresolvableTarget, whose message
+    becomes the scan's incomplete reason - persisted, and rendered back to the
+    user. The redaction requirement is unchanged by that move."""
+
     def fake_run(cmd, **kwargs):
         # Mirrors what a real failed `git clone` raises: CalledProcessError's
         # str() includes the full argv, token and all.
         raise subprocess.CalledProcessError(returncode=128, cmd=cmd)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-
-    stage = ScanStage(scan_id=__import__("uuid").uuid4(), name=StageName.CLONING, status=StageStatus.PENDING)
-    errors: list[str] = []
     config = PipelineConfig(github_token=_FAKE_TOKEN)
 
-    with pytest.raises(PipelineError) as exc_info:
-        _run_clone_stage(
-            "https://github.com/owner/repo",
-            str(tmp_path),
-            config,
-            stage,
-            on_stage=lambda _stage: None,
-            errors=errors,
-        )
+    with pytest.raises(UnresolvableTarget) as exc_info:
+        _clone("https://github.com/owner/repo", str(tmp_path), config)
 
     assert _FAKE_TOKEN not in str(exc_info.value)
-    assert all(_FAKE_TOKEN not in e for e in errors)
-    assert stage.error is not None
-    assert _FAKE_TOKEN not in stage.error

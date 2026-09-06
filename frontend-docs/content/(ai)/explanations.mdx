@@ -8,8 +8,8 @@ detection.
 
 ## The contract
 
-**The scanners and rules decide what is true.** Aevrin's MCP tool rules, its dataflow rule pack,
-TruffleHog and OSV-Scanner produce the evidence. The model explains it.
+**The scan decides what is true.** The MCP security rules produce the findings, the severities,
+the score and the grade. The model explains them, and nothing more.
 
 **The AI cannot produce a finding.** It cannot create, alter, or remove one; it cannot move a score;
 it cannot change a grade. Nothing in the AI layer writes to the scans, findings, or version tables.
@@ -43,7 +43,7 @@ attack paths, and coverage.
 
 Excluded, by construction:
 
-- **The scanner's raw payload.** TruffleHog puts the credential it found in it.
+- **The scanner's raw payload**, which can contain a matched credential verbatim.
 - **Any credential value.** Credential metadata carries kind, source and presence, never a value.
 - **Source code, environment variables, and full file contents.**
 - **Anything matching a credential pattern**, in any field. Tokens, keys, JWTs and private-key

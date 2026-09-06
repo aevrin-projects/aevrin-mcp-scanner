@@ -155,6 +155,28 @@ async def scan_listing(
     )
 
 
+@router.post("/mcp/regrade-ungraded")
+async def regrade_ungraded(
+    background: BackgroundTasks,
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    admin: Annotated[AdminIdentity, Depends(admin_identity)],
+) -> Any:
+    """Queue scans for catalogued listings that currently carry no grade.
+
+    The recovery path after an engine change withdraws every stored grade.
+    Bounded per press, and each listing goes through the same scan the single
+    "Force rescan" button uses. The response reports what was queued, what was
+    skipped and why, and how many remain.
+    """
+    return await ctl.admin_regrade_ungraded(
+        db,
+        settings,
+        actor_id=admin.user_id,
+        schedule=background.add_task,
+    )
+
+
 @router.get("/submissions")
 async def list_submissions(
     db: Annotated[SupabaseRest, Depends(get_db)],

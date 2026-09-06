@@ -83,64 +83,54 @@ token), `mcp_registry` (official MCP Registry client), `r2_client`
 The engine. Structure:
 
 ```
-models.py        Scan, Finding, ScanStage, and every enum (Severity,
+models.py         Scan, Finding, ScanStage, and every enum (Severity,
                   ToolName, TargetType, ScanStatus, StageName,
-                  TriageStatus, DependencyScope).
-mcp/              The MCP security engine. tools.py (McpTool and the one
-                  Permission vocabulary), rules.py (AS-001..AS-019),
-                  supply_chain.py (manifest-driven AS-008/015/016),
-                  catalog.py (the only place a rule id has prose),
-                  risk.py (risk score, A-F grade, policy, risk summary,
-                  permission recommendations), data/ (vendored threat
-                  intelligence, MIT).
-adapters/         One module per external scanner: trufflehog,
-                  osv_scanner, mcp_behavior (Aevrin's own Semgrep taint
-                  pack), plus base.py for the shared adapter contract.
-analysis/         mcp_detection.py (is this an MCP server, and how sure),
-                  discovery.py (what tools does it expose),
-                  manifest_rules.py (launch command, transport auth,
-                  audit logging), capability_map.py, declared_vs_observed.py,
-                  remote_mcp.py (live handshake), rug_pull.py.
+                  InvocationChannel, TriageStatus).
+mcp/              The MCP security layer. tooltrust.py (invoke the engine,
+                  normalise its JSON, roll per-tool grades up to the worst
+                  tool), resolve.py (target -> launch command, from the
+                  project's own manifest), catalog.py (the only place a
+                  rule id has prose), risk.py (policy, labels, the risk
+                  summary - no scoring), data/ (the vendored engine
+                  licence).
 classification/   owasp.py (OwaspMcpCategory, MCP01-MCP10), grouping.py
-                  (collapses duplicate findings across locations and
-                  across tools), severity_utils.py.
-enrichment/       epss.py (FIRST.org exploit prediction), kev.py (CISA
-                  Known Exploited Vulnerabilities), dependency_scope.py
-                  (prod vs. dev dependency split).
-execution/        runner.py (subprocess/Docker execution), paths.py,
-                  fixture_paths.py (excludes tests/fixtures from scoring),
-                  semgrep_ignore.py, network_safety.py (SSRF guard for
-                  any scanner that reaches a remote URL -- reused by the
-                  marketplace submission path).
-agents/            AI-agent discovery and posture: claude_code.py,
+                  (folds one rule's identical verdict across tools into a
+                  single card; never groups criticals).
+execution/        runner.py (the sandbox container), paths.py,
+                  fixture_paths.py, network_safety.py (SSRF guard, reused
+                  by the marketplace submission path).
+agents/           AI-agent discovery and posture: claude_code.py,
                   codex.py, common.py, identity.py, models.py, posture.py,
                   attack_paths.py. `agents.Capability` is an agent's
-                  granted permission *level*, a different concept from
-                  `mcp.Permission` (a tool's declared surface); the two
-                  share word stems, not semantics, and are deliberately
-                  not merged.
-pipeline/          orchestrator.py (the actual scan sequence),
-                  postprocess.py, not_tested.py.
+                  granted permission *level* and is deliberately separate
+                  from anything in `mcp/`.
+pipeline/         orchestrator.py (the whole scan sequence).
 ```
+
+There are no `adapters/`, `enrichment/` or `analysis/` packages any more.
+One engine means there is nothing to adapt between, no CVE enrichment to
+apply to a dependency tree Aevrin no longer walks, and no source analysis:
+tools come from a live handshake.
 
 Import discipline: `scanner-core` never imports from `backend/api` or
 `backend/cli` - it's the leaf dependency both of them share.
 
 ### Stage sequence
 
-`CLONING → DISCOVERY (is it an MCP server, what does it expose) →
-MCP_RULES (AS-001..AS-019 plus Aevrin's own AV rules) → MCP_BEHAVIOR
-(Aevrin's Semgrep taint pack) → SECRETS (TruffleHog) → DEPENDENCIES
-(OSV-Scanner) → AGGREGATING`.
+`RESOLVING (what command starts this server) → LAUNCHING (start it, in a
+container that assumes it is hostile) → ENUMERATING (handshake, read its
+tools) → ANALYZING (rules over those tool definitions) → GRADING (roll the
+per-tool verdicts up)`.
 
-Two conditions make a scan `INCOMPLETE`, and either withholds the letter
-grade entirely:
+Any stage can end the scan as `INCOMPLETE`, which withholds the letter
+grade entirely and records the reason on the stage. The three common ones
+are all legitimate outcomes rather than errors: no published executable
+package to launch, a server that will not start, and a server that starts
+and returns no tools.
 
-1. A stage where the scanner failed to run (Docker down, binary missing,
-   network unreachable) is recorded in `Scan.unreliable_stages`.
-2. **No MCP tools could be enumerated.** This is the more common one and
-   the more dangerous: zero findings from a server nobody could read looks
-   exactly like a perfect result.
+The last is the dangerous one, and the reason `INCOMPLETE` exists: zero
+findings from a server nobody could read looks exactly like a perfect
+result.
 
 See [`../features/MCP_SCANNING.md`](../features/MCP_SCANNING.md).
 

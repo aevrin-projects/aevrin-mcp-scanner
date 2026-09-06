@@ -100,6 +100,61 @@ must keep passing for this boundary to mean anything.
   initiated and a call Aevrin initiated, not between which key is nearer to
   hand. See [`../features/AI_REVIEW.md`](../features/AI_REVIEW.md#model-catalogue).
 
+## Executing untrusted MCP servers
+
+This is the highest-consequence thing Aevrin does, and it is worth being
+blunt about why.
+
+Enumerating an MCP server's tools requires **starting** it. Starting it means
+executing code chosen by whoever published the package, and `npm install`
+runs that publisher's `preinstall`/`postinstall` scripts *before* any
+scanning begins. Aevrin therefore executes attacker-chosen code on every
+scan, by design. That is not a risk to be minimised away; it is the feature.
+
+What makes it acceptable is that a compromise of the scanned server is worth
+as little as possible.
+
+The API process holds `SUPABASE_SERVICE_ROLE_KEY`. The service role bypasses
+RLS, which (see [Authorization](#authorization)) is why the application layer
+is the actual tenancy boundary. If an untrusted server ran in that process it
+would have read and write access to every tenant's data, the Fernet key that
+protects provider credentials, and the EC2 instance-metadata endpoint. A
+feature whose purpose is scanning untrusted servers would have become the
+most likely route to a breach.
+
+So `mcp/tooltrust.py` runs the engine and the target together inside a
+one-shot sibling container:
+
+| Control | Why |
+|---|---|
+| `env` is an explicit allow-list (`HOME`, `NPM_CONFIG_CACHE`, `NO_COLOR`) | No service-role key, provider key, GitHub token or AWS credential exists inside the container to steal |
+| `--read-only` rootfs, `nosuid` tmpfs scratch | Nothing persists; the writable space dies with the container |
+| `--user 10002:10002` | Untrusted code is not root even in a disposable container |
+| `--cap-drop ALL`, `--security-opt no-new-privileges` | No capability to escalate with |
+| `--memory`, `--cpus`, `--pids-limit`, hard timeout | A server that cannot exfiltrate can still try to exhaust the host |
+| no bind mounts | There is nothing from the host to share; the container fetches the package itself |
+| `--rm` | The filesystem does not outlive the scan |
+
+Asserted in `backend/scanner-core/tests/test_sandbox_isolation.py`, which
+fails if any of these is dropped.
+
+**The residual exposure, stated rather than glossed.** Network egress cannot
+be removed — the package has to be downloaded. Containment against the one
+target that matters, the EC2 instance-metadata service, comes from **IMDSv2
+with `HttpPutResponseHopLimit=1`**: a request from behind Docker's NAT is two
+hops and is refused. That is a deployment precondition, not something this
+code can enforce, and it must be verified on any host that runs scans. See
+`docs/architecture/DEPLOYMENT.md`.
+
+`noexec` is deliberately not set on the tmpfs mounts: npx installs shim
+scripts into its prefix and execs them, so a noexec install directory would
+prevent the scan rather than harden it.
+
+**There is no non-Docker fallback.** `AEVRIN_EXECUTOR=subprocess` is removed.
+It was safe when the analysers were static — they read files and never
+executed what they read — and it is not safe now. A stopped Docker daemon
+must fail the scan, never run it unsandboxed. See `DECISIONS.md` ADR-034.
+
 ## SSRF protection
 
 Any code path that fetches a caller-supplied URL - marketplace submission,

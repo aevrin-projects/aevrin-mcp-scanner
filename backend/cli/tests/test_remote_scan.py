@@ -50,7 +50,7 @@ def _stage(name: str) -> dict:
 
 def test_stages_are_accepted_even_though_the_api_omits_scan_id(monkeypatch):
     scan_id = str(uuid4())
-    stages = [_stage(n) for n in ("cloning", "mcp_rules", "secrets", "aggregating")]
+    stages = [_stage(n) for n in ("resolving", "analyzing", "launching", "grading")]
 
     def fake_get(url, **_kwargs):
         return _Resp(stages) if url.endswith("/stages") else _Resp([])

@@ -60,113 +60,82 @@ analysis/CI against a private repository without a paid GitHub Advanced
 Security entitlement, which this repository does not have; see
 `DECISIONS.md` ADR-018. Note that this is CodeQL scanning *Aevrin's own*
 source; Aevrin's product no longer performs general source-code analysis
-of the targets it scans (`DECISIONS.md` ADR-027), so there is no longer a
-Semgrep/Bandit pass in the pipeline standing in for it here.
+of the targets it scans (`DECISIONS.md` ADR-027/ADR-033), so there is no
+general-purpose SAST pass in the product standing in for it here.
 
 ## Test suite shape, by package
 
-- **`backend/scanner-core/tests/`** - the MCP rules (`test_mcp_rules.py`,
-  weighted toward the false-positive suppressions rather than the happy
-  path), the risk model (`test_risk.py` - score direction, grade
-  boundaries, and the ungraded state that is the product's central honesty
-  claim), manifest-driven supply chain (`test_supply_chain.py`, including
-  the unreadable-manifest case), adapters (trufflehog, mcp-behavior), the
-  pipeline's reliability/fallback behavior,
-  MCP detection (including component detection and tool discovery's
-  line-range capture), capability join (`test_capability_map.py` - an AST
-  fixture pinning that a sink past a tool's declaration span, in its real
-  function body, is still attributed correctly; that a sink outside every
-  known tool is left unattributed rather than guessed at the nearest one;
-  a documented name-collision limitation of keying by function name),
-  agent-posture scoring and attack paths, network safety (SSRF), the OWASP
-  trust grade, rug-pull detection, EPSS/KEV enrichment.
-  `test_mcp_trust_grade.py::test_unknown_capabilities_count_against_rather_than_for`
-  and `test_confirmed_absent_capability_earns_nothing` pin ADR-021: a
-  server whose `can_execute`/`can_write` were never established scores
-  worse than one confirmed to declare neither, mirroring the
-  authentication test just above it - and every pre-existing test in this
-  file that previously omitted both fields to test an unrelated concern now
-  passes `can_execute=False, can_write=False` explicitly, the same
-  discipline already applied to `authenticated=`.
-  `test_remote_mcp.py` (new - `analysis/remote_mcp.py` had zero coverage
-  before it) fakes `ClientSession`/`streamable_http_client` at the module
-  level so `inspect_remote_signatures` runs its real logic - hashing,
-  capability classification - against a fake `list_tools()` response rather
-  than a real network call: an execute-capable live tool is classified
-  correctly, no tools produces an all-`False` summary rather than an error,
-  multiple configured servers each get their own `RemoteToolSignature`, and
-  the signature hash itself is unaffected by the capability addition (a
-  regression guard - a future edit to this module changing what the hash
-  covers would silently break rug-pull detection). `test_mcp_detection.py`
-  gained `merge_capability_summaries` coverage (multiple real sources OR
-  together; `None` only when every input is `None`, never diluting a real
-  summary back to "unknown"). `test_pipeline_reliability.py::test_live_server_capabilities_reach_the_scan_end_to_end`
-  drives `run_pipeline` for real with the same fake handshake, pinning that
-  a `CONFIG_PASTE`/live-URL scan's `Scan.mcp_capabilities` is actually
-  populated end to end, not just inside `inspect_remote_signatures` in
-  isolation.
-  `test_mcp_behavior_adapter.py` tests `parse_output` against Semgrep's
-  captured JSON shape - none of this suite invokes a real
-  scanner binary, for portability across machines that may not have Docker
-  running or a tool on PATH. The `rules/mcp/*.yaml` pack's actual matching
-  behavior (true positive at the exact tainted line, true negative on a
-  same-shaped safe twin, true negative across a function boundary -
-  Semgrep's open-source engine's documented intra-procedural limit; every
-  `pattern-sanitizers` addition suppressing exactly its sanitized line and
-  nothing else) is pinned by `test_rule_pack_corpus.py` against a permanent,
-  checked-in fixture corpus (`rule_pack_corpus/{python,typescript}/`, a
-  sibling of `tests/`, not nested in it - see below) - a deliberate,
-  narrow exception to "no real scanner binary," `pytest.mark.skipif` when
-  `semgrep` isn't on PATH so the normal suite is unaffected either way; not
-  wired into CI (see `DECISIONS.md` ADR-025 for why). Run it by hand before
-  and after touching a rule file - `uv run pytest tests/test_rule_pack_corpus.py` -
-  rather than rebuilding scratch fixtures from nothing each time, the
-  practice every rule added or changed this session actually followed
-  before this test existed.
-  `rule_pack_corpus/` is **not** placed under `tests/` because Semgrep's
-  own default ignore patterns silently skip any path containing a directory
-  literally named `tests`, confirmed empirically while building this test -
-  a real gap in `McpBehaviorAdapter` itself too, since it did not disable
-  Semgrep's default for an actual scanned target
-  (`docs/features/MCP_SCANNING.md`'s Security section, `DECISIONS.md`
-  ADR-025 for how it was found and ADR-026 for the fix -
-  `execution/semgrep_ignore.py`, covered by `test_semgrep_ignore.py` and a
-  `run()`-wiring test in the adapter's own test file).
-  `test_pipeline_reliability.py` additionally pins
-  `StageName.MCP_ANALYSIS`'s real wiring end to end - a faked
-  `McpBehaviorAdapter` finding reaches `scan.findings` with `mcp_tool` set
-  via the real `attribute_findings_to_tools` call inside `run_pipeline`
-  (not just the adapter/join units tested in isolation elsewhere), and a
-  target with no declared tools SKIPs the stage without ever constructing
-  the adapter. `test_declared_vs_observed.py` and `test_severity_utils.py`
-  cover the severity-upweight half: an observed capability absent from a
-  tool's own declared set is upweighted with `original_severity` preserved
-  and never guessed at for an unmapped capability label or an unknown tool
-  name; a declared capability, or a tool with no attributed finding at all,
-  is left exactly as the behavior adapter set it.
-  `test_pipeline_reliability.py::test_source_rug_pull_fires_when_a_declared_tool_changes`
-  and `..._silent_on_first_scan_of_a_target` pin the source-repository
-  rug-pull diff end to end (a stale `tool:` hash fed through `PipelineConfig`
-  produces a real `RUG_PULL` finding and a fresh hash for next time; no
-  prior signatures at all produces nothing); `test_tool_signature_pins_*`
-  pin `_tool_signature_pins` in isolation, including that a tool's line
-  range shifting alone must never change its signature.
-  `test_scan_mcp_capabilities_reflects_declared_tools` and
-  `..._is_none_when_tool_discovery_never_ran` pin that `Scan.mcp_capabilities`
-  is actually set by the real pipeline run (not just `capability_summary()`'s
-  own standalone unit test) and stays `None`, not an all-`False` dict, when
-  discovery never happened at all.
-  `test_manifest_rules.py::test_tool_name_shadowing_*` covers the
-  static name-shadowing check: a near-identical pair (a one-letter
-  transposition) is flagged, a pair whose capabilities differ on
-  `execute`/`delete`/`credential` escalates to `HIGH`, a matching-capability
-  pair stays `MEDIUM`, unrelated names and names under the 4-character floor
-  produce nothing, and a pair with the exact same name (impossible in
-  practice - `discover_tools()` already dedupes by name - but cheap to
-  pin) doesn't self-flag.
+- **`backend/scanner-core/tests/`** - four files carry the load, and each
+  one guards a different way the product could lie to a user.
+
+  `test_tooltrust_normalisation.py` turns real engine output into findings.
+  Its fixtures under `tests/fixtures/scanner/` are **genuine output from the
+  pinned binary**, captured by running it, not written by hand to match what
+  the parser expects - a normaliser tested against its author's idea of the
+  format keeps passing after the format moves. It pins that severities and
+  rule ids come through unchanged, that catalogue prose is joined on, that a
+  rule id the catalogue has never seen still produces a finding (a scanner
+  upgrade must not quietly reduce coverage), and that unparseable output
+  raises rather than degrading into an empty findings list that renders
+  identically to a clean scan. Two tests deliberately assert against
+  `summary.avg_grade` in the fixture first: the fixtures contain servers the
+  engine averages to **A** while their worst tool is **C** with a Critical
+  finding, and if a future fixture stops exercising that trap the test says
+  so rather than passing vacuously.
+
+  `test_target_resolution.py` is the typosquatting guard. The headline case
+  is a directory named `playwright-mcp` whose manifest says
+  `@playwright/mcp` - resolution must follow the manifest, because the other
+  name is a real, different package by a different author. It also pins every
+  refusal: no manifest, no entry point, private packages, runtime names, and
+  shell-shaped names.
+
+  `test_sandbox_isolation.py` asserts the argv handed to `docker run`: no
+  Aevrin environment reaches the container, nothing from the host is mounted,
+  the rootfs is read-only, the user is not root, capabilities are dropped,
+  resource ceilings and a hard timeout are set, and the image is pinned. It
+  cannot prove the kernel enforces any of it - only that Aevrin asks for it
+  every time, so an edit that drops a flag fails loudly.
+
+  `test_pipeline_honesty.py` also pins that a launch failure reports its cause
+  without naming the engine: a live scan of a nonexistent package once ended
+  with the scanner's binary name and entire flag list in the stage error a user
+  reads, because the excerpt kept the *last* 600 characters and the manual is
+  longer than that. It walks every way a scan can fail (unresolvable,
+  unlaunchable, no tools returned, unreadable output) and asserts each one
+  ends `INCOMPLETE`, ungraded, with a reason attached to the stage that
+  stopped. None may produce a letter, a score, or a completed status.
+
+  The rest of the package's tests cover agent posture and attack paths,
+  which are unrelated to MCP server scanning and were not touched by the
+  engine replacement.
+
 - **`backend/api/tests/`** - `controllers/`, `core/`, `integrations/`,
   `routes/`, `schemas/`, `services/`, `workflows/` (app wiring, i.e. that
-  every router actually registers). Notably
+  every router actually registers).
+  `workflows/test_schema_projections.py` is the one test here that reads
+  outside the Python source: it replays every file in
+  `backend/infra/migrations/` to build the real column set per table, then
+  walks the API's AST for `db.select(..., columns="...")` and fails if any
+  projection names a column no migration defines. It exists because every
+  other test in this package runs against an in-memory fake that returns
+  whatever the fixture was written with, which makes a projection naming a
+  dropped column indistinguishable from a correct one - migration `0046`
+  renamed `scans.score` and five call sites kept asking for the old name,
+  taking the agents page, attack paths, account usage, AI explanations and
+  the hook offline with a generic "Upstream data store error". If the SQL
+  parser ever stops understanding the migrations it would pass by knowing
+  nothing, so `test_the_migration_set_parses_into_a_believable_schema` pins
+  a handful of columns `0046` is known to have moved and fails first.
+  `controllers/test_cli_upload_integrity.py` is worth reading before adding a
+  test anywhere in this package. The upload endpoint's "no tools, no grade"
+  guard was deleted and nothing noticed: the file parsed, mypy passed, and the
+  test covering that rule kept passing because it called `grade_scan` in
+  scanner-core rather than the endpoint. The library behaved correctly while
+  the endpoint enforced nothing. Assertions about what a request is allowed to
+  persist now go through `upload_scan` itself - a guard is only tested if the
+  test crosses the boundary the guard sits on.
+  Notably
   `services/test_marketplace_hardening.py` - the security test suite for
   the marketplace and AI layer: SSRF against internal/metadata addresses,
   non-HTTPS schemes, embedded credentials, nine credential-shaped-string

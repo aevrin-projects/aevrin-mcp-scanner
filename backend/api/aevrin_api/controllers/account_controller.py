@@ -23,7 +23,7 @@ async def account_usage(user_id: str, db: SupabaseRest, settings: Settings) -> A
     activity_rows = await db.select(
         "scans",
         {"user_id": user_id},
-        columns="id,source,target_type,target,status,score,created_at,completed_at",
+        columns="id,source,target_type,target,status,risk_score,created_at,completed_at",
         order="created_at.desc",
         limit=50,
     )

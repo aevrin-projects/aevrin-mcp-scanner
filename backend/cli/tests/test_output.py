@@ -27,12 +27,12 @@ def _make_scan(*, status: ScanStatus, unreliable_stages: list[StageName]) -> Sca
 def test_json_report_marks_incomplete_scan_distinctly(capsys):
     scan = _make_scan(
         status=ScanStatus.INCOMPLETE,
-        unreliable_stages=[StageName.DEPENDENCIES, StageName.SECRETS],
+        unreliable_stages=[StageName.GRADING, StageName.LAUNCHING],
     )
     output.print_json_report(scan)
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "incomplete"
-    assert payload["unreliable_stages"] == ["dependencies", "secrets"]
+    assert payload["unreliable_stages"] == ["grading", "launching"]
     assert payload["scan_incomplete"] is True
     assert payload["grade"] is None
     assert payload["risk_summary"]["headline"] == "Scan Incomplete"
@@ -46,31 +46,18 @@ def test_json_report_completed_scan_unaffected(capsys):
     assert payload["unreliable_stages"] == []
 
 
-def test_json_report_includes_mcp_detection_evidence(capsys):
-    """These were computed by the pipeline on every scan and silently
-    dropped before print_json_report exposed them - see CHANGELOG.md."""
+    """The tools the running server returned are what a grade is a claim
+    about, so the JSON contract has to carry them."""
     scan = Scan(
         target_type=TargetType.GITHUB_REPO,
         target="https://github.com/example/repo",
         status=ScanStatus.COMPLETED,
         mcp_detected=True,
-        mcp_detection_confidence="high",
-        mcp_detection_evidence=["sdk_dependency: depends on fastmcp"],
         mcp_tools_declared=["search"],
-        mcp_components=[{"root": ".", "confidence": "high", "evidence": []}],
-        mcp_capabilities={"can_execute": False, "can_write": False, "can_read": True,
-                          "handles_credentials": False, "makes_network_calls": False},
     )
     output.print_json_report(scan)
     payload = json.loads(capsys.readouterr().out)
-    assert payload["mcp_detection_confidence"] == "high"
-    assert payload["mcp_detection_evidence"] == ["sdk_dependency: depends on fastmcp"]
     assert payload["mcp_tools_declared"] == ["search"]
-    assert payload["mcp_components"] == [{"root": ".", "confidence": "high", "evidence": []}]
-    assert payload["mcp_capabilities"] == {
-        "can_execute": False, "can_write": False, "can_read": True,
-        "handles_credentials": False, "makes_network_calls": False,
-    }
 
 
 def test_the_report_leads_with_the_grade_and_the_risk_summary(capsys):
@@ -123,7 +110,7 @@ def test_a_non_mcp_repository_is_told_it_is_out_of_scope(capsys):
 
 
 def test_terminal_report_warns_on_incomplete_scan(capsys):
-    scan = _make_scan(status=ScanStatus.INCOMPLETE, unreliable_stages=[StageName.DEPENDENCIES])
+    scan = _make_scan(status=ScanStatus.INCOMPLETE, unreliable_stages=[StageName.GRADING])
     output.print_terminal_report(scan)
     text = capsys.readouterr().out
     assert "SCAN INCOMPLETE" in text
@@ -132,69 +119,44 @@ def test_terminal_report_warns_on_incomplete_scan(capsys):
 
 def _finding(
     *,
-    excluded_path: bool = False,
-    epss_score: float | None = None,
-    in_kev: bool = False,
-    mcp_tool: str | None = None,
-    capability: str | None = None,
+    rule_id: str | None = None,
+    affected_tools: list[str] | None = None,
 ) -> Finding:
     return Finding(
         scan_id=uuid4(),
-        tool=ToolName.AEVRIN_MCP_BEHAVIOR,
+        tool=ToolName.MCP_SCANNER,
         owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
         severity=Severity.CRITICAL,
-        title="Real finding" if not excluded_path else "Fixture finding",
+        title="Real finding",
         description="d",
-        location=Location(file_path="tests/fixtures/vuln.py" if excluded_path else "src/app.py"),
+        location=Location(file_path="src/app.py"),
         remediation="r",
-        excluded_path=excluded_path,
-        epss_score=epss_score,
-        in_kev=in_kev,
-        mcp_tool=mcp_tool,
-        capability=capability,
+        rule_id=rule_id,
+        affected_tools=affected_tools or [],
     )
 
 
-def test_terminal_report_hides_excluded_path_findings():
-    scan = _make_scan(status=ScanStatus.COMPLETED, unreliable_stages=[])
-    scan.findings = [_finding(excluded_path=True), _finding(excluded_path=False)]
-    import io
-    from contextlib import redirect_stdout
+def test_json_report_carries_the_fields_a_ci_job_reads(capsys):
+    """The JSON contract, which CI and the GitHub Action parse.
 
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        output.stdout_console.file = buf
-        output.print_terminal_report(scan)
-        output.stdout_console.file = None
-    text = plain(buf.getvalue())
-    assert "Real finding" in text
-    assert "Fixture finding" not in text
-    assert "1 additional finding(s) in test/fixture paths excluded" in text
-
-
-def test_json_report_serializes_new_accuracy_fields(capsys):
+    The CVE-enrichment fields (`epss_score`, `in_kev`, `dependency_scope`,
+    `corroborated_by`) are gone with the repository-wide dependency scanning
+    that produced them; what replaces them is the rule identity and the tools
+    a finding actually applies to.
+    """
     scan = _make_scan(status=ScanStatus.COMPLETED, unreliable_stages=[])
     scan.findings = [
-        _finding(excluded_path=True),
-        _finding(epss_score=0.42, in_kev=True, mcp_tool="run_command", capability="shell_execution"),
+        _finding(),
+        _finding(rule_id="AS-006", affected_tools=["run_command"]),
     ]
     output.print_json_report(scan)
     payload = json.loads(capsys.readouterr().out)
     findings = payload["findings"]
-    assert findings[0]["excluded_path"] is True
-    assert findings[1]["excluded_path"] is False
-    assert findings[1]["epss_score"] == 0.42
-    assert findings[1]["in_kev"] is True
-    assert "corroborated_by" in findings[0]
+    assert findings[1]["rule_id"] == "AS-006"
+    assert findings[1]["affected_tools"] == ["run_command"]
+    assert "evidence" in findings[0]
     assert "occurrence_count" in findings[0]
     assert "additional_locations" in findings[0]
-    # attribute_findings_to_tools sets this; None (findings[0]) must never be
-    # confused with "attributed to no tool by design" vs "not yet run at
-    # all" - both currently render as null, which is correct until a
-    # combined/potential/confirmed evidence state exists to distinguish them.
-    assert findings[0]["mcp_tool"] is None
-    assert findings[1]["mcp_tool"] == "run_command"
-    assert findings[1]["capability"] == "shell_execution"
 
 
 def test_a_stage_that_finished_with_a_failed_tool_is_not_shown_as_clean(capsys):
@@ -206,21 +168,21 @@ def test_a_stage_that_finished_with_a_failed_tool_is_not_shown_as_clean(capsys):
     from aevrin_cli.rendering.output import print_stage_update
 
     print_stage_update(
-        "dependencies",
+        "launching",
         "done",
-        "osv-scanner: docker unreachable",
+        "the server could not be started",
     )
     line = plain(capsys.readouterr().err)
 
     assert "[!]" in line
     assert "[✓]" not in line
-    assert "osv-scanner" in line
+    assert "could not be started" in line
 
 
 def test_a_stage_with_nothing_to_report_still_shows_a_tick(capsys):
     from aevrin_cli.rendering.output import print_stage_update
 
-    print_stage_update("secrets", "done")
+    print_stage_update("launching", "done")
     line = plain(capsys.readouterr().err)
 
     assert "[✓]" in line
@@ -232,7 +194,7 @@ def test_a_stage_where_nothing_ran_stays_a_cross(capsys):
     ran with a caveat, everything ran."""
     from aevrin_cli.rendering.output import print_stage_update
 
-    print_stage_update("mcp_behavior", "failed", "aevrin-mcp-behavior: docker unreachable")
+    print_stage_update("analyzing", "failed", "the scan result could not be read")
     line = plain(capsys.readouterr().err)
 
     assert "[✗]" in line
@@ -252,13 +214,13 @@ def _incomplete_scan_with_a_partial_stage() -> Scan:
         status=ScanStatus.INCOMPLETE,
         mcp_detected=True,
         mcp_tools_declared=["run_command"],
-        unreliable_stages=[StageName.SECRETS],
+        unreliable_stages=[StageName.LAUNCHING],
     )
     scan.stages = [
-        ScanStage(scan_id=scan_id, name=StageName.SECRETS, status=StageStatus.FAILED,
-                  error="trufflehog: docker unreachable"),
-        ScanStage(scan_id=scan_id, name=StageName.DEPENDENCIES, status=StageStatus.DONE,
-                  error="osv-scanner: no manifest files found"),
+        ScanStage(scan_id=scan_id, name=StageName.LAUNCHING, status=StageStatus.FAILED,
+                  error="the server could not be started"),
+        ScanStage(scan_id=scan_id, name=StageName.GRADING, status=StageStatus.DONE,
+                  error="no tools were returned"),
     ]
     return scan
 
@@ -291,4 +253,4 @@ def test_a_half_covered_stage_is_named_rather_than_left_to_the_stage_log(capsys)
 
     assert "PARTIAL COVERAGE" in out
     partial_block = out.split("PARTIAL COVERAGE")[1].split("\n\n")[0]
-    assert "Supply chain" in partial_block
+    assert "Calculating grade" in partial_block

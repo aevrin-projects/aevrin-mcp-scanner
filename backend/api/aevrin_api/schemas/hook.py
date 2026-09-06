@@ -12,7 +12,12 @@ from pydantic import BaseModel, Field, model_validator
 
 class HookCacheResponse(BaseModel):
     decision: str  # "allow_clean" | "block" | "block_incomplete" | "allow_override" | "allow_unscanned" | "quota_exceeded"
-    score: int | None = None
+    # Both nullable, and for different reasons: `risk_score` is null for a
+    # cache row written before the current risk model, `grade` is null when the
+    # scan could not enumerate the server's tools. The hook prints "no grade
+    # (scan incomplete)" for the latter rather than inventing a letter.
+    risk_score: int | None = None
+    grade: str | None = None
     scan_id: UUID | None = None
     checked_at: datetime | None = None
     findings_summary: list[dict[str, Any]] = Field(default_factory=list)

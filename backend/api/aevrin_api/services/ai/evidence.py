@@ -14,7 +14,7 @@ carries the actual factors, the actual findings, the actual capabilities.
 **It must be minimal enough to be safe.** Least privilege applies to the
 reviewer too. It gets a finding's title, severity, category and location --
 never the matched secret, never the file's contents, never the environment.
-`_redact` is not decoration: TruffleHog and Gitleaks findings routinely carry
+`_redact` is not decoration: a scanner finding can carry
 the credential they found in their raw payload, and shipping that to a third
 party would turn a security feature into a breach.
 

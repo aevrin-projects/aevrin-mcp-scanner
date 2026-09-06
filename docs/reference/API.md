@@ -13,7 +13,7 @@ JWT) unless noted.
 |---|---|---|
 | `/account` | `account.py` | `GET /usage` |
 | `/admin` | `admin.py` | `GET /session`, `POST /totp/enrol`, `POST /totp/verify`, `GET /users`, `GET /users/{id}`, `POST /users/{id}/status`, `POST /users/{id}/plan`, `POST /users/{id}/seats`, `POST /users/{id}/overrides`, `DELETE /users/{id}/overrides/{bucket}`, `DELETE /users/{id}`, `POST /users/{id}/reset-usage`, `POST /users/{id}/password-reset`, `GET /analytics`, `GET /account-usage`, `GET /audit`, `GET /login-attempts` |
-| `/admin/marketplace` | `admin_marketplace.py` | `GET /summary`, `GET /mcp`, `POST /mcp`, `PATCH /mcp/{listing_id}`, `POST /mcp/{listing_id}/status`, `POST /mcp/{listing_id}/scan`, `GET /submissions`, `POST /submissions/{id}/decision`, `GET /reports`, `POST /reports/{id}/decision` |
+| `/admin/marketplace` | `admin_marketplace.py` | `GET /summary`, `GET /mcp`, `POST /mcp`, `PATCH /mcp/{listing_id}`, `POST /mcp/{listing_id}/status`, `POST /mcp/{listing_id}/scan`, `POST /mcp/regrade-ungraded`, `GET /submissions`, `POST /submissions/{id}/decision`, `GET /reports`, `POST /reports/{id}/decision` |
 | `/agents` | `agents.py` | `POST /snapshots`, `GET ""`, `GET /mcp-servers`, `GET /skills`, `GET /permissions`, `GET /attack-paths`, `GET /{id}`, `DELETE /{id}` |
 | `/ai` | `ai.py` | `GET /providers`, `PUT /providers`, `PATCH /providers/{provider}`, `DELETE /providers/{provider}`, `GET /models`, `POST /explain` |
 | `/api-keys` | `api_keys.py` | `POST ""`, `GET ""`, `DELETE /revoked`, `DELETE /{key_id}` |

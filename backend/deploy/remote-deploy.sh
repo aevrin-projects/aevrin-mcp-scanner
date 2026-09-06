@@ -107,7 +107,7 @@ health() {
 start_api
 
 # Wait on the image's own HEALTHCHECK rather than a fixed sleep: the API opens
-# its port well before Trivy's database and the Go scanners have initialised.
+# its port well before the API has finished its own start-up work.
 for _ in $(seq 1 36); do
   [ "$(health)" = "healthy" ] && break
   sleep 5

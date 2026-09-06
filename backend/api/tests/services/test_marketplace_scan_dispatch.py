@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from aevrin_scanner_core.models import InvocationChannel
 
 from aevrin_api.services.marketplace import scanning
 
@@ -110,8 +111,11 @@ async def test_a_scan_is_graded_after_it_runs(monkeypatch):
     unscanned forever, however well the pipeline did."""
     ran: list[str] = []
 
-    async def fake_start_scan(scan_id, owner_id, target_type, target, settings):
+    seen: dict[str, object] = {}
+
+    async def fake_start_scan(scan_id, owner_id, target_type, target, settings, **kwargs):
         ran.append("scan")
+        seen.update(kwargs)
 
     async def fake_apply(db, *, scan_id, actor_id=None):
         ran.append("grade")
@@ -125,6 +129,10 @@ async def test_a_scan_is_graded_after_it_runs(monkeypatch):
     )
 
     assert ran == ["scan", "grade"], ran
+    # A catalogue scan must record that the marketplace asked for it. This
+    # was "dashboard" for every scan in the product until the channel was
+    # threaded through, which made the column actively misleading.
+    assert seen["channel"] is InvocationChannel.MARKETPLACE
 
 
 @pytest.mark.asyncio
@@ -181,3 +189,36 @@ async def test_a_server_with_no_repository_is_refused_rather_than_faked(monkeypa
 
 async def _noop(*args: Any, **kwargs: Any) -> None:
     return None
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        ({"package_registry": "npm", "package_identifier": "@playwright/mcp"}, "npx -y @playwright/mcp"),
+        ({"package_registry": "NPM", "package_identifier": "server-x"}, "npx -y server-x"),
+        ({"package_registry": "pypi", "package_identifier": "mcp-server-git"}, "uvx mcp-server-git"),
+        # No runner we can name unambiguously: fall through to resolving the
+        # repository's manifest rather than guessing a command.
+        ({"package_registry": "cargo", "package_identifier": "thing"}, None),
+        ({"package_registry": "npm", "package_identifier": ""}, None),
+        ({}, None),
+    ],
+)
+def test_a_listing_launch_command_comes_from_its_registry_metadata(version, expected):
+    """The identifier a listing publishes is better evidence than anything
+    derived from its repository - it is the string a user would actually run."""
+    assert scanning._server_command_for(version) == expected
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    ["evil; rm -rf /", "pkg && curl x", "a$(id)", "a`id`", "two words", "a|b", "a>b", "a\\b"],
+)
+def test_a_shell_shaped_package_identifier_is_refused(identifier):
+    """The marketplace takes public submissions, and this string becomes part
+    of a launch command. It is never passed to a shell - the command is split
+    into argv downstream - but a package name that looks like a command line
+    is not a package name, and is refused rather than escaped."""
+    assert scanning._server_command_for(
+        {"package_registry": "npm", "package_identifier": identifier}
+    ) is None

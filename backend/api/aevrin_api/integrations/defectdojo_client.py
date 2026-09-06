@@ -112,7 +112,9 @@ class DefectDojoClient:
                 "found_by": [1],  # matches the "Static Check" test_type used in create_test
                 "date": _today(),
                 "active": finding.triage_status.value == "open",
-                "verified": bool(finding.verified),
+                # Aevrin no longer has a live-verification signal to pass on:
+                # that came from credential scanning, which is gone.
+                "verified": False,
                 "false_p": finding.triage_status.value == "false_positive",
                 "file_path": finding.location.file_path,
                 "line": finding.location.line_start,

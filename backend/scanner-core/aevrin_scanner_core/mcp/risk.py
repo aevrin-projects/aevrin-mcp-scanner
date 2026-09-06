@@ -26,21 +26,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from uuid import UUID
 
-from ..models import Finding, Severity, ToolName
+from ..models import Finding, Severity
 from .catalog import short_label
-from .tools import PERMISSION_LABELS, PERMISSION_ORDER, McpTool, Permission, replace_permissions
 
-SEVERITY_WEIGHTS: dict[Severity, int] = {
-    Severity.CRITICAL: 25,
-    Severity.HIGH: 15,
-    Severity.MEDIUM: 8,
-    Severity.LOW: 2,
+# How severities rank against each other, for ordering the narrative only.
+# There is deliberately no weight table here any more: Aevrin does not compute
+# a risk score. The engine assigns severities, scores and grades, and this
+# module's remaining job is to explain the result it was handed. A second
+# weight table would be a second scoring algorithm waiting to disagree with
+# the first. See DECISIONS.md ADR-033.
+_SEVERITY_RANK: dict[Severity, int] = {
+    Severity.CRITICAL: 4,
+    Severity.HIGH: 3,
+    Severity.MEDIUM: 2,
+    Severity.LOW: 1,
     Severity.INFO: 0,
 }
-
-MAX_RISK_SCORE = 100
 
 
 class Grade(str, Enum):
@@ -77,43 +79,19 @@ GRADE_POLICIES: dict[Grade, Policy] = {
 
 
 def counts_toward_risk(finding: Finding) -> bool:
-    """Findings that appear in the report but must never move the number:
-    the MCP08 not-tested placeholder, anything under a fixtures/tests path,
-    and anything a human has triaged as fixed or a false positive. All three
-    stay visible; none of them is evidence of current risk."""
-    return (
-        not finding.not_tested
-        and not finding.excluded_path
-        and finding.triage_status.value == "open"
-    )
+    """A finding that is shown but does not count toward the severity totals.
 
+    One reason survives: a human has triaged it as fixed or a false positive.
+    The fixture-path and not-tested exclusions went with source scanning -
+    findings now describe a tool a live server returned, and there is no file
+    path to be under a `tests/` directory.
 
-def risk_score(findings: list[Finding]) -> int:
-    """0-100, higher is worse.
-
-    A single critical finding is 25 - a quarter of the way to "do not use"
-    on its own - and four of them reach it. The cap exists so a server with
-    forty low findings cannot out-score one with a live remote-code-execution
-    hole; volume is not severity.
+    Note this no longer affects the score. The engine scores per tool before
+    Aevrin sees anything, so triaging a finding changes the counts shown and
+    the hook's decision, and deliberately leaves the original scan-time grade
+    intact for auditability.
     """
-    total = sum(
-        SEVERITY_WEIGHTS[f.severity] * max(1, f.occurrence_count)
-        for f in findings
-        if counts_toward_risk(f)
-    )
-    return min(total, MAX_RISK_SCORE)
-
-
-def grade_from_score(score: int) -> Grade:
-    if score <= 9:
-        return Grade.A
-    if score <= 24:
-        return Grade.B
-    if score <= 49:
-        return Grade.C
-    if score <= 74:
-        return Grade.D
-    return Grade.F
+    return finding.triage_status.value == "open"
 
 
 @dataclass(frozen=True)
@@ -153,26 +131,29 @@ def severity_counts(findings: list[Finding]) -> dict[str, int]:
 def grade_scan(
     findings: list[Finding],
     *,
+    engine_risk_score: int | None,
+    engine_grade: Grade | None,
     coverage_complete: bool = True,
     tools_discovered: int = 0,
-    authenticated: bool | None = None,
-    transport: str | None = None,
 ) -> GradeResult:
-    """The single entry point every surface calls: report, CLI, marketplace.
+    """Present the engine's verdict. Never recompute it.
 
-    `coverage_complete` is false when a stage that should have run did not.
-    `tools_discovered == 0` on a target that was supposed to have tools is
-    the other incompleteness that matters, and it is the more common one:
-    a repository whose registrations this could not parse produces zero
-    findings, which is indistinguishable from a clean server unless it is
-    said out loud.
+    `engine_risk_score` and `engine_grade` come from the scanner, already
+    rolled up to the worst tool. Nothing here adjusts either one: this
+    function chooses the wording, the policy and whether the scan may be
+    graded at all, which is presentation, not assessment.
+
+    A scan is ungraded when coverage was incomplete or when no tools were
+    enumerated. The second case is the common one and the one worth stating
+    out loud: a server that could not be launched produces zero findings,
+    which is indistinguishable from a clean server unless the report says
+    so. A letter would be a claim about evidence nobody has.
     """
-    score = risk_score(findings)
-    incomplete = not coverage_complete or tools_discovered == 0
-    grade = None if incomplete else grade_from_score(score)
+    incomplete = not coverage_complete or tools_discovered == 0 or engine_grade is None
+    grade = None if incomplete else engine_grade
     policy = Policy.REQUIRE_APPROVAL if grade is None else GRADE_POLICIES[grade]
     return GradeResult(
-        risk_score=score,
+        risk_score=engine_risk_score if engine_risk_score is not None else 0,
         grade=grade,
         label="Not graded" if grade is None else GRADE_LABELS[grade],
         policy=policy,
@@ -196,9 +177,9 @@ def _rules_by_contribution(findings: list[Finding], limit: int = 2) -> list[str]
     for finding in findings:
         if not counts_toward_risk(finding) or not finding.rule_id:
             continue
-        points, count = contribution.get(finding.rule_id, (0, 0))
+        rank, count = contribution.get(finding.rule_id, (0, 0))
         contribution[finding.rule_id] = (
-            points + SEVERITY_WEIGHTS[finding.severity] * max(1, finding.occurrence_count),
+            max(rank, _SEVERITY_RANK[finding.severity]),
             count + max(1, finding.occurrence_count),
         )
     ranked = sorted(contribution.items(), key=lambda item: (-item[1][0], -item[1][1], item[0]))
@@ -215,7 +196,7 @@ def _driver_phrase(rule_ids: list[str]) -> str:
 
 
 def _worst_finding(findings: list[Finding]) -> Finding | None:
-    order = list(SEVERITY_WEIGHTS)
+    order = sorted(_SEVERITY_RANK, key=lambda s: -_SEVERITY_RANK[s])
     scored = [f for f in findings if counts_toward_risk(f)]
     if not scored:
         return None
@@ -344,112 +325,4 @@ def _summarize(
             "applies to this version only."
         ),
         suggested_policy=policy,
-    )
-
-
-# --------------------------------------------------------------------------
-# Permission recommendation
-#
-# The projected score is not an estimate. The rules are pure functions of a
-# tool list, so the recommendation is applied to a copy of the tools and the
-# rules are simply run again; the number that comes back is what the scan
-# would actually have produced. Nothing here invents a reduction.
-
-
-@dataclass(frozen=True)
-class PermissionChange:
-    tool_name: str
-    removed: tuple[Permission, ...]
-    reason: str
-
-
-@dataclass
-class PermissionRecommendation:
-    current: dict[str, list[str]]
-    changes: list[PermissionChange]
-    current_risk: int
-    projected_risk: int
-    # Advice that is real but that the rules cannot score, so it is listed
-    # separately rather than folded into a projection it did not earn.
-    unscored_advice: list[str] = field(default_factory=list)
-
-
-def permission_recommendation(
-    scan_id: UUID, tools: list[McpTool], findings: list[Finding]
-) -> PermissionRecommendation | None:
-    """A concrete before/after, or nothing.
-
-    Returns None when there is no capability worth proposing the removal of.
-    An empty recommendation is worse than none: it implies the surface was
-    examined and found irreducible, which is a stronger claim than "no rule
-    here had a suggestion".
-    """
-    from .rules import run_rules
-
-    changes: list[PermissionChange] = []
-    for tool in tools:
-        removed: list[Permission] = []
-        reasons: list[str] = []
-        if tool.has(Permission.EXEC):
-            removed.append(Permission.EXEC)
-            reasons.append("code execution is the highest-impact capability an MCP tool can hold")
-        if tool.has(Permission.FS_WRITE) and tool.name.lower().startswith(
-            ("get_", "read_", "list_", "search_", "fetch_", "find_", "show_", "describe_")
-        ):
-            removed.append(Permission.FS_WRITE)
-            reasons.append("the tool's own name describes a read operation")
-        if removed:
-            changes.append(
-                PermissionChange(
-                    tool_name=tool.name,
-                    removed=tuple(removed),
-                    reason="; ".join(reasons),
-                )
-            )
-
-    if not changes:
-        return None
-
-    removals = {change.tool_name: set(change.removed) for change in changes}
-    narrowed = [
-        replace_permissions(
-            tool, tuple(p for p in tool.permissions if p not in removals.get(tool.name, set()))
-        )
-        for tool in tools
-    ]
-    # Everything the rules did not produce (dependency CVEs, committed
-    # credentials, launch-command findings) is unaffected by a permission
-    # change and carries over unchanged.
-    unchanged = [f for f in findings if f.tool is not ToolName.AEVRIN_MCP_RULES]
-    projected = risk_score([*run_rules(scan_id, narrowed), *unchanged])
-
-    current: dict[str, list[str]] = {}
-    for tool in tools:
-        if tool.permissions:
-            current[tool.name] = [
-                PERMISSION_LABELS[p] for p in PERMISSION_ORDER if p in tool.permissions
-            ]
-
-    advice: list[str] = []
-    if any(t.has(Permission.FS_READ, Permission.FS_WRITE) for t in tools):
-        advice.append(
-            "Constrain filesystem tools to an explicit allowed directory rather than any path "
-            "the caller supplies."
-        )
-    if any(t.has(Permission.NETWORK, Permission.HTTP) for t in tools):
-        advice.append(
-            "Allow-list the hosts network tools may reach, instead of accepting an arbitrary URL."
-        )
-    if any(t.has(Permission.CREDENTIAL) for t in tools):
-        advice.append(
-            "Read credentials from the server's own environment instead of accepting them as "
-            "tool arguments."
-        )
-
-    return PermissionRecommendation(
-        current=current,
-        changes=changes,
-        current_risk=risk_score(findings),
-        projected_risk=projected,
-        unscored_advice=advice,
     )

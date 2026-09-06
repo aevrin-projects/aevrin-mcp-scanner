@@ -106,7 +106,7 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
                 {detail.recent_scans.slice(0, 6).map((s, i) => (
                   <li key={i} className="flex items-center justify-between gap-3">
                     <span className="min-w-0 truncate text-muted-foreground">{String(s.target ?? "-")}</span>
-                    <span className="shrink-0 tabular-nums">{String(s.score ?? "-")}</span>
+                    <span className="shrink-0 tabular-nums">{String(s.risk_score ?? "-")}</span>
                   </li>
                 ))}
               </ul>

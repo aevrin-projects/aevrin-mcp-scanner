@@ -198,8 +198,8 @@ function UsageContent({ usage }: { usage: AccountUsage }) {
                 </div>
                 <div className="flex items-center justify-between gap-4 sm:justify-end">
                   <div className="text-right">
-                    <p className="text-xs text-muted-foreground">Score</p>
-                    <p className="font-mono text-lg font-medium">{item.score ?? "-"}</p>
+                    <p className="text-xs text-muted-foreground">Risk</p>
+                    <p className="font-mono text-lg font-medium">{item.risk_score ?? "-"}</p>
                   </div>
                   <Button
                     variant="outline"

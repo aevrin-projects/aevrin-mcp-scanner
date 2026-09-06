@@ -125,7 +125,7 @@ export function ScanHistoryPage() {
         const totals = ordered.reduce(
           (acc, item) => {
             const counts = summarizeFindings(
-              item.findings.filter((finding) => !finding.not_tested && finding.triage_status === "open"),
+              item.findings.filter((finding) => finding.triage_status === "open"),
             );
             acc.critical += counts.critical;
             acc.high += counts.high;
@@ -376,7 +376,7 @@ function ScanHistoryRow({
   tabbable: boolean;
 }) {
   const counts = summarizeFindings(
-    summary.findings.filter((finding) => !finding.not_tested && finding.triage_status === "open"),
+    summary.findings.filter((finding) => finding.triage_status === "open"),
   );
   const coverage = summarizeCoverage(summary.stages);
 

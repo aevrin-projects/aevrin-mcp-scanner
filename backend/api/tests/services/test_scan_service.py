@@ -55,42 +55,30 @@ class _PatchSpyRest:
         pass
 
 
-def test_persist_completed_scan_writes_mcp_detection_evidence():
-    """mcp_detection_confidence/evidence and mcp_tools_declared were computed
-    by the pipeline on every scan and discarded before this was wired up -
-    the report claimed they were shown, and no surface ever received them.
-    See CHANGELOG.md and DECISIONS.md."""
+def test_persist_completed_scan_records_what_was_actually_run():
+    """The scan row has to carry enough to reproduce the result: the tools the
+    server returned, and the command that started it. A grade attributed to
+    the wrong package is the failure resolution exists to prevent, and this is
+    where it stays visible after the fact."""
     scan = Scan(
         target_type=TargetType.GITHUB_REPO,
         target="https://github.com/acme/server",
         status=ScanStatus.COMPLETED,
-        score=100,
+        risk_score=0,
         mcp_detected=True,
-        mcp_detection_confidence="high",
-        mcp_detection_evidence=["sdk_dependency: depends on fastmcp", "server_init: FastMCP(...)"],
         mcp_tools_declared=["search", "write_file"],
-        mcp_components=[{"root": ".", "confidence": "high", "evidence": ["sdk_dependency: depends on fastmcp"]}],
-        mcp_capabilities={"can_execute": False, "can_write": True, "can_read": True,
-                          "handles_credentials": False, "makes_network_calls": False},
+        server_command="npx -y @acme/server",
+        scanner_name="tooltrust-scanner",
+        scanner_version="0.3.19",
         completed_at=datetime.now(UTC),
     )
     rest = _PatchSpyRest()
 
-    scan_service._persist_completed_scan(rest, scan, "user-1", scan.target, [])  # type: ignore[arg-type]
+    scan_service._persist_completed_scan(rest, scan, "user-1", scan.target)  # type: ignore[arg-type]
 
     scans_patches = [p for p in rest.patches if p[0] == "scans"]
     assert len(scans_patches) == 1
     _, _, patch = scans_patches[0]
-    assert patch["mcp_detection_confidence"] == "high"
-    assert patch["mcp_detection_evidence"] == [
-        "sdk_dependency: depends on fastmcp",
-        "server_init: FastMCP(...)",
-    ]
     assert patch["mcp_tools_declared"] == ["search", "write_file"]
-    assert patch["mcp_components"] == [
-        {"root": ".", "confidence": "high", "evidence": ["sdk_dependency: depends on fastmcp"]}
-    ]
-    assert patch["mcp_capabilities"] == {
-        "can_execute": False, "can_write": True, "can_read": True,
-        "handles_credentials": False, "makes_network_calls": False,
-    }
+    assert patch["server_command"] == "npx -y @acme/server"
+    assert patch["scanner_version"] == "0.3.19"

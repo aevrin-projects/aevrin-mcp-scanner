@@ -45,7 +45,7 @@ def finding(**over: Any) -> dict[str, Any]:
         "severity": "high",
         "title": "Command built from unvalidated input",
         "description": "A tool argument reaches a shell.",
-        "tool": "aevrin-mcp-behavior",
+        "tool": "mcp-scanner",
         "owasp_category": "MCP05",
         "file_path": "src/run.ts",
         "line_start": 12,
@@ -62,13 +62,11 @@ def finding(**over: Any) -> dict[str, Any]:
 
 
 STAGES = [
-    {"name": "cloning", "status": "done", "error": None},
-    {"name": "discovery", "status": "done", "error": None},
-    {"name": "mcp_rules", "status": "done", "error": None},
-    {"name": "mcp_behavior", "status": "done", "error": None},
-    {"name": "secrets", "status": "done", "error": None},
-    {"name": "dependencies", "status": "done", "error": None},
-    {"name": "aggregating", "status": "done", "error": None},
+    {"name": "resolving", "status": "done", "error": None},
+    {"name": "launching", "status": "done", "error": None},
+    {"name": "enumerating", "status": "done", "error": None},
+    {"name": "analyzing", "status": "done", "error": None},
+    {"name": "grading", "status": "done", "error": None},
 ]
 
 
@@ -99,7 +97,7 @@ def test_the_report_contains_no_dashes_of_any_exotic_kind():
     those were pasted.
     """
     html = render_report_html(
-        scan(status="incomplete", unreliable_stages=["secrets"]),
+        scan(status="incomplete", unreliable_stages=["launching"]),
         [finding(), finding(severity="low", triage_status="fixed", triage_reason="Patched.")],
         STAGES,
     )
@@ -153,9 +151,9 @@ def test_a_scan_with_no_readable_tools_is_never_reported_as_clean():
 
 def test_an_incomplete_scan_never_reads_as_a_clean_one():
     """The product's central claim, in the artefact that outlives the session."""
-    stages = [*STAGES[:2], {"name": "secrets", "status": "failed", "error": "no Docker daemon"}]
+    stages = [*STAGES[:2], {"name": "launching", "status": "failed", "error": "the server could not be started"}]
     html = render_report_html(
-        scan(status="incomplete", score=100, unreliable_stages=["secrets"]), [], stages
+        scan(status="incomplete", risk_score=0, grade=None, unreliable_stages=["launching"]), [], stages
     )
     body = text_of(html)
 
@@ -163,7 +161,7 @@ def test_an_incomplete_scan_never_reads_as_a_clean_one():
     assert "inconclusive, not clean" in body
     # The reason a stage failed used to live in a title attribute, which does
     # not survive printing and cannot be read by anyone who cannot hover.
-    assert "no Docker daemon" in body
+    assert "the server could not be started" in body
 
 
 def test_a_scan_with_no_findings_does_not_claim_the_target_is_safe():

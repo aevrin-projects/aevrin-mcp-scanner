@@ -205,7 +205,7 @@ export function DashboardPreview({
                 <div className="border-b border-border px-3.5 py-2.5">
                   <p className="text-[11.5px] font-semibold">Security posture</p>
                   <p className="text-[9.5px] text-muted-foreground">
-                    Latest score, and open findings per scan over time.
+                    Latest risk score, and open findings per scan over time.
                   </p>
                 </div>
                 <div className="flex items-center gap-1">

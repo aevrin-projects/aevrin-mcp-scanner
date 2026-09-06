@@ -14,6 +14,7 @@ from aevrin_scanner_core import (
     NOT_TESTED_NOTE,
     STAGE_LABELS,
     Finding,
+    Grade,
     OwaspMcpCategory,
     Severity,
     StageName,
@@ -96,15 +97,13 @@ def _scoring_finding(row: dict[str, object], scan: dict[str, object]) -> Finding
     """
     return Finding(
         scan_id=UUID(str(row.get("scan_id") or scan.get("id"))),
-        tool=ToolName(str(row.get("tool") or ToolName.AEVRIN_MCP_RULES.value)),
+        tool=ToolName(str(row.get("tool") or ToolName.MCP_SCANNER.value)),
         rule_id=_str_or_none(row.get("rule_id")),
         owasp_category=OwaspMcpCategory(str(row.get("owasp_category") or "MCP09")),
         severity=Severity(str(row.get("severity") or "info")),
         title=str(row.get("title") or ""),
         description=str(row.get("description") or ""),
         remediation=str(row.get("remediation") or ""),
-        not_tested=bool(row.get("not_tested")),
-        excluded_path=bool(row.get("excluded_path")),
         occurrence_count=_int_or(row.get("occurrence_count"), 1),
         triage_status=TriageStatus(str(row.get("triage_status") or "open")),
     )
@@ -177,8 +176,8 @@ def _format_datetime(value: str | None) -> str:
 def _severity_counts(findings: list[dict[str, object]]) -> dict[str, int]:
     counts = {sev: 0 for sev in _SEVERITY_ORDER}
     for finding in findings:
-        if finding.get("not_tested") or finding.get("excluded_path"):
-            continue
+        # Triage is the only remaining reason a finding is shown but not
+        # counted: a human decided it is fixed or a false positive.
         if finding.get("triage_status") not in (None, "open"):
             continue
         severity = str(finding.get("severity"))
@@ -227,12 +226,12 @@ def _finding_html(finding: dict[str, object], index: int) -> str:
 
     triage = str(finding.get("triage_status") or "open")
     tags = []
-    if finding.get("in_kev"):
-        tags.append('<span class="tag tag-kev">Known exploited</span>')
-    epss_score = finding.get("epss_score")
-    if isinstance(epss_score, (int, float)):
-        pct = f"{epss_score * 100:.2f}%" if epss_score < 0.01 else f"{epss_score * 100:.0f}%"
-        tags.append(f'<span class="tag">EPSS {_esc(pct)}</span>')
+    rule_id = finding.get("rule_id")
+    if rule_id:
+        tags.append(f'<span class="tag">{_esc(rule_id)}</span>')
+    occurrences = finding.get("occurrence_count")
+    if isinstance(occurrences, int) and occurrences > 1:
+        tags.append(f'<span class="tag">x{occurrences} tools</span>')
     if triage != "open":
         tags.append(f'<span class="tag">{_esc(triage.replace("_", " "))}</span>')
 
@@ -272,10 +271,11 @@ def render_report_html(
     findings: list[dict[str, object]],
     stages: list[dict[str, object]],
 ) -> str:
-    real_findings = [f for f in findings if not f.get("not_tested") and not f.get("excluded_path")]
-    excluded_count = sum(1 for f in findings if f.get("excluded_path"))
-    active_findings = [f for f in real_findings if f.get("triage_status") in (None, "open")]
-    resolved_findings = [f for f in real_findings if f.get("triage_status") not in (None, "open")]
+    # Everything the scan reported is a real finding now. The synthetic
+    # not-tested placeholder and the fixture-path exclusion both went with
+    # source scanning; the only split left is what a human has triaged.
+    active_findings = [f for f in findings if f.get("triage_status") in (None, "open")]
+    resolved_findings = [f for f in findings if f.get("triage_status") not in (None, "open")]
     counts = _severity_counts(findings)
     status = str(scan.get("status", "queued"))
     risk_score = scan.get("risk_score")
@@ -291,6 +291,8 @@ def render_report_html(
     # how two surfaces end up disagreeing about the same scan.
     summary = grade_scan(
         [_scoring_finding(f, scan) for f in findings],
+        engine_risk_score=risk_score if isinstance(risk_score, int) else None,
+        engine_grade=Grade(str(scan["grade"])) if scan.get("grade") else None,
         coverage_complete=not unreliable_names,
         tools_discovered=len(declared_tools if isinstance(declared_tools, list) else []),
     ).summary
@@ -360,21 +362,10 @@ def render_report_html(
         </section>
         """
 
+    # The "excluded from scoring" section is gone with fixture-path
+    # exclusion: findings describe tools a live server returned, and there is
+    # no file path for one to be under a `tests/` directory.
     excluded_html = ""
-    if excluded_count:
-        excluded_word = "finding" if excluded_count == 1 else "findings"
-        excluded_html = f"""
-        <section class="section">
-          <div class="section-head">
-            <h2 class="section-title serif">Excluded from scoring</h2>
-          </div>
-          <p class="empty">{excluded_count} {excluded_word} matched a test or fixture path
-          convention, such as a <code>fixtures/</code> directory or a filename like
-          <code>*.test.ts</code>. Sample code deliberately written to look vulnerable is not a real
-          issue in the shipped server, so these are excluded from the score and from the list
-          above.</p>
-        </section>
-        """
 
     target = str(scan.get("target", ""))
     target_type_label = _TARGET_TYPE_LABELS.get(
@@ -490,11 +481,12 @@ def render_report_html(
     </section>
 
     <div class="footer">
-      <strong>How the score works.</strong> It starts at 100 and subtracts severity-weighted
-      findings: critical 40 points each, high 20, medium 8, low 3.<br />
-      <strong>What it does not mean.</strong> The score is self-reported by this scan and is not
+      <strong>How the risk score works.</strong> It starts at 0 and adds severity-weighted
+      findings: critical 25 points each, high 15, medium 8, low 2. Higher is worse. The grade
+      follows from it: A is 0-9, B 10-24, C 25-49, D 50-74, F 75 and above.<br />
+      <strong>What it does not mean.</strong> The score is produced by this scan and is not
       independently re-verified by Aevrin. It never guarantees safety, and it has to be read
-      beside the coverage section: a high score from a scan that only half ran says very little.
+      beside the coverage section: a low score from a scan that only half ran says very little.
     </div>
   </div>
 </body>

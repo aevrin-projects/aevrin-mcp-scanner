@@ -22,7 +22,7 @@ are the one finding vocabulary used everywhere a finding is shown.
 
 | Component | What it is |
 |---|---|
-| `backend/scanner-core` | The scanning engine: the MCP rule engine (AS-001..AS-019 plus Aevrin's own AV rules), the risk/grade model, MCP-server detection and tool discovery, Aevrin's Semgrep taint pack, adapters for TruffleHog and OSV-Scanner, and agent-posture scoring. |
+| `backend/scanner-core` | The scanning layer: target resolution, the sandboxed engine invocation, normalisation of its findings, the rule-prose catalogue, the policy/summary model, and agent-posture scoring. It does not itself decide security - the engine does. |
 | `backend/api` | FastAPI service: scan orchestration, billing (Razorpay), the MCP marketplace, AI explanations, admin, auth. |
 | `backend/cli` | The `aevrin` Python CLI - `scan`, `agent scan`, `login`/`logout`, `hook setup`/`allow`, `findings triage`. Published to PyPI. |
 | `backend/cli-npm` | An npm wrapper (`npm install -g aevrin`) that installs the Python CLI underneath. |

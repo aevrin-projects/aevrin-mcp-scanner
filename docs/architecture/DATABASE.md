@@ -1,7 +1,7 @@
 # Database
 
 Supabase (Postgres + Auth). Migrations live in
-`backend/infra/migrations/`, numbered `0001`–`0038` sequentially - read
+`backend/infra/migrations/`, numbered `0001`–`0047` sequentially - read
 them in order to see how the schema arrived at its current shape; never
 edit a historical migration to make current schema prettier.
 
@@ -73,6 +73,38 @@ contract), narrows the `scan_stages.name` check to the new stage set, and
 drops `mcp_listing_versions`' `code_score`/`mcp_score`/`dependency_score` -
 three numbers that described a code-security product that no longer exists
 and that nothing user-facing read. See `DECISIONS.md` ADR-027/ADR-028.
+
+`0047_mcp_engine_replacement.sql` follows it and applies the same reasoning
+one level up. Aevrin's own rule engine was replaced by an external one, so
+grades produced by the previous engine are not comparable with grades
+produced by this one: `scans`, `hook_cache`, `mcp_listings` and
+`mcp_listing_versions` all have their letter and score set to `NULL`, while
+their findings stay. The findings are still real evidence; only the verdict
+is withdrawn.
+
+It adds the reproducibility columns - `scans.server_command`,
+`scanner_name`, `scanner_version`, `invocation_channel` - and drops the
+columns whose producers were deleted with the old pipeline:
+`mcp_detection_confidence`, `mcp_detection_evidence`, `mcp_components`,
+`mcp_capabilities` on `scans`, and `epss_score`, `in_kev`,
+`dependency_scope`, `corroborated_by`, `original_severity` on `findings`.
+`rug_pull_signatures` is dropped outright: tool-set drift was Aevrin's own
+check and nothing computes it any more, so leaving the table would leave one
+that quietly stops being maintained.
+
+`scan_stages.name` changes completely (`resolving`, `launching`,
+`enumerating`, `analyzing`, `grading`). Note the ordering in both 0046 and
+0047: rows naming a retired stage are **deleted before** the new check
+constraint is added, because `add constraint ... check` validates existing
+rows the moment it is added. Getting that backwards is how 0046's first
+attempt aborted and rolled back. See ADR-033/ADR-034.
+
+`backend/api/tests/workflows/test_schema_projections.py` replays every
+migration in this directory to build the real column set, then fails if any
+`db.select(..., columns=...)` in the API names a column no migration
+defines. It exists because five projections survived 0046's rename and took
+the dashboard down; the in-memory fakes every other test uses cannot catch
+that class of bug.
 
 **Auth, tiering, billing** (`0003_tiering_auth_billing.sql`, `0005`, `0013`,
 `0016`, `0028`, `0033`)

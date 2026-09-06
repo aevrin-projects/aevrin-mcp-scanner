@@ -56,7 +56,7 @@ async def test_push_finding_maps_severity_and_triage(dd_settings):
     )
     finding = Finding(
         scan_id=uuid4(),
-        tool=ToolName.TRUFFLEHOG,
+        tool=ToolName.MCP_SCANNER,
         owasp_category=OwaspMcpCategory.TOKEN_MISMANAGEMENT,
         severity=Severity.CRITICAL,
         title="Hardcoded secret",

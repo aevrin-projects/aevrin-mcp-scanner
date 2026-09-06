@@ -1,23 +1,19 @@
 import type { ScanStatus, StageName, TargetType } from "./types";
 
 export const STAGE_ORDER: StageName[] = [
-  "cloning",
-  "discovery",
-  "mcp_rules",
-  "mcp_behavior",
-  "secrets",
-  "dependencies",
-  "aggregating",
+  "resolving",
+  "launching",
+  "enumerating",
+  "analyzing",
+  "grading",
 ];
 
 export const STAGE_LABELS: Record<StageName, string> = {
-  cloning: "Cloning",
-  discovery: "Tool discovery",
-  mcp_rules: "MCP tool rules",
-  mcp_behavior: "MCP behavior analysis",
-  secrets: "Credential exposure",
-  dependencies: "Supply chain",
-  aggregating: "Aggregating",
+  resolving: "Resolving MCP server",
+  launching: "Launching server",
+  enumerating: "Enumerating tools",
+  analyzing: "Analyzing tools",
+  grading: "Calculating grade",
 };
 
 export const TARGET_TYPE_LABELS: Record<TargetType, string> = {

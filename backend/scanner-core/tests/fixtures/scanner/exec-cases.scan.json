@@ -1,0 +1,311 @@
+{
+  "schema_version": "1.0",
+  "policies": [
+    {
+      "tool_name": "lichess_cloud_eval",
+      "action": "ALLOW",
+      "reason": "risk score 0 (grade A): tool is within acceptable risk threshold",
+      "dependency_visibility": "No dependency data",
+      "dependency_note": "No metadata.dependencies or repo_url were exposed by this MCP server.",
+      "score": {
+        "risk_score": 0,
+        "grade": "A",
+        "findings": [
+          {
+            "rule_id": "AS-006",
+            "severity": "INFO",
+            "code": "POSSIBLE_ARBITRARY_CODE_EXECUTION",
+            "description": "tool name or description implies arbitrary script/code execution — capability unconfirmed (no exec permission or code/script/eval input property found)",
+            "location": "name,description",
+            "tool_name": "lichess_cloud_eval",
+            "evidence": [
+              {
+                "kind": "tool_name_suffix",
+                "value": "_eval"
+              }
+            ]
+          },
+          {
+            "rule_id": "AS-014",
+            "severity": "INFO",
+            "code": "DEPENDENCY_INVENTORY_UNAVAILABLE",
+            "description": "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited.",
+            "location": "metadata",
+            "tool_name": "lichess_cloud_eval",
+            "evidence": [
+              {
+                "kind": "dependency_visibility",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tool_name": "evaluate_position",
+      "action": "ALLOW",
+      "reason": "risk score 0 (grade A): tool is within acceptable risk threshold",
+      "dependency_visibility": "No dependency data",
+      "dependency_note": "No metadata.dependencies or repo_url were exposed by this MCP server.",
+      "score": {
+        "risk_score": 0,
+        "grade": "A",
+        "findings": [
+          {
+            "rule_id": "AS-014",
+            "severity": "INFO",
+            "code": "DEPENDENCY_INVENTORY_UNAVAILABLE",
+            "description": "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited.",
+            "location": "metadata",
+            "tool_name": "evaluate_position",
+            "evidence": [
+              {
+                "kind": "dependency_visibility",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tool_name": "document_retrieval",
+      "action": "ALLOW",
+      "reason": "risk score 0 (grade A): tool is within acceptable risk threshold",
+      "dependency_visibility": "No dependency data",
+      "dependency_note": "No metadata.dependencies or repo_url were exposed by this MCP server.",
+      "score": {
+        "risk_score": 0,
+        "grade": "A",
+        "findings": [
+          {
+            "rule_id": "AS-002",
+            "severity": "INFO",
+            "code": "CAPABILITY_SURFACE",
+            "description": "declared capabilities: database access",
+            "location": "permissions",
+            "tool_name": "document_retrieval",
+            "evidence": [
+              {
+                "kind": "capability",
+                "value": "db"
+              }
+            ]
+          },
+          {
+            "rule_id": "AS-014",
+            "severity": "INFO",
+            "code": "DEPENDENCY_INVENTORY_UNAVAILABLE",
+            "description": "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited.",
+            "location": "metadata",
+            "tool_name": "document_retrieval",
+            "evidence": [
+              {
+                "kind": "dependency_visibility",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tool_name": "run_command",
+      "action": "ALLOW",
+      "reason": "risk score 2 (grade A): tool is within acceptable risk threshold",
+      "behavior": [
+        "executes_commands"
+      ],
+      "dependency_visibility": "No dependency data",
+      "dependency_note": "No metadata.dependencies or repo_url were exposed by this MCP server.",
+      "score": {
+        "risk_score": 2,
+        "grade": "A",
+        "findings": [
+          {
+            "rule_id": "AS-002",
+            "severity": "INFO",
+            "code": "CAPABILITY_SURFACE",
+            "description": "declared capabilities: code/command execution",
+            "location": "permissions",
+            "tool_name": "run_command",
+            "evidence": [
+              {
+                "kind": "capability",
+                "value": "exec"
+              }
+            ]
+          },
+          {
+            "rule_id": "AS-011",
+            "severity": "LOW",
+            "code": "MISSING_RATE_LIMIT",
+            "description": "tool performs network or execution operations but declares no rate-limit, timeout, or retry configuration",
+            "location": "permissions+metadata",
+            "tool_name": "run_command"
+          },
+          {
+            "rule_id": "AS-014",
+            "severity": "INFO",
+            "code": "DEPENDENCY_INVENTORY_UNAVAILABLE",
+            "description": "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited.",
+            "location": "metadata",
+            "tool_name": "run_command",
+            "evidence": [
+              {
+                "kind": "dependency_visibility",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tool_name": "evaluate_script",
+      "action": "REQUIRE_APPROVAL",
+      "reason": "risk score 27 (grade C): tool requires human approval before use",
+      "behavior": [
+        "executes_commands"
+      ],
+      "dependency_visibility": "No dependency data",
+      "dependency_note": "No metadata.dependencies or repo_url were exposed by this MCP server.",
+      "score": {
+        "risk_score": 27,
+        "grade": "C",
+        "findings": [
+          {
+            "rule_id": "AS-002",
+            "severity": "INFO",
+            "code": "CAPABILITY_SURFACE",
+            "description": "declared capabilities: code/command execution",
+            "location": "permissions",
+            "tool_name": "evaluate_script",
+            "evidence": [
+              {
+                "kind": "capability",
+                "value": "exec"
+              }
+            ]
+          },
+          {
+            "rule_id": "AS-006",
+            "severity": "CRITICAL",
+            "code": "ARBITRARY_CODE_EXECUTION",
+            "description": "tool name or description implies arbitrary script/code execution (evaluate_script, execute javascript, etc.)",
+            "location": "name,description",
+            "tool_name": "evaluate_script",
+            "evidence": [
+              {
+                "kind": "tool_name_keyword",
+                "value": "evaluate_script"
+              }
+            ]
+          },
+          {
+            "rule_id": "AS-011",
+            "severity": "LOW",
+            "code": "MISSING_RATE_LIMIT",
+            "description": "tool performs network or execution operations but declares no rate-limit, timeout, or retry configuration",
+            "location": "permissions+metadata",
+            "tool_name": "evaluate_script"
+          },
+          {
+            "rule_id": "AS-014",
+            "severity": "INFO",
+            "code": "DEPENDENCY_INVENTORY_UNAVAILABLE",
+            "description": "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited.",
+            "location": "metadata",
+            "tool_name": "evaluate_script",
+            "evidence": [
+              {
+                "kind": "dependency_visibility",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tool_name": "js_runner",
+      "action": "REQUIRE_APPROVAL",
+      "reason": "risk score 27 (grade C): tool requires human approval before use",
+      "behavior": [
+        "executes_commands"
+      ],
+      "dependency_visibility": "No dependency data",
+      "dependency_note": "No metadata.dependencies or repo_url were exposed by this MCP server.",
+      "score": {
+        "risk_score": 27,
+        "grade": "C",
+        "findings": [
+          {
+            "rule_id": "AS-002",
+            "severity": "INFO",
+            "code": "CAPABILITY_SURFACE",
+            "description": "declared capabilities: code/command execution",
+            "location": "permissions",
+            "tool_name": "js_runner",
+            "evidence": [
+              {
+                "kind": "capability",
+                "value": "exec"
+              }
+            ]
+          },
+          {
+            "rule_id": "AS-006",
+            "severity": "CRITICAL",
+            "code": "ARBITRARY_CODE_EXECUTION",
+            "description": "tool name or description implies arbitrary script/code execution (evaluate_script, execute javascript, etc.)",
+            "location": "name,description",
+            "tool_name": "js_runner",
+            "evidence": [
+              {
+                "kind": "pattern",
+                "value": "(?i)\\beval\\b"
+              },
+              {
+                "kind": "match",
+                "value": "eval"
+              }
+            ]
+          },
+          {
+            "rule_id": "AS-011",
+            "severity": "LOW",
+            "code": "MISSING_RATE_LIMIT",
+            "description": "tool performs network or execution operations but declares no rate-limit, timeout, or retry configuration",
+            "location": "permissions+metadata",
+            "tool_name": "js_runner"
+          },
+          {
+            "rule_id": "AS-014",
+            "severity": "INFO",
+            "code": "DEPENDENCY_INVENTORY_UNAVAILABLE",
+            "description": "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited.",
+            "location": "metadata",
+            "tool_name": "js_runner",
+            "evidence": [
+              {
+                "kind": "dependency_visibility",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "summary": {
+    "total": 6,
+    "allowed": 4,
+    "require_approval": 2,
+    "blocked": 0,
+    "avg_score": 9,
+    "avg_grade": "A",
+    "scanned_at": "2026-09-05T22:49:18.0080739Z"
+  }
+}

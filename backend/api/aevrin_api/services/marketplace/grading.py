@@ -26,7 +26,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from aevrin_scanner_core.mcp.risk import GradeResult, grade_scan
+from aevrin_scanner_core.mcp.risk import Grade, GradeResult, grade_scan
 from aevrin_scanner_core.models import Finding, Severity
 
 from aevrin_api.db import SupabaseRest
@@ -38,6 +38,8 @@ def grade_from_scan(
     *,
     coverage_complete: bool,
     tools_discovered: int,
+    engine_risk_score: int | None = None,
+    engine_grade: Grade | None = None,
 ) -> GradeResult:
     """The A-F letter for this scan.
 
@@ -54,6 +56,8 @@ def grade_from_scan(
     """
     return grade_scan(
         findings,
+        engine_risk_score=engine_risk_score,
+        engine_grade=engine_grade,
         coverage_complete=coverage_complete,
         tools_discovered=tools_discovered,
     )
@@ -61,10 +65,8 @@ def grade_from_scan(
 
 def severity_counts(findings: list[Finding]) -> dict[str, int]:
     """Open findings by severity, for the badge on the listing."""
-    counted = [
-        f for f in findings
-        if not f.not_tested and not f.excluded_path and f.triage_status == "open"
-    ]
+    # Triage is the only remaining reason a finding is shown but not counted.
+    counted = [f for f in findings if f.triage_status.value == "open"]
     return {
         severity.value: sum(1 for f in counted if f.severity is severity)
         for severity in (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW)

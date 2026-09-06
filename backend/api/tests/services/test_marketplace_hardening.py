@@ -144,7 +144,7 @@ def test_coverage_is_stated_so_a_model_cannot_call_a_partial_scan_clean():
     document = build_evidence(
         subject_type="scan",
         findings=[],
-        coverage={"complete": False, "unreliable_stages": ["dependencies"]},
+        coverage={"complete": False, "unreliable_stages": ["launching"]},
     )
     assert document["coverage"]["complete"] is False
     assert "not evidence of safety" in document["coverage"]["note"]

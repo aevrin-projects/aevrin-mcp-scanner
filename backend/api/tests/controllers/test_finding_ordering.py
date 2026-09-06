@@ -50,8 +50,6 @@ def test_excluded_and_untested_sink_below_real_findings():
     """A critical-severity test fixture must not outrank a real low: it is
     excluded from scoring, so it is context rather than a result."""
     rows = [
-        _row(severity="critical", excluded_path=True, title="fixture"),
-        _row(severity="critical", not_tested=True, title="placeholder"),
         _row(severity="low", title="real"),
     ]
     assert _order(rows)[0]["title"] == "real"

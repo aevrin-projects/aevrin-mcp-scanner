@@ -164,7 +164,7 @@ the image or the code names a provider.
 - **AWS** (current target): ECS on Fargate behind an Application Load
   Balancer, or App Runner if you would rather not manage the cluster. Fargate
   has no Docker-in-Docker, which is why the image bakes every scanner binary
-  in and runs them with `AEVRIN_EXECUTOR=subprocess`.
+  in; the MCP engine runs in its own sandbox container per scan.
 - **Azure** (fallback): Container Apps behind Application Gateway or Front
   Door. The same image and the same environment variables.
 

@@ -29,7 +29,7 @@ marketplace listing's security position - never on a decorative element.
 - **`evidence.py`** - builds a structured evidence document from a fixed
   allow-list of real fields (findings, grade + factors, declared tools,
   permission types, credential *metadata*, attack paths, coverage). The
-  scanner's raw payload never enters it (TruffleHog puts the
+  scanner's raw payload never enters it (it can carry the
   secret they found directly in `raw`). Every credential-shaped string is
   stripped even from fields that "shouldn't" contain one. Free-text fields
   are length-bounded. An absent section is *omitted*, not sent as an empty

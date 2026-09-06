@@ -19,6 +19,7 @@ from aevrin_scanner_core import (
     TriageStatus,
 )
 from aevrin_scanner_core.agents import codex_home, discover_all, managed_settings_path
+from aevrin_scanner_core.models import InvocationChannel
 from aevrin_scanner_core.pipeline import PipelineConfig, PipelineError, run_pipeline
 
 from .rendering import output
@@ -125,12 +126,12 @@ def _exit_code(result: Scan, fail_on_severity: Severity) -> int:
     threshold, 0 = clean. Callers (CI, the hook) rely on telling these apart.
     """
     if result.status == ScanStatus.INCOMPLETE:
-        # Non-zero unconditionally (independent of --fail-on), so a broken
-        # environment (Docker down, missing binary, no network) can never look
-        # like a clean pass in CI or a hook check.
+        # Non-zero unconditionally (independent of --fail-on), so a scan that
+        # assessed nothing - server unresolvable, unlaunchable, or returning no
+        # tools - can never look like a clean pass in CI or a hook check.
         return 3
     worst = max(
-        (f.severity for f in result.findings if not f.not_tested),
+        (f.severity for f in result.findings),
         key=lambda s: _SEVERITY_RANK[s],
         default=None,
     )
@@ -141,7 +142,20 @@ def _exit_code(result: Scan, fail_on_severity: Severity) -> int:
 
 @app.command()
 def scan(
-    target: Annotated[str, typer.Argument(help="GitHub URL, local path, or live MCP server URL.")],
+    target: Annotated[
+        str,
+        typer.Argument(
+            help="GitHub URL, local path, live MCP server URL, or the literal "
+            "word 'mcp' followed by the command that starts a server."
+        ),
+    ],
+    server_command: Annotated[
+        str | None,
+        typer.Argument(
+            help="Only with `aevrin scan mcp`: the command that starts the MCP "
+            'server, e.g. "npx -y @playwright/mcp".'
+        ),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json", help="Machine-readable JSON output.")] = False,
     upload: Annotated[
         bool,
@@ -165,15 +179,38 @@ def scan(
         ),
     ] = False,
 ) -> None:
-    """Run the full Aevrin scan pipeline against TARGET."""
+    """Run the full Aevrin scan pipeline against TARGET.
+
+    `aevrin scan mcp "npx -y @playwright/mcp"` scans a server by the command
+    that starts it. That form exists because it is the only one that needs no
+    guessing: every other target has to be resolved to a launch command, and
+    resolving the wrong one grades somebody else's package under this one's
+    name.
+    """
     _authenticated_preflight()
     fail_on_severity = _parse_fail_on(fail_on)
 
-    try:
-        target_type, normalized_target = detect_target(target)
-    except TargetDetectionError as exc:
-        output.print_error(str(exc))
-        raise typer.Exit(code=2) from None
+    explicit_command: str | None = None
+    if target == "mcp":
+        if not server_command:
+            output.print_error(
+                'A server command is required: aevrin scan mcp "npx -y @playwright/mcp"'
+            )
+            raise typer.Exit(code=2)
+        explicit_command = server_command
+        target_type, normalized_target = TargetType.LIVE_MCP_SERVER, server_command
+    else:
+        if server_command:
+            output.print_error(
+                "A second argument is only valid after `scan mcp`. To scan a server by "
+                'command, run: aevrin scan mcp "<command>"'
+            )
+            raise typer.Exit(code=2)
+        try:
+            target_type, normalized_target = detect_target(target)
+        except TargetDetectionError as exc:
+            output.print_error(str(exc))
+            raise typer.Exit(code=2) from None
 
     if remote:
         if target_type is not TargetType.LOCAL_PATH:
@@ -185,7 +222,11 @@ def scan(
         _run_remote_scan(normalized_target, json_output, fail_on_severity)
         return
 
-    config = PipelineConfig(github_token=os.environ.get("GITHUB_TOKEN"))
+    config = PipelineConfig(
+        github_token=os.environ.get("GITHUB_TOKEN"),
+        invocation_channel=InvocationChannel.CLI,
+        server_command=explicit_command,
+    )
 
     def on_stage(stage: ScanStage) -> None:
         if not json_output:

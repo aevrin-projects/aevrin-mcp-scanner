@@ -22,12 +22,20 @@ about the same repository.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from aevrin_scanner_core.models import Finding, ScanStatus, TargetType, TriageStatus
+from aevrin_scanner_core.mcp.risk import Grade
+from aevrin_scanner_core.models import (
+    Finding,
+    InvocationChannel,
+    ScanStatus,
+    TargetType,
+    TriageStatus,
+)
 
 from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest
@@ -38,6 +46,11 @@ from aevrin_api.services.marketplace.grading import (
 )
 
 logger = logging.getLogger("aevrin.marketplace.scanning")
+
+# Exactly what `_apply_scan_to_version` reads, and nothing else. `mcp_tools_declared`
+# is the load-bearing one: without it every listing grades as "tools could not be
+# enumerated" and comes back letterless no matter how the scan actually went.
+_SCAN_ROW_COLUMNS = "id,status,unreliable_stages,mcp_tools_declared,risk_score,grade"
 
 
 class ScanNotPossible(Exception):
@@ -71,7 +84,7 @@ async def find_reusable_scan(
     rows = await db.select(
         "scans",
         filters,
-        columns="id,score,status,mcp_detected,mcp_capabilities,unreliable_stages,created_at,completed_at",
+        columns=_SCAN_ROW_COLUMNS,
         order="completed_at.desc",
         limit=1,
     )
@@ -150,7 +163,12 @@ async def scan_listing_version(
             }
 
     scan_id = await _start_scan(
-        db, settings, listing=listing, actor_id=actor_id, schedule=schedule
+        db,
+        settings,
+        listing=listing,
+        actor_id=actor_id,
+        schedule=schedule,
+        server_command=_server_command_for(version),
     )
 
     # A forced rescan replaces the evidence, so any cached explanation of the
@@ -168,6 +186,43 @@ async def scan_listing_version(
     return {"reused": False, "scan_id": scan_id, "reason": "a new scan was started"}
 
 
+# How a registry name becomes a launch command. Only registries whose runner
+# is unambiguous appear here: `npx -y <pkg>` and `uvx <pkg>` each resolve one
+# published package to one executable. Anything else falls through to
+# resolving the repository's own manifest, which is slower but never guesses.
+_REGISTRY_RUNNERS = {"npm": "npx -y", "pypi": "uvx"}
+
+# Whitespace or shell punctuation in a package identifier. Nothing here is
+# ever passed to a shell - the command becomes argv downstream - but a
+# published package name never contains these, and the marketplace takes
+# submissions from the public.
+_SHELL_SHAPED_RE = re.compile(r"""[\s;|&$`<>()'"\\]""")
+
+
+def _server_command_for(version: dict[str, Any]) -> str | None:
+    """The launch command a listing already knows, or None to resolve it.
+
+    A catalogued version usually records the registry and the exact published
+    identifier, which is better evidence than anything derived from the
+    repository - it is the string a user would actually run. When it is
+    absent the scan resolves from the cloned manifest instead.
+
+    The identifier is never pasted into a shell: it becomes one argv element
+    downstream. It is still rejected here if it carries whitespace or shell
+    punctuation, because a package name that looks like a command line is not
+    a package name, and the marketplace accepts submissions from the public.
+    """
+    registry = str(version.get("package_registry") or "").strip().lower()
+    identifier = str(version.get("package_identifier") or "").strip()
+    runner = _REGISTRY_RUNNERS.get(registry)
+    if not runner or not identifier:
+        return None
+    if _SHELL_SHAPED_RE.search(identifier):
+        logger.warning("refusing shell-shaped package identifier %r", identifier)
+        return None
+    return f"{runner} {identifier}"
+
+
 async def _start_scan(
     db: SupabaseRest,
     settings: Settings,
@@ -175,6 +230,7 @@ async def _start_scan(
     listing: dict[str, Any],
     actor_id: str | None,
     schedule: Callable[..., Any] | None = None,
+    server_command: str | None = None,
 ) -> str:
     """Create the scan row and hand it to the existing scan service.
 
@@ -219,11 +275,12 @@ async def _start_scan(
             owner_id,
             listing["repository_url"],
             actor_id,
+            server_command,
         )
     else:
         # Inline, for tests and any caller that genuinely wants to block.
         await _scan_then_grade(
-            db, settings, scan_id, owner_id, listing["repository_url"], actor_id
+            db, settings, scan_id, owner_id, listing["repository_url"], actor_id, server_command
         )
     logger.info("mcp_scan_started listing=%s scan=%s", listing["slug"], scan_id)
     return str(scan_id)
@@ -236,6 +293,7 @@ async def _scan_then_grade(
     owner_id: str,
     repository_url: str,
     actor_id: str | None,
+    server_command: str | None = None,
 ) -> None:
     """Run the pipeline, then write the grade it produced onto the version.
 
@@ -256,7 +314,15 @@ async def _scan_then_grade(
     from aevrin_api.services.scan import start_scan
 
     try:
-        await start_scan(scan_id, owner_id, TargetType.GITHUB_REPO, repository_url, settings)
+        await start_scan(
+            scan_id,
+            owner_id,
+            TargetType.GITHUB_REPO,
+            repository_url,
+            settings,
+            channel=InvocationChannel.MARKETPLACE,
+            server_command=server_command,
+        )
     except Exception:
         # Never re-raised: this runs detached from any request, so an exception
         # here would be swallowed by the task runner and lost. Logged, and then
@@ -294,7 +360,7 @@ async def apply_completed_scan(
     scan_rows = await db.select(
         "scans",
         {"id": scan_id},
-        columns="id,score,status,mcp_detected,mcp_capabilities,unreliable_stages,completed_at",
+        columns=_SCAN_ROW_COLUMNS,
         limit=1,
     )
     if not scan_rows:
@@ -330,8 +396,11 @@ async def _apply_scan_to_version(
     # as the pipeline decided. Re-deriving it here from the same inputs keeps
     # one grader in the product; passing the tool count is what lets this
     # agree with the scan row rather than guessing at completeness.
+    stored_grade = scan_row.get("grade")
     trust = grade_from_scan(
         findings,
+        engine_risk_score=scan_row.get("risk_score"),
+        engine_grade=Grade(str(stored_grade)) if stored_grade else None,
         coverage_complete=coverage_complete,
         tools_discovered=len(scan_row.get("mcp_tools_declared") or []),
     )
@@ -386,9 +455,6 @@ async def _load_findings(db: SupabaseRest, scan_id: str) -> list[Finding]:
                     title=row.get("title") or "",
                     description=row.get("description") or "",
                     remediation=row.get("remediation") or "",
-                    verified=row.get("verified"),
-                    not_tested=bool(row.get("not_tested")),
-                    excluded_path=bool(row.get("excluded_path")),
                     triage_status=TriageStatus(row.get("triage_status") or "open"),
                 )
             )

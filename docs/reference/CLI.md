@@ -10,22 +10,35 @@ Typer commands directly, not restated from memory.
 Runs the full scan pipeline against `TARGET` (a GitHub URL, a local path,
 or a live MCP server URL - detected automatically).
 
+```
+aevrin scan mcp "npx -y @playwright/mcp"
+```
+
+`scan mcp` takes the command that starts the server instead of a target to
+resolve. It is the only form that needs no resolution at all, which matters
+because resolving the wrong command grades somebody else's package under
+this one's name: `microsoft/playwright-mcp` publishes as `@playwright/mcp`,
+and an unrelated `playwright-mcp` also exists on npm. Every other target is
+resolved from the project's own manifest, never from its repository name.
+
 | Option | Default | Meaning |
 |---|---|---|
 | `--json` | off | Machine-readable JSON output instead of the terminal report. |
 | `--upload` / `--no-upload` | `--upload` | Save the result to your Aevrin dashboard. Non-fatal on failure - a network hiccup doesn't turn a completed scan into a CLI failure. |
 | `--fail-on <severity>` | `high` | Minimum severity (`info`/`low`/`medium`/`high`/`critical`) that causes a non-zero exit. |
-| `--remote` | off | Upload a local folder's source and scan it on Aevrin's servers instead of locally - no Docker or scanner binaries needed on this machine. Only valid for a local path target. |
+| `--remote` | off | Upload a local folder's source and scan it on Aevrin's servers instead of locally - no Docker needed on this machine. Only valid for a local path target. |
 
 Requires login (`aevrin login`) - usage is metered server-side.
 
 **Exit codes**: `0` clean; `1` a finding at or above `--fail-on`; `2` the
 scan couldn't start (bad target, not logged in, quota exhausted, network
 error) or an invalid argument; `3` the scan ran but its result can't be
-trusted (`ScanStatus.INCOMPLETE` - a scanner category failed entirely).
-`3` is returned **regardless of `--fail-on`**, specifically so a broken
-scanning environment (Docker down, a binary missing) can never look like a
-clean pass in CI.
+trusted (`ScanStatus.INCOMPLETE`). That covers a server that could not be
+resolved, could not be launched, or returned no tools - all of which are
+common and legitimate outcomes rather than errors.
+`3` is returned **regardless of `--fail-on`**, specifically so a scan that
+never assessed anything (Docker down, package unpublished, server needs
+credentials to start) can never look like a clean pass in CI.
 
 ## `aevrin agent scan`
 

@@ -83,6 +83,6 @@ def test_hook_endpoint_requires_api_key(app_client):
 def test_cli_upload_requires_api_key(app_client):
     resp = app_client.post(
         "/cli/upload",
-        json={"target_type": "github_repo", "target": "x", "score": 100, "findings": []},
+        json={"target_type": "github_repo", "target": "x", "risk_score": 0, "findings": []},
     )
     assert resp.status_code == 401

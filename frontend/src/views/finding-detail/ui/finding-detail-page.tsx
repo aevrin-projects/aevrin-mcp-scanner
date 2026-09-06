@@ -14,7 +14,7 @@ import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Textarea } from "@/shared/ui/textarea";
-import { scoreImpactForSeverity } from "@/entities/finding";
+import { riskImpactForSeverity } from "@/entities/finding";
 import { formatDateTime } from "@/shared/lib/format";
 
 export function FindingDetailClient({
@@ -103,8 +103,7 @@ export function FindingDetailClient({
         title={finding.title}
         description="Review the recorded severity, category, source, context, remediation, and auditable triage history."
         actions={
-          !finding.not_tested ? (
-            <>
+          <>
               {finding.triage_status === "open" ? (
                 <Button variant="outline" disabled={triaging} onClick={() => void updateStatus("fixed")}>
                   <CheckCircle2 className="size-4" />
@@ -116,8 +115,7 @@ export function FindingDetailClient({
                   Reopen finding
                 </Button>
               )}
-            </>
-          ) : null
+          </>
         }
       />
 
@@ -129,14 +127,9 @@ export function FindingDetailClient({
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
               <SeverityBadge severity={finding.severity} />
-              {finding.in_kev ? (
-                <span className="rounded-full border border-red-500/40 bg-red-500/10 px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400">
-                  CISA KEV: confirmed exploited in the wild
-                </span>
-              ) : null}
-              {finding.epss_score !== null ? (
-                <span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">
-                  EPSS {(finding.epss_score * 100).toFixed(finding.epss_score < 0.01 ? 2 : 0)}% exploitation probability (30d)
+              {finding.rule_id ? (
+                <span className="rounded-full border border-border px-2 py-1 font-mono text-xs text-muted-foreground">
+                  {finding.rule_id}
                 </span>
               ) : null}
               <span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">
@@ -145,18 +138,7 @@ export function FindingDetailClient({
               <span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">
                 {OWASP_CATEGORY_LABELS[finding.owasp_category] ?? finding.owasp_category}
               </span>
-              {finding.excluded_path ? (
-                <span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">
-                  Test/fixture path: excluded from score
-                </span>
-              ) : null}
             </div>
-            {finding.original_severity && finding.original_severity !== finding.severity ? (
-              <p className="text-xs text-muted-foreground">
-                Downgraded from {finding.original_severity} based on {finding.in_kev ? "corroboration" : "low exploitation likelihood or scope"}: the tool&apos;s original severity is preserved here for audit.
-              </p>
-            ) : null}
-
             <div className="rounded-xl border border-border bg-background/80 p-4">
               <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Location</p>
               <p className="mt-2 break-all font-mono text-sm text-foreground">{location}</p>
@@ -165,7 +147,7 @@ export function FindingDetailClient({
             <div className="grid gap-4 md:grid-cols-2">
               <MetaPanel label="Scanner source" value={finding.tool} />
               <MetaPanel label="Recorded at" value={formatDateTime(finding.created_at)} />
-              <MetaPanel label="Score impact" value={scoreImpactForSeverity(finding.severity)} />
+              <MetaPanel label="Risk impact" value={riskImpactForSeverity(finding.severity)} />
               <MetaPanel label="Identifiers" value="Not available in the current backend response" />
             </div>
 
@@ -176,16 +158,6 @@ export function FindingDetailClient({
         </SectionCard>
 
         <div className="space-y-6">
-          {finding.not_tested ? (
-            <Alert>
-              <AlertTriangle className="size-4" />
-              <AlertTitle>Documented limitation</AlertTitle>
-              <AlertDescription>
-                This entry records a coverage limitation rather than an exploitable code finding, so remediation means performing the missing validation outside this static scan.
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
           <SectionCard title="Status" description="Triage changes are retained with their reason and timestamp.">
             <div className="space-y-4 text-sm leading-6 text-muted-foreground">
               <p>Current status: <strong className="text-foreground">{finding.triage_status.replace("_", " ")}</strong></p>
@@ -197,8 +169,7 @@ export function FindingDetailClient({
                 </div>
               ) : null}
 
-              {!finding.not_tested ? (
-                <div className="space-y-3 border-t border-border pt-4">
+              <div className="space-y-3 border-t border-border pt-4">
                   <div>
                     <label htmlFor="false-positive-reason" className="font-medium text-foreground">False-positive reason</label>
                     <p className="mt-1 text-xs">Explain why this result is not applicable or not exploitable. The reason is required and stored with the report.</p>
@@ -222,8 +193,7 @@ export function FindingDetailClient({
                       {finding.triage_status === "false_positive" ? "Update report" : "Report false positive"}
                     </Button>
                   </div>
-                </div>
-              ) : null}
+              </div>
             </div>
           </SectionCard>
         </div>
@@ -285,7 +255,7 @@ function AiReview({ finding }: { finding: Finding }) {
           implementation detail, and naming it invites users to weigh the
           verdict by brand rather than by the reasoning shown above. */}
       <p className="mt-3 text-xs text-muted-foreground">
-        A second opinion on the scanner result, not a replacement for it. The score above is
+        A second opinion on the scanner result, not a replacement for it. The risk impact above is
         computed from the scanner&apos;s severity, never from this.
       </p>
     </div>

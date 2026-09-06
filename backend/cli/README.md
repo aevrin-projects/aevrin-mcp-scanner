@@ -27,6 +27,7 @@ directory. Scanner images are version-pinned and pulled automatically when missi
 ## Usage
 
 ```bash
+aevrin scan mcp "npx -y @playwright/mcp"   # scan a server by its launch command
 aevrin scan ./my-mcp-server
 aevrin scan github.com/owner/repo
 aevrin scan https://my-live-server.example.com --json
@@ -68,12 +69,12 @@ Results go to stdout; stage progress and diagnostics go to stderr, safe to pipe 
 Target: ./my-mcp-server
 Score:  62/100  Significant risk; do not deploy as-is
 
-┏━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┓
-┃ Severity ┃ Title                ┃ OWASP category                      ┃ Tool    ┃
-┡━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━┩
-│ CRITICAL │ Hardcoded secret     │ MCP01: Token Mismanagement          │ trivy   │
-│ HIGH     │ subprocess shell true│ MCP05: Command Injection, ...       │ semgrep │
-└──────────┴──────────────────────┴──────────────────────────────────────┴─────────┘
+┏━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Severity ┃ Rule     ┃ Title                   ┃ Affected tools                 ┃
+┡━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ CRITICAL │ AS-006   │ Arbitrary Code Execution│ browser_run_code_unsafe        │
+│ LOW      │ AS-011   │ Missing Rate Limits x5  │ browser_navigate, browser_ta…  │
+└──────────┴──────────┴─────────────────────────┴────────────────────────────────┘
 ```
 
 ## Other commands

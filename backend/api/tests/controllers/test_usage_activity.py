@@ -32,7 +32,7 @@ class _UsageDb:
                 "target_type": "github_repo",
                 "target": "https://github.com/example/project",
                 "status": "completed",
-                "score": 91,
+                "risk_score": 91,
                 "created_at": now,
                 "completed_at": now,
             }
@@ -61,5 +61,5 @@ def test_usage_returns_attributed_scan_activity(monkeypatch, settings) -> None:
 
     assert len(result.activity) == 1
     assert result.activity[0].source == "cli"
-    assert result.activity[0].score == 91
+    assert result.activity[0].risk_score == 91
 

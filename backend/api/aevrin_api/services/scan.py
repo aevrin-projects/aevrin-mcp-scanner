@@ -17,7 +17,13 @@ from typing import Any
 from uuid import UUID
 
 import httpx
-from aevrin_scanner_core import Finding, Scan, ScanStage, TargetType
+from aevrin_scanner_core import (
+    Finding,
+    InvocationChannel,
+    Scan,
+    ScanStage,
+    TargetType,
+)
 from aevrin_scanner_core.pipeline import PipelineConfig, run_pipeline
 
 from aevrin_api.config import Settings
@@ -118,20 +124,9 @@ def _finding_row(f: Finding, user_id: str) -> dict[str, Any]:
         "line_end": f.location.line_end,
         "manifest_field": f.location.manifest_field,
         "tool_name_in_manifest": f.location.tool_name_in_manifest,
-        "mcp_tool": f.mcp_tool,
-        "capability": f.capability,
         "remediation": f.remediation,
-        "verified": f.verified,
-        "not_tested": f.not_tested,
         "raw": f.raw,
         "triage_status": f.triage_status.value,
-        "excluded_path": f.excluded_path,
-        "confidence": f.confidence,
-        "original_severity": f.original_severity.value if f.original_severity else None,
-        "epss_score": f.epss_score,
-        "in_kev": f.in_kev,
-        "dependency_scope": f.dependency_scope.value if f.dependency_scope else None,
-        "corroborated_by": [t.value for t in f.corroborated_by],
         "occurrence_count": f.occurrence_count,
         "additional_locations": [loc.model_dump(mode="json") for loc in f.additional_locations],
     }
@@ -170,43 +165,32 @@ def _persist_completed_scan(
     scan: Scan,
     user_id: str,
     durable_target: str,
-    computed_signatures: list[tuple[str, str]],
 ) -> None:
-    """Writes the finished scan, its rug-pull signatures, and the hook cache."""
+    """Writes the finished scan and the hook cache."""
     completed_at = scan.completed_at.isoformat() if scan.completed_at else None
     rest.patch(
         "scans",
         {"id": str(scan.id), "user_id": user_id},
         {
             "status": scan.status.value,
+            "mcp_tools_declared": scan.mcp_tools_declared,
             "risk_score": scan.risk_score,
             "grade": scan.grade,
             "mcp_detected": scan.mcp_detected,
-            "mcp_detection_confidence": scan.mcp_detection_confidence,
-            "mcp_detection_evidence": scan.mcp_detection_evidence,
-            "mcp_tools_declared": scan.mcp_tools_declared,
-            "mcp_components": scan.mcp_components,
-            "mcp_capabilities": scan.mcp_capabilities,
+            # Recorded for reproducibility (§20). `server_command` is the one
+            # that matters most: a grade attributed to the wrong package is the
+            # failure mode that resolution exists to prevent, and this is where
+            # it becomes visible after the fact.
+            "server_command": scan.server_command,
+            "scanner_name": scan.scanner_name,
+            "scanner_version": scan.scanner_version,
+            "invocation_channel": (
+                scan.invocation_channel.value if scan.invocation_channel else None
+            ),
             "unreliable_stages": [s.value for s in scan.unreliable_stages],
             "completed_at": completed_at,
         },
     )
-
-    if computed_signatures:
-        rest.upsert(
-            "rug_pull_signatures",
-            [
-                {
-                    "user_id": user_id,
-                    "target": durable_target,
-                    "server_name": name,
-                    "signature_hash": sig_hash,
-                    "updated_at": completed_at,
-                }
-                for name, sig_hash in computed_signatures
-            ],
-            on_conflict="user_id,target,server_name",
-        )
 
     rest.upsert(
         "hook_cache",
@@ -230,6 +214,8 @@ def _run_and_persist(
     target: str,
     settings: Settings,
     stored_target: str | None = None,
+    channel: InvocationChannel = InvocationChannel.DASHBOARD,
+    server_command: str | None = None,
 ) -> None:
     durable_target = stored_target or target
     rest = _SyncRest(settings)
@@ -246,15 +232,15 @@ def _run_and_persist(
         rest.upsert("findings", [_finding_row(f, user_id) for f in findings], on_conflict="id")
 
     try:
-        previous_rows = rest.get(
-            "rug_pull_signatures", {"user_id": user_id, "target": durable_target}
-        )
-        previous_signatures = {
-            row["server_name"]: row["signature_hash"] for row in previous_rows
-        }
+        # The channel is passed through rather than defaulted here: every
+        # scan used to record "dashboard" whatever started it, which made the
+        # column worse than absent - a marketplace or CLI-triggered scan was
+        # labelled as something a user did in the browser. It never changes
+        # the result; it only says who asked.
         config = PipelineConfig(
             github_token=settings.github_token,
-            previous_signatures=previous_signatures,
+            invocation_channel=channel,
+            server_command=server_command,
         )
 
         scan = run_pipeline(
@@ -270,27 +256,10 @@ def _run_and_persist(
         _mark_scan_failed(rest, scan_id, user_id)
         return
 
-    _resync_postprocessed_findings(rest, scan_id, user_id, scan.findings)
-    _persist_completed_scan(rest, scan, user_id, durable_target, config.computed_signatures)
+    _persist_completed_scan(rest, scan, user_id, durable_target)
 
     _push_to_defectdojo_best_effort(settings, durable_target, scan.id, scan.findings)
     _run_triage_best_effort(rest, settings, user_id, scan.findings, scan.id)
-
-
-def _resync_postprocessed_findings(rest: _SyncRest, scan_id: UUID, user_id: str, findings: list[Finding]) -> None:
-    """`on_findings` streams each stage's *raw* findings to Supabase as they
-    complete, for a live-updating dashboard, but scanner-core's
-    postprocess_findings() (fixture-path exclusion, cross-scanner dedup,
-    root-cause grouping, EPSS/KEV, dependency scope) only runs once, on the
-    complete set, right before run_pipeline() returns. Without this step the
-    stored rows would keep the pre-postprocessing data: wrong severities,
-    none of the new accuracy fields, and, for findings that dedup/grouping
-    merged away, rows for findings that no longer exist in the final
-    result at all. Re-upsert the final list (updates every surviving row in
-    place, same ids), then delete whatever's left over."""
-    if findings:
-        rest.upsert("findings", [_finding_row(f, user_id) for f in findings], on_conflict="id")
-    rest.delete_ids_not_in("findings", str(scan_id), [str(f.id) for f in findings])
 
 
 def _run_triage_best_effort(
@@ -348,8 +317,6 @@ def _push_to_defectdojo_best_effort(settings: Settings, target: str, scan_id: UU
             engagement_id = await client.get_or_create_engagement(product_id, str(scan_id))
             test_id = await client.create_test(engagement_id, str(scan_id))
             for finding in findings:
-                if finding.not_tested:
-                    continue
                 await client.push_finding(test_id, target, finding)
         except Exception:
             logger.exception("scan_service: DefectDojo push failed for scan %s", scan_id)
@@ -364,10 +331,18 @@ async def start_scan(
     target: str,
     settings: Settings,
     stored_target: str | None = None,
+    channel: InvocationChannel = InvocationChannel.DASHBOARD,
+    server_command: str | None = None,
 ) -> None:
     """Entry point called from the request handler via BackgroundTasks;
     waits for bounded worker capacity, then runs the blocking pipeline off the
-    event loop. The database row deliberately remains `queued` while waiting."""
+    event loop. The database row deliberately remains `queued` while waiting.
+
+    `channel` records which surface asked - dashboard, marketplace, CLI - and
+    `server_command` lets a caller that already knows how to start the server
+    skip resolution. Neither affects the security result: the same server
+    scanned from two surfaces produces the same findings and the same grade.
+    """
     async with _SCAN_SLOT:
         await asyncio.to_thread(
             _run_and_persist,
@@ -377,4 +352,6 @@ async def start_scan(
             target,
             settings,
             stored_target,
+            channel,
+            server_command,
         )

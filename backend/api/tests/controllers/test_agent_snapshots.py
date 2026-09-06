@@ -314,7 +314,7 @@ def finding_row(scan_id: str, severity: str) -> dict[str, Any]:
         "id": str(uuid4()),
         "scan_id": scan_id,
         "user_id": USER,
-        "tool": "aevrin-mcp-behavior",
+        "tool": "mcp-scanner",
         "owasp_category": "MCP01",
         "severity": severity,
         "title": "Example",

@@ -17,7 +17,7 @@ _COMPLETIONS = f"{BASE_URL}/chat/completions"
 def _finding(severity: Severity, **overrides) -> Finding:
     defaults: dict = {
         "scan_id": uuid4(),
-        "tool": ToolName.AEVRIN_MCP_BEHAVIOR,
+        "tool": ToolName.MCP_SCANNER,
         "owasp_category": OwaspMcpCategory.TOKEN_MISMANAGEMENT,
         "severity": severity,
         "title": "Hardcoded secret",
@@ -77,16 +77,16 @@ async def test_paid_tiers_use_the_pro_model(settings):
 
 
 @pytest.mark.asyncio
-async def test_excluded_and_not_tested_findings_are_skipped(settings):
-    findings = [
-        _finding(Severity.HIGH, excluded_path=True),
-        _finding(Severity.HIGH, not_tested=True),
-    ]
+async def test_every_reported_finding_is_a_triage_candidate(settings):
+    """The fixture-path and not-tested exclusions that used to filter this
+    list went with source scanning. Every finding now describes a tool the
+    server actually exposed, so there is nothing left to pre-filter."""
+    findings = [_finding(Severity.HIGH), _finding(Severity.LOW)]
     with respx.mock:
         route = respx.post(_COMPLETIONS).mock(return_value=httpx.Response(200, json=_reply()))
         results, _ = await triage_findings(_keyed(settings), {"tier": "pro"}, findings)
-    assert results == []
-    assert route.call_count == 0
+    assert len(results) == len(findings)
+    assert route.call_count == len(findings)
 
 
 @pytest.mark.asyncio

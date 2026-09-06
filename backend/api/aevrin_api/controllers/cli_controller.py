@@ -1,13 +1,16 @@
 """CLI upload handling: quota precheck, idempotent persistence of a locally
 run scan, and the background AI review that annotates it afterwards.
 
-Why the score is recomputed rather than trusted is documented on
-routes/cli.py, which owns that contract.
+A CLI upload is a client-reported result: the API cannot re-run the engine,
+which needs a sandbox and the exact package the CLI launched. What it does
+enforce is that an upload agrees with itself - see `_grade_contradicts_findings`
+and ADR-033.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -17,7 +20,6 @@ from aevrin_scanner_core import (
     OwaspMcpCategory,
     Severity,
     ToolName,
-    grade_scan,
 )
 from fastapi import BackgroundTasks, HTTPException, status
 from pydantic import ValidationError
@@ -30,7 +32,6 @@ from aevrin_api.services.quota import check_and_increment_quota, would_exceed_qu
 from aevrin_api.services.triage import triage_findings
 
 logger = logging.getLogger("aevrin.cli_upload")
-
 
 
 def _to_core_finding(f: CliUploadFinding, scan_id: UUID) -> Finding:
@@ -49,11 +50,7 @@ def _to_core_finding(f: CliUploadFinding, scan_id: UUID) -> Finding:
             manifest_field=f.manifest_field,
             tool_name_in_manifest=f.tool_name_in_manifest,
         ),
-        mcp_tool=f.mcp_tool,
-        capability=f.capability,
         remediation=f.remediation,
-        verified=f.verified,
-        not_tested=f.not_tested,
     )
 
 
@@ -78,6 +75,46 @@ def _assert_id_is_reusable(persisted: dict[str, object], body: CliUploadRequest,
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Scan ID is already in use")
 
 
+# Grades whose policy is ALLOW - the letters that tell someone they need not
+# look. Kept here and not imported from the grade/policy mapping because this
+# is not a scoring decision: it is the set of answers that would be actively
+# misleading beside a serious finding.
+_ALLOW_BAND = {"A", "B"}
+# Worst first, so the message names the most serious contradiction. A set
+# would sort alphabetically, which puts "critical" before "high" by accident
+# rather than by meaning - and would quietly invert if a level were added.
+_SERIOUS = ("critical", "high")
+
+
+def _grade_contradicts_findings(
+    grade: str | None, findings: Sequence[CliUploadFinding]
+) -> str | None:
+    """Does this upload disagree with itself? Returns why, or None.
+
+    This deliberately does **not** recompute a grade. It asks a much weaker
+    question that needs no severity weights and no band table: can the letter
+    the client claimed and the findings the client attached both be true?
+
+    An "A" or "B" resolves to an ALLOW policy - the hook stops prompting and
+    the marketplace stops warning. A Critical or High finding in the same
+    payload contradicts that outright, whatever arithmetic produced the
+    letter. That combination is the shape a tampered CLI takes when it wants
+    a dangerous server to install quietly, and it is not something a correct
+    client can emit.
+    """
+    if not grade or grade.upper() not in _ALLOW_BAND:
+        return None
+    present = {f.severity.lower() for f in findings}
+    worst = next((s for s in _SERIOUS if s in present), None)
+    if worst is None:
+        return None
+    return (
+        f"This scan reported grade {grade.upper()}, which allows the server to run "
+        f"without review, while also reporting a {worst} finding. Those cannot both "
+        "be true, so the result was not stored."
+    )
+
+
 def _scan_row(
     body: CliUploadRequest,
     user_id: str,
@@ -94,11 +131,7 @@ def _scan_row(
         "risk_score": risk_score,
         "grade": grade,
         "mcp_detected": body.mcp_detected,
-        "mcp_detection_confidence": body.mcp_detection_confidence,
-        "mcp_detection_evidence": body.mcp_detection_evidence,
         "mcp_tools_declared": body.mcp_tools_declared,
-        "mcp_components": body.mcp_components,
-        "mcp_capabilities": body.mcp_capabilities,
         "unreliable_stages": body.unreliable_stages,
         "created_at": (body.created_at or now).isoformat(),
         "completed_at": (body.completed_at or now).isoformat(),
@@ -136,8 +169,6 @@ def _finding_rows(body: CliUploadRequest, scan_id: UUID, user_id: str) -> list[d
             "manifest_field": f.manifest_field,
             "tool_name_in_manifest": f.tool_name_in_manifest,
             "remediation": f.remediation,
-            "verified": f.verified,
-            "not_tested": f.not_tested,
             "raw": f.raw,
             **({"created_at": f.created_at.isoformat()} if f.created_at else {}),
         }
@@ -179,25 +210,41 @@ async def upload_scan(
     except (ValidationError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
-    # The client is not trusted to grade its own upload. Recomputed here from
-    # the findings it actually sent, with the same function the pipeline used,
-    # so a modified CLI cannot publish a flattering letter for a server.
-    if body.status == "failed":
-        recomputed_risk: int | None = None
-        recomputed_grade: str | None = None
-    else:
-        result = grade_scan(
-            core_findings,
-            coverage_complete=body.status != "incomplete",
-            tools_discovered=len(body.mcp_tools_declared),
+    # Aevrin cannot re-run the engine here: a grade comes from launching the
+    # server and reading its tools, and the API has neither the sandbox nor
+    # the package version the CLI used. Re-deriving a letter from finding rows
+    # alone would mean a second scoring algorithm, which is the duplication
+    # ADR-033 exists to prevent. So a CLI upload is a client-reported result,
+    # and `invocation_channel` records that.
+    #
+    # What the API *can* do without scoring anything is refuse an upload that
+    # contradicts itself. Both checks below compare the client's own claims
+    # against the client's own evidence; neither one computes a grade.
+    if not body.mcp_tools_declared and body.grade:
+        # A grade is a claim about tools that were read. No tools, no claim.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "This scan reported a grade without enumerating any tools. A grade "
+                "describes tools that were read, so a scan that read none is "
+                "incomplete rather than graded."
+            ),
         )
-        recomputed_risk = result.risk_score
-        recomputed_grade = result.grade.value if result.grade else None
-    if recomputed_risk != body.risk_score or recomputed_grade != body.grade:
+    if incoherent := _grade_contradicts_findings(body.grade, body.findings):
+        # Not a rubric: an ALLOW-band letter sitting beside the uploader's own
+        # Critical finding is self-contradictory whatever arithmetic produced
+        # it. Refused outright rather than stored with the grade quietly
+        # dropped - a scan row that is ungraded for unexplained reasons is the
+        # kind of silent degradation the pipeline's honesty rules forbid.
         logger.warning(
-            "cli upload grade mismatch for user %s target %s: client sent %s/%s, recomputed %s/%s",
-            user_id, body.target, body.risk_score, body.grade, recomputed_risk, recomputed_grade,
+            "cli upload for user %s target %s refused: %s", user_id, body.target, incoherent
         )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=incoherent
+        )
+
+    reported_risk = body.risk_score
+    reported_grade = body.grade
 
     existing = await db.select("scans", {"id": str(scan_id)})
     if existing:
@@ -209,7 +256,7 @@ async def upload_scan(
         await check_and_increment_quota(settings, db, user_id, "cli")
 
     now = datetime.now(UTC)
-    scan_payload = _scan_row(body, user_id, recomputed_risk, recomputed_grade, now)
+    scan_payload = _scan_row(body, user_id, reported_risk, reported_grade, now)
     if existing:
         scan_rows = await db.update("scans", {"id": str(scan_id), "user_id": user_id}, scan_payload)
     else:
@@ -221,7 +268,7 @@ async def upload_scan(
         await db.insert("findings", _finding_rows(body, scan_id, user_id), upsert_on="id")
     await db.insert(
         "hook_cache",
-        _hook_cache_row(body, scan_id, user_id, recomputed_risk, recomputed_grade, now),
+        _hook_cache_row(body, scan_id, user_id, reported_risk, reported_grade, now),
         upsert_on="user_id,target",
     )
 

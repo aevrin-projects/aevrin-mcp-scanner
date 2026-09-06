@@ -1429,3 +1429,213 @@ stages, and this was the same rule applied one level down, at the file
 read. The affected test uses a `node -e` payload rather than `curl … |
 bash` so it exercises the rule without tripping local endpoint protection,
 with the unreadable case covered by its own test that fakes the `OSError`.
+
+## ADR-033: The scanner is the security engine; Aevrin presents its verdict
+
+**Status**: Accepted. **Date**: 2026-09-06.
+
+Aevrin no longer decides what is a vulnerability, how severe it is, or what
+grade a server earns. The ToolTrust Scanner does, and `mcp/tooltrust.py`
+translates its JSON into `Finding` objects without adjusting a single
+judgement. `mcp/rules.py`, `mcp/supply_chain.py` and `mcp/tools.py` - the
+Python ports of the AS- rules, the manifest supply-chain checks and the
+permission-inference model - are deleted, and `risk_score()` and
+`grade_from_score()` go with them. There is no severity-weight table left in
+this codebase.
+
+The alternative was to keep the port and shell out only for what it could
+not do. That is how two graders end up in one product, and two graders
+eventually disagree about the same server. Ports also drift silently: the
+upstream rules move, ours do not, and nothing fails.
+
+**Two things the engine does not provide, which Aevrin still must.**
+
+*A server-level grade.* The scanner grades per tool and offers only
+`summary.avg_grade`. That average cannot be shown. On a real run, a five-tool
+server whose `run_shell` tool carried a Critical tool-poisoning finding
+summarised as `avg_grade: A`, because four unremarkable tools outvoted it. A
+server is not safe because most of its tools are - you install the whole
+server, and the worst tool is the one that gets you. So the displayed grade
+is the worst tool's grade and score, taken from the scanner unchanged. This
+is a selection over its output, not a second scoring algorithm, and it is why
+`grade_scan()` now takes `engine_risk_score` and `engine_grade` instead of
+computing them.
+
+*Prose.* A finding arrives with `rule_id`, `severity`, `code`, `description`,
+`location` and `evidence` - and no title, no "why this matters", no fix.
+`mcp/catalog.py` supplies those, keyed by the same rule ids, and is therefore
+kept. A rule id the catalogue does not recognise still produces a finding,
+using the scanner's own `description`: dropping a real security finding for
+want of a title would be the worse bug, and it would mean a scanner upgrade
+quietly reduced coverage.
+
+**What this costs.** The API can no longer independently recompute a
+CLI-uploaded grade, because recomputing means launching the server. That
+check is gone and is documented where it used to live
+(`tests/controllers/test_cli_upload_integrity.py`). What survives is the
+floor: an upload claiming a grade while enumerating no tools is refused,
+because a grade is a claim about tools that were read.
+
+## ADR-034: Untrusted MCP servers run in a disposable container, never in the API
+
+**Status**: Accepted. **Date**: 2026-09-06.
+
+Enumerating a server's tools requires starting it, and starting it means
+executing code chosen by whoever published the package. `npx -y <package>`
+downloads that code and runs its npm `preinstall`/`postinstall` scripts
+*before* any scanning begins.
+
+The API process holds the Supabase service-role key. The service role
+bypasses RLS, which `docs/security/SECURITY.md` states is why the application
+layer is the actual tenancy boundary. Running an untrusted MCP server in that
+process would hand a hostile package read and write access to every tenant's
+data, plus the provider-key material and the EC2 instance-metadata endpoint.
+A feature whose purpose is scanning untrusted servers would have become the
+most likely way the platform is breached.
+
+So `scan_live_server()` runs the engine and the target inside a one-shot
+sibling container (`backend/scanner-image/Dockerfile`) with: no Aevrin
+environment (`env` is an explicit allow-list), a read-only rootfs with
+`nosuid` tmpfs scratch, uid 10002, every capability dropped,
+`no-new-privileges`, memory/CPU/pid ceilings, a hard wall-clock timeout, no
+bind mounts, and `--rm`.
+
+**The two things this does not solve, stated rather than glossed.**
+
+Network access cannot be removed - the package has to be downloaded - so
+egress is the residual exposure. On the deployed host, EC2 IMDSv2 with
+`HttpPutResponseHopLimit=1` refuses a request from behind Docker's NAT, which
+is what stops the container reaching instance credentials. That is a
+deployment precondition, not something this code can enforce, and it is
+recorded in `docs/architecture/DEPLOYMENT.md`.
+
+`noexec` is not set on the tmpfs mounts. npx installs shim scripts into its
+prefix and execs them, so a noexec install directory would prevent the scan
+rather than harden it. Isolation here comes from the container holding no
+credentials and being destroyed afterwards, not from that mount option.
+
+The `AEVRIN_EXECUTOR=subprocess` fallback is removed. It existed because the
+old analysers were static - they read files and never executed what they
+read - so running them beside the API was inelegant rather than dangerous.
+That is no longer true, and a fallback would have turned a stopped Docker
+daemon into a full compromise. A scan without a sandbox is now a scan that
+does not run.
+
+## ADR-035: A launch command is read from the project's own manifest, never guessed
+
+**Status**: Accepted. **Date**: 2026-09-06.
+
+Resolving `https://github.com/microsoft/playwright-mcp` to `npx -y
+playwright-mcp` - taking the repository slug as the package name - is wrong
+in a way that is invisible. That repository publishes as `@playwright/mcp`
+(its `bin` is what is called `playwright-mcp`). A *different* package named
+`playwright-mcp` exists on npm, by a different author, last touched months
+earlier. Guessing from the slug installs that one, scans it, and attributes
+the grade to Microsoft, and the scan succeeds and the report looks entirely
+normal.
+
+That is the impersonation the engine's own typosquatting rule exists to
+catch, committed by the scanner itself.
+
+So `mcp/resolve.py` reads a name the project declares - `package.json`'s
+`name` plus a `bin`, or `pyproject.toml`'s `name` plus `[project.scripts]` -
+and refuses when it finds none, with a reason that goes straight into the
+scan's incomplete message. Names that are shell-shaped, private, or the names
+of runtimes (`npx`, `node`, `uvx`) are rejected rather than escaped. An
+explicit command from the user outranks any manifest, because being told how
+to start a server is better evidence than inferring it.
+
+A confident wrong answer from a security tool is worse than an honest
+refusal, and unresolvable targets are common and legitimate: remote-only
+servers, servers needing credentials to start, and anything never published.
+
+## ADR-036: The engine is an implementation detail; its licence is not
+
+**Status**: Accepted. **Date**: 2026-09-06.
+
+Users see "Aevrin Security Scan". The upstream project's name, repository,
+website and CLI do not appear in the dashboard, finding cards, API responses,
+CLI output, JSON, the marketplace, or error messages. `ToolName` stores the
+generic `mcp-scanner`, and reproducibility is served by recording
+`scanner_name` and `scanner_version` on the scan row instead - which is what
+supporting a result actually requires.
+
+That does not extend to the licence. Shipping the binary in
+`backend/scanner-image` is distribution, and MIT requires the copyright
+notice and licence text be retained. `backend/scanner-core/EXTERNAL_SCANNERS.md`
+keeps the provenance record CLAUDE.md requires, and the licence text stays
+vendored. Removing attribution to satisfy a branding preference would be a
+licence violation, and "do not expose the implementation" is a statement
+about product surfaces, not permission to drop a copyright notice.
+
+## ADR-037: A CLI upload is checked for self-consistency, not re-graded
+
+**Status:** accepted (2026-09-06)
+
+ADR-033 removed the API's server-side regrade of a CLI upload, on the grounds
+that recomputing a grade means launching the server and that re-deriving a
+letter from finding rows would be a second scoring algorithm. Both remain
+true. What was wrong was the conclusion drawn from them: that nothing could
+be verified, and a CLI upload was therefore client-reported end to end with
+only a label to say so.
+
+There is a class of check that needs no scoring at all, because it compares
+the client's claims against the client's own evidence:
+
+- A grade with no enumerated tools is refused. A grade is a claim about tools
+  that were read; a scan that read none is incomplete, not graded.
+- A grade in the ALLOW band (A/B) submitted alongside a Critical or High
+  finding in the same payload is refused. Those cannot both be true whatever
+  arithmetic produced the letter, and it is precisely the shape a tampered
+  CLI takes when it wants a dangerous server to install quietly - an A stops
+  the Claude Code hook prompting at all.
+
+Neither computes a grade, so neither reintroduces a second grader.
+
+The first of these was already claimed to exist. It did not. The `if` guarding
+it had been deleted during an unrelated field removal, leaving its body
+attached to the `except` clause above it - dead code after a `raise` - and the
+`else` silently rebound to the `try`. The module parsed, mypy passed, and the
+test covering the rule passed too, because it exercised `grade_scan` in
+scanner-core rather than the endpoint. The library kept behaving correctly
+while the endpoint enforced nothing.
+
+That is the durable lesson, and it is why the endpoint-level tests added
+alongside this entry go through `upload_scan` rather than the library it
+calls: a guard is only tested if the test crosses the boundary the guard sits
+on.
+
+What is still not caught: a client that under-reports its findings *and* its
+grade consistently. Closing that needs a signed local attestation or a
+server-side spot-check rescan. Neither exists, and this model cannot close it
+alone.
+
+## ADR-038: One scanner, and the channel that asked is recorded honestly
+
+**Status:** accepted (2026-09-06)
+
+`Scan.invocation_channel` was introduced to record which surface requested a
+scan. Every scan recorded `dashboard`, because `PipelineConfig` was
+constructed inside the scan service with no channel argument and the default
+was never overridden. A marketplace-triggered catalogue scan was stored as
+something a user did in a browser.
+
+A column that is always the same value is worse than no column: it reads as
+evidence and carries none. The channel is now passed through `start_scan` and
+set by each caller, and the marketplace path sets `marketplace`.
+
+The channel never varies the security result, and that is the property worth
+protecting: the same server scanned from the dashboard, the CLI or the
+catalogue produces the same findings, the same grade and the same policy. The
+channel says who asked, nothing more.
+
+Marketplace scans also now derive their launch command from the listing
+version's own registry metadata (`npm` -> `npx -y <identifier>`, `pypi` ->
+`uvx <identifier>`) rather than always resolving the repository manifest. The
+published identifier is the string a user would actually run, which makes it
+better evidence than anything inferred from the repository - the same
+reasoning as ADR-035, applied one step earlier. Identifiers containing
+whitespace or shell punctuation are refused rather than escaped: the command
+is split into argv and never reaches a shell, but the marketplace accepts
+public submissions and a package name that looks like a command line is not a
+package name.

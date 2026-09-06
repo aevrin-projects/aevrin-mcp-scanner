@@ -26,7 +26,7 @@ def test_cli_upload_contract_preserves_dashboard_fields() -> None:
     scan_id = uuid4()
     finding = Finding(
         scan_id=scan_id,
-        tool=ToolName.AEVRIN_MCP_BEHAVIOR,
+        tool=ToolName.MCP_SCANNER,
         owasp_category=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
         severity=Severity.HIGH,
         title="Unsafe command construction",
@@ -38,7 +38,7 @@ def test_cli_upload_contract_preserves_dashboard_fields() -> None:
     )
     stage = ScanStage(
         scan_id=scan_id,
-        name=StageName.MCP_RULES,
+        name=StageName.ANALYZING,
         status=StageStatus.DONE,
         started_at=started,
         finished_at=completed,
@@ -51,12 +51,7 @@ def test_cli_upload_contract_preserves_dashboard_fields() -> None:
         risk_score=35,
         grade="C",
         mcp_detected=True,
-        mcp_detection_confidence="high",
-        mcp_detection_evidence=["sdk_dependency: depends on fastmcp"],
         mcp_tools_declared=["search"],
-        mcp_components=[{"root": ".", "confidence": "high", "evidence": []}],
-        mcp_capabilities={"can_execute": False, "can_write": False, "can_read": True,
-                          "handles_credentials": False, "makes_network_calls": False},
         stages=[stage],
         findings=[finding],
         created_at=started,
@@ -72,16 +67,6 @@ def test_cli_upload_contract_preserves_dashboard_fields() -> None:
     assert payload["stages"][0]["error"] is None
     assert payload["findings"][0]["id"] == str(finding.id)
     assert payload["findings"][0]["file_path"] == "server.py"
-    assert payload["findings"][0]["mcp_tool"] == "run_command"
-    assert payload["findings"][0]["capability"] == "shell_execution"
-    # Discarded before this contract carried them at all - see CHANGELOG.md.
-    assert payload["mcp_detection_confidence"] == "high"
-    assert payload["mcp_detection_evidence"] == ["sdk_dependency: depends on fastmcp"]
     assert payload["mcp_tools_declared"] == ["search"]
-    assert payload["mcp_components"] == [{"root": ".", "confidence": "high", "evidence": []}]
-    assert payload["mcp_capabilities"] == {
-        "can_execute": False, "can_write": False, "can_read": True,
-        "handles_credentials": False, "makes_network_calls": False,
-    }
     assert payload["findings"][0]["created_at"] == finding.created_at.isoformat()
     assert payload["findings"][0]["raw"] is None

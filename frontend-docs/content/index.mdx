@@ -4,10 +4,9 @@ description: What Aevrin scans, how it scores risk, and where to start.
 ---
 
 Aevrin scans [Model Context Protocol](https://modelcontextprotocol.io) (MCP) servers for
-security risks before you trust them, whether that is a source repository, a local path on your
-machine, or a live server URL. It runs a fixed set of MCP security rules against the tools a
-server exposes, backed by TruffleHog, OSV-Scanner and a purpose-built dataflow rule pack, and
-maps every result onto the
+security risks before you trust them. Give it a repository, a local path, or a launch command,
+and it starts the server, reads the tools it actually exposes, and runs a fixed set of MCP
+security rules against them — then maps every result onto the
 [OWASP MCP Top 10](/docs/concepts#owasp-mcp-top-10), so a finding means the same thing
 everywhere it appears: in the CLI, in a Claude Code hook block, and on the dashboard.
 
@@ -54,15 +53,13 @@ A repository or local-path scan clones (or reads) the target and runs, in order:
    surface, scope mismatch, arbitrary code execution, privilege escalation, secret handling,
    typosquatting, tool shadowing, missing rate limits, compromised packages, install-time
    scripts, dangerous launch commands, and more. See [Rules and coverage](/docs/scanners).
-3. **MCP behavior analysis.** A dataflow rule pack that traces a tool's *own arguments* into
-   shells, file writes, outbound requests, and credential reads. Observed behaviour, not a
-   keyword match.
-4. **Credential exposure.** TruffleHog for committed credentials, verified live against the
-   issuing service where supported.
-5. **Supply chain.** OSV-Scanner for known-vulnerable production dependencies.
+3. **Supply chain**, scoped to the dependencies the scanned server itself exposes: known CVEs,
+   confirmed-compromised package versions, install-time scripts and malicious indicators. Where a
+   server exposes no dependency metadata, that is reported as limited coverage rather than
+   treated as clean.
 
-A live-server URL or a pasted MCP config has no source to read, so it gets the tool rules against
-a live handshake and skips the rest. See [Concepts](/docs/concepts#target-types) for why.
+Your grade is the **worst tool's** grade, not an average. You install the whole server, and the
+worst tool is the one that reaches your data. See [Concepts](/docs/concepts#target-types).
 
 ## Honesty over false confidence
 

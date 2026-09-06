@@ -165,6 +165,45 @@ the Worker-script limit entirely, since there is no script. As of ADR-011's
 cutover, **none of the three Workers requires Workers Paid** - the account
 can run entirely on Cloudflare's free plan.
 
+## The scanner image, and the host preconditions it depends on
+
+Scans no longer run inside the API container. `backend/scanner-image/`
+builds a separate image carrying the pinned engine plus the runtimes an MCP
+server needs to start (node/npx, uv/uvx), and the API launches one throwaway
+container from it per scan. Nothing untrusted executes in the API process,
+which holds the Supabase service-role key.
+
+```
+docker build -t aevrin/mcp-scanner:0.3.19 -f backend/scanner-image/Dockerfile backend/scanner-image
+```
+
+The tag must match `AEVRIN_SCANNER_IMAGE` (default
+`aevrin/mcp-scanner:0.3.19`). The engine binary is pinned by version **and**
+SHA-256 inside that Dockerfile; the upstream `curl | bash` installer is
+deliberately not used, because it resolves "latest" at build time and two
+builds of the same Dockerfile could then ship different security engines.
+
+**Three preconditions on any host that runs scans.** None are enforceable
+from application code, and the first is load-bearing for tenant isolation:
+
+1. **IMDSv2 with a hop limit of 1.** The scan container has network access -
+   it has to download the package - so instance metadata is the one target
+   worth protecting. IMDSv2 requires a PUT token and, at hop limit 1, refuses
+   a request coming from behind Docker's NAT. Verify with:
+
+   ```
+   aws ec2 describe-instances --instance-ids <id>      --query 'Reservations[].Instances[].MetadataOptions'
+   ```
+
+   `HttpTokens` must be `required` and `HttpPutResponseHopLimit` must be `1`.
+
+2. **A reachable Docker daemon.** There is no subprocess fallback: a scan
+   without a sandbox does not run. A stopped daemon fails scans loudly, which
+   is the correct outcome.
+
+3. **Disk headroom for npm caches.** Each scan pulls a package tree into
+   tmpfs; the ceilings are set in `mcp/tooltrust.py`.
+
 ## CI (`.github/workflows/ci.yml`)
 
 Runs on every push/PR, needs no secret (so it runs for forks too):

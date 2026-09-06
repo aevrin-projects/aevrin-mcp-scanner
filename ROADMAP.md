@@ -75,23 +75,25 @@ marketplace/AI/admin/providers work is fully live)
   static (source, manifest, declared description); what a tool actually
   does when invoked is out of scope for the current pipeline. See
   `docs/features/MCP_SCANNING.md#limitations`.
-- **Tool discovery misses indirect registrations.** A server that builds
-  its tool list dynamically, or registers through a wrapper these
-  patterns cannot read, produces no tools - which now correctly yields
-  *no grade* rather than a flattering one (`DECISIONS.md` ADR-028), but
-  it is still coverage Aevrin does not have. AS-018 names the case.
-  Widening `analysis/discovery.py` is the highest-value improvement
-  available to the scanner today.
-- **AS-019 (unauthenticated MCP route) has no detector yet.** The rule is
-  in the catalogue and nothing emits it: it needs route-level source
-  analysis of an embedded MCP HTTP server, which is a real piece of work
-  rather than a pattern. Listed here rather than quietly omitted from
-  the rule table.
-- **Dependency install scripts are only read from the clone.** A
-  transitive dependency's own `postinstall` lives in that package's
-  registry metadata, so AS-015/AS-016 cover what the repository
-  contains. Closing this means a bounded registry lookup per dependency;
-  worth doing, not yet designed.
+- **Only servers that can be started can be graded.** Tool enumeration now
+  comes from a live handshake rather than source analysis, which removed the
+  indirect-registration gap entirely - a server that builds its tool list
+  dynamically returns those tools like any other. What replaces it is a
+  different limit: a server needing API keys, a private registry or a browser
+  cannot be launched, and is reported as unassessed. Supporting
+  caller-supplied startup credentials is the highest-value improvement
+  available to the scanner today, and is not yet designed - it means
+  accepting secrets for the purpose of handing them to untrusted code.
+- **Marketplace listings are largely ungraded until rescanned.** Migration
+  0047 withdrew every grade produced by the previous engine, and a listing
+  can only regain one by being launched. Listings that cannot be launched
+  will stay ungraded, which is honest but leaves the catalogue thinner than
+  it looks today. Bulk regrading needs the scan-worker capacity question
+  answered first.
+- **A CLI upload is client-reported and no longer server-verified.** The API
+  cannot recompute a grade without launching the server itself. Closing this
+  means an opt-in server-side rescan of uploaded results; see
+  `DECISIONS.md` ADR-033.
 
 ## Under consideration, not committed
 

@@ -54,7 +54,7 @@ type Row = Record<string, unknown> & {
   slug: string;
   title: string;
   status: string;
-  security: { grade: string | null; score: number | null; state: string; label: string };
+  security: { grade: string | null; risk_score: number | null; state: string; label: string };
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -70,6 +70,7 @@ const GRADE_COLORS: Record<string, string> = {
   B: "bg-sky-500/12 text-sky-700 dark:text-sky-400 border-sky-500/20",
   C: "bg-amber-500/12 text-amber-700 dark:text-amber-400 border-amber-500/20",
   D: "bg-rose-500/12 text-rose-700 dark:text-rose-400 border-rose-500/20",
+  F: "bg-rose-500/20 text-rose-800 dark:text-rose-300 border-rose-500/35",
 };
 
 export function AdminMarketplacePage() {
@@ -184,8 +185,8 @@ export function AdminMarketplacePage() {
               detail="Grade covers an older version"
             />
             <MetricCard
-              label="Grade C or D"
-              value={String((summary.grades.C ?? 0) + (summary.grades.D ?? 0))}
+              label="Grade C or worse"
+              value={String((summary.grades.C ?? 0) + (summary.grades.D ?? 0) + (summary.grades.F ?? 0))}
             />
           </motion.div>
         ) : null}
@@ -367,7 +368,7 @@ export function AdminMarketplacePage() {
                                   className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold tabular-nums ${gradeClass}`}
                                 >
                                   Grade {row.security.grade}
-                                  {row.security.score !== null ? ` · ${row.security.score}` : ""}
+                                  {row.security.risk_score !== null ? ` · risk ${row.security.risk_score}` : ""}
                                 </span>
                               ) : (
                                 <span className="text-xs text-muted-foreground">unscanned</span>

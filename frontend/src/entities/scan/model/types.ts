@@ -5,14 +5,15 @@ export type DashboardTargetType = Exclude<TargetType, "local_path">;
 export type ScanSource = "dashboard" | "cli" | "hook";
 export type ScanStatus = "queued" | "running" | "completed" | "failed" | "incomplete";
 export type StageStatus = "pending" | "running" | "done" | "failed" | "skipped";
+/** What actually happens during a scan, in order. These are the real steps of
+ *  launching an MCP server and reading its tools, not a list of scanners that
+ *  happen to be installed - which is what the previous seven described. */
 export type StageName =
-  | "cloning"
-  | "discovery"
-  | "mcp_rules"
-  | "mcp_behavior"
-  | "secrets"
-  | "dependencies"
-  | "aggregating";
+  | "resolving"
+  | "launching"
+  | "enumerating"
+  | "analyzing"
+  | "grading";
 
 /** A-F, or null when coverage was incomplete. Null is a state to render, not
  *  a missing value: a scan that could not read a server's tools has no

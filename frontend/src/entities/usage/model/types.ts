@@ -26,7 +26,9 @@ export interface UsageActivity {
   target_type: TargetType;
   target: string;
   status: ScanStatus;
-  score: number | null;
+  /** 0-100, higher is worse. Null for a scan that predates the current risk
+   *  model or that could not be graded. */
+  risk_score: number | null;
   created_at: string;
   completed_at: string | null;
 }

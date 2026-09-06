@@ -21,7 +21,9 @@ class UsageActivityOut(BaseModel):
     target_type: str
     target: str
     status: str
-    score: int | None = None
+    # 0-100, higher is worse, and null for a scan that predates the current
+    # risk model or could not be graded. See mcp/risk.py.
+    risk_score: int | None = None
     created_at: datetime
     completed_at: datetime | None = None
 

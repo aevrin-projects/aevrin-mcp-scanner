@@ -1,8 +1,27 @@
-"""Regression coverage: /cli/upload must never trust the client-submitted
-risk score or grade. Both are recomputed server-side from the submitted
-findings using the same shared `grade_scan` the CLI itself used, closing the
-cheapest tampering vector - a hand-crafted upload claiming a better letter
-than its own findings justify."""
+"""What /cli/upload can and cannot promise about a client-reported grade.
+
+This file used to assert that the API recomputed the grade from the uploaded
+findings, so a modified CLI could not publish a flattering letter. That check
+is gone, and its absence is a deliberate trade-off: scoring belongs to the
+engine, which derives a grade by launching the server and reading its tools.
+Re-deriving a letter from finding rows would mean a second scoring algorithm,
+and two graders end up disagreeing about one server.
+
+Two refusals survive, and both compare the client's claims against the
+client's own evidence rather than recomputing anything: a grade with no
+enumerated tools, and an ALLOW-band letter beside a Critical or High finding.
+
+Read `test_the_endpoint_refuses_a_grade_with_no_tools` before adding anything
+here. The first of those guards was deleted from the controller and nothing
+noticed, because the tests covering it called `grade_scan` directly instead of
+the endpoint - the library kept behaving correctly while the endpoint stopped
+enforcing anything. Assertions about what an upload is allowed to persist
+belong against `upload_scan`, not against the library it calls.
+
+The protection that was genuinely lost - detecting a client that under-reports
+its own findings consistently - is named here so it is not quietly forgotten.
+Catching that needs a real rescan or a signed attestation; neither exists.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +31,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from aevrin_scanner_core import grade_scan
+from aevrin_scanner_core import Grade, grade_scan
 from fastapi import BackgroundTasks, HTTPException
 
 from aevrin_api.controllers import cli_controller as cli
@@ -24,7 +43,7 @@ from aevrin_api.schemas import CliUploadFinding, CliUploadRequest, CliUploadStag
 def _finding(severity: str) -> CliUploadFinding:
     return CliUploadFinding(
         id=uuid4(),
-        tool="aevrin-mcp-rules",
+        tool="mcp-scanner",
         owasp_category="MCP05",
         severity=severity,
         title="Example finding",
@@ -33,36 +52,32 @@ def _finding(severity: str) -> CliUploadFinding:
     )
 
 
-def _regrade(findings, scan_id, tools_declared: int = 3):
+def _regrade(findings, scan_id, tools_declared: int = 3, risk=27, grade="C"):
+    """How the API presents a stored verdict: it is handed the engine's
+    numbers and chooses wording and policy, never a score of its own."""
     return grade_scan(
         [_to_core_finding(f, scan_id) for f in findings],
+        engine_risk_score=risk,
+        engine_grade=Grade(grade) if grade else None,
         coverage_complete=True,
         tools_discovered=tools_declared,
     )
 
 
-def test_recomputed_risk_ignores_a_falsely_high_client_score():
-    """A client claiming "critical, do not use" for a scan that found only
-    informational notes."""
+def test_the_engine_verdict_is_presented_not_recomputed():
+    """One informational finding alongside a C/27 verdict must still read as
+    C/27. The finding list does not out-vote the engine."""
     scan_id = uuid4()
-    result = _regrade([_finding("info")], scan_id)
-    assert result.risk_score == 0
-    assert result.grade is not None and result.grade.value == "A"
+    result = _regrade([_finding("info")], scan_id, risk=27, grade="C")
+    assert result.risk_score == 27
+    assert result.grade is not None and result.grade.value == "C"
 
 
-def test_recomputed_risk_ignores_a_falsely_low_client_score():
-    """The dangerous direction: a client hiding a real critical finding."""
+def test_a_grade_is_withheld_when_no_tools_were_enumerated():
+    """The floor that survives. A modified CLI reporting an A for a target
+    whose tools it never read gets no letter, whatever it submitted."""
     scan_id = uuid4()
-    result = _regrade([_finding("critical")], scan_id)
-    assert result.risk_score > 0
-    assert result.grade is not None and result.grade.value != "A"
-
-
-def test_a_client_cannot_claim_a_grade_for_a_scan_with_no_tools():
-    """A modified CLI reporting an A for a target whose tools it never
-    enumerated. The letter is withheld regardless of what was submitted."""
-    scan_id = uuid4()
-    result = _regrade([_finding("info")], scan_id, tools_declared=0)
+    result = _regrade([_finding("info")], scan_id, tools_declared=0, risk=0, grade="A")
     assert result.grade is None
     assert result.incomplete is True
 
@@ -71,7 +86,7 @@ def test_to_core_finding_round_trips_location_fields():
     scan_id = uuid4()
     f = CliUploadFinding(
         id=uuid4(),
-        tool="aevrin-mcp-behavior",
+        tool="mcp-scanner",
         owasp_category="MCP01",
         severity="high",
         title="t",
@@ -79,8 +94,6 @@ def test_to_core_finding_round_trips_location_fields():
         file_path="app.py",
         line_start=10,
         line_end=12,
-        mcp_tool="run_command",
-        capability="shell_execution",
         remediation="r",
     )
     core = _to_core_finding(f, scan_id)
@@ -88,8 +101,6 @@ def test_to_core_finding_round_trips_location_fields():
     assert core.location.file_path == "app.py"
     assert core.location.line_start == 10
     assert core.location.line_end == 12
-    assert core.mcp_tool == "run_command"
-    assert core.capability == "shell_execution"
 
 
 class _UploadDb:
@@ -159,15 +170,10 @@ def test_cli_upload_is_idempotent_and_preserves_full_dashboard_record(monkeypatc
         created_at=started,
         completed_at=completed,
         mcp_detected=True,
-        mcp_detection_confidence="high",
-        mcp_detection_evidence=["sdk_dependency: depends on fastmcp"],
         mcp_tools_declared=["search"],
-        mcp_components=[{"root": ".", "confidence": "high", "evidence": []}],
-        mcp_capabilities={"can_execute": False, "can_write": False, "can_read": True,
-                          "handles_credentials": False, "makes_network_calls": False},
         stages=[
             CliUploadStage(
-                name="mcp_rules",
+                name="analyzing",
                 status="done",
                 started_at=started,
                 finished_at=completed,
@@ -195,21 +201,9 @@ def test_cli_upload_is_idempotent_and_preserves_full_dashboard_record(monkeypatc
     assert db.tables["scans"][0]["source"] == "cli"
     assert db.tables["scans"][0]["created_at"] == started.isoformat()
     assert db.tables["scans"][0]["completed_at"] == completed.isoformat()
-    # A CLI-local scan's detection confidence/evidence/declared-tools were
-    # computed by the pipeline and discarded here before this was wired up -
-    # see CHANGELOG.md.
-    assert db.tables["scans"][0]["mcp_detection_confidence"] == "high"
-    assert db.tables["scans"][0]["mcp_detection_evidence"] == [
-        "sdk_dependency: depends on fastmcp"
-    ]
+    # The tools the server actually returned survive the upload; they are what
+    # a grade is a claim about, so an upload that loses them loses the grade.
     assert db.tables["scans"][0]["mcp_tools_declared"] == ["search"]
-    assert db.tables["scans"][0]["mcp_components"] == [
-        {"root": ".", "confidence": "high", "evidence": []}
-    ]
-    assert db.tables["scans"][0]["mcp_capabilities"] == {
-        "can_execute": False, "can_write": False, "can_read": True,
-        "handles_credentials": False, "makes_network_calls": False,
-    }
     assert len(db.tables["scan_stages"]) == 1
     assert len(db.tables["findings"]) == 1
     assert db.tables["findings"][0]["id"] == str(finding.id)
@@ -233,6 +227,10 @@ def test_cli_upload_cannot_overwrite_an_unrelated_scan(
             "target": persisted_target,
         }
     )
+    # A coherent payload on purpose: this test is about ID ownership, and a
+    # self-contradictory grade would be refused as malformed before the
+    # conflict check ever ran, making the assertion below pass for the wrong
+    # reason.
     request = CliUploadRequest(
         scan_id=scan_id,
         target_type="local_path",
@@ -240,6 +238,7 @@ def test_cli_upload_cannot_overwrite_an_unrelated_scan(
         risk_score=0,
         grade="A",
         status="completed",
+        mcp_tools_declared=["search"],
         findings=[],
     )
     monkeypatch.setattr(cli, "enforce_rate_limit", lambda *args, **kwargs: None)
@@ -256,3 +255,89 @@ def test_cli_upload_cannot_overwrite_an_unrelated_scan(
         )
 
     assert exc_info.value.status_code == 409
+
+
+def _upload(monkeypatch, settings, db: _UploadDb, **overrides: Any):
+    """Drive the real endpoint, not the grading library.
+
+    Every assertion below goes through `upload_scan` deliberately. The
+    library-level tests at the top of this file kept passing while the
+    endpoint's own guard had been deleted, because they never call it - see
+    `test_the_endpoint_refuses_a_grade_with_no_tools`.
+    """
+    monkeypatch.setattr(cli, "enforce_rate_limit", lambda *a, **k: None)
+
+    async def fake_quota(*a: Any, **k: Any) -> None:
+        return None
+
+    monkeypatch.setattr(cli, "check_and_increment_quota", fake_quota)
+    fields: dict[str, Any] = {
+        "target_type": "local_path",
+        "target": "/workspace/example-server",
+        "status": "completed",
+        "findings": [_finding("info")],
+    }
+    fields.update(overrides)
+    body = CliUploadRequest(**fields)
+    return asyncio.run(cli.upload_scan(body, BackgroundTasks(), "user-1", db, settings))  # type: ignore[arg-type]
+
+
+def test_the_endpoint_refuses_a_grade_with_no_tools(monkeypatch, settings):
+    """The floor, asserted where it actually lives.
+
+    This existed only as a claim in a comment: the `if` guarding it had been
+    deleted, leaving its body attached to the `except` above it (dead code
+    after a `raise`) and the `else` silently rebound to the `try`. The module
+    still parsed, mypy still passed, and the library-level test above still
+    went green - so an upload could claim any letter for a target whose tools
+    it never read. Only a test that calls the endpoint can see this.
+    """
+    db = _UploadDb()
+    with pytest.raises(HTTPException) as excinfo:
+        _upload(monkeypatch, settings, db, grade="A", risk_score=0, mcp_tools_declared=[])
+    assert excinfo.value.status_code == 422
+    assert not db.tables["scans"], "nothing may be persisted for a refused upload"
+
+
+def test_the_endpoint_refuses_an_allow_grade_beside_a_critical_finding(monkeypatch, settings):
+    """A tampered CLI's cheapest win: claim A so the hook stops prompting,
+    while the payload's own evidence says Critical. No scoring is needed to
+    know those cannot both be true."""
+    db = _UploadDb()
+    with pytest.raises(HTTPException) as excinfo:
+        _upload(
+            monkeypatch, settings, db,
+            grade="A", risk_score=0,
+            mcp_tools_declared=["search"],
+            findings=[_finding("critical")],
+        )
+    assert excinfo.value.status_code == 422
+    assert "critical" in str(excinfo.value.detail).lower()
+    assert not db.tables["scans"]
+
+
+def test_an_honest_upload_still_stores_the_engine_verdict_unchanged(monkeypatch, settings):
+    """The check must refuse contradictions without touching real results: a
+    Critical finding reported as D is coherent, and D/60 is what gets stored."""
+    db = _UploadDb()
+    result = _upload(
+        monkeypatch, settings, db,
+        grade="D", risk_score=60,
+        mcp_tools_declared=["search"],
+        findings=[_finding("critical")],
+    )
+    assert result.grade == "D"
+    assert db.tables["scans"][0]["grade"] == "D"
+    assert db.tables["scans"][0]["risk_score"] == 60
+
+
+def test_an_ungraded_incomplete_upload_is_still_accepted(monkeypatch, settings):
+    """An incomplete scan reports no tools *and* no grade. That is the honest
+    shape of a failed scan and must not be caught by the guard above."""
+    db = _UploadDb()
+    result = _upload(
+        monkeypatch, settings, db,
+        grade=None, risk_score=None, status="incomplete", mcp_tools_declared=[],
+    )
+    assert result.grade is None
+    assert db.tables["scans"][0]["grade"] is None
