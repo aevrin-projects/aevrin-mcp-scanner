@@ -15,6 +15,13 @@ dependencies = [
     "pyjwt[crypto]>=2.9",
     "cryptography>=43.0",
     "pyotp>=2.10.0",
+    # Required by FastAPI for the multipart body on POST /scans/upload
+    # (UploadFile + Form in routes/scans.py). Declared here rather than
+    # inherited: it used to arrive transitively through scanner-core's unused
+    # `mcp` pin, so removing that dead dependency broke every route import
+    # with "Form data requires python-multipart". A dependency the code
+    # imports behaviour from belongs in this file.
+    "python-multipart>=0.0.9",
 ]
 
 [dependency-groups]

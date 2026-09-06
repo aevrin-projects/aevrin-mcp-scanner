@@ -169,7 +169,9 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 - **`mcp==1.28.1` from `scanner-core`.** It was a dependency of the deleted
   `analysis/remote_mcp.py` and nothing had imported it since; removing it also
-  drops starlette and uvicorn from the engine package.
+  drops starlette and uvicorn from the engine package. It had been supplying
+  `python-multipart` to the API by accident, which the upload route needs and
+  had never declared - that is now an explicit API dependency.
 
 - **Every scanner except the engine**: Semgrep (and Aevrin's MCP taint pack),
   TruffleHog, OSV-Scanner, and with them EPSS enrichment, CISA KEV lookup and
