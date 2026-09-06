@@ -18,7 +18,7 @@ listed commit-by-commit. From here forward, every meaningful change is
 added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 [maintenance matrix](CLAUDE.md#documentation-maintenance-matrix).
 
-## [Unreleased]
+## [0.5.0] - 2026-09-06 (CLI)
 
 ### Fixed
 
@@ -41,18 +41,6 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   critical finding is a D") from the weighted arithmetic Aevrin performed
   before the engine replaced it. Aevrin computes no grade at all now. The table
   and the surrounding text match `GRADE_LABELS`/`GRADE_POLICIES`.
-
-### Added
-
-- **"Why grade C?" is answerable from evidence on a marketplace listing.** The
-  detail response carries `grade_rationale` - the severity counts and the rules
-  that earned the letter, ranked worst first, for the exact version the letter
-  belongs to. It is derived on read from that version's own scan using the same
-  ranking the scan report uses (`grade_drivers` in scanner-core), so the two
-  surfaces cannot disagree about which finding drove a grade, and triaging a
-  finding updates both. Previously the panel could only offer context - stdio
-  transport, secret variables, scan freshness - none of which the grade is
-  computed from, which read as though those were the reasons.
 
 - **A scan could run forever and could not be stopped.** `_SyncRest` swallowed
   every failed write and logged a warning, so when the database refused the
@@ -104,6 +92,16 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   whatever had actually asked, including catalogue scans.
 
 ### Added
+
+- **"Why grade C?" is answerable from evidence on a marketplace listing.** The
+  detail response carries `grade_rationale` - the severity counts and the rules
+  that earned the letter, ranked worst first, for the exact version the letter
+  belongs to. It is derived on read from that version's own scan using the same
+  ranking the scan report uses (`grade_drivers` in scanner-core), so the two
+  surfaces cannot disagree about which finding drove a grade, and triaging a
+  finding updates both. Previously the panel could only offer context - stdio
+  transport, secret variables, scan freshness - none of which the grade is
+  computed from, which read as though those were the reasons.
 
 - **`/health` fails when the database is missing columns this build writes.**
   The container HEALTHCHECK polls it and `remote-deploy.sh` waits on it, so an
