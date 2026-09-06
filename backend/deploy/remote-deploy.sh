@@ -87,16 +87,43 @@ rm -rf "$SRC"
 mv "${SRC}.new" "$SRC"
 
 cd "$SRC"
+
+# The sandbox image every scan runs inside. Built here because the API starts
+# it by name (AEVRIN_SCANNER_IMAGE, default aevrin/mcp-scanner:<version>) and
+# never pulls it: an image that is missing at scan time fails the scan, and a
+# `docker run` that silently pulled from a public registry would be a supply
+# chain nobody reviewed. The tag carries the engine version, so a version bump
+# builds a new image rather than mutating the old one.
+SCANNER_TAG="aevrin/mcp-scanner:$(sed -n 's/^ARG SCANNER_VERSION=//p' backend/scanner-image/Dockerfile | head -1)"
+sudo docker build -t "$SCANNER_TAG" -f backend/scanner-image/Dockerfile backend/scanner-image
+
 sudo docker build -f backend/api/Dockerfile -t aevrin-api:new .
 
 # Keep the outgoing image addressable so the rollback below has a target.
 sudo docker tag aevrin-api:latest aevrin-api:previous 2>/dev/null || true
 sudo docker tag aevrin-api:new aevrin-api:latest
 
+# The API starts a sibling container per scan (DECISIONS.md ADR-034), which
+# means reaching this host's Docker daemon. Two things are needed and both were
+# missing: the socket itself, and membership of the group that owns it - the
+# API runs as uid 10001, and the socket is root:docker 0660, so without the gid
+# every scan fails on a permission error.
+#
+# Read from the host rather than hardcoded: the docker group's gid differs
+# between Amazon Linux, Debian and Ubuntu, and a wrong constant fails the same
+# way as no group at all.
+DOCKER_GID="$(getent group docker | cut -d: -f3)"
+if [ -z "$DOCKER_GID" ]; then
+  echo "no docker group on this host; the API could not start scan containers" >&2
+  exit 1
+fi
+
 start_api() {
   sudo docker rm -f api >/dev/null 2>&1 || true
   sudo docker run -d --name api --network aevrin \
     --env-file "$ENV_FILE" --restart unless-stopped \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    --group-add "$DOCKER_GID" \
     aevrin-api:latest >/dev/null
 }
 

@@ -226,9 +226,17 @@ _USAGE_BLOCK_RE = re.compile(
     r"|^\s*(-\w,\s*)?--\w[\w-]*\b",
     re.IGNORECASE,
 )
-# §21: a user is never told which engine produced their scan, so its binary
-# name must not travel out on an error path either.
-_ENGINE_NAMES_RE = re.compile(r"(?i)\b(mcp-scanner|tooltrust[\w-]*|agentsafe[\w-]*)\b")
+# §21: a user is never told which engine produced their scan, so upstream's
+# identity must not travel out on an error path either.
+#
+# `mcp-scanner` is deliberately NOT in this list, though it looks like it
+# belongs. That is Aevrin's own name: the image installs the release binary as
+# /usr/local/bin/mcp-scanner and runs `aevrin/mcp-scanner:<version>`, so the
+# string carries no upstream branding. Redacting it turned
+# "Unable to find image 'aevrin/mcp-scanner:0.3.19' locally" into
+# "aevrin/the scan engine:0.3.19" and destroyed the one actionable fact in the
+# message - the image the operator has to build.
+_ENGINE_NAMES_RE = re.compile(r"(?i)\b(tooltrust[\w-]*|agentsafe[\w-]*)\b")
 
 
 def _launch_reason(stderr: str, fallback: str) -> str:

@@ -1,0 +1,98 @@
+name: "Aevrin MCP Security Scan"
+description: "Scan an MCP server for security problems and fail the build on serious findings."
+author: "Aevrin"
+
+branding:
+  icon: shield
+  color: green
+
+inputs:
+  target:
+    description: >-
+      What to scan. A GitHub URL, a path inside the checkout, or the command
+      that starts an MCP server (with server-command below). Defaults to the
+      repository being built.
+    required: false
+    default: "."
+  server-command:
+    description: >-
+      The exact command that starts the MCP server, e.g. "npx -y @playwright/mcp".
+      Prefer this over letting the scan resolve one: a repository and the
+      package it publishes routinely have different names, and being told how
+      to start a server is better evidence than inferring it.
+    required: false
+    default: ""
+  fail-on:
+    description: "Minimum severity that fails the job: critical, high, medium, low, info."
+    required: false
+    default: "high"
+  api-key:
+    description: >-
+      An Aevrin API key. Pass it from a secret, never inline. Required, because
+      scan quota is metered against an account.
+    required: true
+  upload:
+    description: "Save the result to the Aevrin dashboard. Set false for an ephemeral check."
+    required: false
+    default: "true"
+
+outputs:
+  grade:
+    description: "A-F, or empty when the scan could not assess anything."
+    value: ${{ steps.scan.outputs.grade }}
+  risk-score:
+    description: "0-100, higher is worse. Empty when ungraded."
+    value: ${{ steps.scan.outputs.risk-score }}
+  status:
+    description: "completed, or incomplete when nothing could be established."
+    value: ${{ steps.scan.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install the Aevrin CLI
+      shell: bash
+      run: pipx install aevrin || pip install --user aevrin
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        AEVRIN_API_KEY: ${{ inputs.api-key }}
+        # Read by the pipeline, not by this action: a private repository is
+        # cloned with the job's own token rather than one pasted into an input.
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        set -uo pipefail
+
+        args=(scan)
+        if [ -n "${{ inputs.server-command }}" ]; then
+          args+=(mcp "${{ inputs.server-command }}")
+        else
+          args+=("${{ inputs.target }}")
+        fi
+        args+=(--fail-on "${{ inputs.fail-on }}" --json)
+        [ "${{ inputs.upload }}" = "true" ] || args+=(--no-upload)
+
+        # The exit code is the result, so it is captured rather than allowed to
+        # end the step here: 0 clean, 1 findings at or above --fail-on, 3 the
+        # scan could not be trusted. Step 3 is the one that matters - an
+        # incomplete scan must never be reported as a pass, which is exactly
+        # what `continue-on-error` plus a green tick would do.
+        aevrin "${args[@]}" | tee aevrin-result.json
+        code=${PIPESTATUS[0]}
+
+        grade=$(python -c "import json;print(json.load(open('aevrin-result.json')).get('grade') or '')" 2>/dev/null || echo "")
+        risk=$(python -c "import json;print(json.load(open('aevrin-result.json')).get('risk_score') or '')" 2>/dev/null || echo "")
+        status=$(python -c "import json;print(json.load(open('aevrin-result.json')).get('status') or '')" 2>/dev/null || echo "")
+        {
+          echo "grade=$grade"
+          echo "risk-score=$risk"
+          echo "status=$status"
+        } >> "$GITHUB_OUTPUT"
+
+        if [ "$code" -eq 3 ]; then
+          echo "::error title=Aevrin scan incomplete::Nothing was established about this server, so it cannot be reported as passing. See the reason above."
+          exit 3
+        fi
+        exit "$code"

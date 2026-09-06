@@ -177,6 +177,12 @@ which holds the Supabase service-role key.
 docker build -t aevrin/mcp-scanner:0.3.19 -f backend/scanner-image/Dockerfile backend/scanner-image
 ```
 
+`remote-deploy.sh` builds it on every deploy, reading the tag from the
+Dockerfile's own `SCANNER_VERSION` so a version bump produces a new image
+rather than mutating the old one. The API never pulls it: a missing image
+fails the scan, whereas a `docker run` that silently pulled from a public
+registry would be a supply chain nobody reviewed.
+
 The tag must match `AEVRIN_SCANNER_IMAGE` (default
 `aevrin/mcp-scanner:0.3.19`). The engine binary is pinned by version **and**
 SHA-256 inside that Dockerfile; the upstream `curl | bash` installer is
@@ -197,11 +203,39 @@ from application code, and the first is load-bearing for tenant isolation:
 
    `HttpTokens` must be `required` and `HttpPutResponseHopLimit` must be `1`.
 
-2. **A reachable Docker daemon.** There is no subprocess fallback: a scan
-   without a sandbox does not run. A stopped daemon fails scans loudly, which
-   is the correct outcome.
+2. **A reachable Docker daemon, reachable *by the API container*.** There is
+   no subprocess fallback: a scan without a sandbox does not run. Two things
+   make it reachable, and both were missing until they were tested rather
+   than assumed:
 
-3. **Disk headroom for npm caches.** Each scan pulls a package tree into
+   - the Docker **client** in the API image (`docker-ce-cli`, from Docker's
+     apt repository so it is signature-verified). `execution/runner.py` shells
+     out to `docker run`; without the binary every scan failed with "docker
+     CLI not found on host" - an honest failure, but one that meant the
+     product never scanned anything.
+   - the socket, plus the group that owns it:
+     `-v /var/run/docker.sock:/var/run/docker.sock --group-add "$(getent group docker | cut -d: -f3)"`.
+     The API runs as uid 10001 and the socket is `root:docker 0660`, so
+     without the gid every scan fails on a permission error. The gid is read
+     from the host because it differs between distributions.
+
+   **What mounting that socket costs, stated rather than glossed:** a
+   compromise of the API container becomes root on the host. That is a real
+   escalation. It is accepted here because the API already holds the Supabase
+   service-role key, which bypasses RLS and is the entire tenancy boundary -
+   an attacker who reaches that process has already taken everything the host
+   protects. A socket proxy restricting the API to container create/start/rm
+   would narrow it further and is not implemented.
+
+3. **Migration 0047 applied *after* the new image is live.** It drops columns
+   the previous API reads, so applying it against a host still serving the old
+   image takes the dashboard down instantly - the same generic "Upstream data
+   store error" that 0046 produced, in the opposite direction. The order is:
+   deploy succeeds and is healthy, then apply, then rescan the catalogue via
+   `POST /admin/marketplace/mcp/regrade-ungraded`. The file repeats this at
+   the top, because getting it wrong is an outage.
+
+4. **Disk headroom for npm caches.** Each scan pulls a package tree into
    tmpfs; the ceilings are set in `mcp/tooltrust.py`.
 
 ## CI (`.github/workflows/ci.yml`)

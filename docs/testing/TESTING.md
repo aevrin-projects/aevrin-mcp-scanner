@@ -229,7 +229,22 @@ five viewports (`mobile`, `tablet-small`, `tablet`, `desktop-small`,
 - Horizontal scroll overflow (`scrollWidth - innerWidth`, must be non-positive).
 - Accessibility violations via `@axe-core/playwright`.
 
-Run it with `npm run test:public` against a running build
+`frontend/scripts/admin-smoke.mjs` (`npm run test:admin`) does the same for
+`/admin`, which the public script cannot reach. Two layers of access sit in
+front of it and only one can be stubbed: `middleware.ts` verifies a real
+Supabase JWT, so the script **signs in for real** with
+`AEVRIN_SMOKE_EMAIL`/`AEVRIN_SMOKE_PASSWORD`; the admin API is stubbed at the
+network layer so pages render with data instead of skeletons.
+
+Without those variables it exits 0 having checked nothing and says so loudly,
+rather than printing a pass. That wording is deliberate: the first version
+stubbed only the API, reported a clean run across every route and viewport,
+and had in fact audited the login page fifteen times - the login page also has
+exactly one `h1` and no accessibility violations. The script now asserts it is
+still on an `/admin` URL after navigating, which is the check that would have
+caught it.
+
+Run `test:public` with `npm run test:public` against a running build
 (`AEVRIN_SMOKE_URL`, default `http://127.0.0.1:3100`); `AEVRIN_SMOKE_QUICK=1`
 narrows to two viewports and three routes for a fast local check. A UI
 change to a public route should pass this before being called done; a UI

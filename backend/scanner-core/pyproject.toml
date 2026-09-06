@@ -5,7 +5,11 @@ description = "Shared scanning engine for Aevrin: models, OWASP MCP Top 10 mappi
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp==1.28.1",
+    # No MCP SDK here. This package speaks to an MCP server by launching the
+    # engine, which does the handshake itself in Go; the pin that used to sit
+    # here belonged to analysis/remote_mcp.py, deleted with the old pipeline.
+    # The SDK is the CLI's optional `mcp` extra, for serving rather than
+    # calling.
     "pydantic>=2.9",
     "httpx>=0.27",
     # Codex configuration is TOML. tomllib is stdlib from 3.11; this package

@@ -14,6 +14,12 @@ dependencies = [
     "httpx>=0.27",
 ]
 
+# Optional, because the base CLI is what CI jobs and the Claude Code hook
+# install and neither speaks MCP. `pip install "aevrin[mcp]"` adds the server
+# surface; `aevrin mcp-server` says so if it is missing.
+[project.optional-dependencies]
+mcp = ["mcp>=2.0"]  # pydantic already arrives via aevrin-scanner-core
+
 [project.scripts]
 aevrin = "aevrin_cli.main:app"
 
@@ -26,6 +32,10 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.7",
     "mypy>=1.13",
+    # The `mcp` extra is optional for users but not for CI: without it here,
+    # `uv sync --frozen` leaves the MCP server surface unimported, untyped and
+    # untested, which is how an optional feature quietly rots.
+    "mcp>=2.0",
 ]
 
 [tool.uv.sources]

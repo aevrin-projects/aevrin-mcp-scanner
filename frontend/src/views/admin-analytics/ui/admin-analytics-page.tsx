@@ -79,11 +79,20 @@ export function AdminAnalyticsPage() {
   }
   if (!data || !usage) {
     return (
-      <div className="flex flex-col gap-4" aria-busy>
-        <Skeleton className="h-24 rounded-lg" />
-        <Skeleton className="h-64 rounded-lg" />
-        <Skeleton className="h-64 rounded-lg" />
-      </div>
+      // Header first, skeletons under it: a loading page that drops its own
+      // <h1> has no title to announce and reflows when the data lands.
+      <>
+        <PageHeader
+          pretitle="Overview"
+          title="Analytics"
+          description="From Aevrin's own database: no third-party vendor, nothing about customers leaves your infrastructure."
+        />
+        <div className="flex flex-col gap-4" aria-busy>
+          <Skeleton className="h-24 rounded-lg" />
+          <Skeleton className="h-64 rounded-lg" />
+          <Skeleton className="h-64 rounded-lg" />
+        </div>
+      </>
     );
   }
 

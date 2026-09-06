@@ -22,6 +22,22 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **The API image did not build, and CI had been red since the engine
+  replacement.** It still `chown`ed `/opt/uv-tools`, a directory created by the
+  scanner installs that change removed, so the backend deploy never ran.
+- **No scan could ever have run in production.** The API shells out to
+  `docker run` to start the sandbox container, and the image installed no
+  Docker client while the deploy mounted no socket - the sibling-container
+  design was recorded in ADR-034 and never wired. Both are now in place, and
+  the deploy builds the scanner image it needs.
+- **Two `main` landmarks on every admin page.** `SidebarInset` renders one and
+  the shell nested another inside it, leaving "jump to main content"
+  ambiguous. Found by an axe run, not by reading the component.
+- **The sidebar's group headings failed WCAG AA contrast** (`text-sidebar-foreground/70`
+  as shipped by the component generator); they use the product's existing
+  `muted-foreground` token now.
+- **The analytics and marketplace pages dropped their `h1` while loading**, so
+  a loading page had no title to announce and reflowed when data arrived.
 - **A CLI upload could publish any grade it liked.** The guard refusing a
   grade from a scan that enumerated no tools had been deleted during an
   unrelated field removal: its body ended up attached to the `except` clause
@@ -49,6 +65,18 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Added
 
+- **`aevrin mcp-server`** exposes Aevrin as an MCP server so an agent can scan
+  a server before installing it. One tool, `scan_mcp_server`, running the same
+  pipeline and returning the same verdict as `aevrin scan mcp`. Optional
+  extra: `pip install "aevrin[mcp]"`.
+- **A GitHub Action (`action.yml`)** for scanning in CI, and automatic `ci`
+  channel detection in the CLI, so a scan records the surface that asked for
+  it. Exit code 3 (scan could not be trusted) is surfaced as a workflow error
+  rather than a green tick.
+- **`npm run test:admin`** — Playwright + axe-core over every `/admin` route at
+  three viewports, including keyboard reachability of the sidebar. It signs in
+  for real, because middleware verifies a Supabase JWT; without credentials it
+  skips loudly instead of reporting a pass.
 - **`/admin` rebuilt around a sidebar shell** following the shadcn-admin
   layout: collapsible grouped navigation, a sticky header with breadcrumbs and
   the theme toggle, and one page-header, table, card and empty-state treatment
@@ -138,6 +166,10 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   a number counting down from 100, and a gauge rendering 92 as "Low risk".
 
 ### Removed
+
+- **`mcp==1.28.1` from `scanner-core`.** It was a dependency of the deleted
+  `analysis/remote_mcp.py` and nothing had imported it since; removing it also
+  drops starlette and uvicorn from the engine package.
 
 - **Every scanner except the engine**: Semgrep (and Aevrin's MCP taint pack),
   TruffleHog, OSV-Scanner, and with them EPSS enrichment, CISA KEV lookup and

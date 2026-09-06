@@ -80,10 +80,53 @@ Updates a finding's triage status. `<status>` is one of `open`, `fixed`,
 `false_positive` (stored with the triage audit record) and optional
 otherwise. Accepts either the CLI's own login or the hook's.
 
+## `aevrin mcp-server`
+
+Runs Aevrin as an MCP server over stdin/stdout, so an agent can scan a server
+*before* it installs one. Add it to an agent's MCP configuration rather than
+running it by hand.
+
+```json
+{ "mcpServers": { "aevrin": { "command": "aevrin", "args": ["mcp-server"] } } }
+```
+
+It exposes one tool, `scan_mcp_server(command)`, which runs the same pipeline
+as `aevrin scan mcp` and returns the same verdict - grade, risk score, policy,
+the tools it enumerated, and the findings. One scanner, one canonical result,
+whichever surface asked.
+
+The result is deliberately wordy about failure: an incomplete scan returns a
+null grade *and* a `summary` that says in plain language that nothing was
+established and the server must not be treated as safe. The consumer is a
+language model, and a model reads prose more reliably than it reads a null.
+
+Needs the optional extra, because the base CLI is what CI jobs and the Claude
+Code hook install and neither speaks MCP:
+
+```bash
+pip install "aevrin[mcp]"
+```
+
 ## `aevrin version`
 
 Prints the installed CLI version (also available as `aevrin --version`
 at the top level, which exits immediately after printing).
+
+## Invocation channels
+
+Every scan records which surface asked for it (`invocation_channel`), and it
+never changes the result: the same server scanned from a laptop, a CI job or
+an agent produces the same findings, the same grade and the same policy.
+
+| Channel | How it is set |
+|---|---|
+| `cli` | the default for an interactive shell |
+| `ci` | detected automatically from `CI`, `CONTINUOUS_INTEGRATION`, `BUILD_NUMBER` or `GITHUB_ACTIONS` |
+| `mcp` | set by `aevrin mcp-server` |
+
+There is deliberately no `--channel` flag. Every CI system already announces
+itself, so a flag would only add a way to be wrong - a workflow that forgot it
+would report `cli`, and nothing would break loudly enough for anyone to notice.
 
 ## Environment
 

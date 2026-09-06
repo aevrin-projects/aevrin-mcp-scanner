@@ -1,6 +1,24 @@
 -- One MCP security engine, and a scan that describes running a server rather
 -- than analysing a repository.
 --
+-- APPLY THIS *AFTER* THE NEW API IS DEPLOYED, NOT BEFORE.
+--
+-- This is the one migration in this directory where the order is not a
+-- preference. It drops columns the previous API reads on its hot paths
+-- (mcp_detection_confidence, mcp_capabilities, findings.verified and the
+-- rest), so running it against a host still serving the old image takes the
+-- dashboard down immediately - the same generic "Upstream data store error"
+-- that migration 0046 produced when five column projections were left behind,
+-- and for exactly the same reason in the opposite direction.
+--
+-- The safe sequence:
+--   1. deploy-backend succeeds and the new image is live and healthy
+--   2. apply this file
+--   3. rescan the catalogue (POST /admin/marketplace/mcp/regrade-ungraded)
+--
+-- Between 1 and 2 the new API reads none of these columns, so the window is
+-- safe in that direction. There is no safe window the other way round.
+--
 -- The columns dropped here all described the old source-analysis pipeline.
 -- They are not being tidied away on suspicion: each one was written by a
 -- module that no longer exists, and nothing reads them.

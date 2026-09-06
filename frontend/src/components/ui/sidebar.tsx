@@ -390,6 +390,11 @@ function SidebarGroup({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+// `text-sidebar-foreground/70` as shipped fails WCAG AA against this project's
+// sidebar background - axe reports colour-contrast [serious] on every group
+// heading. `text-muted-foreground` is the token the rest of the product uses
+// for exactly this job (small secondary labels) and is already contrast-checked
+// in both themes, so the fix is to use it rather than to invent a new value.
 function SidebarGroupLabel({
   className,
   render,
@@ -400,7 +405,7 @@ function SidebarGroupLabel({
     props: mergeProps<"div">(
       {
         className: cn(
-          "flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 ring-sidebar-ring outline-hidden transition-[margin,opacity] duration-200 ease-linear group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0 focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
+          "flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-muted-foreground ring-sidebar-ring outline-hidden transition-[margin,opacity] duration-200 ease-linear group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0 focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
           className
         ),
       },

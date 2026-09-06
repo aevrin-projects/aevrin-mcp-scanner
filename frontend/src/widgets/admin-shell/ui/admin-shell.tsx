@@ -24,9 +24,14 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <AppSidebar />
         <SidebarInset className="min-w-0">
           <AdminHeader />
-          <main id="admin-content" className="flex flex-1 flex-col gap-4 p-4 sm:gap-6 sm:p-6">
+          {/* A div, not a <main>. `SidebarInset` already renders the page's
+              <main> landmark, and nesting a second one gave every admin page
+              two - which is invalid, and leaves a screen reader's "jump to
+              main content" ambiguous. The id stays so a skip link still has a
+              target. Found by an axe run, not by reading the component. */}
+          <div id="admin-content" className="flex flex-1 flex-col gap-4 p-4 sm:gap-6 sm:p-6">
             {children}
-          </main>
+          </div>
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>

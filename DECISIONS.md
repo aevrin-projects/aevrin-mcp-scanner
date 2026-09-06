@@ -1679,3 +1679,81 @@ One thing the shell does not have: a global search. shadcn-admin puts a
 command palette in its header, and there is nothing behind it here - the admin
 API has no cross-resource search endpoint. An input that searches nothing is
 worse than no input.
+
+## ADR-040: The API image carries a Docker client and the socket is mounted
+
+**Status:** accepted (2026-09-06)
+
+ADR-034 chose a sibling container per scan, so the API starts one and nothing
+untrusted runs in the process holding the service-role key. That decision was
+recorded and never wired: `execution/runner.py` shells out to `docker run`, the
+API image installed no Docker client, and `remote-deploy.sh` mounted no socket.
+Every scan in production would have failed with "docker CLI not found on host".
+
+The image was also failing to build at all - it still `chown`ed
+`/opt/uv-tools`, a directory created by the scanner installs that the engine
+replacement removed - so CI had been red since that change and the backend
+deploy had not run. Both were found by reading CI after pushing, which is the
+step that was skipped.
+
+So: `docker-ce-cli` from Docker's own apt repository (signature-verified by
+apt, and resolves for both amd64 and arm64 without hardcoding an arch), plus
+`-v /var/run/docker.sock:/var/run/docker.sock` and `--group-add` with the
+host's docker gid, read from the host because it differs by distribution.
+
+**What that costs.** Mounting the socket makes a compromise of the API
+container equivalent to root on the host. That is a genuine escalation and is
+accepted rather than hidden: the API already holds the Supabase service-role
+key, which bypasses RLS and is the entire tenancy boundary, so an attacker who
+reaches that process has already taken what the host protects. A socket proxy
+restricted to container create/start/rm would narrow the window and is not
+implemented; it is the obvious next hardening step.
+
+The deploy also builds the scanner image, tagged from the Dockerfile's own
+`SCANNER_VERSION`. The API never pulls it: a missing image fails the scan,
+whereas a `docker run` that silently pulled from a public registry would be a
+supply chain nobody reviewed.
+
+## ADR-041: CI is a detected channel; MCP is a served one
+
+**Status:** accepted (2026-09-06)
+
+`InvocationChannel` had six members and three real producers. The two that
+were missing are different problems and got different answers.
+
+**CI is detected, not declared.** `aevrin scan` reads `CI`,
+`CONTINUOUS_INTEGRATION`, `BUILD_NUMBER` and `GITHUB_ACTIONS`, and reports
+`ci` when any is set to something other than a falsey value. No `--channel`
+flag: every CI system already announces itself, so a flag adds a way to be
+wrong - a workflow that forgets it reports `cli` and nothing breaks loudly
+enough for anyone to notice. `CI=false` is treated as not-CI, because some
+runners and shells export exactly that.
+
+A composite GitHub Action (`action.yml`) wraps it. Its one non-obvious
+behaviour: exit code 3 - the scan could not be trusted - is re-raised as a
+workflow error with an explicit message, because an incomplete scan reported
+as a green tick is the failure the exit code exists to prevent.
+
+**MCP is served from the CLI, not the API.** `aevrin mcp-server` exposes one
+tool, `scan_mcp_server(command)`. It lives in the CLI because the question an
+agent asks is "is this safe to add to *my* machine", and answering it means
+launching that server; the CLI already owns local scanning and the sandbox. A
+remote endpoint would launch a different copy of the package on different
+hardware and hope it matched.
+
+The SDK is an optional extra (`pip install "aevrin[mcp]"`) so the base CLI -
+what CI jobs and the Claude Code hook install - does not carry it, but it is
+in the dev group so CI still types and tests the surface. `mcp==1.28.1` was
+removed from scanner-core in the same change: it had been a dependency of the
+deleted `analysis/remote_mcp.py` and nothing had imported it since.
+
+The tool's result is deliberately wordy about failure. An incomplete scan
+returns a null grade *and* a summary that states in prose that nothing was
+established and the server must not be treated as safe, because the consumer
+is a language model and a model reads prose more reliably than a null. The
+grade-to-policy mapping is read from `mcp/risk.py`'s table rather than
+restated, and an unrecognised letter takes the same path as no letter at all.
+
+Verified end to end: the same server returns `C 27/100`,
+`REQUIRE_APPROVAL`, 24 tools and 8 findings through the dashboard pipeline,
+the CLI and this tool.

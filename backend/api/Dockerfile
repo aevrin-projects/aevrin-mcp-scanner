@@ -22,6 +22,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates gnupg xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# The Docker *client*, and only the client. `execution/runner.py` shells out to
+# `docker run` to start the sandbox container, so without this every scan fails
+# with "docker CLI not found on host" - an honest failure, but one that means
+# the product never scans anything. Installed from Docker's own apt repository
+# so the download is signature-verified by apt rather than trusted from a URL,
+# and so both amd64 and arm64 resolve without hardcoding an architecture.
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg \
+      -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=${TARGETARCH} signed-by=/etc/apt/keyrings/docker.asc] \
+https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+      > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
+
 # No scanner binaries are installed here any more.
 #
 # The API does not scan. It resolves a target, starts a one-shot container
@@ -43,16 +60,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # climb above the container's filesystem root.
 WORKDIR /repo/backend/api
 
-# --- Python scanners + the app itself, via uv ---
+# --- The application itself, via uv ---
 COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /usr/local/bin/uv
 ENV UV_PYTHON=3.11
 ENV UV_PYTHON_DOWNLOADS=never
-# Semgrep the *engine* stays; Semgrep the generic ruleset is gone. It now
-# runs only Aevrin's own MCP taint pack (scanner-core/rules/mcp/*.yaml),
-# which traces an MCP tool argument to a dangerous sink rather than auditing
-# source code at large, and needs no network because those rules are local
-# files. Bandit was removed outright: it had no MCP-specific rules at all.
-#
 COPY backend/scanner-core /repo/backend/scanner-core
 COPY backend/api /repo/backend/api
 
@@ -70,11 +81,16 @@ RUN uv sync --frozen --no-dev \
 # whether /repo is executable. Editable package links still point at the
 # read-only application sources under /repo.
 
-# The API and every scanner run without root privileges. Scanner workspaces
-# live under /tmp and Semgrep's cache lives in this user's writable home.
-RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin aevrin
-RUN chown -R aevrin:aevrin /opt/uv-tools \
-    && chmod -R a+rX /opt/uv-tools
+# The API runs without root privileges; repository clones live under /tmp.
+#
+# `docker` is a group here rather than a package: reaching the daemon means
+# reaching a unix socket owned by root and group-owned by the host's docker
+# group, so the deploy passes that host gid with `--group-add` (see
+# backend/deploy/remote-deploy.sh). The group exists in the image only so the
+# name resolves; the gid that matters is supplied at run time.
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin aevrin \
+    && groupadd -f docker \
+    && usermod -aG docker aevrin
 USER aevrin
 
 EXPOSE 8000

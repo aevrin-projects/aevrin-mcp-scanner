@@ -185,13 +185,23 @@ export function AdminMarketplacePage() {
     }
   }
 
+  // The page header stays put while the catalogue loads. Returning a bare
+  // spinner removed the <h1> entirely, so the page had no title, no landmark
+  // heading and nothing for a screen reader to announce until the fetch
+  // resolved - and it made the whole panel flicker between two layouts.
   if (loading && !summary) {
     return (
-      <div className="flex items-center justify-center py-24 gap-2 text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-        <span className="text-sm">Loading marketplace…</span>
-        <span className="sr-only">Loading</span>
-      </div>
+      <>
+        <PageHeader
+          pretitle="Administration"
+          title="Marketplace"
+          description="Catalogue, submissions, and reports."
+        />
+        <div className="flex items-center justify-center gap-2 py-24 text-muted-foreground" aria-busy>
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          <span className="text-sm">Loading marketplace…</span>
+        </div>
+      </>
     );
   }
 

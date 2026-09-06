@@ -19,9 +19,9 @@ from aevrin_scanner_core import (
     TriageStatus,
 )
 from aevrin_scanner_core.agents import codex_home, discover_all, managed_settings_path
-from aevrin_scanner_core.models import InvocationChannel
 from aevrin_scanner_core.pipeline import PipelineConfig, PipelineError, run_pipeline
 
+from .channel import current_channel
 from .rendering import output
 from .rendering.agent_report import print_agent_report, print_no_agents
 from .services.auth import (
@@ -224,7 +224,7 @@ def scan(
 
     config = PipelineConfig(
         github_token=os.environ.get("GITHUB_TOKEN"),
-        invocation_channel=InvocationChannel.CLI,
+        invocation_channel=current_channel(),
         server_command=explicit_command,
     )
 
@@ -567,6 +567,24 @@ def findings_triage(
         output.print_error(f"Could not reach {api_url()}: {exc}")
         raise typer.Exit(code=2) from None
     output.stderr_console.print(f"[green]Finding {finding_id} marked {triage_status}.[/green]")
+
+
+@app.command("mcp-server")
+def mcp_server() -> None:
+    """Run Aevrin as an MCP server, so an agent can scan before it installs.
+
+    Speaks MCP over stdin/stdout; add it to an agent's MCP config rather than
+    running it by hand. It exposes one tool, `scan_mcp_server`, which runs the
+    same pipeline as `aevrin scan mcp` and returns the same verdict.
+
+    Needs the MCP SDK: pip install "aevrin[mcp]"
+    """
+    # Imported inside the command, not at module scope: the SDK is an optional
+    # extra, and importing it up here would make every `aevrin --help` fail for
+    # the majority of installs that never use this surface.
+    from .mcp_server import serve
+
+    serve()
 
 
 @app.command()

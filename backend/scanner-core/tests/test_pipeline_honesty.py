@@ -231,7 +231,7 @@ def test_a_launch_failure_message_is_diagnostic_without_naming_the_engine() -> N
     reason = tooltrust._launch_reason(stderr, "fallback")
 
     assert "transport closed" in reason, "the actual cause must survive"
-    for leaked in ("mcp-scanner", "tooltrust", "--output", "--server", "[flags]"):
+    for leaked in ("tooltrust", "--output", "--server", "[flags]"):
         assert leaked not in reason, f"{leaked!r} reached a user-facing message"
 
 
@@ -241,3 +241,26 @@ def test_a_launch_failure_with_nothing_to_say_still_says_something() -> None:
     avoid."""
     assert tooltrust._launch_reason("", "the server exited early") == "the server exited early"
     assert tooltrust._launch_reason("   \n\n  ", "the server exited early") == "the server exited early"
+
+
+def test_aevrins_own_image_name_survives_redaction() -> None:
+    """The redaction guards upstream's identity, not the word "scanner".
+
+    `mcp-scanner` is Aevrin's own name - the sandbox image installs the release
+    binary as /usr/local/bin/mcp-scanner and is tagged aevrin/mcp-scanner - so
+    stripping it carried no §21 benefit and cost the only actionable fact in
+    the most common deployment failure. It read:
+
+        Unable to find image 'aevrin/the scan engine:0.3.19' locally
+
+    which names an image that cannot exist, for an operator whose actual
+    problem is that they have not built one that can.
+    """
+    stderr = (
+        "Unable to find image 'aevrin/mcp-scanner:0.3.19' locally\n"
+        "docker: Error response from daemon: pull access denied for aevrin/mcp-scanner\n"
+    )
+    reason = tooltrust._launch_reason(stderr, "fallback")
+
+    assert "aevrin/mcp-scanner:0.3.19" in reason
+    assert "the scan engine" not in reason
