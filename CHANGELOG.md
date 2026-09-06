@@ -36,12 +36,28 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   the actual cause was the part that got dropped. Launch failures now report
   the cause and never name the engine (found by running a live scan, not by
   reading the code).
+- **Admin pages each carried a private copy of the card surface.** The user
+  detail page and the analytics page declared their own bordered card instead
+  of using `shared/ui`, so changes to the product's card styling reached every
+  screen except those two.
+- **A sign-in result in the audit log was signalled by colour alone** (green
+  "ok" / red reason), which is no signal at all to a large minority of readers
+  on a security table. It is now an icon and a word as well.
 - **Every scan recorded `invocation_channel = dashboard`.** The scan service
   built its pipeline config without a channel, so the column said "dashboard"
   whatever had actually asked, including catalogue scans.
 
 ### Added
 
+- **`/admin` rebuilt around a sidebar shell** following the shadcn-admin
+  layout: collapsible grouped navigation, a sticky header with breadcrumbs and
+  the theme toggle, and one page-header, table, card and empty-state treatment
+  across all five admin pages. Aevrin's colour tokens are unchanged - the
+  reference supplied structure and density, not a palette. `/admin/marketplace`
+  now appears in the navigation; the previous header bar omitted it, so it was
+  reachable only by typing the URL.
+- **A "Rescan ungraded" action on the marketplace admin page**, wired to the
+  new bulk endpoint below.
 - **`POST /admin/marketplace/mcp/regrade-ungraded`** queues scans, in bounded
   batches, for catalogued listings carrying no grade - the recovery path after
   an engine change withdraws every stored grade at once. Listings that cannot

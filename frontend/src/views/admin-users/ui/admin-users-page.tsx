@@ -2,13 +2,20 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { ApiError } from "@/shared/api";
 import { StatusPill, adminApi } from "@/entities/admin";
 import type { AdminUserPage } from "@/entities/admin";
-import { Input } from "@/shared/ui/input";
+import { Alert, AlertDescription } from "@/shared/ui/alert";
+import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { EmptyState } from "@/shared/ui/empty-state";
+import { Input } from "@/shared/ui/input";
+import { PageHeader } from "@/shared/ui/page-header";
+import { Panel, PanelTableWrap } from "@/shared/ui/panel";
 import { Skeleton } from "@/shared/ui/skeleton";
+import { TBody, TD, TH, THead, TR, Table } from "@/shared/ui/data-table";
+import { TablePagination } from "@/shared/ui/table-pagination";
 import { formatDate } from "@/shared/lib/format";
 
 const STATUS_FILTERS = [
@@ -16,7 +23,7 @@ const STATUS_FILTERS = [
   { value: "active", label: "Active" },
   { value: "disabled", label: "Disabled" },
   { value: "blocked", label: "Blocked" },
-];
+] as const;
 
 export function AdminUsersPage() {
   const [query, setQuery] = useState("");
@@ -43,31 +50,34 @@ export function AdminUsersPage() {
   }, [load]);
 
   const pageCount = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
+  const filtered = Boolean(query || statusFilter);
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {data ? `${data.total} account${data.total === 1 ? "" : "s"}` : "Loading…"}
-        </p>
-      </div>
+    <>
+      <PageHeader
+        pretitle="Administration"
+        title="Accounts"
+        description="Every Aevrin account, with the plan the product actually enforces and the standing it is in."
+      />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative min-w-64 flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative w-full sm:max-w-xs">
+          <Search
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
           <Input
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
               setPage(1);
             }}
-            className="pl-9"
+            className="h-8 pl-9"
             placeholder="Search by email"
             aria-label="Search accounts by email"
           />
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {STATUS_FILTERS.map((f) => (
             <Button
               key={f.value || "all"}
@@ -82,88 +92,117 @@ export function AdminUsersPage() {
               {f.label}
             </Button>
           ))}
+          {filtered ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setQuery("");
+                setStatusFilter("");
+                setPage(1);
+              }}
+            >
+              Reset
+              <X className="size-4" />
+            </Button>
+          ) : null}
         </div>
       </div>
 
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
 
       {!data ? (
-        <div className="space-y-2">
+        <div className="space-y-2" aria-busy>
           {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-14 rounded-lg" />
+            <Skeleton key={i} className="h-12 rounded-lg" />
           ))}
         </div>
       ) : data.rows.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border px-5 py-10 text-center text-sm text-muted-foreground">
-          No accounts match.
-        </p>
+        <EmptyState
+          title="No accounts match"
+          body={
+            filtered
+              ? "Nothing matches this search and filter. Reset them to see every account."
+              : "There are no accounts yet."
+          }
+        />
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-border">
-          <table className="w-full min-w-[820px] border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs tracking-[0.06em] text-muted-foreground uppercase">
-                <th className="px-4 py-2.5 font-medium">Email</th>
-                <th className="px-4 py-2.5 font-medium">Plan</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5 font-medium">Scans</th>
-                <th className="px-4 py-2.5 font-medium">Last scan</th>
-                <th className="px-4 py-2.5 font-medium">Joined</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.rows.map((row) => (
-                <tr key={row.user_id} className="border-b border-border/60 last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-2.5">
-                    <Link href={`/admin/users/${row.user_id}`} className="text-foreground hover:text-brand-text">
-                      {row.email ?? row.user_id}
-                    </Link>
-                    {row.flagged ? (
-                      <span className="ml-2 rounded-full border border-severity-medium/40 bg-severity-medium/10 px-1.5 py-0.5 text-[10px] text-severity-medium">
-                        flagged
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className="capitalize">{row.effective_tier}</span>
-                    {/* Stored tier can outlive the paid period; effective is
-                        what the product actually enforces, so show the drift
-                        rather than only the flattering number. */}
-                    {row.tier !== row.effective_tier ? (
-                      <span className="ml-1.5 text-[11px] text-muted-foreground">(stored: {row.tier})</span>
-                    ) : null}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <StatusPill status={row.status} />
-                  </td>
-                  <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{row.scans_this_period}</td>
-                  <td className="px-4 py-2.5 text-muted-foreground">
-                    {row.last_scan_at ? formatDate(row.last_scan_at) : "-"}
-                  </td>
-                  <td className="px-4 py-2.5 text-muted-foreground">
-                    {row.created_at ? formatDate(row.created_at) : "-"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+        <>
+          <Panel>
+            <PanelTableWrap>
+              <Table className="min-w-[820px]">
+                <THead>
+                  <TR>
+                    <TH>Email</TH>
+                    <TH>Plan</TH>
+                    <TH>Status</TH>
+                    <TH className="text-right">Scans</TH>
+                    <TH>Last scan</TH>
+                    <TH>Joined</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {data.rows.map((row) => (
+                    <TR key={row.user_id}>
+                      <TD>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/admin/users/${row.user_id}`}
+                            className="font-medium text-foreground underline-offset-4 hover:underline"
+                          >
+                            {row.email ?? row.user_id}
+                          </Link>
+                          {row.flagged ? (
+                            <Badge
+                              variant="outline"
+                              className="border-severity-medium/40 bg-severity-medium/10 text-severity-medium"
+                            >
+                              Flagged
+                            </Badge>
+                          ) : null}
+                        </div>
+                      </TD>
+                      <TD>
+                        <span className="capitalize">{row.effective_tier}</span>
+                        {/* Stored tier can outlive the paid period; effective is
+                            what the product actually enforces, so show the drift
+                            rather than only the flattering number. */}
+                        {row.tier !== row.effective_tier ? (
+                          <span className="ml-1.5 text-xs text-muted-foreground">stored: {row.tier}</span>
+                        ) : null}
+                      </TD>
+                      <TD>
+                        <StatusPill status={row.status} />
+                      </TD>
+                      <TD className="text-right tabular-nums text-muted-foreground">
+                        {row.scans_this_period}
+                      </TD>
+                      <TD className="text-muted-foreground">
+                        {row.last_scan_at ? formatDate(row.last_scan_at) : "—"}
+                      </TD>
+                      <TD className="text-muted-foreground">
+                        {row.created_at ? formatDate(row.created_at) : "—"}
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            </PanelTableWrap>
+          </Panel>
 
-      {data && pageCount > 1 ? (
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">
-            Page {data.page} of {pageCount}
-          </span>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
-            </Button>
-            <Button size="sm" variant="outline" disabled={page >= pageCount} onClick={() => setPage((p) => p + 1)}>
-              Next
-            </Button>
-          </div>
-        </div>
-      ) : null}
-    </div>
+          <TablePagination
+            page={data.page}
+            pageCount={pageCount}
+            total={data.total}
+            itemNoun="account"
+            onPageChange={setPage}
+          />
+        </>
+      )}
+    </>
   );
 }

@@ -54,7 +54,26 @@ Authenticated app routes: `/dashboard`, `/scans/new`, `/scans/history`,
 `/settings/billing`, `/settings/team`.
 
 Admin routes: `/admin`, `/admin/analytics`, `/admin/audit`,
-`/admin/marketplace`, `/admin/users/[id]` - under `app/admin/layout.tsx`.
+`/admin/marketplace`, `/admin/users/[id]` - under `app/admin/layout.tsx`,
+which is `AdminGate` (TOTP) wrapping `widgets/admin-shell`.
+
+`admin-shell` is a collapsible sidebar plus a sticky header with breadcrumbs
+and the theme toggle, following the shadcn-admin layout. It replaced a single
+row of header links that listed three of the four admin pages - `/admin/marketplace`
+was reachable only by typing the URL - and gave no indication of which page
+you were on.
+
+Two rules govern that widget. Every navigation entry resolves to a route that
+exists; there are no placeholders. And the card, table, metric, empty-state
+and page-header primitives come from `shared/ui`, not from the widget - the
+admin pages had each grown a private copy of the card surface, so a change to
+the product's card styling reached every screen except those.
+
+`components/ui/` holds primitives installed by the shadcn CLI (`sidebar`,
+`sheet`, `tooltip`, `breadcrumb`, `scroll-area`). They are Base UI builds
+matching `components.json`'s `base-nova` style, and they are repointed at
+`shared/ui` for `Button`/`Input`/`Separator`/`Skeleton` rather than keeping
+the duplicates the CLI writes alongside them.
 
 API routes (Next.js route handlers, not the FastAPI backend):
 `app/api/integrations/github/callback/route.ts`,

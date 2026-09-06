@@ -1639,3 +1639,43 @@ whitespace or shell punctuation are refused rather than escaped: the command
 is split into argv and never reaches a shell, but the marketplace accepts
 public submissions and a package name that looks like a command line is not a
 package name.
+
+## ADR-039: `/admin` follows shadcn-admin's layout, not its palette
+
+**Status:** accepted (2026-09-06)
+
+The admin panel was a horizontal bar of links above a content column. It
+listed three of the four admin pages - `/admin/marketplace` was reachable only
+by typing the URL - and showed no active state, so there was no way to tell
+which page you were on. Each page had also grown its own card component, so
+the product's card styling reached every screen except the admin ones.
+
+`/admin` now uses the shadcn-admin shell: a collapsible sidebar with grouped
+navigation and an account menu in its footer, and a sticky header carrying the
+sidebar trigger, breadcrumbs and the theme toggle.
+
+Two boundaries are deliberate.
+
+**Structure was copied; colour was not.** Aevrin's tokens are untouched, and
+the sidebar tokens the design needs (`--sidebar`, `--sidebar-accent`, and the
+rest) were already defined in `globals.css`. A reference implementation is a
+source of layout, density and interaction patterns; adopting its palette would
+have replaced the product's identity to no benefit.
+
+**Primitives come from `shared/ui`, not from the reference.** The shadcn CLI
+writes `button`, `input`, `separator` and `skeleton` alongside `sidebar`; all
+four already existed here and the copies were deleted, with `sidebar`,
+`sheet`, `tooltip` and `breadcrumb` repointed at the existing ones. Tables,
+cards, metrics, empty states and page headers are the existing design-system
+components. The result is that the admin area is now less code than before,
+not more, which is the constraint that mattered.
+
+The generated `use-mobile` hook was rewritten on `useSyncExternalStore`. Its
+shipped form sets state inside an effect, which this project's lint rules
+reject, and which renders the sidebar once as desktop before correcting itself
+on a phone.
+
+One thing the shell does not have: a global search. shadcn-admin puts a
+command palette in its header, and there is nothing behind it here - the admin
+API has no cross-resource search endpoint. An input that searches nothing is
+worse than no input.

@@ -12,6 +12,7 @@ export { PageHeader } from "./page-header";
 export { Metric, MetricCard } from "./metric";
 export { Progress } from "./progress";
 export { TBody, TD, TH, THead, TR, Table } from "./data-table";
+export { TablePagination } from "./table-pagination";
 export { IconTile, StatTile } from "./icon-tile";
 export { EmptyState } from "./empty-state";
 export { ListGroup, ListRow } from "./list-row";

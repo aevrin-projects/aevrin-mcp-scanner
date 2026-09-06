@@ -131,6 +131,18 @@ export const marketplaceAdminApi = {
       body: JSON.stringify({ status, reason: reason ?? null }),
     }),
 
+  /** Queue scans for every listing that currently carries no grade, in
+   *  bounded batches. The recovery path after an engine change withdraws
+   *  every stored grade at once; the response says what was queued, what was
+   *  skipped and why, and how many are left. */
+  regradeUngraded: () =>
+    request<{
+      queued: number;
+      listings: string[];
+      skipped: Array<{ listing: string; reason: string }>;
+      remaining_ungraded: number;
+    }>("/admin/marketplace/mcp/regrade-ungraded", { method: "POST" }),
+
   scan: (id: string, force: boolean) =>
     request<{ reused: boolean; scan_id: string; reason: string }>(
       `/admin/marketplace/mcp/${id}/scan`,

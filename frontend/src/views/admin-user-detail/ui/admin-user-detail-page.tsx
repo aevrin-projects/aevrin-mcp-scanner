@@ -8,7 +8,10 @@ import { ArrowLeft, Gift, KeyRound, RotateCcw, ShieldOff, SlidersHorizontal, Tra
 import { ApiError } from "@/shared/api";
 import { StatusPill, adminApi } from "@/entities/admin";
 import type { AdminUserDetail } from "@/entities/admin";
+import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
+import { PageHeader } from "@/shared/ui/page-header";
+import { SectionCard } from "@/shared/ui/section-card";
 import { Select } from "@/shared/ui/select";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
@@ -40,8 +43,14 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
     return () => window.clearTimeout(id);
   }, [load]);
 
-  if (error) return <p className="text-sm text-destructive">{error}</p>;
-  if (!detail) return <Skeleton className="h-96 rounded-xl" />;
+  if (error) {
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    );
+  }
+  if (!detail) return <Skeleton className="h-96 rounded-lg" aria-busy />;
 
   return (
     <div className="space-y-6">
@@ -50,20 +59,18 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
         All accounts
       </Link>
 
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{detail.email ?? detail.user_id}</h1>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            <StatusPill status={detail.status} />
-            <span className="capitalize">{detail.effective_tier}</span>
-            {detail.paid_until ? <span>· paid until {formatDate(detail.paid_until)}</span> : null}
-            <span>· joined {detail.created_at ? formatDate(detail.created_at) : "-"}</span>
-            <span>· {detail.auth_providers.join(", ") || "password"}</span>
-          </div>
-          {detail.status !== "active" && detail.status_reason ? (
-            <p className="mt-2 text-sm text-severity-high">Reason on file: {detail.status_reason}</p>
-          ) : null}
+      <div>
+        <PageHeader pretitle="Account" title={detail.email ?? detail.user_id} />
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <StatusPill status={detail.status} />
+          <span className="capitalize">{detail.effective_tier}</span>
+          {detail.paid_until ? <span>· paid until {formatDate(detail.paid_until)}</span> : null}
+          <span>· joined {detail.created_at ? formatDate(detail.created_at) : "—"}</span>
+          <span>· {detail.auth_providers.join(", ") || "password"}</span>
         </div>
+        {detail.status !== "active" && detail.status_reason ? (
+          <p className="mt-2 text-sm text-severity-high">Reason on file: {detail.status_reason}</p>
+        ) : null}
       </div>
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -75,7 +82,7 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
         </div>
 
         <div className="space-y-6">
-          <Panel title="Usage this period">
+          <AdminCard title="Usage this period">
             <ul className="space-y-2.5">
               {detail.usage.map((u) => (
                 <li key={u.bucket} className="flex items-center justify-between text-sm">
@@ -87,18 +94,18 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
                 </li>
               ))}
             </ul>
-          </Panel>
+          </AdminCard>
 
-          <Panel title="Account">
+          <AdminCard title="Account">
             <dl className="space-y-2 text-sm">
               <Row label="Active API keys" value={String(detail.api_key_count)} />
               <Row label="GitHub connected" value={detail.github_connected ? "Yes" : "No"} />
               <Row label="Password sign-in" value={detail.has_password ? "Yes" : "OAuth only"} />
               <Row label="Flagged for abuse" value={detail.flagged ? "Yes" : "No"} />
             </dl>
-          </Panel>
+          </AdminCard>
 
-          <Panel title="Recent scans">
+          <AdminCard title="Recent scans">
             {detail.recent_scans.length === 0 ? (
               <p className="text-sm text-muted-foreground">No scans yet.</p>
             ) : (
@@ -111,7 +118,7 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
                 ))}
               </ul>
             )}
-          </Panel>
+          </AdminCard>
         </div>
       </div>
     </div>
@@ -146,7 +153,7 @@ function GrantPlan({ detail, onDone }: { detail: AdminUserDetail; onDone: () => 
   }
 
   return (
-    <Panel title="Grant a plan" icon={<Gift className="size-4 text-brand-text" />}>
+    <AdminCard title="Grant a plan" icon={<Gift className="size-4 text-brand-text" />}>
       <p className="text-sm text-muted-foreground">
         Entitlement only, with no payment object. A comped plan is indistinguishable from a purchased
         one at the point of use, because the entitlement <em>is</em> tier plus paid-until.
@@ -226,7 +233,7 @@ function GrantPlan({ detail, onDone }: { detail: AdminUserDetail; onDone: () => 
           {new Date(detail.paid_until).toLocaleDateString()}.
         </p>
       ) : null}
-    </Panel>
+    </AdminCard>
   );
 }
 
@@ -251,7 +258,7 @@ function GrantSeats({ detail, onDone }: { detail: AdminUserDetail; onDone: () =>
   }
 
   return (
-    <Panel title="Seats" icon={<Users className="size-4 text-brand-text" />}>
+    <AdminCard title="Seats" icon={<Users className="size-4 text-brand-text" />}>
       <p className="text-sm text-muted-foreground">
         How many people this account&apos;s workspace may hold, owner included. The same number a
         Team purchase writes, so granting and buying move one value rather than two. Lowering it
@@ -289,7 +296,7 @@ function GrantSeats({ detail, onDone }: { detail: AdminUserDetail; onDone: () =>
       <Button disabled={busy || reason.trim().length < 3} onClick={() => void apply()}>
         Set to {seats} seat{seats === 1 ? "" : "s"}
       </Button>
-    </Panel>
+    </AdminCard>
   );
 }
 
@@ -340,7 +347,7 @@ function QuotaOverrides({ detail, onDone }: { detail: AdminUserDetail; onDone: (
   }
 
   return (
-    <Panel title="Rate limits" icon={<SlidersHorizontal className="size-4 text-brand-text" />}>
+    <AdminCard title="Rate limits" icon={<SlidersHorizontal className="size-4 text-brand-text" />}>
       <p className="text-sm text-muted-foreground">
         An override replaces the plan&apos;s limit for one bucket and applies everywhere, dashboard, CLI and hook
         alike.
@@ -419,7 +426,7 @@ function QuotaOverrides({ detail, onDone }: { detail: AdminUserDetail; onDone: (
           Reset {BUCKET_LABEL[bucket]} usage
         </Button>
       </div>
-    </Panel>
+    </AdminCard>
   );
 }
 
@@ -488,7 +495,7 @@ function DangerZone({ detail, onDone }: { detail: AdminUserDetail; onDone: () =>
   }
 
   return (
-    <Panel title="Danger zone" icon={<ShieldOff className="size-4 text-severity-critical" />}>
+    <AdminCard title="Danger zone" icon={<ShieldOff className="size-4 text-severity-critical" />}>
       <div className="space-y-1.5">
         <Label htmlFor="dz-reason">Reason (required, audited)</Label>
         <Input id="dz-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why?" />
@@ -564,19 +571,37 @@ function DangerZone({ detail, onDone }: { detail: AdminUserDetail; onDone: () =>
           {busy ? "Deleting…" : "Delete permanently"}
         </Button>
       </div>
-    </Panel>
+    </AdminCard>
   );
 }
 
-function Panel({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
+/**
+ * A `SectionCard` with a leading icon in its title.
+ *
+ * This used to re-declare the card surface - its own border, radius, padding
+ * and background - so every change to the product's card styling reached
+ * every screen except this one. Only the icon composition is local now.
+ */
+function AdminCard({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
-    <section className="space-y-4 rounded-xl border border-border bg-card p-5">
-      <h2 className="flex items-center gap-2 text-sm font-medium">
-        {icon}
-        {title}
-      </h2>
+    <SectionCard
+      title={
+        <span className="flex items-center gap-2">
+          {icon}
+          {title}
+        </span>
+      }
+    >
       {children}
-    </section>
+    </SectionCard>
   );
 }
 

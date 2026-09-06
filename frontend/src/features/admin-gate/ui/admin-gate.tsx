@@ -8,6 +8,7 @@ import { adminApi } from "@/entities/admin";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { AdminSessionProvider } from "../model/session-context";
 import { TotpQr } from "./totp-qr";
 
 /**
@@ -78,7 +79,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   if (state.status === "enrol") return <Enrol onDone={refresh} />;
   if (state.status === "verify") return <Verify email={state.email} onDone={refresh} />;
 
-  return <>{children}</>;
+  return <AdminSessionProvider value={{ email: state.email }}>{children}</AdminSessionProvider>;
 }
 
 function Enrol({ onDone }: { onDone: () => Promise<void> }) {

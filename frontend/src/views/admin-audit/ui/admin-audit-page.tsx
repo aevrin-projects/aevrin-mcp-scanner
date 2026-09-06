@@ -1,11 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { CheckCircle2, ShieldAlert, X } from "lucide-react";
 import { ApiError } from "@/shared/api";
 import { adminApi } from "@/entities/admin";
 import type { AdminAuditEntry, AdminLoginAttempt } from "@/entities/admin";
+import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { EmptyState } from "@/shared/ui/empty-state";
 import { Input } from "@/shared/ui/input";
+import { PageHeader } from "@/shared/ui/page-header";
+import { Panel, PanelTableWrap } from "@/shared/ui/panel";
 import { Skeleton } from "@/shared/ui/skeleton";
+import { TBody, TD, TH, THead, TR, Table } from "@/shared/ui/data-table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { formatDateTime } from "@/shared/lib/format";
 
 export function AdminAuditPage() {
@@ -36,110 +45,187 @@ export function AdminAuditPage() {
   }, [load]);
 
   const failedRecently = (attempts ?? []).filter((a) => !a.succeeded).length;
+  const filtered = Boolean(action || target || since);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Audit log</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Append-only. Rows cannot be edited or deleted — a database trigger blocks both, including
-          for the service role. Use the filters below to narrow the view.
-        </p>
-      </div>
+    <>
+      <PageHeader
+        pretitle="Security"
+        title="Audit log"
+        description="Append-only. Rows cannot be edited or deleted — a database trigger blocks both, including for the service role."
+      />
 
       {failedRecently > 0 ? (
-        <p className="rounded-xl border border-severity-medium/40 bg-severity-medium/10 px-4 py-3 text-sm text-severity-medium">
-          {failedRecently} failed admin sign-in attempt{failedRecently === 1 ? "" : "s"} recently; see the table
-          below.
-        </p>
+        <Alert variant="destructive">
+          <ShieldAlert className="size-4" />
+          <AlertTitle>
+            {failedRecently} failed admin sign-in attempt{failedRecently === 1 ? "" : "s"} recently
+          </AlertTitle>
+          <AlertDescription>
+            Check the sign-in attempts tab below for the addresses and reasons.
+          </AlertDescription>
+        </Alert>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Input value={action} onChange={(e) => setAction(e.target.value)} placeholder="Filter by action" aria-label="Filter by action" />
-        <Input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="Filter by target user id" aria-label="Filter by target user id" />
-        <Input
-          type="date"
-          value={since}
-          onChange={(e) => setSince(e.target.value)}
-          aria-label="Show entries on or after this date"
-          title="Show entries on or after this date"
-        />
-      </div>
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
 
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      <Tabs defaultValue="activity">
+        <TabsList>
+          <TabsTrigger value="activity">
+            Activity{entries ? ` (${entries.length})` : ""}
+          </TabsTrigger>
+          <TabsTrigger value="signins">
+            Sign-in attempts{attempts ? ` (${attempts.length})` : ""}
+          </TabsTrigger>
+        </TabsList>
 
-      {!entries ? (
-        <Skeleton className="h-72 rounded-xl" />
-      ) : entries.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border px-5 py-10 text-center text-sm text-muted-foreground">
-          Nothing recorded yet.
-        </p>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-border">
-          <table className="w-full min-w-[900px] border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs tracking-[0.06em] text-muted-foreground uppercase">
-                <th className="px-4 py-2.5 font-medium">When</th>
-                <th className="px-4 py-2.5 font-medium">Admin</th>
-                <th className="px-4 py-2.5 font-medium">Action</th>
-                <th className="px-4 py-2.5 font-medium">Target</th>
-                <th className="px-4 py-2.5 font-medium">Reason</th>
-                <th className="px-4 py-2.5 font-medium">IP</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((e) => (
-                <tr key={e.id} className="border-b border-border/60 last:border-0">
-                  <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground">{formatDateTime(e.created_at)}</td>
-                  <td className="px-4 py-2.5">{e.actor_email ?? e.actor_user_id}</td>
-                  <td className="px-4 py-2.5 font-mono text-[12px]">{e.action}</td>
-                  <td className="px-4 py-2.5">{e.target_email ?? e.target_user_id ?? e.target_resource ?? "-"}</td>
-                  <td className="px-4 py-2.5 text-muted-foreground">{e.reason ?? "-"}</td>
-                  <td className="px-4 py-2.5 font-mono text-[12px] text-muted-foreground">{e.ip_address ?? "-"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <div>
-        <h2 className="text-sm font-medium">Recent admin sign-in attempts</h2>
-        {!attempts ? (
-          <Skeleton className="mt-3 h-40 rounded-xl" />
-        ) : attempts.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">None recorded.</p>
-        ) : (
-          <div className="mt-3 overflow-x-auto rounded-xl border border-border">
-            <table className="w-full min-w-[640px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs tracking-[0.06em] text-muted-foreground uppercase">
-                  <th className="px-4 py-2.5 font-medium">When</th>
-                  <th className="px-4 py-2.5 font-medium">Email</th>
-                  <th className="px-4 py-2.5 font-medium">Result</th>
-                  <th className="px-4 py-2.5 font-medium">IP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {attempts.map((a) => (
-                  <tr key={a.id} className="border-b border-border/60 last:border-0">
-                    <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground">{formatDateTime(a.created_at)}</td>
-                    <td className="px-4 py-2.5">{a.email ?? "-"}</td>
-                    <td className="px-4 py-2.5">
-                      {a.succeeded ? (
-                        <span className="text-chart-1">ok</span>
-                      ) : (
-                        <span className="text-severity-high">{a.failure_reason ?? "failed"}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-[12px] text-muted-foreground">{a.ip_address ?? "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <TabsContent value="activity" className="mt-4 flex flex-col gap-4">
+          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
+            <Input
+              value={action}
+              onChange={(e) => setAction(e.target.value)}
+              className="h-8"
+              placeholder="Filter by action"
+              aria-label="Filter by action"
+            />
+            <Input
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              className="h-8"
+              placeholder="Filter by target user id"
+              aria-label="Filter by target user id"
+            />
+            <Input
+              type="date"
+              value={since}
+              onChange={(e) => setSince(e.target.value)}
+              className="h-8"
+              aria-label="Show entries on or after this date"
+              title="Show entries on or after this date"
+            />
+            {filtered ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setAction("");
+                  setTarget("");
+                  setSince("");
+                }}
+              >
+                Reset
+                <X className="size-4" />
+              </Button>
+            ) : null}
           </div>
-        )}
-      </div>
-    </div>
+
+          {!entries ? (
+            <Skeleton className="h-72 rounded-lg" />
+          ) : entries.length === 0 ? (
+            <EmptyState
+              title="Nothing recorded"
+              body={
+                filtered
+                  ? "No entries match these filters. Reset them to see the whole log."
+                  : "No administrative action has been recorded yet."
+              }
+            />
+          ) : (
+            <Panel>
+              <PanelTableWrap>
+                <Table className="min-w-[900px]">
+                  <THead>
+                    <TR>
+                      <TH>When</TH>
+                      <TH>Admin</TH>
+                      <TH>Action</TH>
+                      <TH>Target</TH>
+                      <TH>Reason</TH>
+                      <TH>IP</TH>
+                    </TR>
+                  </THead>
+                  <TBody>
+                    {entries.map((e) => (
+                      <TR key={e.id}>
+                        <TD className="whitespace-nowrap text-muted-foreground">
+                          {formatDateTime(e.created_at)}
+                        </TD>
+                        <TD>{e.actor_email ?? e.actor_user_id}</TD>
+                        <TD>
+                          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{e.action}</code>
+                        </TD>
+                        <TD>{e.target_email ?? e.target_user_id ?? e.target_resource ?? "—"}</TD>
+                        <TD className="text-muted-foreground">{e.reason ?? "—"}</TD>
+                        <TD className="font-mono text-xs text-muted-foreground">{e.ip_address ?? "—"}</TD>
+                      </TR>
+                    ))}
+                  </TBody>
+                </Table>
+              </PanelTableWrap>
+            </Panel>
+          )}
+        </TabsContent>
+
+        <TabsContent value="signins" className="mt-4">
+          {!attempts ? (
+            <Skeleton className="h-40 rounded-lg" />
+          ) : attempts.length === 0 ? (
+            <EmptyState title="No sign-in attempts recorded" />
+          ) : (
+            <Panel>
+              <PanelTableWrap>
+                <Table className="min-w-[640px]">
+                  <THead>
+                    <TR>
+                      <TH>When</TH>
+                      <TH>Email</TH>
+                      <TH>Result</TH>
+                      <TH>IP</TH>
+                    </TR>
+                  </THead>
+                  <TBody>
+                    {attempts.map((a) => (
+                      <TR key={a.id}>
+                        <TD className="whitespace-nowrap text-muted-foreground">
+                          {formatDateTime(a.created_at)}
+                        </TD>
+                        <TD>{a.email ?? "—"}</TD>
+                        <TD>
+                          {/* An icon and a word, not just a colour: a red/green
+                              distinction is invisible to a large minority of
+                              readers, and this is a security table. */}
+                          {a.succeeded ? (
+                            <Badge
+                              variant="outline"
+                              className="border-chart-1/40 bg-chart-1/10 text-chart-1"
+                            >
+                              <CheckCircle2 className="size-3" />
+                              Succeeded
+                            </Badge>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="border-severity-high/40 bg-severity-high/10 text-severity-high"
+                            >
+                              <ShieldAlert className="size-3" />
+                              {a.failure_reason ?? "Failed"}
+                            </Badge>
+                          )}
+                        </TD>
+                        <TD className="font-mono text-xs text-muted-foreground">{a.ip_address ?? "—"}</TD>
+                      </TR>
+                    ))}
+                  </TBody>
+                </Table>
+              </PanelTableWrap>
+            </Panel>
+          )}
+        </TabsContent>
+      </Tabs>
+    </>
   );
 }

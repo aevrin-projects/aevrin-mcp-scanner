@@ -38,6 +38,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 const PAGE_SIZE = 30;
 
+// The bulk regrade is not tied to a listing row, but `act` keys its busy state
+// by id, so it gets a sentinel of its own rather than a second busy flag.
+const REGRADE_ID = "__regrade_ungraded__";
+// Mirrors REGRADE_BATCH_LIMIT in the marketplace controller. Shown in a
+// tooltip only - the server enforces it, and the response says what remains.
+const REGRADE_BATCH = 25;
+
 interface Summary {
   total: number;
   scanned: number;
@@ -134,6 +141,37 @@ export function AdminMarketplacePage() {
     };
   }, [fetchAll, reloadToken]);
 
+  /** Queue scans for the listings that carry no grade.
+   *
+   *  Bounded server-side, so this reports what is left rather than pretending
+   *  one press fixed the whole catalogue. Skipped listings are named: a
+   *  remote-only server with nothing to launch stays ungraded, and that is a
+   *  result rather than a failure to retry.
+   */
+  async function regradeUngraded() {
+    await act(
+      REGRADE_ID,
+      () => marketplaceAdminApi.regradeUngraded(),
+      (r) => {
+        const res = r as {
+          queued: number;
+          skipped: Array<{ listing: string; reason: string }>;
+          remaining_ungraded: number;
+        };
+        const parts = [`Queued ${res.queued} scan${res.queued === 1 ? "" : "s"}.`];
+        if (res.skipped.length) {
+          parts.push(
+            `${res.skipped.length} could not be scanned (${res.skipped[0].listing}: ${res.skipped[0].reason})`,
+          );
+        }
+        if (res.remaining_ungraded > 0) {
+          parts.push(`${res.remaining_ungraded} still ungraded — run it again for the next batch.`);
+        }
+        return parts.join(" ");
+      },
+    );
+  }
+
   async function act(id: string, fn: () => Promise<unknown>, describe: (r: unknown) => string) {
     setBusyId(id);
     setMessage(null);
@@ -161,8 +199,32 @@ export function AdminMarketplacePage() {
     <MotionConfig reducedMotion="user">
       <div className="space-y-6">
         <PageHeader
+          pretitle="Administration"
           title="Marketplace"
           description="Catalogue, submissions, and reports."
+          actions={
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busyId === REGRADE_ID || !summary?.unscanned}
+              onClick={regradeUngraded}
+              // Disabled with nothing ungraded rather than hidden: an admin
+              // looking for this after an engine change needs to find it and
+              // see that there is nothing to do, not wonder where it went.
+              title={
+                summary?.unscanned
+                  ? `Queue scans for up to ${REGRADE_BATCH} ungraded listings`
+                  : "Every listing already carries a grade"
+              }
+            >
+              {busyId === REGRADE_ID ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <ShieldCheck className="size-4" aria-hidden="true" />
+              )}
+              Rescan ungraded
+            </Button>
+          }
         />
 
         {/* Metric row */}
