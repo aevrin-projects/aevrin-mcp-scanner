@@ -58,7 +58,7 @@ value is what the deployed Worker actually reads.
 | `AWS_SSH_PRIVATE_KEY` | `deploy-backend.yml` (SSH to the EC2 instance) | **yes** |
 | `AEVRIN_ENV_OVERRIDES` | `deploy-backend.yml` (optional KEY=VALUE lines applied to `/opt/aevrin/api.env`) | **yes** |
 | `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` | `deploy-frontend.yml` (`wrangler deploy`) | token is secret |
-| `NPM_TOKEN` | `publish-npm.yml` | **yes** |
+| (npm Trusted Publishing) | `publish-npm.yml` | OIDC - no stored token at all |
 | (PyPI Trusted Publishing) | `publish.yml` | OIDC - no stored token at all |
 
 ## Local operator credential files (not environment variables)

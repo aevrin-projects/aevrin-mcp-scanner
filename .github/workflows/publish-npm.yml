@@ -38,17 +38,23 @@ jobs:
         run: npm test
 
       - name: Publish
-        # setup-node writes an .npmrc pointing _authToken at NODE_AUTH_TOKEN,
-        # but nothing ever set it, so every run published anonymously and npm
-        # answered "E404 PUT /aevrin" -- its response for an unauthenticated
-        # write, not a missing package. The name has never been claimed, so
-        # the documented `npm install --global aevrin` has always 404d.
+        # No token. This authenticates over OIDC as a trusted publisher, which
+        # is why `id-token: write` and `environment: npm` above are load-bearing
+        # rather than decorative: npm matches the minted token against the
+        # repository, this workflow's filename and that environment name.
         #
-        # NPM_TOKEN must be a granular token scoped to *all* packages, or a
-        # classic automation token: a token scoped to existing packages only
-        # cannot create a new name, and fails the same opaque way. Trusted
-        # publishing is not an option until the package exists, since the
-        # publisher is configured against an already-published package.
+        # It used to publish with NPM_TOKEN, and that stopped working: the token
+        # could not bypass 2FA, so the registry answered EOTP and asked a CI
+        # runner for a one-time password. Reaching for a token that *can* bypass
+        # 2FA was the other option and was not taken - npm is restricting those,
+        # and a publishing credential that lives in repository secrets forever is
+        # worth removing on its own merits.
+        #
+        # An earlier comment here said trusted publishing was unavailable "until
+        # the package exists", since a publisher is configured against a
+        # published package. That was true when it was written. aevrin@0.4.0 is
+        # published, so it no longer is.
+        #
+        # The publisher is registered out of band, once, with:
+        #   npm trust github aevrin --repo aevrin-projects/aevrin-mcp-scanner         #     --file publish-npm.yml --env npm --allow-publish
         run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

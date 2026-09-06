@@ -334,7 +334,7 @@ and a green run for a missed sample would hide it.
 | Pipeline | Workflow | Trigger | What it publishes |
 |---|---|---|---|
 | Python packages | `publish.yml` | `v*` tag | `aevrin-scanner-core` then `aevrin` (CLI) to PyPI via Trusted Publishing (OIDC, no stored token). Waits for `aevrin-scanner-core` to actually appear on the index (not just for the upload job to finish) before building the CLI wheel, and verifies the published wheel actually registers every command (`scan`, `login`, `logout`, `version`, `agent`, `hook`, `findings`) before calling it done. |
-| npm wrapper | `publish-npm.yml` | `v*` tag | `aevrin` to the npm registry. Needs `NPM_TOKEN` scoped to create a **new** package name (a token scoped to existing packages fails the same opaque way as no token at all). |
+| npm wrapper | `publish-npm.yml` | `v*` tag | `aevrin` to the npm registry, over **OIDC as a trusted publisher** - no token. The publisher is registered once against the repository, the workflow filename and the `npm` environment; changing any of those three breaks publishing until it is re-registered. |
 | CLI cross-platform install check | `cli-install.yml` | push/PR/dispatch | Installs via both pip and npm on Ubuntu/macOS/Windows, verifies `aevrin --version`/`--help` actually run. |
 
 **Product and CLI version independently.** The API's `FastAPI(title=...,
