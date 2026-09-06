@@ -227,13 +227,28 @@ from application code, and the first is load-bearing for tenant isolation:
    protects. A socket proxy restricting the API to container create/start/rm
    would narrow it further and is not implemented.
 
-3. **Migration 0047 applied *after* the new image is live.** It drops columns
-   the previous API reads, so applying it against a host still serving the old
-   image takes the dashboard down instantly - the same generic "Upstream data
-   store error" that 0046 produced, in the opposite direction. The order is:
-   deploy succeeds and is healthy, then apply, then rescan the catalogue via
-   `POST /admin/marketplace/mcp/regrade-ungraded`. The file repeats this at
-   the top, because getting it wrong is an outage.
+3. **Migration 0047 applied as close to the deploy as possible.** There is no
+   safe window on either side of it, and an earlier version of this document
+   claimed there was:
+
+   | | |
+   |---|---|
+   | old image + new schema | the old API **reads** columns 0047 drops |
+   | new image + old schema | the new API **writes** columns 0047 adds |
+
+   The second is the one that bit: the new API writes `server_command`,
+   `scanner_name`, `scanner_version` and `invocation_channel`, and emits five
+   new `scan_stages` names. Against the pre-0047 schema PostgREST refuses all
+   of it, so scans run, finish, and are never recorded as finished - six hours
+   of apparently-running scans came from exactly this gap.
+
+   Order: deploy healthy → apply 0047 immediately → `POST
+   /scheduler/reap-stuck-scans` to close anything caught in the window →
+   `POST /admin/marketplace/mcp/regrade-ungraded`.
+
+   A change of this size should next time be split expand/contract - add
+   columns and widen the constraint before the deploy, drop and narrow after -
+   which removes the window entirely.
 
 4. **Disk headroom for npm caches.** Each scan pulls a package tree into
    tmpfs; the ceilings are set in `mcp/tooltrust.py`.

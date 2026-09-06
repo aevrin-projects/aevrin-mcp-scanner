@@ -27,6 +27,9 @@ import re
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
+
+from ..execution.network_safety import public_https_url_error
 
 # Package names we will not launch, whatever a manifest says. These are the
 # shapes that mean "this is not the server, this is the tooling around it".
@@ -72,6 +75,49 @@ def _read_json(path: Path) -> dict[str, object] | None:
     except json.JSONDecodeError:
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+# The stdio bridge for servers that are hosted rather than installed. The
+# engine speaks stdio and takes a command; a hosted endpoint is neither, so
+# something has to sit between them. `mcp-remote` is the shim the MCP
+# ecosystem already uses for this, and it is transparent - the tools that come
+# back are the remote server's own, which is what gets graded.
+_REMOTE_BRIDGE = "npx -y mcp-remote"
+
+
+def looks_like_url(target: str) -> bool:
+    return target.strip().lower().startswith(("http://", "https://"))
+
+
+def from_remote_url(url: str) -> ResolvedTarget:
+    """A hosted MCP endpoint, reached through the stdio bridge.
+
+    Before this, a URL fell through to `from_explicit_command` and was handed
+    to the engine as if it were a program, producing
+    `fork/exec https://...: no such file or directory` - a message about a
+    missing file for something that was never a file. Hosted servers are a
+    normal way to ship an MCP server, so refusing them was wrong; treating
+    them as executables was worse.
+
+    The URL is checked with the same guard the marketplace uses before it
+    fetches anything, and for the same reason: this string is about to be
+    dereferenced from inside a container that has network access. There is one
+    definition of "safe to fetch" in this codebase and this is it.
+    """
+    target = url.strip()
+    error = public_https_url_error(target)
+    if error:
+        raise UnresolvableTarget(
+            f"This MCP server URL cannot be scanned: {error}. Aevrin only reaches "
+            "public HTTPS endpoints, because a scan container that could be pointed "
+            "at an internal address would be a way to read this network."
+        )
+    # Re-parsed rather than trusting the string: the guard above accepted it,
+    # and this is what actually becomes an argv element.
+    parsed = urlsplit(target)
+    if any(c.isspace() for c in target) or parsed.fragment:
+        raise UnresolvableTarget("An MCP server URL must not contain spaces or a fragment.")
+    return ResolvedTarget(command=f"{_REMOTE_BRIDGE} {target}", source="remote_url")
 
 
 def from_explicit_command(command: str) -> ResolvedTarget:

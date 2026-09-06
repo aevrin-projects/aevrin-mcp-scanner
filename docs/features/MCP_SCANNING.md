@@ -99,11 +99,24 @@ read individually, by name.
 
 `mcp/resolve.py` turns a target into a launch command, in this order:
 
-1. An explicit command from the user (`aevrin scan mcp "..."`). Being told
+1. **An HTTPS URL** — a hosted server, reached through the stdio bridge
+   (`npx -y mcp-remote <url>`). The engine speaks stdio and takes a command; a
+   hosted endpoint is neither, so something has to sit between them. The
+   bridge is transparent, so the tools that come back and get graded are the
+   remote server's own.
+
+   The URL goes through `public_https_url_error` first — the same guard the
+   marketplace uses before it fetches anything. HTTP, embedded credentials,
+   loopback, RFC1918, link-local and `169.254.169.254` are all refused: this
+   string is about to be dereferenced from inside a container that has network
+   access, and one that could be pointed at an internal address would be a way
+   to read the network it runs in.
+
+2. An explicit command from the user (`aevrin scan mcp "..."`). Being told
    how to start a server is better evidence than inferring it.
-2. `package.json` — `name` plus a `bin`, giving `npx -y <name>`.
-3. `pyproject.toml` — `name` plus `[project.scripts]`, giving `uvx <name>`.
-4. Otherwise: **refuse**, with a reason that goes into the scan's incomplete
+3. `package.json` — `name` plus a `bin`, giving `npx -y <name>`.
+4. `pyproject.toml` — `name` plus `[project.scripts]`, giving `uvx <name>`.
+5. Otherwise: **refuse**, with a reason that goes into the scan's incomplete
    message.
 
 **The command is never derived from the repository name.** This is the

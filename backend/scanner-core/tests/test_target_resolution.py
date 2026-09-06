@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from aevrin_scanner_core.mcp import resolve
 from aevrin_scanner_core.mcp.resolve import (
     UnresolvableTarget,
     from_explicit_command,
@@ -155,3 +156,61 @@ def test_an_unreadable_manifest_does_not_read_as_absent(tmp_path: Path) -> None:
 
     with pytest.raises(UnresolvableTarget):
         from_repository(repo)
+
+
+class TestHostedServers:
+    """A hosted MCP endpoint is a server too.
+
+    `https://mcp.context7.com/mcp` used to fall through to the explicit-command
+    path and reach the engine as a program name, which failed with
+    `fork/exec https://...: no such file or directory` - a message about a
+    missing file for something that was never a file. Hosted servers are a
+    normal way to ship an MCP server, so they resolve through the stdio bridge
+    instead.
+    """
+
+    def test_an_https_endpoint_resolves_through_the_bridge(self) -> None:
+        resolved = resolve.from_remote_url("https://mcp.context7.com/mcp")
+        assert resolved.command == "npx -y mcp-remote https://mcp.context7.com/mcp"
+        assert resolved.source == "remote_url"
+
+    @pytest.mark.parametrize(
+        "target",
+        ["https://mcp.context7.com/mcp", "HTTP://example.com/mcp", "  https://x.dev/mcp  "],
+    )
+    def test_urls_are_recognised_wherever_they_arrive(self, target: str) -> None:
+        assert resolve.looks_like_url(target) is True
+
+    @pytest.mark.parametrize(
+        "target", ["npx -y @playwright/mcp", "uvx mcp-server-git", "httpie", ""]
+    )
+    def test_commands_are_not_mistaken_for_urls(self, target: str) -> None:
+        assert resolve.looks_like_url(target) is False
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://169.254.169.254/latest/meta-data/",  # cloud instance metadata
+            "https://127.0.0.1/mcp",
+            "https://localhost/mcp",
+            "https://10.0.0.5/mcp",
+            "https://192.168.1.1/mcp",
+            "https://something.internal/mcp",
+            "http://mcp.context7.com/mcp",  # not HTTPS
+            "https://user:pw@mcp.example.com/mcp",  # embedded credentials
+        ],
+    )
+    def test_an_unsafe_url_is_refused(self, url: str) -> None:
+        """The scan container has network access, so this string is about to be
+        dereferenced from inside the network. Checked with the same guard the
+        marketplace uses before it fetches anything - one definition of "safe
+        to fetch" in this codebase, not two."""
+        with pytest.raises(resolve.UnresolvableTarget):
+            resolve.from_remote_url(url)
+
+    def test_the_refusal_explains_itself(self) -> None:
+        """"Cannot be scanned" with no reason is not actionable, and this one
+        is a refusal a legitimate user will hit."""
+        with pytest.raises(resolve.UnresolvableTarget) as exc:
+            resolve.from_remote_url("https://127.0.0.1/mcp")
+        assert "public HTTPS" in str(exc.value)

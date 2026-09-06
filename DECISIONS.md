@@ -1799,3 +1799,37 @@ Cancelled is recorded as `failed` rather than a new `cancelled` status,
 deliberately: a new status value needs a check-constraint migration, and this
 had to work against the schema already deployed. A cancelled scan carries no
 grade and no score, because nothing was established about the target.
+
+## ADR-043: A hosted MCP endpoint is scanned through the stdio bridge
+
+**Status:** accepted (2026-09-06)
+
+`https://mcp.context7.com/mcp` is a normal way to ship an MCP server, and
+Aevrin could not scan one. A URL fell through to `from_explicit_command`, was
+tokenised, and reached the engine as a program name:
+
+    fork/exec https://mcp.context7.com/mcp: no such file or directory
+
+A message about a missing file, for something that was never a file.
+
+The engine speaks stdio and takes a command, so a hosted endpoint needs
+something between them. `npx -y mcp-remote <url>` is the shim the MCP
+ecosystem already uses, and it is transparent: the tools that come back are
+the remote server's own, so the grade describes the server rather than the
+bridge. Verified against Context7 - two tools enumerated
+(`resolve-library-id`, `query-docs`), graded A 2/100, all five stages
+complete.
+
+The URL is validated with `public_https_url_error`, which already existed and
+which the marketplace uses before it fetches anything. Reused rather than
+reimplemented: there is one definition of "safe to fetch" in this codebase,
+and a second one would eventually disagree with it. HTTP, embedded
+credentials, loopback, RFC1918, link-local and `169.254.169.254` are refused,
+because this string is dereferenced from inside a container with network
+access - one that could be aimed at an internal address would be a way to read
+the network it runs in. That refusal happens at `resolving`, so the scan ends
+INCOMPLETE and ungraded rather than failing somewhere less legible.
+
+The check runs wherever a URL arrives, including as an explicit
+`--server`/`scan mcp` argument, because the dashboard's "live server" field
+and the CLI both accept one and both previously handed it straight through.

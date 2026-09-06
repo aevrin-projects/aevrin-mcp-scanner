@@ -43,7 +43,9 @@ from ..mcp.resolve import (
     ResolvedTarget,
     UnresolvableTarget,
     from_explicit_command,
+    from_remote_url,
     from_repository,
+    looks_like_url,
 )
 from ..mcp.risk import grade_scan
 from ..mcp.tooltrust import (
@@ -142,9 +144,16 @@ def _clone(github_url: str, workdir: str, config: PipelineConfig) -> str:
 def _resolve(
     target_type: TargetType, target: str, workdir: str, config: PipelineConfig
 ) -> ResolvedTarget:
+    # A URL is checked first wherever it arrives, including as an explicit
+    # command: the dashboard's "live server" field and `aevrin scan mcp` both
+    # accept one, and both used to hand it to the engine as a program name.
     if config.server_command:
+        if looks_like_url(config.server_command):
+            return from_remote_url(config.server_command)
         return from_explicit_command(config.server_command)
     if target_type == TargetType.LIVE_MCP_SERVER:
+        if looks_like_url(target):
+            return from_remote_url(target)
         return from_explicit_command(target)
     if target_type == TargetType.LOCAL_PATH:
         return from_repository(Path(target))

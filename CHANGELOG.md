@@ -73,6 +73,13 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Added
 
+- **Hosted MCP servers can be scanned.** An HTTPS endpoint such as
+  `https://mcp.context7.com/mcp` now resolves through the stdio bridge
+  (`npx -y mcp-remote`) instead of being handed to the engine as a program
+  name, which failed with `fork/exec https://...: no such file or directory`.
+  The URL is checked with the same SSRF guard the marketplace uses, so HTTP,
+  embedded credentials, loopback, RFC1918 and `169.254.169.254` are refused at
+  the resolving stage.
 - **`POST /scans/{id}/cancel`** and a **Cancel scan** button on a running scan.
   It ends the record rather than interrupting the worker, and a cancelled scan
   never carries a grade - nothing was established about the target.

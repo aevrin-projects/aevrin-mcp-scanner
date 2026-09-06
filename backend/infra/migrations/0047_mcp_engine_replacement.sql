@@ -1,23 +1,35 @@
 -- One MCP security engine, and a scan that describes running a server rather
 -- than analysing a repository.
 --
--- APPLY THIS *AFTER* THE NEW API IS DEPLOYED, NOT BEFORE.
+-- THERE IS NO SAFE WINDOW EITHER SIDE OF THIS MIGRATION. APPLY IT AS CLOSE TO
+-- THE DEPLOY AS POSSIBLE, AND EXPECT SCANS TO FAIL IN BETWEEN.
 --
--- This is the one migration in this directory where the order is not a
--- preference. It drops columns the previous API reads on its hot paths
--- (mcp_detection_confidence, mcp_capabilities, findings.verified and the
--- rest), so running it against a host still serving the old image takes the
--- dashboard down immediately - the same generic "Upstream data store error"
--- that migration 0046 produced when five column projections were left behind,
--- and for exactly the same reason in the opposite direction.
+-- An earlier version of this header said the gap between deploying and
+-- applying was "safe in that direction, the new API reads none of these
+-- columns". That was wrong, and it cost six hours of production scans that
+-- appeared to run forever. The new API does not *read* the dropped columns -
+-- it **writes** four that this migration adds (server_command, scanner_name,
+-- scanner_version, invocation_channel) and emits the five stage names the
+-- constraint below replaces. Against the pre-0047 schema PostgREST refuses
+-- every one of those writes, so a scan runs, finishes, and is never recorded
+-- as finished.
 --
--- The safe sequence:
+-- Both directions break, for opposite reasons:
+--   old image + new schema -> the old API reads columns this file dropped
+--   new image + old schema -> the new API writes columns this file adds
+--
+-- The sequence, with the window named rather than wished away:
 --   1. deploy-backend succeeds and the new image is live and healthy
---   2. apply this file
---   3. rescan the catalogue (POST /admin/marketplace/mcp/regrade-ungraded)
+--   2. apply this file IMMEDIATELY - scans started in between will fail
+--   3. POST /scheduler/reap-stuck-scans to close anything caught in the gap
+--   4. rescan the catalogue (POST /admin/marketplace/mcp/regrade-ungraded)
 --
--- Between 1 and 2 the new API reads none of these columns, so the window is
--- safe in that direction. There is no safe window the other way round.
+-- Doing this without a window at all means splitting the file: an expand
+-- migration (add the columns, widen the stage constraint to accept old *and*
+-- new names) applied before the deploy, and a contract migration (drop the old
+-- columns, narrow the constraint) applied after. That is the right shape for
+-- the next schema change of this size; it is written down here because the
+-- reason to do it is now demonstrated rather than theoretical.
 --
 -- The columns dropped here all described the old source-analysis pipeline.
 -- They are not being tidied away on suspicion: each one was written by a
