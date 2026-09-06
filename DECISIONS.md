@@ -1833,3 +1833,41 @@ INCOMPLETE and ungraded rather than failing somewhere less legible.
 The check runs wherever a URL arrives, including as an explicit
 `--server`/`scan mcp` argument, because the dashboard's "live server" field
 and the CLI both accept one and both previously handed it straight through.
+
+## ADR-044: /health gates the deploy on schema drift
+
+**Status:** accepted (2026-09-06)
+
+The six-hour outage had a green deploy and a healthy container throughout. The
+image was fine; the database it was talking to was one migration behind, so
+PostgREST refused every write that records a scan as finished.
+
+`test_schema_projections.py` cannot catch this. It compares the code to the
+migration *files*, and the file existed - what differed was whether it had been
+applied. Only asking the running database distinguishes "written" from
+"applied".
+
+So `/health` now reports 503 when the columns this build writes are absent.
+That is not decoration: the container's HEALTHCHECK polls `/health`, and
+`remote-deploy.sh` waits for `healthy` and rolls back to the previous image if
+it never arrives. An API that cannot record scans now fails to deploy rather
+than deploying and losing them quietly.
+
+Two deliberate limits:
+
+- **Only columns the code cannot work without.** This gates every deploy, so a
+  name added to `REQUIRED_COLUMNS` in error takes the site down. It is not a
+  general schema differ.
+- **Only a definite "column does not exist" counts.** A timeout or a connection
+  reset is logged and ignored. `/health` is polled every thirty seconds, and
+  turning a transient blip into a rollback would send whoever is on call
+  hunting a migration that was never the problem.
+
+The cache is asymmetric on purpose: a healthy answer is remembered, because a
+schema that satisfies this build cannot stop doing so mid-process; a failing
+one is re-asked, because it is fixed by applying a migration to a database this
+process does not own, and the API should recover without a restart nobody would
+think to perform.
+
+Note the ordering this creates: the migration must be applied *before* the next
+deploy of a build that needs it, or that deploy will correctly roll back.

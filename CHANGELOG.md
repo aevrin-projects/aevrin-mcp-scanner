@@ -73,6 +73,12 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Added
 
+- **`/health` fails when the database is missing columns this build writes.**
+  The container HEALTHCHECK polls it and `remote-deploy.sh` waits on it, so an
+  image whose migration has not been applied never becomes healthy and the
+  deploy rolls back instead of shipping an API that accepts scans and silently
+  fails to record them. A healthy answer is cached; a failing one is re-checked
+  every time, so the API recovers on its own once the migration lands.
 - **Hosted MCP servers can be scanned.** An HTTPS endpoint such as
   `https://mcp.context7.com/mcp` now resolves through the stdio bridge
   (`npx -y mcp-remote`) instead of being handed to the engine as a program

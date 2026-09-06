@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from aevrin_api.config import get_settings
+from aevrin_api.db import SupabaseRest
 from aevrin_api.middleware.errors import CatchUnhandledErrorsMiddleware, install_error_handling
 from aevrin_api.middleware.security_headers import SecurityHeadersMiddleware
 from aevrin_api.routes import ROUTERS
+from aevrin_api.services.schema_check import SchemaStatus
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aevrin.api")
@@ -54,6 +56,32 @@ for router in ROUTERS:
 install_error_handling(app)
 
 
+_schema = SchemaStatus()
+
+
 @app.get("/health")
-async def health() -> dict[str, str]:
+async def health(response: Response) -> dict[str, object]:
+    """Liveness, plus the one readiness question that has actually bitten.
+
+    A build whose database is missing columns it writes is not serving - it
+    accepts scans and silently fails to record them. Reporting that as
+    unhealthy is what makes the container HEALTHCHECK fail and
+    `remote-deploy.sh` roll back to the previous image, instead of shipping an
+    API that loses every scan while looking fine.
+
+    Nothing else is probed. This is polled every 30 seconds and must not turn
+    an unrelated dependency's hiccup into a rollback.
+    """
+    settings = get_settings()
+    missing = await _schema.missing(SupabaseRest(settings))
+    if missing:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {
+            "status": "degraded",
+            "detail": (
+                "The database is missing columns this build writes, so scans cannot "
+                "be recorded. Apply the outstanding migration."
+            ),
+            "missing_columns": missing,
+        }
     return {"status": "ok"}
