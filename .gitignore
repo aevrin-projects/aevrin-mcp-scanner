@@ -41,6 +41,10 @@ playwright-report/
 blob-report/
 .playwright-mcp/
 
+# The npm wrapper's postinstall builds its Python environment here. Local
+# artifact, ~20MB, never committed.
+backend/cli-npm/.aevrin-python/
+
 # Misc
 *.log
 .cache/

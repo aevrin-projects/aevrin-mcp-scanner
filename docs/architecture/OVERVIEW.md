@@ -42,10 +42,16 @@
         - CI (`aevrin scan` in a pipeline)
 ```
 
-The API is a single container with no privileged access requirement and no
-hard dependency on one cloud vendor - nothing in the image names AWS.
-Fargate/ECS is the current target; Azure Container Apps is the documented
-fallback. See [`DEPLOYMENT.md`](DEPLOYMENT.md).
+The API is a single container with no hard dependency on one cloud vendor -
+nothing in the image names AWS. It runs today on **EC2 with Docker behind
+Caddy**, as the topology above shows and as `deploy-backend.yml` and
+`backend/deploy/remote-deploy.sh` implement; Azure Container Apps is the
+documented fallback. See [`DEPLOYMENT.md`](DEPLOYMENT.md).
+
+It does need one privilege the earlier wording denied: the container is given
+the host Docker socket, because a scan starts the target server in a sibling
+container. That is root-equivalent access to the host, which is why the
+sandbox carries no Aevrin credentials of its own (ADR-034).
 
 ## The one engine, three surfaces
 
@@ -55,7 +61,7 @@ fallback. See [`DEPLOYMENT.md`](DEPLOYMENT.md).
 - The `Scan` / `Finding` / `ScanStage` Pydantic models (single source of
   truth for what a finding *is*, everywhere).
 - The scanner adapters and the pipeline orchestrator.
-- The MCP rule engine (AS-001..AS-019 plus Aevrin's AV rules), OWASP MCP
+- The MCP rule engine (AS-001..AS-018 plus Aevrin's AV-001..AV-005), OWASP MCP
   Top 10 classification, and the one risk/grade model (`grade_scan()`).
 - MCP-server detection and agent-posture scoring.
 
