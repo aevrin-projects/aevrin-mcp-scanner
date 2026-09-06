@@ -77,14 +77,22 @@ prints `?`, labels it *Not graded*, and says why:
 ```text
 Scan Incomplete
 
-No tool definitions were found. The findings below are real, but they do not add up to a
-complete security assessment, and no grade is given because there is not enough evidence
-to justify one.
+The server started but returned no tool definitions. The findings below are real, but they
+do not add up to a complete security assessment, and no grade is given because there is
+not enough evidence to justify one.
 ```
 
-If you see this on your own server, it usually means your tools are registered through
-indirection that static discovery cannot read. Registering tools with literal names and
-descriptions, or publishing a manifest, makes them reviewable without running the code.
+The first sentence names the stage that stopped the scan, because the three common ways a
+scan ends early need three different answers from you:
+
+| Stopped at | What it means | What to do |
+|---|---|---|
+| Resolving | No runnable MCP server could be identified. The target may be a library, a specification, or documentation rather than a server. | If it is a server, scan the command that starts it: `aevrin scan mcp "npx -y <package>"`. |
+| Launching | The server was identified but would not start, so its tools were never read. | Run the same command yourself. A server that needs a credential or a config file before it completes the MCP handshake cannot be enumerated: the sandbox is given no environment of its own, so a scanned server never inherits one. |
+| Enumerating | The server started and returned nothing. | Tools are probably registered through indirection that cannot be read. Registering them with literal names and descriptions, or publishing a manifest, makes them reviewable. |
+
+Only the third is a statement about the server's tools. Reporting the other two that way
+was a claim about a target the scan never reached.
 
 A scan that **failed** is reported separately, and it says nothing about the target:
 

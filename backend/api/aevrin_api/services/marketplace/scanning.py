@@ -404,6 +404,7 @@ async def _apply_scan_to_version(
         coverage_complete=coverage_complete,
         tools_discovered=len(scan_row.get("mcp_tools_declared") or []),
         scan_failed=str(scan_row.get("status")) == ScanStatus.FAILED.value,
+        unreliable_stages=[str(name) for name in unreliable],
     )
 
     row = await record_version_scan(

@@ -24,6 +24,7 @@ state.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -146,6 +147,7 @@ def grade_scan(
     coverage_complete: bool = True,
     tools_discovered: int = 0,
     scan_failed: bool = False,
+    unreliable_stages: Sequence[str] = (),
 ) -> GradeResult:
     """Present the engine's verdict. Never recompute it.
 
@@ -179,7 +181,9 @@ def grade_scan(
         label="Not graded" if grade is None else GRADE_LABELS[grade],
         policy=policy,
         incomplete=incomplete,
-        summary=_summarize(findings, grade, policy, incomplete, tools_discovered, scan_failed),
+        summary=_summarize(
+            findings, grade, policy, incomplete, tools_discovered, scan_failed, unreliable_stages
+        ),
         severity_counts=severity_counts(findings),
     )
 
@@ -255,6 +259,81 @@ def _worst_finding(findings: list[Finding]) -> Finding | None:
     return min(scored, key=lambda f: order.index(f.severity))
 
 
+# Why an incomplete scan stopped, and what the reader should do about it.
+#
+# Keyed by the stage that failed, because "no tools were found" is only a
+# statement about the *server* when the server actually answered. A scan that
+# stopped at `resolving` never identified a server, and one that stopped at
+# `launching` never started the one it identified; reporting either as "no tool
+# definitions were found" describes a target the scan never reached. Both are
+# common outcomes rather than errors: a repository that is documentation rather
+# than a server, and a server that needs a credential to start, are the two
+# ordinary cases, and each needs a different answer from the reader.
+#
+# The pipeline records exactly one unreliable stage - the one that stopped it -
+# so the earliest entry in pipeline order is the cause.
+_STAGE_ORDER: tuple[str, ...] = ("resolving", "launching", "enumerating", "analyzing", "grading")
+
+_INCOMPLETE_BY_STAGE: dict[str, tuple[str, str]] = {
+    "resolving": (
+        "No runnable MCP server could be identified for this target.",
+        (
+            "Check that this target is an MCP server rather than a library, a specification "
+            "or documentation. If it is a server, scan it by the command that starts it "
+            'instead, for example `aevrin scan mcp "npx -y <package>"`.'
+        ),
+    ),
+    "launching": (
+        "The server was identified but could not be started, so its tools were never read.",
+        (
+            "Run the same command yourself to see why it does not start. A server that needs "
+            "credentials or a configuration file before it will complete the MCP handshake "
+            "cannot be enumerated here: the scan sandbox is given no environment of its own, "
+            "deliberately, so that a scanned server never inherits one."
+        ),
+    ),
+    "enumerating": (
+        "The server started but returned no tool definitions.",
+        (
+            "Confirm the target is an MCP server with a readable manifest or literal tool "
+            "registrations, then scan again. Until then, review it by hand before use."
+        ),
+    ),
+    "analyzing": (
+        "The server's tools were read, but the engine's output could not be interpreted.",
+        (
+            "Run the scan again. If it repeats, the fault is in the scan rather than in the "
+            "target, and the findings here cover only part of what was read."
+        ),
+    ),
+    "grading": (
+        "The scan did not reach a verdict.",
+        "Run the scan again, and review the target by hand until one completes.",
+    ),
+}
+
+_INCOMPLETE_FALLBACK = (
+    "Part of this scan did not complete.",
+    (
+        "Review the stage coverage below to see what did not run, and review the target by "
+        "hand before use."
+    ),
+)
+
+
+def _incomplete_reason(
+    unreliable_stages: Sequence[str], tools_discovered: int
+) -> tuple[str, str]:
+    for stage in _STAGE_ORDER:
+        if stage in unreliable_stages:
+            return _INCOMPLETE_BY_STAGE[stage]
+    # No stage was flagged. The only way to be incomplete without one is a
+    # server that answered with nothing, which is the enumerating case.
+    if tools_discovered == 0:
+        return _INCOMPLETE_BY_STAGE["enumerating"]
+    return _INCOMPLETE_FALLBACK
+
+
 def _summarize(
     findings: list[Finding],
     grade: Grade | None,
@@ -262,6 +341,7 @@ def _summarize(
     incomplete: bool,
     tools_discovered: int,
     scan_failed: bool = False,
+    unreliable_stages: Sequence[str] = (),
 ) -> RiskSummary:
     # Checked before the incomplete branch below, which reads the *target*
     # to explain itself. A run that broke has nothing to say about the
@@ -287,11 +367,7 @@ def _summarize(
             suggested_policy=Policy.REQUIRE_APPROVAL,
         )
     if incomplete:
-        reason = (
-            "No tool definitions were found."
-            if tools_discovered == 0
-            else "Part of this scan did not complete."
-        )
+        reason, action = _incomplete_reason(unreliable_stages, tools_discovered)
         return RiskSummary(
             headline="Scan Incomplete",
             explanation=(
@@ -300,13 +376,11 @@ def _summarize(
                 "evidence to justify one."
             ),
             potential_impact=(
-                "Unread tools can expose any capability at all, including code execution and "
-                "credential access. Treating this as a clean result would be a guess."
+                "Capabilities that were never read can be anything at all, including code "
+                "execution and credential access. Treating this as a clean result would be "
+                "a guess."
             ),
-            recommended_action=(
-                "Confirm the target is an MCP server with a readable manifest or literal tool "
-                "registrations, then scan again. Until then, review it by hand before use."
-            ),
+            recommended_action=action,
             suggested_policy=Policy.REQUIRE_APPROVAL,
         )
 

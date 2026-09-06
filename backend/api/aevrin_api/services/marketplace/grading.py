@@ -23,6 +23,7 @@ Three things it must get right:
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -41,6 +42,7 @@ def grade_from_scan(
     engine_risk_score: int | None = None,
     engine_grade: Grade | None = None,
     scan_failed: bool = False,
+    unreliable_stages: Sequence[str] = (),
 ) -> GradeResult:
     """The A-F letter for this scan.
 
@@ -62,6 +64,7 @@ def grade_from_scan(
         coverage_complete=coverage_complete,
         tools_discovered=tools_discovered,
         scan_failed=scan_failed,
+        unreliable_stages=unreliable_stages,
     )
 
 

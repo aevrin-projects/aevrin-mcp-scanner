@@ -86,7 +86,7 @@ def test_an_incomplete_scan_still_says_no_tools_were_found() -> None:
 
     assert out.risk_summary is not None
     assert out.risk_summary.headline == "Scan Incomplete"
-    assert "No tool definitions were found" in out.risk_summary.explanation
+    assert "returned no tool definitions" in out.risk_summary.explanation
 
 
 def test_an_open_scan_is_returned_without_a_summary() -> None:
@@ -102,3 +102,38 @@ def test_another_users_scan_is_not_readable() -> None:
     with pytest.raises(HTTPException) as exc:
         asyncio.run(ctl.get_scan(SCAN_ID, "someone-else", _Empty()))
     assert exc.value.status_code == 404
+
+
+# The two scans that prompted this, through the controller rather than through
+# `grade_scan`, because the controller is where the stage list is read off the
+# row and is therefore where it can be dropped again.
+
+
+def test_a_documentation_repository_is_not_reported_as_a_toolless_server() -> None:
+    """github.com/agentskills/agentskills is a specification, not a server.
+
+    Resolution correctly refused it. The report then said "No tool definitions
+    were found", which is a claim about a server that was never identified,
+    and told the reader to check its manifest exposes tools.
+    """
+    db = _Db(_scan("incomplete", unreliable_stages=["resolving"]))
+
+    out = asyncio.run(ctl.get_scan(SCAN_ID, USER_ID, db))
+
+    assert out.risk_summary is not None
+    assert "No tool definitions were found" not in out.risk_summary.explanation
+    assert "no runnable mcp server" in out.risk_summary.explanation.lower()
+
+
+def test_a_server_that_needs_credentials_is_not_reported_as_toolless() -> None:
+    """github.com/apify/apify-mcp-server resolves and publishes tools. It
+    needs APIFY_TOKEN before it will finish the MCP handshake, so it stops at
+    `launching` inside a sandbox that is given no environment on purpose."""
+    db = _Db(_scan("incomplete", unreliable_stages=["launching"]))
+
+    out = asyncio.run(ctl.get_scan(SCAN_ID, USER_ID, db))
+
+    assert out.risk_summary is not None
+    assert "No tool definitions were found" not in out.risk_summary.explanation
+    assert "could not be started" in out.risk_summary.explanation
+    assert "credentials" in out.risk_summary.recommended_action

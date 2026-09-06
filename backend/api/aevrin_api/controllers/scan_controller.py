@@ -262,6 +262,10 @@ async def get_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> ScanOut:
         # established - the tools may have been read and the write that
         # should have stored them refused.
         scan_failed=str(row.get("status")) == "failed",
+        # Names the stage that stopped the scan, so the summary can say what
+        # actually happened instead of reporting every early stop as a server
+        # with no tools.
+        unreliable_stages=[str(s) for s in (row.get("unreliable_stages") or [])],
     )
     return ScanOut(
         **row,

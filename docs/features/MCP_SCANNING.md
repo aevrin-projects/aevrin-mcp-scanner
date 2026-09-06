@@ -202,6 +202,27 @@ Every one carries a reason. "Scan incomplete" with no explanation is not
 actionable, and every path is pinned in
 `backend/scanner-core/tests/test_pipeline_honesty.py`.
 
+**The risk summary names the stage too, and this is not cosmetic.** The
+summary used to derive its reason from `tools_discovered == 0`, which is true
+of every row in the table above: a scan that stopped at `resolving` never
+identified a server, so of course it read no tools. Every early stop was
+therefore reported as "No tool definitions were found" - a statement about a
+server's tools, made about targets where no server was ever reached - followed
+by advice to check that the manifest exposes tools.
+
+Two real scans showed what that costs. A documentation repository stopped at
+`resolving` and was described as a server with no tools. A published server
+that requires a credential before it completes the MCP handshake stopped at
+`launching` and got the same sentence, which sent the reader looking at tool
+registrations for a server that had never started.
+
+`_INCOMPLETE_BY_STAGE` in `mcp/risk.py` keys the reason and the recommended
+action off the failed stage instead. The pipeline records exactly one
+unreliable stage - the one that stopped it - and callers pass it through as
+`grade_scan(unreliable_stages=...)`. Only the `enumerating` reason may say
+anything about the server's tools, because it is the only stage where a server
+actually answered.
+
 ## A scan always ends
 
 A scan row is only ever advanced by the worker that owns it, so once that

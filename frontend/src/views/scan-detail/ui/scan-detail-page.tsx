@@ -636,9 +636,16 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
             </div>
           </SectionCard>
 
-          <SectionCard title="Score method" description="The current documented method starts at 100 and subtracts severity-weighted findings.">
+          {/* This panel described a scoring model Aevrin stopped using when the
+              engine replaced it: 100 minus severity weights, so higher was
+              better. Risk now counts the other way and Aevrin does not compute
+              it at all. Publishing the old direction under the word "current"
+              inverted the meaning of every number on this page. */}
+          <SectionCard title="Score method" description="Where the risk score and the grade come from.">
             <div className="space-y-3 text-sm leading-6 text-muted-foreground">
-              <p>Critical findings subtract 40 points each, high subtract 20, medium subtract 8, and low subtract 3.</p>
+              <p>The scan engine assigns a risk score and a letter to each tool. Risk counts upward: 0 is clean and 100 is &quot;do not use&quot;. Aevrin does not recompute either number.</p>
+              <p>A server is graded by its worst tool, not by an average across them. You install the whole server, and one tool that can execute code is not offset by four that cannot.</p>
+              <p>A scan that could not read a server&apos;s tools carries no grade at all, rather than a lenient one. A letter is a claim about evidence.</p>
               <p>Later triage changes active-risk counts and hook decisions, but preserves the original scan-time score for auditability and CLI/dashboard consistency.</p>
               <p>The score never guarantees safety. Coverage and failed stages must be read beside it.</p>
             </div>

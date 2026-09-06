@@ -90,7 +90,7 @@ def test_an_ungradeable_scan_shows_a_question_mark_not_a_letter(capsys):
     output.print_terminal_report(scan)
     text = plain(capsys.readouterr().out)
     assert "Scan Incomplete" in text
-    assert "No tool definitions were found" in text
+    assert "returned no tool definitions" in text
 
 
 def test_a_non_mcp_repository_is_told_it_is_out_of_scope(capsys):

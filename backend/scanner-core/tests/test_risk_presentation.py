@@ -79,7 +79,7 @@ def test_a_scan_that_read_no_tools_still_says_so() -> None:
     )
 
     assert result.summary.headline == "Scan Incomplete"
-    assert "No tool definitions were found" in result.summary.explanation
+    assert "returned no tool definitions" in result.summary.explanation
 
 
 def test_grade_drivers_rank_by_severity_then_reach() -> None:
@@ -105,3 +105,69 @@ def test_grade_drivers_ignore_triaged_findings() -> None:
     """Triage removes a finding from the severity counts, so it must not be
     named as a reason for the letter either."""
     assert grade_drivers([_finding("AS-002", Severity.CRITICAL, triage="false_positive")]) == []
+
+
+# --------------------------------------------------------- incomplete reasons
+#
+# Two real scans produced the same sentence for opposite reasons. A
+# documentation repository that declares no runnable package stopped at
+# `resolving`, and a published server that needs a credential before it will
+# complete the MCP handshake stopped at `launching`. Both were reported as
+# "No tool definitions were found", which describes a server that answered
+# with an empty list. Neither had a server that answered at all.
+
+
+def _incomplete(stage: str | None):
+    return grade_scan(
+        [],
+        engine_risk_score=None,
+        engine_grade=None,
+        coverage_complete=False,
+        tools_discovered=0,
+        unreliable_stages=[stage] if stage else [],
+    ).summary
+
+
+def test_an_unresolvable_target_is_not_called_a_server_with_no_tools() -> None:
+    summary = _incomplete("resolving")
+
+    assert "No tool definitions were found" not in summary.explanation
+    assert "no runnable mcp server" in summary.explanation.lower()
+    # The action has to differ too: "check the manifest exposes tools" is
+    # useless advice for a repository that is a specification.
+    assert "scan mcp" in summary.recommended_action
+
+
+def test_a_server_that_would_not_start_is_not_called_a_server_with_no_tools() -> None:
+    summary = _incomplete("launching")
+
+    assert "No tool definitions were found" not in summary.explanation
+    assert "could not be started" in summary.explanation
+    # The commonest cause by far, and the one the sandbox can never satisfy.
+    assert "credentials" in summary.recommended_action
+
+
+def test_a_server_that_answered_with_nothing_still_says_so() -> None:
+    """The one case where the original sentence was true keeps it."""
+    summary = _incomplete("enumerating")
+
+    assert "started but returned no tool definitions" in summary.explanation
+
+
+def test_an_unnamed_stage_falls_back_to_the_enumerating_reason() -> None:
+    """Incomplete with no flagged stage can only be a server that answered
+    with nothing; the pipeline flags a stage for every other route."""
+    assert "returned no tool definitions" in _incomplete(None).explanation
+
+
+def test_the_earliest_failed_stage_is_the_one_reported() -> None:
+    """A later stage cannot be the cause of an earlier one's failure."""
+    summary = grade_scan(
+        [],
+        engine_risk_score=None,
+        engine_grade=None,
+        coverage_complete=False,
+        tools_discovered=0,
+        unreliable_stages=["analyzing", "resolving"],
+    ).summary
+    assert "no runnable mcp server" in summary.explanation.lower()

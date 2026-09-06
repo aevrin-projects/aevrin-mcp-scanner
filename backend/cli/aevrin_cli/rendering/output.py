@@ -116,6 +116,7 @@ def _grade(scan: Scan) -> GradeResult:
         coverage_complete=scan.status != ScanStatus.INCOMPLETE,
         tools_discovered=len(scan.mcp_tools_declared),
         scan_failed=scan.status is ScanStatus.FAILED,
+        unreliable_stages=[s.value for s in scan.unreliable_stages],
     )
 
 

@@ -18,6 +18,37 @@ listed commit-by-commit. From here forward, every meaningful change is
 added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 [maintenance matrix](CLAUDE.md#documentation-maintenance-matrix).
 
+## [Unreleased]
+
+### Fixed
+
+- **Every scan that stopped early was reported as a server with no tools.** The
+  incomplete summary picked its reason from `tools_discovered == 0`, which is
+  true of every early stop: a scan that never identified a server obviously
+  read no tools from it. So "No tool definitions were found" - a claim about a
+  server's tools - was printed for targets where no server was ever reached,
+  with advice to go and check the manifest exposes tools.
+
+  Two real scans showed the cost. A documentation repository
+  (`agentskills/agentskills`, a specification with no runnable package) stopped
+  at `resolving` and was described as a toolless server. `apify/apify-mcp-server`
+  resolved correctly to `@apify/actors-mcp-server` and stopped at `launching`,
+  because it requires `APIFY_TOKEN` before it will complete the MCP handshake
+  and the scan sandbox is given no environment on purpose - and it got the same
+  sentence, sending the reader to look at tool registrations for a server that
+  never started.
+
+  The reason and the recommended action now come from the stage that actually
+  stopped the scan. Only `enumerating` may say anything about the server's
+  tools, because it is the only stage where a server answered.
+- **The scan report published a scoring model Aevrin stopped using.** The
+  "Score method" panel described the pre-engine arithmetic under the word
+  "current": start at 100 and subtract 40 per critical, so higher was better.
+  Risk now counts the other way and Aevrin does not compute it at all. The
+  panel inverted the meaning of every number on the page it sat on. It now
+  describes what the engine actually does: risk counts up, the worst tool
+  decides the grade, and a scan that read no tools carries no letter.
+
 ## [0.5.0] - 2026-09-06 (CLI)
 
 ### Fixed

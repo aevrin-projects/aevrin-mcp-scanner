@@ -146,7 +146,7 @@ def test_a_scan_with_no_readable_tools_is_never_reported_as_clean():
     html = render_report_html(scan(grade=None, mcp_tools_declared=[]), [], STAGES)
     text = text_of(html)
     assert "Scan Incomplete" in text
-    assert "No tool definitions were found" in text
+    assert "returned no tool definitions" in text
 
 
 def test_an_incomplete_scan_never_reads_as_a_clean_one():
