@@ -3,6 +3,8 @@
 import { optionalAuthRequest, publicRequest, request } from "@/shared/api";
 import type {
   Category,
+  GradeDriver,
+  GradeRationale,
   InstallPlan,
   InstallTarget,
   Listing,
@@ -185,6 +187,7 @@ export async function getListing(slug: string): Promise<ListingDetail> {
       scannedAt: (v.scanned_at as string) ?? null,
       firstSeenAt: String(v.first_seen_at ?? ""),
     })),
+    gradeRationale: toGradeRationale(raw.grade_rationale as Record<string, unknown> | null),
     events: ((raw.events as Record<string, unknown>[]) ?? []).map((e) => ({
       id: String(e.id),
       eventType: String(e.event_type),
@@ -193,6 +196,27 @@ export async function getListing(slug: string): Promise<ListingDetail> {
       reason: (e.reason as string) ?? null,
       severity: (e.severity as ListingDetail["events"][number]["severity"]) ?? "info",
       createdAt: String(e.created_at ?? ""),
+    })),
+  };
+}
+
+function toGradeRationale(raw: Record<string, unknown> | null): GradeRationale | null {
+  if (!raw) return null;
+  return {
+    scanId: String(raw.scan_id),
+    version: (raw.version as string) ?? null,
+    severityCounts: (raw.severity_counts as GradeRationale["severityCounts"]) ?? {
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      info: 0,
+    },
+    drivers: ((raw.drivers as Record<string, unknown>[]) ?? []).map((d) => ({
+      ruleId: String(d.rule_id),
+      label: String(d.label),
+      severity: d.severity as GradeDriver["severity"],
+      occurrences: Number(d.occurrences ?? 0),
     })),
   };
 }

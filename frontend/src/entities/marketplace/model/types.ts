@@ -1,3 +1,5 @@
+import type { Severity } from "@/entities/finding";
+
 /**
  * Marketplace domain types.
  *
@@ -120,6 +122,28 @@ export interface ListingVersion {
   firstSeenAt: string;
 }
 
+/**
+ * The findings behind a published letter, ranked worst first.
+ *
+ * The grade and the risk score are claims; this is the evidence for them. It
+ * is derived on read from the same scan the letter came from, so it can
+ * neither disagree with the report nor go stale when a finding is triaged.
+ */
+export interface GradeDriver {
+  ruleId: string;
+  label: string;
+  severity: Severity;
+  /** How many tools this rule fired on. */
+  occurrences: number;
+}
+
+export interface GradeRationale {
+  scanId: string;
+  version: string | null;
+  severityCounts: Record<Severity, number>;
+  drivers: GradeDriver[];
+}
+
 export interface ListingEvent {
   id: string;
   eventType: string;
@@ -138,6 +162,8 @@ export interface ListingDetail extends Listing {
   };
   versions: ListingVersion[];
   events: ListingEvent[];
+  /** Null when the graded version has no scan, or that scan has no findings. */
+  gradeRationale: GradeRationale | null;
   marketplaceViews: number;
 }
 

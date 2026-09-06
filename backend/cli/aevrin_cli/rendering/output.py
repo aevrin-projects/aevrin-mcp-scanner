@@ -115,6 +115,7 @@ def _grade(scan: Scan) -> GradeResult:
         engine_grade=Grade(scan.grade) if scan.grade else None,
         coverage_complete=scan.status != ScanStatus.INCOMPLETE,
         tools_discovered=len(scan.mcp_tools_declared),
+        scan_failed=scan.status is ScanStatus.FAILED,
     )
 
 

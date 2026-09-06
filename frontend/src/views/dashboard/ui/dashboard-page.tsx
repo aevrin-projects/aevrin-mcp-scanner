@@ -14,6 +14,7 @@ import { ApiError } from "@/shared/api";
 import { githubApi } from "@/entities/github";
 import { findingApi, summarizeFindings, type Finding } from "@/entities/finding";
 import {
+  STAGE_ORDER,
   StatusBadge,
   scanApi,
   summarizeCoverage,
@@ -595,13 +596,13 @@ function SetupStep({
   );
 }
 
-/** One scan as a table row. Coverage is a rail plus its own "4/6" label:
+/** One scan as a table row. Coverage is a rail plus its own "4/5" label:
  *  the rail makes rows comparable at a glance, the label is the actual
  *  answer for anyone the rail does not reach. */
 function ScanRow({ summary }: { summary: ScanSummary }) {
   const counts = summarizeFindings(openFindings(summary.findings));
   const coverage = summarizeCoverage(summary.stages);
-  const total = summary.stages.length || 6;
+  const total = summary.stages.length || STAGE_ORDER.length;
   const target = summary.scan.target.replace(/^https?:\/\//, "");
 
   return (

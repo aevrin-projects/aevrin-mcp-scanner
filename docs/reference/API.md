@@ -48,7 +48,12 @@ JWT) unless noted.
   external scheduler (EventBridge, a cron container), not a human.
 - **`GET /marketplace/mcp/{slug}`** returns `404`, not `403`, for a private
   listing the caller isn't authorized to see - existence itself isn't
-  leaked to an unauthorized caller.
+  leaked to an unauthorized caller. Its `grade_rationale` is derived on read
+  from the graded version's own scan, and the scan id comes from that version
+  row rather than from the caller: it is the one findings read in this
+  codebase without a tenancy filter, so nothing client-supplied may choose
+  which scan it reads. It publishes no more than the letter and risk score
+  already did.
 - **`admin_marketplace.py`**'s edit route (`PATCH /mcp/{listing_id}`)
   writes only from `services/marketplace/admin.py`'s `EDITABLE_FIELDS`
   allow-list, which contains no security-bearing column - an admin can

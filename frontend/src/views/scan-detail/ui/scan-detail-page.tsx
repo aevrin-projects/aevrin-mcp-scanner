@@ -261,7 +261,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
             <div className="grid gap-4 sm:grid-cols-3">
               <MetaBlock label="Scanned at" value={formatDateTime(scan.completed_at ?? scan.created_at)} />
               <MetaBlock label="Duration" value={formatDuration(scan.created_at, scan.completed_at)} />
-              <MetaBlock label="Coverage" value={`${coverage.completed}/${stages.length || 6} stages complete`} />
+              <MetaBlock label="Coverage" value={`${coverage.completed}/${stages.length || STAGE_ORDER.length} stages complete`} />
             </div>
           </div>
 

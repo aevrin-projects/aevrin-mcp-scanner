@@ -295,6 +295,7 @@ def render_report_html(
         engine_grade=Grade(str(scan["grade"])) if scan.get("grade") else None,
         coverage_complete=not unreliable_names,
         tools_discovered=len(declared_tools if isinstance(declared_tools, list) else []),
+        scan_failed=status == "failed",
     ).summary
     verdict = summary.headline
     open_total = sum(counts[s] for s in _SEVERITY_ORDER)

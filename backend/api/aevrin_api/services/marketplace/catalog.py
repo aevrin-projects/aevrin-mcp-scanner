@@ -19,6 +19,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from aevrin_scanner_core.mcp.risk import grade_drivers, severity_counts
+from aevrin_scanner_core.models import Finding
+
 from aevrin_api.db import SupabaseRest
 from aevrin_api.services.marketplace import normalize
 from aevrin_api.services.marketplace.grading import scan_freshness
@@ -272,6 +275,7 @@ async def get_listing(
 
     listing["versions"] = versions
     listing["events"] = events
+    listing["grade_rationale"] = await _grade_rationale(db, versions, listing["security"])
     # The installation recipe is what an Install button acts on, so the
     # detail view is the only place it is returned.
     listing["installation"] = rows[0].get("installation") or {}
@@ -367,3 +371,46 @@ async def list_favorites(db: SupabaseRest, *, user_id: str) -> list[dict[str, An
     # Every row here came from this user's own favourites table, so it is
     # favorited by construction -- no second lookup needed.
     return [decorate(by_id[i], favorited=True) for i in listing_ids if i in by_id]
+
+
+async def _grade_rationale(
+    db: SupabaseRest, versions: list[dict[str, Any]], security: dict[str, Any]
+) -> dict[str, Any] | None:
+    """The findings behind the letter, for the version the letter belongs to.
+
+    Derived on read rather than stored beside the grade. A stored copy would
+    drift the moment a finding is triaged, and the marketplace showing one set
+    of reasons while the scan report shows another is worse than showing none.
+
+    The scan id comes from the version row, never from the caller: this reads
+    findings without a tenancy filter, so the only thing that may choose which
+    scan it reads is the catalogue itself. What it returns is a reading of the
+    same scan the published grade already came from, so it discloses nothing
+    the letter and the risk score did not.
+    """
+    scanned = next(
+        (v for v in versions if v.get("version") == security.get("scanned_version")), None
+    )
+    scan_id = scanned.get("scan_id") if scanned else None
+    if not scan_id:
+        return None
+
+    rows = await db.select("findings", {"scan_id": str(scan_id)})
+    findings = [Finding.model_validate(r) for r in rows]
+    if not findings:
+        return None
+
+    return {
+        "scan_id": str(scan_id),
+        "version": scanned.get("version") if scanned else None,
+        "severity_counts": severity_counts(findings),
+        "drivers": [
+            {
+                "rule_id": driver.rule_id,
+                "label": driver.label,
+                "severity": driver.severity,
+                "occurrences": driver.occurrences,
+            }
+            for driver in grade_drivers(findings)
+        ],
+    }

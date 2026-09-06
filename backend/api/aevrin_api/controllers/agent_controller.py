@@ -276,6 +276,7 @@ async def _trust_by_identity(
             engine_grade=grade,
             coverage_complete=scan["status"] != "incomplete",
             tools_discovered=len(scan.get("mcp_tools_declared") or []),
+            scan_failed=scan["status"] == "failed",
         ).summary
         trust[key] = McpTrustOut(
             scan_id=UUID(scan["id"]),

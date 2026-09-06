@@ -64,10 +64,11 @@ would have been a lie about a security result.
 
 ## No grade is a real result
 
-A scan gets **no letter at all** when either of these is true:
+A scan gets **no letter at all** when any of these is true:
 
 - A scanner that should have run did not (Docker down, a missing binary, no network).
 - **No MCP tools could be enumerated.**
+- The scan itself failed before it finished.
 
 The second is the common case and the more dangerous one. Zero findings from a server whose
 tools nobody could read looks exactly like a perfect server. Rather than print an A, Aevrin
@@ -84,6 +85,20 @@ to justify one.
 If you see this on your own server, it usually means your tools are registered through
 indirection that static discovery cannot read. Registering tools with literal names and
 descriptions, or publishing a manifest, makes them reviewable without running the code.
+
+A scan that **failed** is reported separately, and it says nothing about the target:
+
+```text
+Scan Failed
+
+This scan did not finish, so it is not an assessment of this target. Any findings listed
+below were recorded before it stopped and are real, but the checks that never ran could
+have found more.
+```
+
+The distinction is deliberate. A failed run leaves no recorded tools behind, and reporting
+that emptiness as "no tool definitions were found" would be a claim about the server that
+the scan never established.
 
 ## Risk summary
 

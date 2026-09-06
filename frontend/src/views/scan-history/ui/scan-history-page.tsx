@@ -14,7 +14,7 @@ import { Select } from "@/shared/ui/select";
 import { StatusBadge } from "@/entities/scan";
 import { Input } from "@/shared/ui/input";
 import { summarizeFindings } from "@/entities/finding";
-import { SCAN_SOURCE_LABELS, TARGET_TYPE_LABELS, summarizeCoverage } from "@/entities/scan";
+import { SCAN_SOURCE_LABELS, STAGE_ORDER, TARGET_TYPE_LABELS, summarizeCoverage } from "@/entities/scan";
 import { formatDateTime, formatDuration } from "@/shared/lib/format";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Button } from "@/shared/ui/button";
@@ -393,7 +393,7 @@ function ScanHistoryRow({
             {formatDateTime(summary.scan.completed_at ?? summary.scan.created_at)}
           </span>
           <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-            {coverage.completed}/{summary.stages.length || 6} stages ·{" "}
+            {coverage.completed}/{summary.stages.length || STAGE_ORDER.length} stages ·{" "}
             {formatDuration(summary.scan.created_at, summary.scan.completed_at)} ·{" "}
             {SCAN_SOURCE_LABELS[summary.scan.source]}
           </span>

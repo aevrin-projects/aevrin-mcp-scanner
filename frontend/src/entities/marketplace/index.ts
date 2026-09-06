@@ -1,5 +1,7 @@
 export type {
   Category,
+  GradeDriver,
+  GradeRationale,
   InstallPackage,
   InstallPlan,
   InstallTarget,

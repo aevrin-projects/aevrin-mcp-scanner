@@ -403,6 +403,7 @@ async def _apply_scan_to_version(
         engine_grade=Grade(str(stored_grade)) if stored_grade else None,
         coverage_complete=coverage_complete,
         tools_discovered=len(scan_row.get("mcp_tools_declared") or []),
+        scan_failed=str(scan_row.get("status")) == ScanStatus.FAILED.value,
     )
 
     row = await record_version_scan(

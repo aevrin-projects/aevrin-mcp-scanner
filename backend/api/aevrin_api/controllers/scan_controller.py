@@ -256,6 +256,12 @@ async def get_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> ScanOut:
         engine_grade=Grade(str(row["grade"])) if row.get("grade") else None,
         coverage_complete=not (row.get("unreliable_stages") or []),
         tools_discovered=len(row.get("mcp_tools_declared") or []),
+        # A failed run is its own state. Without this the summary reaches for
+        # the incomplete wording and reports "No tool definitions were found",
+        # which asserts something about the target that this scan never
+        # established - the tools may have been read and the write that
+        # should have stored them refused.
+        scan_failed=str(row.get("status")) == "failed",
     )
     return ScanOut(
         **row,

@@ -166,17 +166,46 @@ unlaunchable server stays ungraded, which is a result rather than an error.
 
 ## The letters
 
-| Grade | Label | Recommended action |
+| Grade | Label | Suggested policy |
 |---|---|---|
-| A | Trusted | Allow |
-| B | Generally safe | Allow with caution |
-| C | Caution | Require approval |
-| D | High risk | Block |
+| A | Trusted | ALLOW |
+| B | Generally safe | ALLOW |
+| C | Caution | REQUIRE_APPROVAL |
+| D | High risk | REQUIRE_APPROVAL |
+| F | Do not use | BLOCK |
 
-Two overrides always win over the weighted arithmetic: **any open critical
-finding is a D**, and **unauthenticated command execution is a D** - both
-regardless of how good everything else looks. An unknown (coverage gap,
-unresolvable auth state) always counts against a grade, never for it.
+These are `GRADE_LABELS` and `GRADE_POLICIES` in
+`aevrin_scanner_core/mcp/risk.py`, read by every surface. The policy is a
+recommendation, never an automatic action.
+
+There are no marketplace-specific overrides on top of the letter. There used
+to be two documented here - "any open critical finding is a D" and
+"unauthenticated command execution is a D" - and they described the weighted
+arithmetic Aevrin performed before the engine replaced it. Aevrin no longer
+computes a grade at all: the engine assigns severities, the score and the
+letter per tool, rolled up to the worst tool, and `grade_scan` chooses only
+the wording, the policy, and whether the scan may carry a letter at all. A
+second rubric here would be a second opinion waiting to disagree with the
+scan report about the same server (see `DECISIONS.md` ADR-033).
+
+An unknown still counts against a grade, never for it: incomplete coverage,
+no enumerable tools, or a failed run all mean **no letter**, not a lenient
+one.
+
+### Why a listing has the letter it has
+
+The detail response carries `grade_rationale`: the severity counts and the
+rules that earned the letter, ranked worst first, for the exact version the
+letter belongs to. It is derived on read from that version's scan - the same
+scan and the same ranking the scan report uses (`grade_drivers`) - so it
+cannot disagree with the report, and it follows triage instead of going
+stale. It is `null` when the graded version has no scan, or that scan
+recorded no findings.
+
+This is what "Why grade C?" answers on the listing page, without an AI
+provider configured. The AI explanation beside it adds prose; it does not
+add facts, and it was never meant to be the only way to find out why a
+letter is what it is.
 
 ## Data
 
@@ -214,7 +243,8 @@ See [`../security/SECURITY.md`](../security/SECURITY.md).
 ## Testing
 
 `backend/api/tests/services/test_marketplace_registry.py`,
-`test_marketplace_security.py`, `test_marketplace_hardening.py`. See
+`test_marketplace_security.py`, `test_marketplace_hardening.py`,
+`test_marketplace_grade_rationale.py`. See
 [`../testing/TESTING.md`](../testing/TESTING.md).
 
 ## Related docs

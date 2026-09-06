@@ -40,6 +40,7 @@ def grade_from_scan(
     tools_discovered: int,
     engine_risk_score: int | None = None,
     engine_grade: Grade | None = None,
+    scan_failed: bool = False,
 ) -> GradeResult:
     """The A-F letter for this scan.
 
@@ -60,6 +61,7 @@ def grade_from_scan(
         engine_grade=engine_grade,
         coverage_complete=coverage_complete,
         tools_discovered=tools_discovered,
+        scan_failed=scan_failed,
     )
 
 

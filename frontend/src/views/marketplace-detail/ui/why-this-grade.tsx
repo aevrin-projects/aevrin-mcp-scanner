@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 
+import { SeverityBadge, type Severity } from "@/entities/finding";
 import type { ListingDetail, ListingVersion } from "@/entities/marketplace";
 
 /**
@@ -10,10 +11,20 @@ import type { ListingDetail, ListingVersion } from "@/entities/marketplace";
  *
  * This panel exists so that the explanation of a grade does not depend on
  * having configured a provider. Everything here is derived from the scan
- * itself: the sub-scores, the coverage state, the version the grade belongs
- * to. The AI button beside it adds prose; it does not add facts, and it is
- * never the only way to find out why a letter is what it is.
+ * itself: the findings that earned the letter, the coverage state, the
+ * version the grade belongs to. The AI button beside it adds prose; it does
+ * not add facts, and it is never the only way to find out why a letter is
+ * what it is.
+ *
+ * The finding evidence leads and the contextual reasons follow. Listing only
+ * the context - stdio transport, secret variables, an outdated scan - read as
+ * if those were what earned the letter, when they are properties of the
+ * server that the grade does not come from. The severity counts and the
+ * rules that fired are what the grade is actually computed on, so they go
+ * first and are labelled as such.
  */
+
+const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low"];
 
 export function WhyThisGrade({
   listing,
@@ -23,8 +34,11 @@ export function WhyThisGrade({
   version: ListingVersion | null;
 }) {
   const [open, setOpen] = useState(false);
-  const { security } = listing;
+  const { security, gradeRationale } = listing;
   const reasons = buildReasons(listing, version);
+  const counted = SEVERITY_ORDER.filter(
+    (severity) => (gradeRationale?.severityCounts?.[severity] ?? 0) > 0,
+  );
 
   return (
     <div className="rounded-lg border border-border">
@@ -42,19 +56,73 @@ export function WhyThisGrade({
       </button>
 
       {open ? (
-        <div className="border-t border-border px-4 py-3">
-          <ul className="space-y-2 text-sm">
-            {reasons.map((reason) => (
-              <li key={reason} className="flex gap-2.5">
-                <span
-                  className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground"
-                  aria-hidden="true"
-                />
-                <span>{reason}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-3 border-t border-border pt-2.5 text-xs text-muted-foreground">
+        <div className="space-y-4 border-t border-border px-4 py-3">
+          {gradeRationale ? (
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                Findings this grade was computed from
+              </p>
+
+              {counted.length > 0 ? (
+                <ul className="flex flex-wrap items-center gap-2">
+                  {counted.map((severity) => (
+                    <li key={severity} className="flex items-center gap-1.5 text-sm">
+                      <span className="tabular-nums font-medium">
+                        {gradeRationale.severityCounts[severity]}
+                      </span>
+                      <SeverityBadge severity={severity} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No finding above informational was recorded. The letter reflects what the
+                  scan could read, not a guarantee.
+                </p>
+              )}
+
+              {gradeRationale.drivers.length > 0 ? (
+                <ul className="divide-y divide-border rounded-md border border-border">
+                  {gradeRationale.drivers.map((driver) => (
+                    <li
+                      key={driver.ruleId}
+                      className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate">{driver.label}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {driver.ruleId} · {driver.occurrences}{" "}
+                          {driver.occurrences === 1 ? "tool" : "tools"}
+                        </span>
+                      </span>
+                      <SeverityBadge severity={driver.severity} className="shrink-0" />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="space-y-2">
+            {gradeRationale ? (
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                Context
+              </p>
+            ) : null}
+            <ul className="space-y-2 text-sm">
+              {reasons.map((reason) => (
+                <li key={reason} className="flex gap-2.5">
+                  <span
+                    className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span>{reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <p className="border-t border-border pt-2.5 text-xs text-muted-foreground">
             Grades are computed from scanner findings, coverage, and the
             capabilities a server declares. The same inputs always produce the
             same letter.
@@ -76,11 +144,6 @@ function buildReasons(listing: ListingDetail, version: ListingVersion | null): s
       }.`,
     );
 
-    // The three sub-scores that used to be summarised here are gone with the
-    // code-security product they described. The finding list is the better
-    // answer: every finding now carries a rule id and its own evidence, so
-    // "which part carried the letter" is readable from the findings
-    // themselves rather than from three opaque numbers.
     if (version.riskScore !== null) {
       reasons.push(
         `Its risk score was ${version.riskScore} out of 100, where 0 is clean and 100 is "do not use".`,

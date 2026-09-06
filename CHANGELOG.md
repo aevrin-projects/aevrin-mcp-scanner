@@ -22,6 +22,38 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **A failed scan reported "No tool definitions were found."** That is a claim
+  about the target, and it was false: the engine had read the server's tools,
+  and the write that would have stored them was refused by a database one
+  migration behind the build. `mcp_tools_declared` was therefore empty, and the
+  summary read that emptiness as evidence about the server rather than as a
+  property of the failure. A failed run is now its own state on every surface
+  that renders a verdict - the dashboard, the CLI, the HTML report, the agent
+  view and the marketplace - and it says the scan did not finish rather than
+  describing a target it never assessed.
+- **Coverage read "0/6 stages complete" for a five-stage pipeline.** The
+  denominator was a hardcoded fallback left over from the previous engine, so a
+  scan whose stage rows were never recorded advertised a stage count that has
+  not existed since the ToolTrust replacement. It is now `STAGE_ORDER.length`
+  on the dashboard, the scan report and scan history.
+- **The marketplace's grading table contradicted the code.** It listed no F,
+  recommended blocking a D, and described two grade overrides ("any open
+  critical finding is a D") from the weighted arithmetic Aevrin performed
+  before the engine replaced it. Aevrin computes no grade at all now. The table
+  and the surrounding text match `GRADE_LABELS`/`GRADE_POLICIES`.
+
+### Added
+
+- **"Why grade C?" is answerable from evidence on a marketplace listing.** The
+  detail response carries `grade_rationale` - the severity counts and the rules
+  that earned the letter, ranked worst first, for the exact version the letter
+  belongs to. It is derived on read from that version's own scan using the same
+  ranking the scan report uses (`grade_drivers` in scanner-core), so the two
+  surfaces cannot disagree about which finding drove a grade, and triaging a
+  finding updates both. Previously the panel could only offer context - stdio
+  transport, secret variables, scan freshness - none of which the grade is
+  computed from, which read as though those were the reasons.
+
 - **A scan could run forever and could not be stopped.** `_SyncRest` swallowed
   every failed write and logged a warning, so when the database refused the
   write that ends a scan the row simply stayed `running` - no error, no failed

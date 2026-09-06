@@ -105,6 +105,16 @@ class RiskSummary:
     suggested_policy: Policy
 
 
+@dataclass(frozen=True)
+class GradeDriver:
+    """One rule that contributed to the grade, and by how much."""
+
+    rule_id: str
+    label: str
+    severity: str
+    occurrences: int
+
+
 @dataclass
 class GradeResult:
     risk_score: int
@@ -135,6 +145,7 @@ def grade_scan(
     engine_grade: Grade | None,
     coverage_complete: bool = True,
     tools_discovered: int = 0,
+    scan_failed: bool = False,
 ) -> GradeResult:
     """Present the engine's verdict. Never recompute it.
 
@@ -148,8 +159,18 @@ def grade_scan(
     out loud: a server that could not be launched produces zero findings,
     which is indistinguishable from a clean server unless the report says
     so. A letter would be a claim about evidence nobody has.
+
+    `scan_failed` is a separate state from either, and conflating it with
+    them produced a false report in production: a scan whose results could
+    not be recorded was rendered as "No tool definitions were found", which
+    is a claim about the target. The scanner had in fact read its tools. Only
+    the caller knows the run itself broke, so it says so here, and the
+    summary then describes the scan rather than inventing a finding about
+    the server.
     """
-    incomplete = not coverage_complete or tools_discovered == 0 or engine_grade is None
+    incomplete = (
+        scan_failed or not coverage_complete or tools_discovered == 0 or engine_grade is None
+    )
     grade = None if incomplete else engine_grade
     policy = Policy.REQUIRE_APPROVAL if grade is None else GRADE_POLICIES[grade]
     return GradeResult(
@@ -158,7 +179,7 @@ def grade_scan(
         label="Not graded" if grade is None else GRADE_LABELS[grade],
         policy=policy,
         incomplete=incomplete,
-        summary=_summarize(findings, grade, policy, incomplete, tools_discovered),
+        summary=_summarize(findings, grade, policy, incomplete, tools_discovered, scan_failed),
         severity_counts=severity_counts(findings),
     )
 
@@ -172,7 +193,14 @@ def grade_scan(
 # notes is about the execution hole, and ranking by count said otherwise.
 
 
-def _rules_by_contribution(findings: list[Finding], limit: int = 2) -> list[str]:
+def _ranked_contribution(findings: list[Finding]) -> list[tuple[str, int, int]]:
+    """`(rule_id, severity rank, occurrences)`, worst first.
+
+    One ordering, used both by the narrative below and by `grade_drivers`.
+    Two rankings of the same findings would eventually disagree about which
+    rule earned the letter, which is the sort of contradiction between two
+    surfaces that having one grader is meant to prevent.
+    """
     contribution: dict[str, tuple[int, int]] = {}
     for finding in findings:
         if not counts_toward_risk(finding) or not finding.rule_id:
@@ -183,7 +211,31 @@ def _rules_by_contribution(findings: list[Finding], limit: int = 2) -> list[str]
             count + max(1, finding.occurrence_count),
         )
     ranked = sorted(contribution.items(), key=lambda item: (-item[1][0], -item[1][1], item[0]))
-    return [rule_id for rule_id, _ in ranked[:limit]]
+    return [(rule_id, rank, count) for rule_id, (rank, count) in ranked]
+
+
+def _rules_by_contribution(findings: list[Finding], limit: int = 2) -> list[str]:
+    return [rule_id for rule_id, _, _ in _ranked_contribution(findings)[:limit]]
+
+
+def grade_drivers(findings: list[Finding], *, limit: int = 6) -> list[GradeDriver]:
+    """The findings that earned the letter, worst first.
+
+    The prose summary names the top two. This returns the same ranking in a
+    form a reader can scan, so "why this grade" is answerable from evidence
+    on any surface that shows a letter without showing the finding list -
+    the marketplace being the one that does.
+    """
+    by_rank = {rank: severity for severity, rank in _SEVERITY_RANK.items()}
+    return [
+        GradeDriver(
+            rule_id=rule_id,
+            label=short_label(rule_id),
+            severity=by_rank[rank].value,
+            occurrences=count,
+        )
+        for rule_id, rank, count in _ranked_contribution(findings)[:limit]
+    ]
 
 
 def _driver_phrase(rule_ids: list[str]) -> str:
@@ -209,7 +261,31 @@ def _summarize(
     policy: Policy,
     incomplete: bool,
     tools_discovered: int,
+    scan_failed: bool = False,
 ) -> RiskSummary:
+    # Checked before the incomplete branch below, which reads the *target*
+    # to explain itself. A run that broke has nothing to say about the
+    # target, and the empty `tools_discovered` it leaves behind is a
+    # property of the failure rather than of the server.
+    if scan_failed:
+        return RiskSummary(
+            headline="Scan Failed",
+            explanation=(
+                "This scan did not finish, so it is not an assessment of this target. "
+                "Any findings listed below were recorded before it stopped and are real, "
+                "but the checks that never ran could have found more."
+            ),
+            potential_impact=(
+                "A scan that failed is not evidence of a safe server. It says nothing "
+                "either way, and reading it as a clean result would be a guess about "
+                "checks that did not run."
+            ),
+            recommended_action=(
+                "Run the scan again. If it fails a second time, read the error recorded "
+                "on this scan and review the server by hand before use."
+            ),
+            suggested_policy=Policy.REQUIRE_APPROVAL,
+        )
     if incomplete:
         reason = (
             "No tool definitions were found."
