@@ -189,6 +189,22 @@ Every one carries a reason. "Scan incomplete" with no explanation is not
 actionable, and every path is pinned in
 `backend/scanner-core/tests/test_pipeline_honesty.py`.
 
+## A scan always ends
+
+A scan row is only ever advanced by the worker that owns it, so once that
+worker stops the row must be in a terminal state. Three things enforce that,
+because a scan stuck at `running` is the one failure mode a user cannot act on:
+
+- writes that decide the outcome raise instead of being logged and swallowed
+  (`WriteRejected`);
+- the worker reads the row back in a `finally` and forces `failed` if it is
+  still open;
+- `POST /scans/{id}/cancel` ends it by hand, and
+  `POST /scheduler/reap-stuck-scans` sweeps ones whose worker is gone.
+
+A cancelled or reaped scan is `failed` with no grade and no score. See
+`DECISIONS.md` ADR-042.
+
 ## Data
 
 A scan row records what was assessed and what produced the assessment:

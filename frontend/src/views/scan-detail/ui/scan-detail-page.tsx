@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, MinusCircle, Search, Sparkles, XCircle } from "lucide-react";
+import { AlertTriangle, Ban, CheckCircle2, CircleDashed, Loader2, MinusCircle, Search, Sparkles, XCircle } from "lucide-react";
 import { ApiError } from "@/shared/api";
 import { billingApi } from "@/entities/billing";
 import { findingApi } from "@/entities/finding";
@@ -47,6 +47,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
   const [exporting, setExporting] = useState(false);
   const [diff, setDiff] = useState<ScanDiff | null>(null);
   const [canExport, setCanExport] = useState<boolean | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -75,7 +76,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
     intervalRef.current = setInterval(() => void load(), POLL_INTERVAL_MS);
-    return () => {
+  return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [load]);
@@ -85,6 +86,27 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
       setCanExport(subscription.effective_tier !== "free");
     }).catch(() => setCanExport(null));
   }, []);
+
+  /** End a scan that is still open.
+   *
+   *  This stops the record, not the worker: the container is left to finish
+   *  and be discarded. It exists because a scan that cannot finish also could
+   *  not be deleted - the delete endpoint refuses anything still running - so
+   *  a stuck row was permanent. A cancelled scan is `failed` and carries no
+   *  grade, because nothing was established about the target.
+   */
+  const cancelScan = useCallback(async () => {
+    setCancelling(true);
+    try {
+      await scanApi.cancelScan(scanId);
+      toast.success("Scan cancelled. It produced no security assessment.");
+      await load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not cancel this scan.");
+    } finally {
+      setCancelling(false);
+    }
+  }, [scanId, load]);
 
   const query = searchParams.get("q") ?? "";
   const severityFilter = searchParams.get("severity") ?? "all";
@@ -342,6 +364,17 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
         <SectionCard
           title="Scan progress"
           description="Stage-level status updates remain visible so you can leave the page and come back without losing context."
+          action={
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={cancelling}
+              onClick={() => void cancelScan()}
+            >
+              {cancelling ? <Loader2 className="size-4 animate-spin" /> : <Ban className="size-4" />}
+              Cancel scan
+            </Button>
+          }
         >
           <div className="space-y-3">
             {STAGE_ORDER.map((name) => {

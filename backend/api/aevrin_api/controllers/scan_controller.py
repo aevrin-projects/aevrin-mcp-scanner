@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import tempfile
 from contextlib import suppress
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -27,6 +29,8 @@ from aevrin_api.services.source_upload import (
 from aevrin_api.services.targets import stored_target
 
 _SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+
+logger = logging.getLogger("aevrin.scans")
 
 _SCAN_NOT_FOUND = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
 
@@ -265,14 +269,120 @@ async def get_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> ScanOut:
     )
 
 
+# Statuses that mean a worker still owns this row.
+_OPEN_STATUSES = {"queued", "running"}
+
+# How long a scan may sit open before it is treated as abandoned. The pipeline
+# caps a launch at 5 minutes and the whole run cannot reasonably exceed this,
+# so a row older than it has lost its worker - the process was replaced by a
+# deploy, or a write that should have finished it was refused.
+STUCK_AFTER = timedelta(minutes=30)
+
+
+def _is_abandoned(row: dict[str, Any]) -> bool:
+    """An open scan whose worker is demonstrably gone.
+
+    Without this a row stuck open is undeletable *and* unfinishable - the
+    delete endpoint refused anything still running, so a scan that could never
+    finish could also never be removed. Age is the only signal available here:
+    the worker runs in another process and leaves no heartbeat.
+    """
+    started = row.get("created_at")
+    if not started:
+        # Unknown age is not evidence of abandonment. Defaulting the other way
+        # would let an unparseable timestamp unlock deletion of a scan that is
+        # genuinely mid-flight, which is the more damaging mistake.
+        return False
+    try:
+        began = datetime.fromisoformat(str(started))
+    except ValueError:
+        return False
+    if began.tzinfo is None:
+        began = began.replace(tzinfo=UTC)
+    return datetime.now(UTC) - began > STUCK_AFTER
+
+
+async def reap_stuck_scans(db: SupabaseRest) -> dict[str, Any]:
+    """Close every scan whose worker is gone. Returns what it closed.
+
+    Sweeps rather than targets: the condition is "open for longer than a run
+    can take", which no single caller knows about. Marked failed with a reason
+    the user can read, never completed - these produced no assessment.
+    """
+    closed: list[str] = []
+    for open_status in sorted(_OPEN_STATUSES):
+        rows = await db.select(
+            "scans", {"status": open_status}, columns="id,user_id,created_at", limit=500
+        )
+        for row in rows:
+            if not _is_abandoned(row):
+                continue
+            await db.update(
+                "scans",
+                {"id": str(row["id"])},
+                {
+                    "status": "failed",
+                    "risk_score": None,
+                    "grade": None,
+                    "error": (
+                        "This scan stopped without finishing and was closed automatically. "
+                        "No security assessment was produced. Run it again."
+                    ),
+                    "completed_at": datetime.now(UTC).isoformat(),
+                },
+            )
+            closed.append(str(row["id"]))
+    if closed:
+        logger.warning("reaped %d stuck scans: %s", len(closed), ", ".join(closed))
+    return {"closed": len(closed), "scan_ids": closed}
+
+
+async def cancel_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> dict[str, str]:
+    """Stop a scan that is still open, so it can be read and deleted.
+
+    The worker thread is not interrupted - it holds no cancellation token, and
+    inventing one to kill a container mid-run would be a larger change than
+    this is worth. What this does is end the *record*: the scan stops claiming
+    to be in progress, and `_ensure_terminal` means a worker that is still
+    alive will not resurrect it.
+
+    Recorded as `failed` with an explicit reason rather than a new `cancelled`
+    status, because a new status value needs a check-constraint migration and
+    this has to work against the schema that is deployed right now.
+    """
+    rows = await db.select("scans", {"id": str(scan_id), "user_id": user_id})
+    if not rows:
+        raise _SCAN_NOT_FOUND
+    if rows[0]["status"] not in _OPEN_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This scan has already finished, so there is nothing to cancel.",
+        )
+    await db.update(
+        "scans",
+        {"id": str(scan_id), "user_id": user_id},
+        {
+            "status": "failed",
+            "risk_score": None,
+            "grade": None,
+            "error": "Cancelled. No security assessment was produced for this target.",
+            "completed_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    return {"status": "failed", "detail": "Scan cancelled."}
+
+
 async def delete_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> None:
     rows = await db.select("scans", {"id": str(scan_id), "user_id": user_id})
     if not rows:
         raise _SCAN_NOT_FOUND
-    if rows[0]["status"] in {"queued", "running"}:
+    if rows[0]["status"] in _OPEN_STATUSES and not _is_abandoned(rows[0]):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Wait for this scan to finish before deleting it",
+            detail=(
+                "This scan is still running. Cancel it first, or wait for it to "
+                "finish."
+            ),
         )
     await db.delete("hook_cache", {"last_scan_id": str(scan_id), "user_id": user_id})
     await db.delete("scans", {"id": str(scan_id), "user_id": user_id})

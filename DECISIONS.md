@@ -1757,3 +1757,45 @@ restated, and an unrecognised letter takes the same path as no letter at all.
 Verified end to end: the same server returns `C 27/100`,
 `REQUIRE_APPROVAL`, 24 tools and 8 findings through the dashboard pipeline,
 the CLI and this tool.
+
+## ADR-042: A scan may never be left claiming to be in progress
+
+**Status:** accepted (2026-09-06)
+
+Two scans sat at `running` for six hours. Neither the pipeline nor the sandbox
+was at fault: both had finished. `_SyncRest.upsert` and `.patch` caught every
+`httpx.HTTPError`, logged a warning and returned, so when PostgREST refused the
+write that ends a scan - the deployed schema had neither the `server_command`
+column nor the new `scan_stages` names - nothing raised. The row was never
+finished, and `_persist_completed_scan` sat outside the `try` that marks a scan
+failed, so even a raised error would have escaped the worker thread unhandled.
+
+The user could not clear them either: `delete_scan` refuses anything still
+`queued` or `running`, which is correct for a live scan and made a stuck one
+permanent.
+
+Three changes, in order of how much they matter:
+
+1. **Writes that decide a scan's outcome raise.** `required=True` on the
+   terminal status write and a `WriteRejected` error. Writes that only enrich a
+   result - the hook cache, DefectDojo - stay best-effort, because losing those
+   should not fail a scan that genuinely completed.
+2. **The worker verifies the final state instead of assuming it.**
+   `_ensure_terminal` reads the row back in a `finally` and forces `failed` if
+   it is still open. Some ways of losing a worker reach no `except` at all, and
+   every one of them looks identical to the user.
+3. **A scan can be ended by hand.** `POST /scans/{id}/cancel` marks it failed
+   with an explicit reason, and a scan open far longer than a run can take is
+   deletable directly. `POST /scheduler/reap-stuck-scans` sweeps ones whose
+   worker is already gone.
+
+Cancel ends the record, not the container. Interrupting a running scan mid-flight
+would mean a cancellation token threaded through the worker and a `docker kill`,
+which is a much larger change; the container is bounded by its own timeout and
+is discarded either way. What matters is that the row stops lying about being in
+progress.
+
+Cancelled is recorded as `failed` rather than a new `cancelled` status,
+deliberately: a new status value needs a check-constraint migration, and this
+had to work against the schema already deployed. A cancelled scan carries no
+grade and no score, because nothing was established about the target.

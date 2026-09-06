@@ -86,6 +86,18 @@ async def get_scan(scan_id: UUID, user: CurrentUser, db: Db) -> ScanOut:
     return await scan_controller.get_scan(scan_id, user.id, db)
 
 
+@router.post("/{scan_id}/cancel")
+async def cancel_scan(scan_id: UUID, user: CurrentUser, db: Db) -> dict[str, str]:
+    """Stop a scan that is still open, so it can be read and deleted.
+
+    This ends the record rather than interrupting the worker: the scan stops
+    claiming to be in progress and is marked failed with an explicit reason. A
+    cancelled scan never carries a grade - nothing was established about the
+    target, and that is the only honest rendering.
+    """
+    return await scan_controller.cancel_scan(scan_id, user.id, db)
+
+
 @router.delete("/{scan_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_scan(scan_id: UUID, user: CurrentUser, db: Db) -> Response:
     await scan_controller.delete_scan(scan_id, user.id, db)

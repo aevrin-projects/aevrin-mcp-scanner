@@ -40,6 +40,21 @@ logger = logging.getLogger("aevrin.scan_service")
 _SCAN_SLOT = asyncio.Semaphore(1)
 
 
+class WriteRejected(RuntimeError):
+    """A database write that decides a scan's outcome was refused.
+
+    These used to be logged at warning level and swallowed, which is how a
+    scan could run to completion and then sit at `running` forever: the
+    terminal status write was rejected (a column the deployed schema did not
+    have yet), nothing raised, and the row was simply never finished. A user
+    watching that scan sees a spinner with no end and no error.
+
+    Writes that only enrich a result - the hook cache, DefectDojo - stay
+    best-effort. Writes that determine whether a scan is finished, and what it
+    found, do not.
+    """
+
+
 class _SyncRest:
     """Minimal sync PostgREST client for use inside the pipeline's worker
     thread, intentionally separate from db.SupabaseRest (async), which
@@ -54,7 +69,14 @@ class _SyncRest:
             "Prefer": "return=representation,resolution=merge-duplicates",
         }
 
-    def upsert(self, table: str, rows: dict[str, Any] | list[dict[str, Any]], on_conflict: str) -> None:
+    def upsert(
+        self,
+        table: str,
+        rows: dict[str, Any] | list[dict[str, Any]],
+        on_conflict: str,
+        *,
+        required: bool = False,
+    ) -> None:
         try:
             httpx.post(
                 f"{self._base_url}/{table}",
@@ -64,9 +86,18 @@ class _SyncRest:
                 timeout=10,
             ).raise_for_status()
         except httpx.HTTPError as exc:
+            if required:
+                raise WriteRejected(f"upsert into {table} failed: {exc}") from exc
             logger.warning("scan_service: upsert into %s failed: %s", table, exc)
 
-    def patch(self, table: str, filters: dict[str, str], patch: dict[str, Any]) -> None:
+    def patch(
+        self,
+        table: str,
+        filters: dict[str, str],
+        patch: dict[str, Any],
+        *,
+        required: bool = False,
+    ) -> None:
         try:
             httpx.patch(
                 f"{self._base_url}/{table}",
@@ -76,6 +107,8 @@ class _SyncRest:
                 timeout=10,
             ).raise_for_status()
         except httpx.HTTPError as exc:
+            if required:
+                raise WriteRejected(f"patch on {table} failed: {exc}") from exc
             logger.warning("scan_service: patch on %s failed: %s", table, exc)
 
     def get(self, table: str, filters: dict[str, str]) -> list[dict[str, Any]]:
@@ -143,6 +176,10 @@ def _stage_row(stage: ScanStage) -> dict[str, object]:
     }
 
 
+# Statuses that mean "a worker is still expected to touch this row".
+_OPEN_STATUSES = {"queued", "running"}
+
+
 def _mark_scan_failed(rest: _SyncRest, scan_id: UUID, user_id: str) -> None:
     rest.patch(
         "scans",
@@ -158,6 +195,28 @@ def _mark_scan_failed(rest: _SyncRest, scan_id: UUID, user_id: str) -> None:
             "completed_at": datetime.now(UTC).isoformat(),
         },
     )
+
+
+def _ensure_terminal(rest: _SyncRest, scan_id: UUID, user_id: str) -> None:
+    """Leave no scan claiming to be in progress once its worker has stopped.
+
+    A scan row is only ever advanced by the worker that owns it, so once that
+    worker is done the row must be in a terminal state. If it is not, the
+    write that should have finished it did not land, and the honest rendering
+    of that is `failed` - not a spinner that never resolves.
+    """
+    try:
+        rows = rest.get("scans", {"id": str(scan_id), "user_id": user_id})
+    except httpx.HTTPError:
+        logger.exception("scan_service: could not confirm final state of scan %s", scan_id)
+        return
+    if not rows:
+        return
+    if str(rows[0].get("status")) in _OPEN_STATUSES:
+        logger.error(
+            "scan_service: scan %s left open by its worker; forcing failed", scan_id
+        )
+        _mark_scan_failed(rest, scan_id, user_id)
 
 
 def _persist_completed_scan(
@@ -190,6 +249,10 @@ def _persist_completed_scan(
             "unreliable_stages": [s.value for s in scan.unreliable_stages],
             "completed_at": completed_at,
         },
+        # The write that ends the scan. If it is refused the scan is not
+        # finished, whatever the pipeline produced, and saying so beats
+        # leaving a row that claims to still be working.
+        required=True,
     )
 
     rest.upsert(
@@ -256,7 +319,22 @@ def _run_and_persist(
         _mark_scan_failed(rest, scan_id, user_id)
         return
 
-    _persist_completed_scan(rest, scan, user_id, durable_target)
+    try:
+        _persist_completed_scan(rest, scan, user_id, durable_target)
+    except Exception:
+        # Previously outside the try entirely, so a rejected terminal write
+        # escaped the worker thread and left the row at `running` with nothing
+        # to explain it.
+        logger.exception("scan_service: scan %s could not be persisted", scan_id)
+        _mark_scan_failed(rest, scan_id, user_id)
+        return
+    finally:
+        # Verified, not assumed. Everything above can fail in a way that never
+        # reaches an except block - a swallowed write, a thread killed
+        # mid-flight - and the symptom is always the same: a scan that runs
+        # forever. This reads the row back and forces a terminal state if it
+        # is still open.
+        _ensure_terminal(rest, scan_id, user_id)
 
     _push_to_defectdojo_best_effort(settings, durable_target, scan.id, scan.findings)
     _run_triage_best_effort(rest, settings, user_id, scan.findings, scan.id)

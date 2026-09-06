@@ -24,6 +24,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 
 from aevrin_api.config import Settings, get_settings
+from aevrin_api.controllers import scan_controller
 from aevrin_api.db import SupabaseRest
 from aevrin_api.routes.deps import get_db
 from aevrin_api.services import status as status_service
@@ -109,6 +110,24 @@ async def uptime_check(
     checks as `no_data` rather than folding it into an uptime percentage.
     """
     return await status_service.run_checks(db, settings)
+
+
+@router.post("/reap-stuck-scans", dependencies=[Depends(require_scheduler_token)])
+async def reap_stuck_scans(
+    db: Annotated[SupabaseRest, Depends(get_db)],
+) -> dict[str, Any]:
+    """Close scans that are still marked in progress but have no worker left.
+
+    A scan row is only ever advanced by the process running it, so one that
+    has been open far longer than a run can take has lost that process - to a
+    deploy, a crash, or a write that was refused. Left alone it shows a
+    spinner forever and cannot even be deleted, because deleting a running
+    scan is refused.
+
+    Marked failed, never completed: no grade, no score. Nothing was
+    established about these targets.
+    """
+    return await scan_controller.reap_stuck_scans(db)
 
 
 @router.get("/scan-queue", dependencies=[Depends(require_scheduler_token)])

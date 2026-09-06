@@ -22,6 +22,14 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **A scan could run forever and could not be stopped.** `_SyncRest` swallowed
+  every failed write and logged a warning, so when the database refused the
+  write that ends a scan the row simply stayed `running` - no error, no failed
+  stage, a spinner with no end. Deleting it was refused too, because the delete
+  endpoint rejects anything still running, so the row was both unfinishable and
+  undeletable. Writes that decide a scan's outcome now raise, the terminal
+  write is inside the try block that marks a scan failed, and the worker reads
+  the row back and forces a terminal state rather than assuming one.
 - **The API image did not build, and CI had been red since the engine
   replacement.** It still `chown`ed `/opt/uv-tools`, a directory created by the
   scanner installs that change removed, so the backend deploy never ran.
@@ -65,6 +73,13 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Added
 
+- **`POST /scans/{id}/cancel`** and a **Cancel scan** button on a running scan.
+  It ends the record rather than interrupting the worker, and a cancelled scan
+  never carries a grade - nothing was established about the target.
+- **`POST /scheduler/reap-stuck-scans`** closes scans left open by a worker
+  that is gone (a deploy mid-run, a refused write). A scan open far longer than
+  a run can take is also deletable directly, so a stuck row cannot become
+  permanent clutter.
 - **`aevrin mcp-server`** exposes Aevrin as an MCP server so an agent can scan
   a server before installing it. One tool, `scan_mcp_server`, running the same
   pipeline and returning the same verdict as `aevrin scan mcp`. Optional
