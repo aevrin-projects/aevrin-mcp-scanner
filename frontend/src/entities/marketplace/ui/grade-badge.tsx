@@ -26,7 +26,27 @@ const STATE_NOTE: Record<ScanState, string> = {
   complete: "Aevrin security scan",
   outdated: "This grade covers an older version",
   partial: "Partial coverage. Do not treat as clean.",
+  ungraded: "Scanned, not graded",
   unscanned: "Not yet scanned",
+  not_applicable: "Not security-scanned",
+};
+
+// What to say when there is no letter. Three different facts, and collapsing
+// them was the bug: "Not yet scanned" was shown for a server Aevrin had
+// scanned but could not grade, which is a claim that it never looked.
+const NO_GRADE: Record<"ungraded" | "unscanned" | "not_applicable", { title: string; note: string }> = {
+  ungraded: {
+    title: "Scanned, not graded",
+    note: "The scan could not establish enough to grade this server. Unknown, not safe.",
+  },
+  unscanned: {
+    title: "Not yet scanned",
+    note: "No security evidence. Not a statement that this is safe.",
+  },
+  not_applicable: {
+    title: "Not security-scanned",
+    note: "Aevrin has no scanner for this kind of item. Curated by an administrator.",
+  },
 };
 
 export function GradeBadge({
@@ -61,7 +81,7 @@ export function GradeBadge({
     // on a card the caller states the scan state in its own footer, so a
     // second unexplained glyph beside the publisher's logo read as a broken
     // image rather than as "no evidence".
-    if (!grade || state === "unscanned") return null;
+    if (!grade || state in NO_GRADE) return null;
     const style = state === "complete" ? GRADE_STYLES[grade] : MUTED;
     return (
       <div
@@ -77,7 +97,8 @@ export function GradeBadge({
     );
   }
 
-  if (!grade || state === "unscanned") {
+  if (!grade || state in NO_GRADE) {
+    const words = NO_GRADE[state in NO_GRADE ? (state as keyof typeof NO_GRADE) : "unscanned"];
     return (
       <div className="flex items-center gap-3">
         <div
@@ -87,10 +108,8 @@ export function GradeBadge({
           ?
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-medium">Not yet scanned</p>
-          <p className="text-xs text-muted-foreground">
-            No security evidence. Not a statement that this is safe.
-          </p>
+          <p className="text-sm font-medium">{words.title}</p>
+          <p className="text-xs text-muted-foreground">{words.note}</p>
         </div>
       </div>
     );

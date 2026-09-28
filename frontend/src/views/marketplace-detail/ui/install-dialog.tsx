@@ -30,7 +30,7 @@ import { Select } from "@/shared/ui";
  * Aevrin does not reach into a developer's machine and write configuration,
  * and it never runs a server's install command to find out what it does.
  * What this produces is the exact config to apply, shown alongside the grade,
- * the declared capabilities, and every warning the plan carries — so the
+ * the declared capabilities, and every warning the plan carries, so the
  * person clicking "copy" has already seen what they are agreeing to.
  *
  * A workspace policy that blocks this grade stops the flow here with the

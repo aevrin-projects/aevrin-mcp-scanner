@@ -12,7 +12,7 @@ import { Textarea } from "@/shared/ui/textarea";
 import { EmptyState, PageHeader, Panel, PanelBody, PanelHeader, PanelTitle } from "@/shared/ui";
 
 /**
- * Submitting a server.
+ * Suggesting an item for the registry.
  *
  * One field, plus an optional note. Everything else — name, description,
  * licence, stars, README, packaging — is read from the source by Aevrin. A
@@ -60,8 +60,8 @@ export function SubmitPage() {
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Submit an MCP server"
-        description="Paste a repository or server URL. Aevrin reads the rest from the source."
+        title="Suggest an item"
+        description="Paste a repository or MCP server URL. Aevrin reads the rest from the source, and an administrator decides whether it joins the registry."
       />
 
       <Panel>
@@ -71,12 +71,15 @@ export function SubmitPage() {
         <PanelBody>
           <ol className="space-y-3 text-sm text-muted-foreground">
             <li>1. Aevrin fetches the source and derives the metadata.</li>
-            <li>2. The server is scanned: MCP tool rules, behavior, credentials, supply chain.</li>
-            <li>3. An administrator reviews the result.</li>
             <li>
-              4. If approved, it is published with its grade.{" "}
+              2. An administrator reviews it. An MCP server is also security-scanned by Aevrin,
+              which reads the tools it actually exposes.
+            </li>
+            <li>
+              3. If approved, it is published in the registry.{" "}
               <span className="text-foreground">
-                Nothing is published without a scan.
+                Nothing is published without an administrator deciding to, and no MCP server
+                without a scan.
               </span>
             </li>
           </ol>
@@ -85,7 +88,7 @@ export function SubmitPage() {
 
       <Panel>
         <PanelHeader>
-          <PanelTitle>Server URL</PanelTitle>
+          <PanelTitle>Source URL</PanelTitle>
         </PanelHeader>
         <PanelBody className="space-y-8 py-6">
           {submitted ? (
@@ -160,8 +163,8 @@ export function SubmitPage() {
         <PanelBody>
           {submissions.length === 0 ? (
             <EmptyState
-              title="No submissions yet"
-              body="Servers you submit will appear here with their review status."
+              title="No suggestions yet"
+              body="Items you suggest will appear here with their review status."
             />
           ) : (
             <div className="space-y-2">

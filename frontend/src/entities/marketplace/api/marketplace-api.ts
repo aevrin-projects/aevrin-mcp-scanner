@@ -5,14 +5,18 @@ import type {
   Category,
   GradeDriver,
   GradeRationale,
+  InstallConfigs,
   InstallPlan,
   InstallTarget,
+  ItemContent,
+  ItemType,
   Listing,
   ListingDetail,
   ListingPage,
   MarketplaceSort,
   OrgPolicy,
   Submission,
+  TypeCount,
 } from "../model/types";
 
 /**
@@ -68,6 +72,9 @@ function toListing(raw: RawListing): Listing {
     slug: String(raw.slug),
     title: String(raw.title ?? ""),
     description: String(raw.description ?? ""),
+    // Rows written before migration 0048 have no type; they were all servers.
+    itemType: (raw.item_type as ItemType) ?? "mcp_server",
+    author: (raw.author as string) ?? null,
     publisher: (raw.publisher as string) ?? null,
     repositoryUrl: (raw.repository_url as string) ?? null,
     homepageUrl: (raw.homepage_url as string) ?? null,
@@ -77,6 +84,10 @@ function toListing(raw: RawListing): Listing {
     license: (raw.license as string) ?? null,
     categories: (raw.categories as string[]) ?? [],
     tags: (raw.tags as string[]) ?? [],
+    technologies: (raw.technologies as string[]) ?? [],
+    capabilities: (raw.capabilities as string[]) ?? [],
+    useCases: (raw.use_cases as string[]) ?? [],
+    repositoryRef: (raw.repository_ref as string) ?? null,
     priceType: (raw.price_type as Listing["priceType"]) ?? "unknown",
     pricingUrl: (raw.pricing_url as string) ?? null,
     installTargets: (raw.install_targets as InstallTarget[]) ?? [],
@@ -118,6 +129,8 @@ function toListing(raw: RawListing): Listing {
 
 export interface BrowseParams {
   q?: string;
+  type?: ItemType;
+  technology?: string;
   category?: string;
   tag?: string;
   priceType?: string;
@@ -132,6 +145,8 @@ export interface BrowseParams {
 function toQuery(params: BrowseParams): string {
   const search = new URLSearchParams();
   if (params.q) search.set("q", params.q);
+  if (params.type) search.set("type", params.type);
+  if (params.technology) search.set("technology", params.technology);
   if (params.category) search.set("category", params.category);
   if (params.tag) search.set("tag", params.tag);
   if (params.priceType) search.set("price_type", params.priceType);
@@ -171,10 +186,30 @@ export async function getListing(slug: string): Promise<ListingDetail> {
   const raw = await optionalAuthRequest<RawListing>(
     `/marketplace/mcp/${encodeURIComponent(slug)}`,
   );
-  const base = toListing(raw);
+  return toListingDetail(raw);
+}
+
+/**
+ * The detail mapping, exported so the admin editor's preview maps its payload
+ * with exactly this function. Two mappers would let the preview show something
+ * the public page does not.
+ */
+export function toListingDetail(raw: Record<string, unknown>): ListingDetail {
+  const base = toListing(raw as RawListing);
   return {
     ...base,
     readme: (raw.readme as string) ?? null,
+    content: (raw.content as ItemContent) ?? {},
+    installConfigs: (raw.install_configs as InstallConfigs) ?? {},
+    related: ((raw.related as Record<string, unknown>[]) ?? []).map((r) => ({
+      id: String(r.id),
+      slug: String(r.slug),
+      title: String(r.title ?? r.slug),
+      description: String(r.description ?? ""),
+      itemType: (r.item_type as ItemType) ?? "mcp_server",
+      grade: (r.grade as ListingDetail["security"]["grade"]) ?? null,
+      relation: r.relation === "uses" ? "uses" : "related",
+    })),
     installation: (raw.installation as ListingDetail["installation"]) ?? {},
     marketplaceViews: Number(raw.marketplace_views ?? 0),
     versions: ((raw.versions as Record<string, unknown>[]) ?? []).map((v) => ({
@@ -223,6 +258,11 @@ function toGradeRationale(raw: Record<string, unknown> | null): GradeRationale |
 
 export async function listCategories(): Promise<Category[]> {
   return publicRequest<Category[]>("/marketplace/categories");
+}
+
+/** Published items per type. Types with none are omitted by the API. */
+export async function listTypes(): Promise<TypeCount[]> {
+  return publicRequest<TypeCount[]>("/marketplace/types");
 }
 
 export async function getInstallPlan(
@@ -309,6 +349,9 @@ export async function getPolicy(): Promise<OrgPolicy> {
       B: "allow",
       C: "require_approval",
       D: "block",
+      // Missing here while the type required it, so a fresh workspace's
+      // policy had no answer for the worst grade at all.
+      F: "block",
     },
     unscannedAction: (raw.unscanned_action as OrgPolicy["unscannedAction"]) ?? "require_approval",
   };

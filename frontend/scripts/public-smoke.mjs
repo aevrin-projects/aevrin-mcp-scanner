@@ -19,6 +19,9 @@ const allRoutes = [
   "/cli",
   "/login",
   "/status",
+  // Readable signed out: the registry must work for someone deciding whether
+  // to sign up at all.
+  "/marketplace",
   "/terms",
   "/privacy",
   "/definitely-not-a-route",

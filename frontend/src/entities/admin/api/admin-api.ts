@@ -73,13 +73,15 @@ export const adminApi = {
 };
 
 /**
- * Marketplace administration.
+ * Registry administration: the only way anything is added to, changed in,
+ * published from or removed from the Aevrin Registry.
  *
  * Mounted under the same `/admin` prefix as everything else here, so it goes
  * through the same admin-session and TOTP checks. There is deliberately no
  * method below that writes a grade, a score, or a coverage flag: those come
  * from scans, and an admin who could type a better letter could make an unsafe
- * server look safe.
+ * server look safe. Nor does `patch` change status: publishing goes through
+ * `setStatus`, which runs the publish gate.
  */
 export const marketplaceAdminApi = {
   summary: () =>
@@ -91,6 +93,7 @@ export const marketplaceAdminApi = {
       partial_coverage: number;
       grades: Record<string, number>;
       statuses: Record<string, number>;
+      types: Record<string, number>;
       open_reports: number;
       pending_submissions: number;
     }>("/admin/marketplace/summary"),
@@ -100,11 +103,13 @@ export const marketplaceAdminApi = {
     grade?: string;
     unscanned?: boolean;
     q?: string;
+    type?: string;
     limit?: number;
     offset?: number;
   }) => {
     const search = new URLSearchParams();
     if (params.status) search.set("status", params.status);
+    if (params.type) search.set("type", params.type);
     if (params.grade) search.set("grade", params.grade);
     if (params.unscanned) search.set("unscanned", "true");
     if (params.q) search.set("q", params.q);
@@ -113,10 +118,58 @@ export const marketplaceAdminApi = {
     return request<Record<string, unknown>[]>(`/admin/marketplace/mcp?${search.toString()}`);
   },
 
-  create: (body: { source_url: string; visibility?: string; org_id?: string | null }) =>
+  /** Always creates a draft. From a URL (derived like a suggestion), or by
+   *  hand with a title - a prompt or a skill often has no repository. */
+  create: (body: {
+    item_type: string;
+    source_url?: string | null;
+    title?: string | null;
+    description?: string | null;
+    visibility?: string;
+    org_id?: string | null;
+  }) =>
     request<Record<string, unknown>>("/admin/marketplace/mcp", {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+
+  /** One item in any state, with `validation_issues`: every reason it cannot
+   *  be published yet. The editor's preview reads this. */
+  get: (id: string) => request<Record<string, unknown>>(`/admin/marketplace/mcp/${id}`),
+
+  /** Removes the registry entry only - never the repository or its scans.
+   *  The slug must be typed back. */
+  remove: (id: string, confirmSlug: string) =>
+    request<{ deleted: boolean; slug: string }>(`/admin/marketplace/mcp/${id}`, {
+      method: "DELETE",
+      body: JSON.stringify({ confirm_slug: confirmSlug }),
+    }),
+
+  refreshMetadata: (id: string) =>
+    request<Record<string, unknown>>(`/admin/marketplace/mcp/${id}/refresh-metadata`, {
+      method: "POST",
+    }),
+
+  setLinks: (id: string, links: { related_id: string; relation: "uses" | "related" }[]) =>
+    request<{ related_id: string; relation: string }[]>(`/admin/marketplace/mcp/${id}/links`, {
+      method: "PUT",
+      body: JSON.stringify({ links }),
+    }),
+
+  categories: () =>
+    request<{ slug: string; name: string; description: string | null; sort_order: number }[]>(
+      "/admin/marketplace/categories",
+    ),
+
+  saveCategory: (body: { slug: string; name: string; description?: string | null; sort_order?: number }) =>
+    request<Record<string, unknown>>("/admin/marketplace/categories", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  deleteCategory: (slug: string) =>
+    request<{ deleted: boolean }>(`/admin/marketplace/categories/${encodeURIComponent(slug)}`, {
+      method: "DELETE",
     }),
 
   patch: (id: string, body: Record<string, unknown>) =>

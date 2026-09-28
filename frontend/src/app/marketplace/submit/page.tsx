@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 export { SubmitPage as default } from "@/views/marketplace-submit";
 
 export const metadata: Metadata = {
-  title: "Submit an MCP server: Aevrin",
+  title: "Suggest an item: Aevrin Registry",
   description:
-    "Submit an MCP server for the Aevrin marketplace. Paste a URL; Aevrin derives the metadata and scans it before publication.",
+    "Suggest a repository or MCP server for the Aevrin Registry. Paste a URL; an administrator reviews it, and scans an MCP server, before publication.",
 };

@@ -23,7 +23,10 @@ const SEGMENT_LABELS: Record<string, string> = {
   admin: "Admin",
   analytics: "Analytics",
   audit: "Audit log",
-  marketplace: "Marketplace",
+  marketplace: "Registry",
+  // `/admin/marketplace/new`: a word, not an id, so it must not be shown as
+  // a truncated opaque segment.
+  new: "New item",
   users: "Accounts",
 };
 

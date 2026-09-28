@@ -39,7 +39,7 @@ const NAV_GROUPS = [
     label: "Manage",
     items: [
       { href: "/admin", label: "Accounts", icon: Users },
-      { href: "/admin/marketplace", label: "Marketplace", icon: Store },
+      { href: "/admin/marketplace", label: "Registry", icon: Store },
     ],
   },
   {

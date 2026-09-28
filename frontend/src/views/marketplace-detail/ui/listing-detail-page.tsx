@@ -19,6 +19,10 @@ import {
   ListingLogo,
   PopularitySignals,
   ScanStatePill,
+  TypeBadge,
+  ItemContentSections,
+  RelatedSection,
+  UseSection,
   getListing,
   setFavorite,
   type InstallTarget,
@@ -36,14 +40,15 @@ import { ReportDialog } from "./report-dialog";
 import { WhyThisGrade } from "./why-this-grade";
 
 /**
- * One server, in full.
+ * One registry item, in full.
  *
- * The page is ordered by what someone deciding whether to install actually
- * needs, in the order they need it: what it is, how safe it is and why, where
- * it came from, what it can do, and only then how to install it.
+ * The page is ordered by what someone deciding whether to use it needs, in
+ * the order they need it: what it is, how safe it is and why (for an MCP
+ * server, the one type Aevrin scans), how to use it, what it contains, where
+ * it came from.
  *
  * Popularity appears well below the grade and in muted type. That is not
- * aesthetic preference — putting a star count next to a letter invites the
+ * aesthetic preference: putting a star count next to a letter invites the
  * reader to average them, and they do not average.
  */
 
@@ -88,11 +93,11 @@ export function ListingDetailPage({ slug }: { slug: string }) {
   if (notFound || !listing) {
     return (
       <EmptyState
-        title="Server not found"
-        body="This listing does not exist, or it is private to another workspace."
+        title="Not found"
+        body="This item does not exist, is not published, or is private to another workspace."
         action={
           <Link href="/marketplace" className={buttonVariants({ variant: "outline" })}>
-            Back to the marketplace
+            Back to the registry
           </Link>
         }
       />
@@ -101,6 +106,8 @@ export function ListingDetailPage({ slug }: { slug: string }) {
 
   const { security, popularity } = listing;
   const scannedVersion = listing.versions.find((v) => v.version === security.scannedVersion);
+  const isServer = listing.itemType === "mcp_server";
+  const byline = [listing.author, listing.publisher].filter(Boolean).join(" · ");
 
   return (
     <div className="space-y-6">
@@ -108,12 +115,29 @@ export function ListingDetailPage({ slug }: { slug: string }) {
         <div className="flex min-w-0 items-start gap-4">
           <ListingLogo listing={listing} className="size-12" />
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight">{listing.title}</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-semibold tracking-tight">{listing.title}</h1>
+              <TypeBadge type={listing.itemType} />
+            </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              {listing.publisher ? `${listing.publisher} · ` : ""}
+              {byline ? `${byline} · ` : ""}
               {listing.latestVersion ? `v${listing.latestVersion}` : "version not stated"}
             </p>
             <p className="mt-3 max-w-2xl text-sm">{listing.description}</p>
+            {listing.technologies.length || listing.useCases.length ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {listing.technologies.map((technology) => (
+                  <Badge key={technology} variant="secondary" className="text-[11px]">
+                    {technology}
+                  </Badge>
+                ))}
+                {listing.useCases.map((useCase) => (
+                  <Badge key={useCase} variant="outline" className="text-[11px]">
+                    {useCase}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -133,13 +157,27 @@ export function ListingDetailPage({ slug }: { slug: string }) {
             />
             {favorited ? "Saved" : "Save"}
           </Button>
-          <Button onClick={() => setInstallOpen(true)} disabled={listing.installTargets.length === 0}>
-            Install
-          </Button>
+          {isServer ? (
+            <Button onClick={() => setInstallOpen(true)} disabled={listing.installTargets.length === 0}>
+              Install
+            </Button>
+          ) : null}
         </div>
       </div>
 
-      {/* Security first, and on its own, before anything that could dilute it. */}
+      {/* Security first, and on its own, before anything that could dilute it.
+          Only an MCP server has a scanner; every other type says so plainly
+          rather than showing an empty security panel that reads as a pass. */}
+      {!isServer ? (
+        <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-4">
+          <ShieldAlert className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <p className="text-sm text-muted-foreground">
+            Not security-scanned by Aevrin. Aevrin scans MCP servers; this is a{" "}
+            {listing.itemType.replace(/_/g, " ")}, reviewed and published by an Aevrin
+            administrator. Read what it asks your agent to do before using it.
+          </p>
+        </div>
+      ) : (
       <Panel>
         <PanelHeader>
           <PanelTitle>Aevrin security scan</PanelTitle>
@@ -163,7 +201,18 @@ export function ListingDetailPage({ slug }: { slug: string }) {
               />
               <p className="text-sm text-muted-foreground">
                 This server has not been scanned. That is not a statement that it
-                is safe — it means Aevrin has no evidence about it either way.
+                is safe: it means Aevrin has no evidence about it either way.
+              </p>
+            </div>
+          ) : null}
+
+          {security.state === "ungraded" ? (
+            <div className="flex items-start gap-3 rounded-lg border border-severity-medium/25 bg-severity-medium/10 p-4">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-severity-medium" aria-hidden="true" />
+              <p className="text-sm">
+                Aevrin scanned this server but could not establish enough to grade it, most
+                often because it needs a credential before it will start. The timeline below
+                says what the scan could not see. Treat it as unknown, not as safe.
               </p>
             </div>
           ) : null}
@@ -199,6 +248,11 @@ export function ListingDetailPage({ slug }: { slug: string }) {
           />
         </PanelBody>
       </Panel>
+      )}
+
+      <UseSection listing={listing} />
+      <ItemContentSections listing={listing} />
+      <RelatedSection listing={listing} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Panel className="lg:col-span-2">
@@ -213,7 +267,7 @@ export function ListingDetailPage({ slug }: { slug: string }) {
                   ? "Official MCP Registry"
                   : listing.source === "admin"
                     ? "Added by Aevrin"
-                    : "Submitted by a user"
+                    : "Suggested by a user"
               }
               href={listing.registryUrl}
             />
@@ -233,7 +287,10 @@ export function ListingDetailPage({ slug }: { slug: string }) {
               value={listing.license ?? "Not stated"}
               icon={<Scale className="size-3.5" aria-hidden="true" />}
             />
-            <SourceRow label="Pricing" value={PRICE_LABELS[listing.priceType]} href={listing.pricingUrl} />
+            {isServer ? (
+              <SourceRow label="Pricing" value={PRICE_LABELS[listing.priceType]} href={listing.pricingUrl} />
+            ) : null}
+            {listing.repositoryRef ? <SourceRow label="Ref" value={listing.repositoryRef} /> : null}
             {listing.githubLanguage ? (
               <SourceRow label="Language" value={listing.githubLanguage} />
             ) : null}
@@ -254,6 +311,7 @@ export function ListingDetailPage({ slug }: { slug: string }) {
         </Panel>
       </div>
 
+      {isServer ? (
       <div className="grid gap-6 lg:grid-cols-2">
         <Panel>
           <PanelHeader>
@@ -306,6 +364,7 @@ export function ListingDetailPage({ slug }: { slug: string }) {
           </PanelBody>
         </Panel>
       </div>
+      ) : null}
 
       {listing.events.length > 0 ? (
         <Panel>
@@ -330,8 +389,8 @@ export function ListingDetailPage({ slug }: { slug: string }) {
                     {formatEvent(event.eventType)}
                     {event.oldValue && event.newValue ? (
                       <span className="text-muted-foreground">
-                        {" "}
-                        — {event.oldValue} → {event.newValue}
+                        {": "}
+                        {event.oldValue} → {event.newValue}
                       </span>
                     ) : null}
                   </p>
@@ -347,7 +406,7 @@ export function ListingDetailPage({ slug }: { slug: string }) {
 
       <div className="flex justify-end">
         <Button variant="ghost" size="sm" onClick={() => setReportOpen(true)}>
-          Report this listing
+          Report this item
         </Button>
       </div>
 
@@ -399,7 +458,7 @@ function SourceRow({
 function formatEvent(type: string): string {
   return (
     {
-      listing_added: "Added to the marketplace",
+      listing_added: "Added to the registry",
       listing_updated: "Metadata updated",
       version_added: "New version published",
       source_changed: "Source changed",

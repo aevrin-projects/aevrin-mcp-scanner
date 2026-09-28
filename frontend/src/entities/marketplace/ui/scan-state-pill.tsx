@@ -1,4 +1,4 @@
-import { AlertTriangle, CircleHelp, Clock, ShieldCheck } from "lucide-react";
+import { AlertTriangle, CircleHelp, Clock, MinusCircle, ShieldCheck, ShieldQuestion } from "lucide-react";
 
 import type { ListingSecurity } from "../model/types";
 
@@ -7,7 +7,7 @@ import type { ListingSecurity } from "../model/types";
  * state name.
  *
  * Each variant says the consequence out loud. "PARTIAL" tells a reader
- * nothing; "Partial coverage — do not treat as clean" tells them what to do
+ * nothing; "Partial coverage. Do not treat as clean." tells them what to do
  * with it. This is the component that stands between a half-finished scan and
  * someone reading it as a pass.
  */
@@ -24,7 +24,7 @@ export function ScanStatePill({ security }: { security: ListingSecurity }) {
     partial: {
       icon: AlertTriangle,
       className: "border-severity-medium/25 bg-severity-medium/10 text-severity-medium",
-      text: "Partial coverage — do not treat as clean",
+      text: "Partial coverage. Do not treat as clean.",
     },
     outdated: {
       icon: Clock,
@@ -33,10 +33,20 @@ export function ScanStatePill({ security }: { security: ListingSecurity }) {
         ? `Scan covers ${security.scannedVersion}, current is ${security.latestVersion}`
         : "Scan is older than the current release",
     },
+    ungraded: {
+      icon: ShieldQuestion,
+      className: "border-severity-medium/25 bg-severity-medium/10 text-severity-medium",
+      text: "Scanned, not graded. Treat as unknown.",
+    },
     unscanned: {
       icon: CircleHelp,
       className: "border-border bg-muted text-muted-foreground",
       text: "Not yet scanned",
+    },
+    not_applicable: {
+      icon: MinusCircle,
+      className: "border-border bg-muted text-muted-foreground",
+      text: "Not security-scanned",
     },
   }[security.state];
 

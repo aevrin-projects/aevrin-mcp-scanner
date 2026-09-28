@@ -55,11 +55,11 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "Marketplace",
+    label: "Registry",
     items: [
       { href: "/marketplace", label: "Discover", icon: Store, exact: true },
       { href: "/marketplace/saved", label: "Saved", icon: Heart },
-      { href: "/marketplace/submit", label: "Submit a server", icon: PackagePlus },
+      { href: "/marketplace/submit", label: "Suggest an item", icon: PackagePlus },
     ],
   },
   {

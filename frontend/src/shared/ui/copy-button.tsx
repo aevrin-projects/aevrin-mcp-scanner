@@ -4,7 +4,19 @@ import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 
-export function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {
+/**
+ * `ariaLabel` names what is being copied. A page with several of these would
+ * otherwise read as a row of identical "Copy" buttons to a screen reader.
+ */
+export function CopyButton({
+  value,
+  label = "Copy",
+  ariaLabel,
+}: {
+  value: string;
+  label?: string;
+  ariaLabel?: string;
+}) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -14,8 +26,14 @@ export function CopyButton({ value, label = "Copy" }: { value: string; label?: s
   }
 
   return (
-    <Button type="button" variant="outline" size="sm" onClick={handleCopy}>
-      {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={handleCopy}
+      aria-label={ariaLabel ? (copied ? `Copied: ${ariaLabel}` : `Copy ${ariaLabel}`) : undefined}
+    >
+      {copied ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
       {copied ? "Copied" : label}
     </Button>
   );

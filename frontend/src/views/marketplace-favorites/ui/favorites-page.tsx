@@ -8,7 +8,8 @@ import { ListingCard, listFavorites, type Listing } from "@/entities/marketplace
 import { buttonVariants } from "@/shared/ui/button";
 import { EmptyState, PageHeader } from "@/shared/ui";
 
-/** Saved servers, in the order they were saved. */
+/** Saved registry items, in the order they were saved. A saved prompt is how
+ *  someone keeps a prompt: favourites work for every item type. */
 export function FavoritesPage() {
   const [items, setItems] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,17 +33,17 @@ export function FavoritesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Saved servers"
-        description="Servers you have saved from the marketplace."
+        title="Saved"
+        description="Items you have saved from the registry: servers, prompts, skills and more."
       />
 
       {items.length === 0 ? (
         <EmptyState
           title="Nothing saved yet"
-          body="Save a server from its listing to keep it here."
+          body="Save an item from its page to keep it here."
           action={
             <Link href="/marketplace" className={buttonVariants({ variant: "outline" })}>
-              Browse the marketplace
+              Browse the registry
             </Link>
           }
         />

@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Loader2, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw, Search, ShieldCheck } from "lucide-react";
 
 import { marketplaceAdminApi } from "@/entities/admin";
+import { ITEM_TYPE_LABELS, ITEM_TYPES, TypeBadge, type ItemType } from "@/entities/marketplace";
 import { ApiError } from "@/shared/api";
-import { Button } from "@/shared/ui/button";
+import { Button, buttonVariants } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import {
   EmptyState,
@@ -23,12 +24,16 @@ import { Badge } from "@/shared/ui/badge";
 import { spring } from "@/lib/springs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
+import { CategoryManager } from "./category-manager";
+
 /**
- * Admin → Marketplace.
+ * Admin → Registry: the control plane for the Aevrin Registry.
  *
- * Three things live here: the catalogue in every state, the submission queue,
- * and reports. Curation actions are editorial; the only security action is
- * "Force rescan", which starts a real scan and returns a real result.
+ * The registry in every state, the suggestion queue, reports and categories.
+ * Creating and editing an item happens in the item editor; this page is for
+ * finding items and moving them through their lifecycle. Curation actions are
+ * editorial; the only security action is "Rescan", which starts a real scan
+ * and returns a real result.
  *
  * The scan button reports whether a scan actually ran or an existing result was
  * reused. An admin who pressed rescan and silently got a cached answer would
@@ -52,6 +57,8 @@ interface Summary {
   stale_scans: number;
   partial_coverage: number;
   grades: Record<string, number>;
+  statuses: Record<string, number>;
+  types: Record<string, number>;
   open_reports: number;
   pending_submissions: number;
 }
@@ -61,6 +68,7 @@ type Row = Record<string, unknown> & {
   slug: string;
   title: string;
   status: string;
+  item_type: ItemType;
   security: { grade: string | null; risk_score: number | null; state: string; label: string };
 };
 
@@ -70,6 +78,7 @@ const STATUS_COLORS: Record<string, string> = {
   suspended: "bg-rose-500/12 text-rose-700 dark:text-rose-400 border-rose-500/20",
   rejected: "bg-rose-500/12 text-rose-700 dark:text-rose-400 border-rose-500/20",
   draft: "bg-muted text-muted-foreground border-transparent",
+  archived: "bg-muted text-muted-foreground border-border",
 };
 
 const GRADE_COLORS: Record<string, string> = {
@@ -91,8 +100,8 @@ export function AdminMarketplacePage() {
 
   const [statusFilter, setStatusFilter] = useState("");
   const [gradeFilter, setGradeFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [search, setSearch] = useState("");
-  const [newUrl, setNewUrl] = useState("");
 
   const [reloadToken, setReloadToken] = useState(0);
   const [page, setPage] = useState(0);
@@ -114,6 +123,7 @@ export function AdminMarketplacePage() {
         .list({
           status: statusFilter || undefined,
           grade: gradeFilter || undefined,
+          type: typeFilter || undefined,
           q: debouncedSearch || undefined,
           limit: PAGE_SIZE,
           offset: page * PAGE_SIZE,
@@ -123,7 +133,7 @@ export function AdminMarketplacePage() {
       marketplaceAdminApi.reports().catch(() => []),
     ]);
     return { s, list, subs, reps };
-  }, [statusFilter, gradeFilter, debouncedSearch, page]);
+  }, [statusFilter, gradeFilter, typeFilter, debouncedSearch, page]);
 
   useEffect(() => {
     let cancelled = false;
@@ -165,7 +175,7 @@ export function AdminMarketplacePage() {
           );
         }
         if (res.remaining_ungraded > 0) {
-          parts.push(`${res.remaining_ungraded} still ungraded — run it again for the next batch.`);
+          parts.push(`${res.remaining_ungraded} still ungraded. Run it again for the next batch.`);
         }
         return parts.join(" ");
       },
@@ -194,12 +204,12 @@ export function AdminMarketplacePage() {
       <>
         <PageHeader
           pretitle="Administration"
-          title="Marketplace"
-          description="Catalogue, submissions, and reports."
+          title="Registry"
+          description="Every item in every state, suggestions, reports, and categories."
         />
         <div className="flex items-center justify-center gap-2 py-24 text-muted-foreground" aria-busy>
           <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-          <span className="text-sm">Loading marketplace…</span>
+          <span className="text-sm">Loading the registry…</span>
         </div>
       </>
     );
@@ -210,9 +220,14 @@ export function AdminMarketplacePage() {
       <div className="space-y-6">
         <PageHeader
           pretitle="Administration"
-          title="Marketplace"
-          description="Catalogue, submissions, and reports."
+          title="Registry"
+          description="Every item in every state, suggestions, reports, and categories."
           actions={
+            <div className="flex flex-wrap items-center gap-2">
+            <Link href="/admin/marketplace/new" className={buttonVariants({ size: "sm" })}>
+              <Plus className="size-4" aria-hidden="true" />
+              New item
+            </Link>
             <Button
               size="sm"
               variant="outline"
@@ -234,6 +249,7 @@ export function AdminMarketplacePage() {
               )}
               Rescan ungraded
             </Button>
+            </div>
           }
         />
 
@@ -245,11 +261,11 @@ export function AdminMarketplacePage() {
             animate={{ opacity: 1, y: 0 }}
             transition={spring.moderate}
           >
-            <MetricCard label="Listings" value={String(summary.total)} />
+            <MetricCard label="Items" value={String(summary.total)} detail={`${summary.statuses.published ?? 0} published`} />
             <MetricCard
-              label="Unscanned"
+              label="Ungraded servers"
               value={String(summary.unscanned)}
-              detail="No security evidence"
+              detail="MCP servers with no grade"
             />
             <MetricCard
               label="Stale scans"
@@ -281,46 +297,7 @@ export function AdminMarketplacePage() {
 
         {/* Top row: Add server + quick stats side-by-side on wider screens */}
         <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
-          <Panel>
-            <PanelHeader>
-              <PanelTitle>Add a server</PanelTitle>
-            </PanelHeader>
-            <PanelBody>
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="min-w-[280px] flex-1">
-                  <Input
-                    value={newUrl}
-                    onChange={(event) => setNewUrl(event.target.value)}
-                    placeholder="https://github.com/owner/repo"
-                    type="url"
-                    aria-label="GitHub repository URL to add"
-                  />
-                </div>
-                <Button
-                  disabled={!newUrl.trim().startsWith("https://") || busyId === "new"}
-                  onClick={() =>
-                    void act(
-                      "new",
-                      () => marketplaceAdminApi.create({ source_url: newUrl.trim() }),
-                      () => {
-                        setNewUrl("");
-                        return "Added. Scan it before publishing.";
-                      },
-                    )
-                  }
-                >
-                  {busyId === "new" ? (
-                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                  ) : null}
-                  Add
-                </Button>
-              </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                Runs the same URL validation a public submission does. Created
-                for review, never published straight away.
-              </p>
-            </PanelBody>
-          </Panel>
+          <CategoryManager onChanged={() => setReloadToken((n) => n + 1)} />
 
           {summary ? (
             <Panel className="lg:min-w-[200px]">
@@ -329,7 +306,7 @@ export function AdminMarketplacePage() {
               </PanelHeader>
               <PanelBody className="flex flex-col gap-3">
                 <div className="flex items-center justify-between gap-4">
-                  <span className="text-sm text-muted-foreground">Pending submissions</span>
+                  <span className="text-sm text-muted-foreground">Pending suggestions</span>
                   <span className="text-sm font-semibold tabular-nums">{summary.pending_submissions}</span>
                 </div>
                 <div className="flex items-center justify-between gap-4">
@@ -344,8 +321,8 @@ export function AdminMarketplacePage() {
         {/* Catalogue */}
         <Panel>
           <PanelHeader className="flex-wrap gap-y-3">
-            <PanelTitle>Catalogue</PanelTitle>
-            {/* Filter/search bar — kept in the panel header so it scrolls with the panel */}
+            <PanelTitle>Items</PanelTitle>
+            {/* Filter/search bar, kept in the panel header so it scrolls with the panel */}
             <div className="ms-auto flex flex-wrap items-center gap-2">
               {/* Search */}
               <div className="relative">
@@ -358,9 +335,22 @@ export function AdminMarketplacePage() {
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search by title"
                   className="pl-8 w-[180px]"
-                  aria-label="Search listings by title"
+                  aria-label="Search items by title"
                 />
               </div>
+              <Select
+                value={typeFilter}
+                onChange={(e) => { setTypeFilter(e.target.value); setPage(0); }}
+                aria-label="Filter by type"
+                className="w-[150px]"
+              >
+                <option value="">Any type</option>
+                {ITEM_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {ITEM_TYPE_LABELS[type].one}
+                  </option>
+                ))}
+              </Select>
               <Select
                 value={statusFilter}
                 onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
@@ -368,7 +358,7 @@ export function AdminMarketplacePage() {
                 className="w-[140px]"
               >
                 <option value="">Any status</option>
-                {["published", "review", "suspended", "rejected", "draft"].map((s) => (
+                {["published", "draft", "review", "suspended", "rejected", "archived"].map((s) => (
                   <option key={s} value={s}>
                     {s.charAt(0).toUpperCase() + s.slice(1)}
                   </option>
@@ -381,7 +371,7 @@ export function AdminMarketplacePage() {
                 className="w-[120px]"
               >
                 <option value="">Any grade</option>
-                {["A", "B", "C", "D"].map((g) => (
+                {["A", "B", "C", "D", "F"].map((g) => (
                   <option key={g} value={g}>
                     Grade {g}
                   </option>
@@ -393,7 +383,7 @@ export function AdminMarketplacePage() {
           <PanelBody className="p-0">
             {rows.length === 0 ? (
               <div className="px-5 py-4">
-                <EmptyState title="No listings match" body="Try clearing the filters." />
+                <EmptyState title="No items match" body="Try clearing the filters, or create a new item." />
               </div>
             ) : (
               <>
@@ -417,11 +407,12 @@ export function AdminMarketplacePage() {
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-2">
                                 <Link
-                                  href={`/marketplace/${row.slug}`}
+                                  href={`/admin/marketplace/${row.id}`}
                                   className="truncate text-sm font-medium hover:underline"
                                 >
                                   {row.title}
                                 </Link>
+                                <TypeBadge type={row.item_type ?? "mcp_server"} />
                                 <span
                                   className={`inline-flex items-center rounded-md border px-1.5 py-0 text-[11px] font-medium ${statusClass}`}
                                 >
@@ -443,9 +434,12 @@ export function AdminMarketplacePage() {
                                   {row.security.risk_score !== null ? ` · risk ${row.security.risk_score}` : ""}
                                 </span>
                               ) : (
-                                <span className="text-xs text-muted-foreground">unscanned</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {row.security.state === "not_applicable" ? "not scanned" : "no grade"}
+                                </span>
                               )}
 
+                              {(row.item_type ?? "mcp_server") === "mcp_server" ? (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -471,8 +465,24 @@ export function AdminMarketplacePage() {
                                 )}
                                 Rescan
                               </Button>
+                              ) : null}
 
-                              {row.status === "published" ? (
+                              {row.status === "archived" ? (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={busyId === row.id}
+                                  onClick={() =>
+                                    void act(
+                                      row.id,
+                                      () => marketplaceAdminApi.setStatus(row.id, "draft", "restored"),
+                                      () => "Restored to draft.",
+                                    )
+                                  }
+                                >
+                                  Restore
+                                </Button>
+                              ) : row.status === "published" ? (
                                 <Button
                                   size="sm"
                                   variant="ghost"
@@ -483,14 +493,14 @@ export function AdminMarketplacePage() {
                                       () =>
                                         marketplaceAdminApi.setStatus(
                                           row.id,
-                                          "suspended",
-                                          "suspended by an administrator",
+                                          "draft",
+                                          "unpublished by an administrator",
                                         ),
-                                      () => "Suspended.",
+                                      () => "Unpublished. It is a draft again.",
                                     )
                                   }
                                 >
-                                  Suspend
+                                  Unpublish
                                 </Button>
                               ) : (
                                 <Button
@@ -508,6 +518,24 @@ export function AdminMarketplacePage() {
                                   Publish
                                 </Button>
                               )}
+
+                              {row.status !== "archived" ? (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={busyId === row.id}
+                                  aria-label={`Archive ${row.title}`}
+                                  onClick={() =>
+                                    void act(
+                                      row.id,
+                                      () => marketplaceAdminApi.setStatus(row.id, "archived", "archived"),
+                                      () => "Archived.",
+                                    )
+                                  }
+                                >
+                                  Archive
+                                </Button>
+                              ) : null}
                             </div>
                           </motion.div>
                         );
@@ -555,7 +583,7 @@ export function AdminMarketplacePage() {
           {/* Submissions */}
           <Panel>
             <PanelHeader>
-              <PanelTitle>Submissions</PanelTitle>
+              <PanelTitle>Suggestions</PanelTitle>
               {submissions.length > 0 ? (
                 <Badge variant="secondary" className="ms-auto">
                   {submissions.length} waiting
@@ -565,7 +593,7 @@ export function AdminMarketplacePage() {
             <PanelBody className="p-0">
               {submissions.length === 0 ? (
                 <div className="px-5 py-4">
-                  <EmptyState title="Nothing waiting" body="Submitted servers appear here." />
+                  <EmptyState title="Nothing waiting" body="Items users suggest appear here." />
                 </div>
               ) : (
                 <ScrollArea viewportClassName="max-h-[360px] overflow-y-auto scroll-fade">
@@ -585,14 +613,17 @@ export function AdminMarketplacePage() {
                             </p>
                             <p className="truncate text-xs text-muted-foreground">
                               {String(submission.source_url)}{" "}
-                              {hasGrade ? `· Grade ${String(listing!.current_trust_grade)}` : "· not scanned"}
+                              {hasGrade ? `· Grade ${String(listing!.current_trust_grade)}` : "· no grade yet"}
                             </p>
                           </div>
                           <div className="flex shrink-0 gap-2">
+                            {/* Not pre-checked here: the publish gate on the server is
+                                the one definition of "may be published", and it says
+                                why when it refuses. An MCP server must be scanned; it
+                                need not be graded. */}
                             <Button
                               size="sm"
-                              disabled={busyId === id || !hasGrade}
-                              title={hasGrade ? undefined : "Scan this server before approving it"}
+                              disabled={busyId === id}
                               onClick={() =>
                                 void act(
                                   id,
@@ -619,7 +650,7 @@ export function AdminMarketplacePage() {
                                     marketplaceAdminApi.decideSubmission(
                                       id,
                                       "rejected",
-                                      "did not meet the marketplace criteria",
+                                      "did not meet the registry's criteria",
                                     ),
                                   () => "Rejected.",
                                 )

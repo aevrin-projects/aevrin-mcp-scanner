@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 export { MarketplacePage as default } from "@/views/marketplace";
 
 export const metadata: Metadata = {
-  title: "MCP Marketplace: Aevrin",
+  title: "Aevrin Registry",
   description:
-    "Browse MCP servers from the official registry, each with an Aevrin security grade, its source, and its popularity shown separately.",
+    "MCP servers, skills, prompts, templates and more, curated by Aevrin. MCP servers carry an Aevrin security grade; every item is usable by your agent through Aevrin MCP.",
 };

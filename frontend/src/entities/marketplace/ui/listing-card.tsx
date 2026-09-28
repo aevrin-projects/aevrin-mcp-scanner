@@ -2,20 +2,35 @@ import Link from "next/link";
 import { Star } from "lucide-react";
 
 import { Badge } from "@/shared/ui/badge";
-import { PRICE_LABELS, type Listing } from "../model/types";
+import { PRICE_LABELS, type Listing, type ScanState } from "../model/types";
 import { GradeBadge } from "./grade-badge";
 import { ListingLogo } from "./listing-logo";
 import { PopularitySignals } from "./popularity-signals";
+import { TypeBadge } from "./type-badge";
 
 /**
- * One server, as a browse card.
+ * One registry item, as a browse card.
  *
  * The layout puts the security grade and the popularity signals in visually
- * distinct regions — grade top-right in its own bordered tile, popularity
+ * distinct regions: grade top-right in its own bordered tile, popularity
  * along the footer in muted text. That separation is doing real work: a
  * reader scanning a grid should never come away with the impression that a
  * high star count is the reason a card looks reassuring.
  */
+
+// The footer's word for every state except `complete`, which needs none.
+// A map rather than a chain of ternaries: the chain ended in "Partial scan"
+// for anything it did not name, which called an ungraded server and a prompt
+// a partial scan - false for both.
+const STATE_PILL: Record<Exclude<ScanState, "complete">, { text: string; tone: "warn" | "muted" }> = {
+  partial: { text: "Partial scan", tone: "warn" },
+  outdated: { text: "Stale scan", tone: "warn" },
+  ungraded: { text: "Not graded", tone: "warn" },
+  unscanned: { text: "Unscanned", tone: "warn" },
+  // Neutral, not a warning: a prompt without a scan is not a server that
+  // failed one. It is labelled so nobody mistakes the absence for a pass.
+  not_applicable: { text: "Not scanned", tone: "muted" },
+};
 
 export function ListingCard({ listing }: { listing: Listing }) {
   const { security, popularity } = listing;
@@ -66,14 +81,17 @@ export function ListingCard({ listing }: { listing: Listing }) {
       </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-1.5">
+        <TypeBadge type={listing.itemType} />
         {listing.categories.slice(0, 2).map((category) => (
           <Badge key={category} variant="secondary" className="text-[11px]">
             {category.replace(/-/g, " ")}
           </Badge>
         ))}
-        <Badge variant="outline" className="text-[11px]">
-          {PRICE_LABELS[listing.priceType]}
-        </Badge>
+        {listing.itemType === "mcp_server" ? (
+          <Badge variant="outline" className="text-[11px]">
+            {PRICE_LABELS[listing.priceType]}
+          </Badge>
+        ) : null}
         {listing.license ? (
           <Badge variant="outline" className="text-[11px]">
             {listing.license}
@@ -88,13 +106,15 @@ export function ListingCard({ listing }: { listing: Listing }) {
       <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
         <PopularitySignals popularity={popularity} />
         {security.state !== "complete" ? (
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-severity-medium/25 bg-severity-medium/10 px-2 py-0.5 text-[11px] font-medium text-severity-medium">
+          <span
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+              STATE_PILL[security.state].tone === "warn"
+                ? "border-severity-medium/25 bg-severity-medium/10 text-severity-medium"
+                : "border-border bg-muted text-muted-foreground"
+            }`}
+          >
             <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-            {security.state === "unscanned"
-              ? "Unscanned"
-              : security.state === "outdated"
-                ? "Stale scan"
-                : "Partial scan"}
+            {STATE_PILL[security.state].text}
           </span>
         ) : null}
       </div>
