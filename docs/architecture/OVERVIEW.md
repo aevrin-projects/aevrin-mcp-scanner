@@ -40,6 +40,9 @@
         - aevrin CLI (PyPI + npm wrapper)
         - Claude Code PreToolUse hook (bin/aevrin_hook.py, stdlib-only)
         - CI (`aevrin scan` in a pipeline)
+        - AI agents over MCP at api.mcp.aevrin.net/mcp: Caddy routes /mcp
+          to a separate registry-mcp container on the same host, which
+          reads the API's public registry routes (ADR-047)
 ```
 
 The API is a single container with no hard dependency on one cloud vendor -
@@ -91,7 +94,8 @@ hook block message all came from the exact same `Finding` object.
 |---|---|
 | Scanning engine | `backend/scanner-core` |
 | Scan orchestration, quota, triage | `backend/api/aevrin_api/services/{scan,quota,triage}.py` |
-| Marketplace ingestion, ranking, grading | `backend/api/aevrin_api/services/marketplace/` |
+| Registry (formerly marketplace): items, ingestion, ranking, grading, curation | `backend/api/aevrin_api/services/marketplace/` |
+| Registry MCP tools (hosted and stdio) | `backend/cli/aevrin_cli/registry_tools.py`, `registry_mcp.py` |
 | AI explanations, provider credentials, model catalogue | `backend/api/aevrin_api/services/ai/` |
 | Billing | `backend/api/aevrin_api/services/reports/` (report generation), `controllers/billing_controller.py`, `integrations/razorpay_client.py` |
 | Agent (Claude Code / Codex) discovery and posture | `backend/scanner-core/aevrin_scanner_core/agents/` |

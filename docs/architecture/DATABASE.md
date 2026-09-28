@@ -1,7 +1,7 @@
 # Database
 
 Supabase (Postgres + Auth). Migrations live in
-`backend/infra/migrations/`, numbered `0001`–`0047` sequentially - read
+`backend/infra/migrations/`, numbered `0001`-`0048` sequentially - read
 them in order to see how the schema arrived at its current shape; never
 edit a historical migration to make current schema prettier.
 
@@ -151,6 +151,24 @@ structural reasoning (why security lives on the *version*, never the
 listing; the `current_*` denormalized projection on `mcp_listings` and who
 is allowed to write it).
 
+**Aevrin Registry** (`0048_registry.sql`)
+Extends `mcp_listings` into the registry table for every item type rather
+than adding a parallel one (`DECISIONS.md` ADR-045): `item_type` (check
+over the 19 types in `services/marketplace/items.py`), `author`,
+`repository_ref`, `technologies`/`capabilities`/`use_cases` (`text[]`, GIN),
+`content jsonb` (validated by `items.ItemContent`), and `archived` added to
+the status check. `search_vector` is dropped and re-added over the new
+fields. New `mcp_listing_links (listing_id, related_id, relation)`, both
+foreign keys `on delete cascade`, readable where its source item is.
+Seeds five categories for non-server types. Data changes, each guarded so
+a re-run is a no-op: published, ungraded registry-synced listings become
+`draft`; the retired transient `scanning` status is resolved to
+`published` (if graded) or `draft`; `current_*` is cleared where no
+current-engine scan backs it; `org_mcp_policies.grade_actions` gains
+`"F": "block"` in its default and every row. `schema_check` requires
+`mcp_listings.item_type` and `content`, so a build that needs 0048 rolls
+back if it is deployed first.
+
 **AI providers** (`0038_ai_providers.sql`)
 `ai_provider_models`, `ai_provider_sync_state`, `ai_provider_model_changes`,
 `ai_provider_credentials` (Fernet-encrypted, **no select policy at all** -
@@ -180,9 +198,12 @@ percentage entirely.
   by a `check` constraint on `mcp_listings`, the pattern to follow for any
   future private/public split rather than trusting application code alone.
 - **Full-text search as a generated column**: `mcp_listings.search_vector`
-  is `tsvector generated always as (...) stored`, weighted (`A`/`B`/`C`)
-  across title, publisher, description, tags, categories - not maintained
-  by application code or a trigger.
+  is `tsvector generated always as (...) stored`, weighted (`A`-`D`)
+  across title, publisher, author, description, item type, tags,
+  categories, technologies, capabilities, use cases and the `content`
+  instructions and usage text - not maintained by application code or a
+  trigger. Changing what it covers is a drop and re-add in one migration
+  (as `0048` does); it cannot drift from the row.
 - **Counters via RPC or trigger, not read-modify-write**: view counts go
   through `increment_listing_views(uuid)`; favorite counts are kept by a
   `sync_favorite_count()` trigger. Both exist because a read-then-write in

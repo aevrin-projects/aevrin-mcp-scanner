@@ -36,6 +36,18 @@ frontend/CI-only variables.
 | `SCANS_PER_USER_PER_HOUR` / `SCANS_PER_IP_PER_HOUR` / `CLI_UPLOADS_PER_KEY_PER_HOUR` | no (sane defaults) | no | Rate limits. |
 | `PORT` | no (default `8000`) | no | Listen port. |
 
+## Registry MCP container (`backend/cli/aevrin_cli/registry_mcp.py`)
+
+Set by `backend/deploy/remote-deploy.sh` on the `registry-mcp` container.
+None is secret: the container holds no credential at all.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AEVRIN_API_URL` | `http://api:8000` | Where the registry tools read from - the API over the internal Docker network, never the public hostname. |
+| `AEVRIN_MCP_ALLOWED_HOSTS` | `api.mcp.aevrin.net` | Comma-separated `Host` values the endpoint accepts (plus `localhost`/`127.0.0.1`); any other gets `421`. DNS-rebinding protection. |
+| `AEVRIN_WEB_URL` | `https://app.mcp.aevrin.net` | Base for the item links in tool results, and the allowed browser `Origin`. |
+| `PORT` | `8080` | Listen port inside the container. |
+
 ## Frontend (`frontend`, build-time and runtime)
 
 | Variable | Where used | Secret |

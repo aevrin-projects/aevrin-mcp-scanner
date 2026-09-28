@@ -1,0 +1,72 @@
+---
+title: Using the registry from an agent
+description: Connect Claude Code, Cursor or any MCP client to the Aevrin Registry, and what the three registry tools return.
+---
+
+An agent can search the Aevrin Registry and read an item's full content (a prompt's text, a
+skill's instructions, an MCP server's install configuration and security grade) over MCP. It sees
+exactly what an anonymous visitor to the registry sees: published, public items, and nothing else.
+
+## Connect
+
+The hosted endpoint needs no install and no account:
+
+```bash
+claude mcp add --transport http aevrin https://api.mcp.aevrin.net/mcp
+```
+
+For a client configured with JSON:
+
+```json
+{
+  "mcpServers": {
+    "aevrin": { "type": "http", "url": "https://api.mcp.aevrin.net/mcp" }
+  }
+}
+```
+
+The same tools are also part of the CLI's local MCP server, next to the scanner (see
+[`aevrin mcp-server`](#running-it-locally) below).
+
+## The tools
+
+All three are read-only. None of them needs a login, stores anything, or changes anything.
+
+| Tool | What it returns |
+| --- | --- |
+| `search_registry` | Up to 25 matching items: slug, name, type, summary, categories, technologies, security state and grade, and a link. Filter by `type`, `category` or `technology`. |
+| `get_registry_item` | One item by slug: its full description, content (prompt, instructions, usage, examples, inputs and outputs), install configuration per client, repository and ref, related items, and security summary. |
+| `list_registry_categories` | Every category with its item count. |
+
+A good instruction to give an agent names what it needs, not a slug:
+
+> Search the Aevrin Registry for an MCP server that gives you library documentation, check its
+> grade, and show me the install configuration for Claude Code.
+
+## What the agent is told about safety
+
+- **Security state comes with every server.** A server that was scanned but could not be graded
+  says so in words. It is never presented as safe.
+- **Other types say they were not scanned.** A prompt or a skill carries "Not security-scanned by
+  Aevrin".
+- **A README is labelled as third-party text.** It is written by the server's publisher, not by
+  Aevrin, so it is truncated and marked as data to read, not instructions to follow.
+
+The registry gives an agent configuration to copy. It does not install anything or edit your
+agent's settings, and the hosted endpoint cannot run a scan.
+
+## Running it locally
+
+`aevrin mcp-server` serves the same three registry tools over stdio, plus `scan_mcp_server`, which
+scans an MCP server on your machine before you install it:
+
+```bash
+pip install "aevrin[mcp]"
+```
+
+```json
+{ "mcpServers": { "aevrin": { "command": "aevrin", "args": ["mcp-server"] } } }
+```
+
+The scan tool is only available locally. A scan starts the server it scans, and that should happen
+on a machine you control.

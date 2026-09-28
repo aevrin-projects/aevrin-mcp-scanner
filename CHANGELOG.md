@@ -20,8 +20,65 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ## [Unreleased]
 
+### Added
+
+- **The Aevrin Registry.** The MCP marketplace is now an admin-curated
+  registry of every kind of reusable capability: MCP servers, skills,
+  prompts, agents, templates, repositories and 13 more types (migration
+  `0048_registry.sql`, `DECISIONS.md` ADR-045). Each item has structured
+  content (prompt text, instructions, usage, examples, inputs and outputs),
+  technologies, capabilities, use cases, and links to related items. Browse
+  gains type chips, Featured / Most viewed this month / Recently added rails,
+  and a type-aware detail page; only MCP servers show a grade, and every other
+  type says "Not security-scanned by Aevrin".
+- **Registry administration.** `/admin/marketplace/new` and
+  `/admin/marketplace/[id]`: create an item by hand or from a GitHub URL, edit
+  it, preview it, relate it, publish, unpublish, archive, restore, delete
+  (typed slug confirmation), refresh metadata, and manage categories. New
+  routes: `GET`/`DELETE /admin/marketplace/mcp/{id}`,
+  `PUT /admin/marketplace/mcp/{id}/links`,
+  `POST /admin/marketplace/mcp/{id}/refresh-metadata`,
+  `GET`/`PUT /admin/marketplace/categories`,
+  `DELETE /admin/marketplace/categories/{slug}`; public
+  `GET /marketplace/types`, and `type`, `technology`, `capability` filters and
+  `sort=trending` on `GET /marketplace/mcp`. Every admin registry action is
+  written to the admin audit log.
+- **Agents can query the registry over MCP.** `search_registry`,
+  `get_registry_item` and `list_registry_categories`, read-only, served at
+  `https://api.mcp.aevrin.net/mcp` (a new `registry-mcp` container, ADR-047)
+  and by `aevrin mcp-server` next to `scan_mcp_server`. The hosted endpoint
+  never offers the scan tool; the deploy fails if it does.
+
+### Changed
+
+- **Only an administrator publishes** (ADR-048). The weekly registry sync now
+  inserts new servers as drafts, and a finished scan no longer changes an
+  item's status. Migration 0048 returns published, ungraded registry-synced
+  listings to draft. Edits can no longer change `status`; it changes only
+  through the status route and its publish gate.
+- **An MCP server can be published once scanned, without a grade** (ADR-046).
+  A server that needs credentials to start is shown as "Scanned, not graded",
+  never as clean. The scan must be by the current engine and must have
+  completed or come back incomplete; a failed run does not count.
+- A server with a hosted endpoint and no repository is now scanned as a live
+  MCP server instead of being refused.
+- The backend deploy installs the repository's Caddyfile into the running
+  Caddy (validated, never dropping a live site, restored on a failed reload)
+  instead of only reloading whatever Caddy had.
+- `backend/infra/apply-migration.ps1 <path-to-migration>` applies one
+  migration file through the Supabase management API, refusing any path
+  outside `backend/infra/migrations/`.
+
 ### Fixed
 
+- **An F-graded server fell through to "require approval" in org install
+  policies**, because `grade_actions` had no F entry. F now defaults to
+  `block`, in the column default and in every existing policy.
+- **An F-graded server carried the mildest badges of any grade** ("Aevrin
+  scanned" and nothing else). It now carries "Do not use".
+- **A scan from the previous engine made a listing read "scanned".** 0047
+  withdrew those grades but left `current_version` in place; 0048 clears it
+  where no current-engine scan backs it.
 - **Every scan that stopped early was reported as a server with no tools.** The
   incomplete summary picked its reason from `tools_discovered == 0`, which is
   true of every early stop: a scan that never identified a server obviously

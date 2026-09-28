@@ -6,7 +6,8 @@ CLI. Each moves on its own trigger; there is no single "deploy Aevrin" step.
 ## Backend: AWS EC2, Docker, Caddy
 
 `.github/workflows/deploy-backend.yml` rebuilds and restarts the API on an
-EC2 instance whenever `backend/api/**`, `backend/scanner-core/**`, or
+EC2 instance whenever `backend/api/**`, `backend/scanner-core/**`,
+`backend/cli/**` (the registry MCP container is built from it), or
 `backend/deploy/**` changes on `master`. One deploy at a time
 (`cancel-in-progress: false` - the window between `docker rm` and the new
 container passing its health check is the only downtime, and two
@@ -36,12 +37,29 @@ Sequence:
    image, starts the new container, polls the image's own `HEALTHCHECK` for
    up to three minutes, and **rolls back to the previous image tag** if it
    never turns healthy.
-4. `backend/deploy/Caddyfile` reverse-proxies `api.mcp.aevrin.net` to the
-   container and is reloaded (not restarted) after a deploy, since a
-   recreated container gets a new Docker-network address Caddy may still
-   be holding stale.
-5. The workflow polls `https://api.mcp.aevrin.net/health` through
-   Cloudflare for up to two minutes before declaring success.
+4. The same script builds `backend/cli/Dockerfile.registry-mcp` and runs
+   it as the `registry-mcp` container on the `aevrin` network (non-root,
+   `AEVRIN_API_URL=http://api:8000`, port 8080, not published to the host).
+   Its `HEALTHCHECK` calls `tools/list` and requires exactly the three
+   registry tools. It gets the same two-minute health wait and rollback to
+   `aevrin-registry-mcp:previous` as the API; a failure there leaves the API
+   deployed but makes the run exit non-zero, so it is never mistaken for a
+   clean deploy.
+5. `backend/deploy/Caddyfile` routes `api.mcp.aevrin.net`: `/mcp` and
+   `/mcp/*` to `registry-mcp:8080`, everything else to `api:8000`. The
+   script **installs** it into the running `caddy` container (before this,
+   a deploy only reloaded whatever Caddy already had, so a routing change in
+   the repository never reached production). Installing is guarded: the
+   file must pass `caddy validate`; it must not drop any site the live
+   config serves (a site defined only on the host would otherwise vanish);
+   the live file is kept as `Caddyfile.prev` and restored if the reload
+   fails. Any refusal leaves the running config as it was, reloads it so
+   the recreated containers' addresses are re-resolved, and fails the run.
+6. The workflow polls `https://api.mcp.aevrin.net/health` through
+   Cloudflare for up to two minutes, then sends `tools/list` to
+   `https://api.mcp.aevrin.net/mcp` and fails unless the tools are exactly
+   `get_registry_item`, `list_registry_categories`, `search_registry` - so
+   a scan tool appearing on the hosted endpoint fails the deploy.
 
 **Two settings must match the real deployment topology**:
 
@@ -250,7 +268,25 @@ from application code, and the first is load-bearing for tenant isolation:
    columns and widen the constraint before the deploy, drop and narrow after -
    which removes the window entirely.
 
-4. **Disk headroom for npm caches.** Each scan pulls a package tree into
+4. **Migration 0048 applied *before* the deploy that needs it.** Unlike
+   0047 it is expand-only for schema (new columns, a new table, a widened
+   status check that still accepts `scanning`), so the old image runs
+   against it unharmed, and `schema_check` makes the new image roll back
+   if it is missing (`item_type`, `content`). Apply it with:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\backend\infra\apply-migration.ps1 .\backend\infra\migrations\0048_registry.sql
+   ```
+
+   Its data changes (unscanned registry listings to `draft`, the `scanning`
+   status resolved) describe the rows at the moment it runs. If a registry
+   sync or a marketplace scan ran on the old image between the migration
+   and the deploy, re-run 0048 once straight after the deploy - every
+   statement is guarded, so a re-run changes only rows the old image wrote
+   - and do it **before** any admin publishes an ungraded server, which a
+   re-run would otherwise return to draft.
+
+5. **Disk headroom for npm caches.** Each scan pulls a package tree into
    tmpfs; the ceilings are set in `mcp/tooltrust.py`.
 
 ## CI (`.github/workflows/ci.yml`)

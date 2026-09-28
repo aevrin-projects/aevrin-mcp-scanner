@@ -57,8 +57,9 @@ and path inventory: [`../reference/API.md`](../reference/API.md).
 Top level: `admin_auth`, `permissions`, `quota`, `scan`, `source_upload`,
 `targets`, `triage`. Subpackages:
 
-- **`services/marketplace/`** - `normalize`, `ranking`, `grading`,
-  `catalog`, `sync`, `scanning`, `submissions`, `admin`. See
+- **`services/marketplace/`** - the Aevrin Registry: `items` (item
+  types, content schemas, the publish gate), `normalize`, `ranking`,
+  `grading`, `catalog`, `sync`, `scanning`, `submissions`, `admin`. See
   [`../features/MCP_MARKETPLACE.md`](../features/MCP_MARKETPLACE.md).
 - **`services/ai/`** - `evidence`, `credentials`, `explain`,
   `provider_sync`. See

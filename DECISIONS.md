@@ -1871,3 +1871,121 @@ think to perform.
 
 Note the ordering this creates: the migration must be applied *before* the next
 deploy of a build that needs it, or that deploy will correctly roll back.
+
+## ADR-045: The registry is `mcp_listings` with an `item_type`, not a second table
+
+**Status:** accepted (2026-09-29)
+
+The marketplace became the Aevrin Registry: an admin-curated catalogue of
+every kind of reusable capability (MCP servers, skills, prompts, agents,
+templates, repositories and more), for people and for agents.
+
+The MCP-server marketplace already had everything a registry item needs:
+versions, an events timeline, favourites, categories, visibility and org
+tenancy with RLS, a generated full-text index, admin routes, and submission
+review. A parallel `registry_items` table would have duplicated all of it,
+and every one of those features would then exist twice and drift. So
+migration 0048 adds `item_type` (19 types, a check constraint), a few text
+columns and `content jsonb` to `mcp_listings`, and a link table.
+
+The names stay: `mcp_listings`, `/marketplace/mcp`, `services/marketplace/`.
+Renaming would touch every query, route, client and test for no change in
+behaviour, and the old paths are already called by shipped clients. The
+naming debt is written down in `docs/reference/API.md` instead.
+
+Type-specific rules (what a prompt needs, what a server needs) live in one
+module, `services/marketplace/items.py`, so the editor, the publish gate and
+suggestion approval cannot each grow their own idea of "complete".
+
+The search index stays the generated `search_vector` column, extended to the
+new fields. It is derived from the row by Postgres, so it cannot drift or
+become a second source of truth, and "re-index" is not an operation. Vector
+search was not added: nothing in the stack supports it, and a pilot of a few
+hundred users does not need it.
+
+## ADR-046: An MCP server is published once scanned, not once graded
+
+**Status:** accepted (2026-09-29)
+
+The publish gate required a grade. A server that needs a credential to start
+(Apify, GitHub, Slack and many more) cannot be enumerated in a scan sandbox
+that is given no environment on purpose, so it can never earn a grade, and so
+it could never be published. The registry would have been limited to servers
+that need nothing, which is not the same as servers that are safe.
+
+The gate is now: the server's current version has a scan **by the current
+engine** (`scans.scanner_name` set) whose status is `completed` or
+`incomplete`. A `failed` run is a broken worker, not an assessment, and a scan
+from the previous engine does not count. A server that passes with no grade
+is shown as "Scanned, not graded" with no letter, the `REQUIRE_APPROVAL`
+policy, and install warnings that say to treat it as unknown. No path marks
+it clean.
+
+This is a relaxation and is recorded as one (`docs/security/SECURITY.md`).
+What it keeps is the property that mattered: nothing is published that Aevrin
+has not looked at. Other item types have no scanner, are published without a
+scan, and are labelled "Not security-scanned by Aevrin" rather than left
+without a security statement, which would read as a clean one.
+
+The same change adds the grade F to org install policies, defaulting to
+`block`. Before, `grade_actions` had no F entry, so the worst grade fell
+through to `require_approval`.
+
+## ADR-047: The hosted registry MCP endpoint is a separate container behind the same Caddy
+
+**Status:** accepted (2026-09-29)
+
+Agents reach the registry over MCP at `https://api.mcp.aevrin.net/mcp`.
+
+- **One tool module, two servers.** `aevrin_cli/registry_tools.py` defines
+  three read-only tools. `aevrin mcp-server` (stdio) registers them beside
+  `scan_mcp_server`; `registry_mcp.py` (streamable HTTP) registers only them.
+  The hosted server never offers a scan, because a scan launches the target
+  on the machine that runs it. A test and the deploy's `tools/list` check both
+  fail if a fourth tool appears.
+- **An HTTP client of the public API, not a second data path.** The tools
+  call the anonymous `/marketplace/*` routes, so an agent sees exactly what an
+  anonymous visitor sees, and there is no second query layer to keep in step
+  with the first.
+- **A sibling container, not a FastAPI mount.** MCP protocol handling (its
+  sessions, its transport, its SDK's exception handling) stays out of the
+  API's request path, and a fault in one cannot take the other down. It runs
+  on the existing EC2 host and Docker network behind the existing Caddy, so it
+  needs no new DNS name, certificate or cloud service; Caddy routes `/mcp` to
+  it and everything else to the API.
+- **The deploy installs the Caddyfile.** Until now the deploy only reloaded
+  whatever Caddy had, so a routing change in the repository never reached
+  production. It now installs the repository's Caddyfile, guarded by
+  `caddy validate`, a refusal to drop any site the live config serves, and a
+  restore of the previous file if the reload fails.
+
+Rate limiting beyond Cloudflare's is not built for the pilot and is recorded
+as a known gap.
+
+## ADR-048: Only an administrator publishes
+
+**Status:** accepted (2026-09-29)
+
+Two automated paths published registry items with no admin decision:
+
+- the weekly registry sync inserted every official-registry server as
+  `published`, unscanned, which put hundreds of items nobody had looked at
+  into the public catalogue;
+- a finished scan set the listing to `published` unconditionally, whatever it
+  had been, so scanning a draft or a suggestion under review published it.
+
+Now the sync inserts `draft` and, for an item an admin has moved out of
+draft, updates only upstream-owned fields. A scan never changes status; scan
+progress lives on the version (`scan_status`), and the transient `scanning`
+listing status is no longer written. `status` is removed from the edit
+allow-list, so it changes only through the status route and its publish gate.
+Migration 0048 moves published, ungraded registry-synced listings back to
+`draft`; graded ones stay, because a scan and an admin action put them there.
+
+Every admin registry action now writes `admin_audit_log`. Delete writes its
+record before deleting, with a snapshot, because the item's own event
+timeline is removed with it.
+
+Suggestions from users are kept, relabelled "Suggest an item": they land in
+review and reach the public registry only through an admin's approval, which
+runs the same publish gate.

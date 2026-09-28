@@ -144,6 +144,19 @@ general-purpose SAST pass in the product standing in for it here.
   bounded and inside a data field. **These tests must never be deleted or
   weakened to make a refactor pass** - they encode the product's actual
   security promises, not incidental behavior.
+  `services/test_registry.py` and `routes/test_registry_routes.py` are the
+  registry's equivalent (ADR-045 to ADR-048): the publish gate per item
+  type (an unscanned MCP server is refused, a scanned-but-ungraded one is
+  allowed, a failed or previous-engine scan does not count), the sync
+  landing drafts and never overwriting curation, `status` and every
+  security column unreachable through an edit, delete auditing *before* it
+  deletes, links never exposing a draft target, and F blocking by default.
+  The route test walks `ROUTERS` (FastAPI keeps included routers lazy, so
+  `app.routes` would not list them) and fails if any `/admin/marketplace`
+  route lacks the `admin_identity` dependency - a new admin route cannot
+  ship unguarded by being forgotten. `services/test_marketplace_scan_dispatch.py`
+  pins that a finished scan never changes an item's status (a scan used to
+  publish whatever it scanned).
   `services/test_status_history.py` belongs in the same category: it pins the
   status feed's one load-bearing rule, that a day with no recorded checks is
   reported as `no_data` and left out of the uptime percentage rather than
@@ -190,6 +203,10 @@ general-purpose SAST pass in the product standing in for it here.
   all before this - a capability-unknown target (no `mcp_detected`, e.g. a
   live server) prints "capability could not be established", a confirmed
   `can_execute: False`/`can_write: False` target does not.
+  `test_registry_tools.py` covers the registry MCP tools against a mocked
+  API: result mapping, the untrusted-README wrapping, a foreign `Host`
+  refused with `421`, and - the one that matters most - that the hosted
+  server registers no `scan_mcp_server`.
 - **`backend/hook/tests/`** - the hook script's block/allow decision logic.
 
 ## Security testing philosophy

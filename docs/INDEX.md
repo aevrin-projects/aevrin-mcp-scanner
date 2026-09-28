@@ -58,8 +58,9 @@ order and the rules; this page is the map it points to.
   pipeline, OWASP MCP Top 10, scanner adapters, trust grading.
 - [`features/AGENT_POSTURE.md`](features/AGENT_POSTURE.md) - AI-agent
   discovery, capability/permission scoring, attack paths.
-- [`features/MCP_MARKETPLACE.md`](features/MCP_MARKETPLACE.md) - registry
-  ingestion, ranking, submissions, admin moderation.
+- [`features/MCP_MARKETPLACE.md`](features/MCP_MARKETPLACE.md) - the Aevrin Registry:
+  item types, the publish gate, ingestion, ranking, suggestions, admin
+  curation, agent access over MCP.
 - [`features/AI_REVIEW.md`](features/AI_REVIEW.md) - AI explanations:
   what the model receives, what it's structurally prevented from doing.
 - [`features/BILLING.md`](features/BILLING.md) - plans, quotas, Razorpay

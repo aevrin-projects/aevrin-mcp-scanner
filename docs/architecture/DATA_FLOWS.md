@@ -72,14 +72,15 @@ clean - this is the single most consistently enforced rule in the product
 `INCOMPLETE` always exits `3`, independent of `--fail-on`, so a broken
 scanning environment can never look like a clean CI pass).
 
-## MCP Marketplace ingestion and scanning
+## Registry ingestion, curation and scanning
 
 ```
 Weekly scheduled job (POST /scheduler/registry-sync, HMAC-token auth)
     -> integrations/mcp_registry.py pulls servers changed since the last
        successful sync (a watermark, not a queue)
-    -> services/marketplace/sync.py: new versions recorded UNSCANNED;
-       registry-owned fields patched without touching admin curation;
+    -> services/marketplace/sync.py: new servers inserted as DRAFT (never
+       published); new versions recorded UNSCANNED; for an item an admin
+       has moved out of draft, only upstream-owned fields are patched;
        GitHub/npm metadata refreshed for the stalest listings (budgeted,
        best-effort, never overwrites good data with a fetch failure);
        rankings recomputed
@@ -96,13 +97,38 @@ A listing gets scanned
        specific mcp_listing_versions row
     -> mcp_listings.current_* columns (a maintained projection) are
        updated by grading.py, and only by grading.py
+    -> the item's status is NOT changed: a scan never publishes
+```
+
+```
+An admin publishes an item (POST /admin/marketplace/mcp/{id}/status)
+    -> admin_identity dependency (admin session + TOTP)
+    -> services/marketplace/items.py publish_blockers(): validate_item()
+       for every type; for an MCP server, a completed or incomplete scan
+       of its current version by the current engine
+    -> refused: 400 with every reason; accepted: status written,
+       mcp_events status_changed, admin_audit_log registry.status.published
+```
+
+```
+An agent queries the registry
+    -> hosted: Caddy /mcp -> registry-mcp container (streamable HTTP,
+       stateless, Host header pinned) | local: aevrin mcp-server (stdio)
+    -> aevrin_cli/registry_tools.py: search_registry / get_registry_item /
+       list_registry_categories
+    -> anonymous GET /marketplace/* on the API (the same routes the public
+       pages use), so only published public items are ever returned
+    -> README truncated and labelled untrusted before it reaches the agent
 ```
 
 **Failure behavior**: if the registry is unreachable, the marketplace
 stays online with what it already has - it just stops growing until the
 next run. If GitHub is unreachable, the previously stored star count is
-kept rather than overwritten with zero. A publish is refused for an
-unscanned version; an admin can curate metadata but cannot write a grade.
+kept rather than overwritten with zero. A publish is refused for an MCP
+server whose current version has no scan; an admin can curate metadata
+but cannot write a grade. If the API is down, the registry MCP tools
+return a tool error naming that, never an empty result that reads as "no
+matches".
 See [`../features/MCP_MARKETPLACE.md`](../features/MCP_MARKETPLACE.md).
 
 ## Agent posture

@@ -98,10 +98,32 @@ running it by hand.
 { "mcpServers": { "aevrin": { "command": "aevrin", "args": ["mcp-server"] } } }
 ```
 
-It exposes one tool, `scan_mcp_server(command)`, which runs the same pipeline
+It exposes four tools. `scan_mcp_server(command)` runs the same pipeline
 as `aevrin scan mcp` and returns the same verdict - grade, risk score, policy,
 the tools it enumerated, and the findings. One scanner, one canonical result,
 whichever surface asked.
+
+The other three read the Aevrin Registry
+([`../features/MCP_MARKETPLACE.md`](../features/MCP_MARKETPLACE.md#agent-access-aevrin-mcp)):
+`search_registry(query, type, category, technology, limit)`,
+`get_registry_item(slug)` and `list_registry_categories()`. They call the
+API's public registry routes at `AEVRIN_API_URL`, need no login, and
+return only published public items. A README in a result is truncated and
+labelled as untrusted third-party text.
+
+The registry tools alone are also served at a hosted endpoint, which needs
+no install:
+
+```bash
+claude mcp add --transport http aevrin https://api.mcp.aevrin.net/mcp
+```
+
+```json
+{ "mcpServers": { "aevrin": { "type": "http", "url": "https://api.mcp.aevrin.net/mcp" } } }
+```
+
+The hosted endpoint never offers `scan_mcp_server`: a scan launches the
+target on the machine that runs it, which must be yours.
 
 The result is deliberately wordy about failure: an incomplete scan returns a
 null grade *and* a `summary` that says in plain language that nothing was
@@ -142,4 +164,6 @@ would report `cli`, and nothing would break loudly enough for anyone to notice.
 scan (raises GitHub API rate limits for OSV lookups against
 public repos it references) - unrelated to the API's own
 `GITHUB_APP_*` variables that power "Connect GitHub" on the dashboard.
+`AEVRIN_API_URL` overrides the API the CLI, including the registry tools
+in `aevrin mcp-server`, talks to (default `https://api.mcp.aevrin.net`).
 See [`ENVIRONMENT.md`](ENVIRONMENT.md).

@@ -1,23 +1,39 @@
 ---
-title: Searching the marketplace
-description: What search covers, how the filters work, and what "Recommended" actually means.
+title: Searching the registry
+description: What search covers, how the filters work, and what "Recommended" and "Most viewed this month" actually mean.
 ---
 
 ## Search
 
-The search box matches across a server's name, title, description, publisher, categories and tags.
-It handles quoted phrases and multi-word queries the way a search box is expected to.
+The search box matches an item's title first, then its publisher, author and description, then its
+type, tags, categories, technologies, capabilities and use cases, and finally the text of its
+instructions and usage. It handles quoted phrases and multi-word queries the way a search box is
+expected to.
+
+Agents search the same index through `search_registry`. See
+[Using the registry from an agent](/agents).
+
+## Type
+
+The row of type chips above the results narrows the registry to one kind of item: MCP servers,
+skills, prompts, templates and so on. Each chip shows how many published items of that type exist.
+With no type chosen and no search, the page shows three rails first: **Featured**, **Most viewed
+this month** and **Recently added**.
 
 ## Filters
 
-| Filter | What it does |
-| --- | --- |
-| Category | One of seventeen categories, inferred from the publisher's own text and correctable by an administrator |
-| Minimum grade | "Grade B or better" includes A and B. Servers with no grade are excluded, because "at least B" is a claim about evidence |
-| Pricing | Open source, free, freemium, or paid |
-| Client | Only servers that actually declare a transport the client supports |
+| Filter | Applies to | What it does |
+| --- | --- | --- |
+| Category | Every type | One of the registry's categories, inferred from the publisher's own text for synced servers and set by an administrator otherwise |
+| Minimum grade | MCP servers | "Grade B or better" includes A and B. Servers with no grade are excluded, because "at least B" is a claim about evidence |
+| Pricing | MCP servers | Open source, free, freemium, or paid |
+| Client | MCP servers | Only servers that actually declare a transport the client supports |
 
-The grade filter sits beside the category filter and has the same visual weight. A marketplace that
+The security, pricing and client filters appear once you choose **MCP servers**, because only
+servers have a grade or an install target. Agents can also filter by technology (for example
+`typescript` or `aws`) through `search_registry`.
+
+The grade filter sits beside the category filter and has the same visual weight. A registry that
 lets you narrow by "database" but not by "at least a B" has decided which of those questions
 matters more.
 
@@ -26,16 +42,20 @@ matters more.
 | Sort | Order |
 | --- | --- |
 | Recommended | The weighted ranking score, described below |
-| Security | Grade first (A before D), then score. Unscanned servers sort last |
-| Popular | GitHub stars, highest first. Servers with no star data sort last, not as zero |
-| Recently updated | By the registry's own update timestamp |
+| Security | Grade first (A before F), then score. Items with no grade sort last |
+| Popular | GitHub stars, highest first. Items with no star data sort last, not as zero |
+| Most viewed this month | Page views, among items updated in the last 30 days |
+| Recently updated | By the official registry's own update timestamp |
 | Recently added | When Aevrin first listed it |
-| A–Z | Title |
+| A to Z | Title |
+
+"Most viewed this month" is named for what it measures. It is not called "trending", because the
+registry has no signal that would justify that word.
 
 ## What "Recommended" means
 
 A fixed, inspectable formula. No model, no learned weights, nothing that cannot be explained to the
-publisher whose listing ranked third.
+publisher whose item ranked third.
 
 | Component | Weight |
 | --- | --- |
@@ -47,26 +67,24 @@ publisher whose listing ranked third.
 
 Some details worth knowing:
 
-- **Unscanned scores zero on security**, not "average". Treating no evidence as a middling result
-  would let a server outrank a scanned C by never having been examined — an incentive pointing the
-  wrong way.
+- **No grade scores zero on security**, not "average". Treating no evidence as a middling result
+  would let a server outrank a scanned C by never having been examined, which is an incentive
+  pointing the wrong way. Items of types Aevrin does not scan are ranked the same way, so they
+  never outrank a graded server on security they were not checked for.
 - **A grade earned under partial coverage counts for less** than the same letter earned under full
   coverage, because it is a weaker claim.
-- **Popularity uses the best available signal, not the sum.** Stars and downloads are each placed on
-  a logarithmic curve and the higher of the two is taken. Adding them would reward having more
-  kinds of metric available rather than more actual use.
+- **Popularity uses the best available signal, not the sum.** Stars and downloads are each placed
+  on a logarithmic curve and the higher of the two is taken.
 - **Missing metadata scores zero, and means "unknown".** A repository whose data could not be
   fetched is not being called unpopular.
-- **Documentation is measured by presence, not quality.** Whether a README exists, not whether it is
-  any good. A scoring function that quietly rates prose is one nobody can audit.
-
-The weights live in one dictionary in the API and can be changed without a migration.
+- **Documentation is measured by presence, not quality.** Whether a README exists, not whether it
+  is any good. A scoring function that quietly rates prose is one nobody can audit.
 
 ## Categories
 
-Developer Tools · Databases · Cloud · Search · Productivity · Communication · Business · Finance ·
-Analytics · DevOps · Security · Browser / Web · Files / Storage · Marketing · AI / ML · Research ·
-Other
+Developer Tools, Databases, Cloud, Search, Productivity, Communication, Business, Finance,
+Analytics, DevOps, Security, Browser / Web, Files / Storage, Marketing, AI / ML, Research,
+Frontend, Backend, Testing, Design, Automation, Other.
 
-A server can belong to several. Categories are inferred from vocabulary the publisher actually
-wrote; when nothing matches, the answer is "Other" rather than a guess.
+An item can belong to several. Administrators can add categories; a category that still has items
+in it cannot be deleted.

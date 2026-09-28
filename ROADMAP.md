@@ -62,13 +62,13 @@ marketplace/AI/admin/providers work is fully live)
   agents/IDE extensions with their own configuration format aren't
   recognized. See `docs/features/AGENT_POSTURE.md#limitations`.
 - **A catalogue scan is lost if the API restarts while it is running.** The
-  scan is a `BackgroundTasks` job, so a restart mid-run drops it and leaves
-  the listing parked in the transient `scanning` status, where browse does
-  not show it. Same exposure the ordinary user scan path has always had (a
-  lost task leaves a scan `queued`), now reachable for the catalogue too
-  since admin scans actually run. A sweep that returns anything stuck in
-  `scanning` past a threshold would close it; the `/scheduler/*` pattern is
-  the obvious home for one.
+  scan is a `BackgroundTasks` job, so a restart mid-run drops it.
+  `/scheduler/reap-stuck-scans` marks the scan itself `failed`, and the
+  item's status is untouched (a scan no longer changes it, ADR-048), but the
+  version row keeps `scan_status = running` until the item is scanned again.
+  The publish gate reads the scan, not that column, so this misreports
+  progress rather than letting anything through. Having the reaper also
+  close the version row would fix it.
 - **No finer split on `billing.manage`** than "can change plan and seats" -
   see `docs/features/BILLING.md#limitations`.
 - **Runtime/dynamic MCP tool behavior is not exercised** - scanning is
@@ -84,12 +84,20 @@ marketplace/AI/admin/providers work is fully live)
   caller-supplied startup credentials is the highest-value improvement
   available to the scanner today, and is not yet designed - it means
   accepting secrets for the purpose of handing them to untrusted code.
-- **Marketplace listings are largely ungraded until rescanned.** Migration
-  0047 withdrew every grade produced by the previous engine, and a listing
-  can only regain one by being launched. Listings that cannot be launched
-  will stay ungraded, which is honest but leaves the catalogue thinner than
-  it looks today. Bulk regrading needs the scan-worker capacity question
-  answered first.
+- **Most synced MCP servers are drafts until an admin scans them.**
+  Migration 0047 withdrew every grade produced by the previous engine, and
+  0048 returned the ungraded registry-synced servers to draft (ADR-048). A
+  server can be published once scanned, graded or not (ADR-046), so the
+  public registry grows as fast as admins curate it, bounded by scan-worker
+  capacity for bulk rescans.
+- **Registry features deliberately not built for the pilot:** collections
+  (featured, categories and tags cover curation for now; a collection needs
+  its own table and editor); semantic or vector search (Postgres full-text
+  over weighted fields instead, ADR-045); registry prompts as native MCP
+  `prompts` (the SDK registers prompts statically, so prompt text is returned
+  through `get_registry_item`); rate limiting on the hosted MCP endpoint
+  beyond Cloudflare's (ADR-047). Each is worth building when the pilot shows
+  it is needed, not before.
 - **A CLI upload is client-reported and no longer server-verified.** The API
   cannot recompute a grade without launching the server itself. Closing this
   means an opt-in server-side rescan of uploaded results; see
@@ -108,10 +116,13 @@ marketplace/AI/admin/providers work is fully live)
 
 ## Explicitly not planned
 
-- Payment processing for third-party marketplace listings - the
-  marketplace links to a publisher's own pricing page and always will;
+- Payment processing for third-party registry items - the registry links
+  to a publisher's own pricing page and always will;
   see `docs/features/MCP_MARKETPLACE.md`.
-- A second, parallel trust-grading rubric for the marketplace, agent
+- An "add to project" action that writes an item into a user's machine or
+  agent configuration. The registry produces configuration to copy; Aevrin
+  never writes local config (the same principle as the install plan).
+- A second, parallel trust-grading rubric for the registry, agent
   posture, or anything else - `mcp/risk.py::grade_scan()` is the only
   grader and stays that way; see `CLAUDE.md`'s
   [anti-overengineering rules](CLAUDE.md#anti-overengineering-rules).

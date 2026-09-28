@@ -51,7 +51,7 @@ Two layers:
   `user_id`/`org_id` - never a client-supplied one. This is the real
   tenancy boundary; RLS is defense in depth on top of it, and the only
   full enforcement point for anything queried directly by a browser client
-  (`tier_limits`, public marketplace reads).
+  (`tier_limits`, public registry reads).
 
 `backend/api/tests/controllers/test_agent_tenant_isolation.py` and
 `backend/api/tests/controllers/test_organizations.py` are the tests that
@@ -186,6 +186,57 @@ misleading sentence in an "AI explanation" panel next to a finding that is
 itself unchanged - which is why the finding, not the explanation, is what
 the product treats as authoritative. See
 [`../features/AI_REVIEW.md`](../features/AI_REVIEW.md).
+
+## Registry
+
+The registry (`docs/features/MCP_MARKETPLACE.md`) is public content that
+an administrator curates and agents read. The properties that make that
+safe:
+
+- **Only an admin publishes.** Every `/admin/marketplace/*` route depends
+  on `admin_identity` (a route-table test fails if one does not). No
+  automated path publishes: the registry sync inserts `draft`, suggestions
+  land in `review`, and a finished scan never changes status. `status` is
+  outside the edit allow-list, so it changes only through the status route
+  and its publish gate.
+- **The publish gate for MCP servers requires a scan, not a grade**
+  (ADR-046). This is a deliberate relaxation from "has a grade": a server
+  that needs credentials to start cannot be graded in a sandbox with none,
+  and is published as "Scanned, not graded" with no letter and a
+  `REQUIRE_APPROVAL` suggestion, never as clean. It must still have a
+  `completed` or `incomplete` scan by the current engine.
+- **Other item types are never presented as scanned.** They carry the
+  state `not_applicable` and the text "Not security-scanned by Aevrin".
+- **Audit.** Every admin registry mutation writes `admin_audit_log` through
+  `write_audit` (`registry.create`, `registry.update`,
+  `registry.status.<status>`, `registry.delete`, `registry.links`,
+  `registry.refresh_metadata`, `registry.scan`, `registry.category.save`,
+  `registry.category.delete`, `registry.suggestion.<decision>`,
+  `registry.report.<status>`; a bulk regrade audits each scan it queues).
+  Delete audits **before** removing the row, with a snapshot, because the
+  item's own event timeline cascades away with it.
+- **Links cannot leak.** `mcp_listing_links` is readable (RLS) where its
+  source item is; the API also filters the *target* to published, public
+  or unlisted items, so a public page never names a draft or a private
+  org item through a link.
+- **Admin-supplied values are validated like public ones.** Repository URLs
+  go through the same `validate_source_url` SSRF check as suggestions;
+  remote endpoints through `public_https_url_error`; package identifiers
+  that look like a shell command are refused; `repository_ref` is limited
+  to `[A-Za-z0-9._/-]` with no leading `-`, because it is rendered inside
+  a copyable `git checkout` command.
+- **The hosted MCP endpoint** (`https://api.mcp.aevrin.net/mcp`, ADR-047)
+  exposes three read-only tools that call the public `/marketplace/*`
+  routes without credentials, so it can return nothing an anonymous
+  visitor cannot already see. It never registers `scan_mcp_server`, runs
+  as a non-root container separate from the API, and refuses any `Host`
+  header outside `AEVRIN_MCP_ALLOWED_HOSTS` with `421` (DNS rebinding
+  protection). It has no rate limit of its own beyond Cloudflare's; that is
+  a stated pilot limitation (`ROADMAP.md`).
+- **Third-party text reaches agents labelled.** `get_registry_item`
+  truncates a README to 12,000 characters and prefixes it as untrusted data,
+  not instructions. Admin-authored `content` is returned as written: it is
+  the registry's own text, and an admin is trusted to author it.
 
 ## Local credential files
 

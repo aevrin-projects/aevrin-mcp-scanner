@@ -54,8 +54,25 @@ Authenticated app routes: `/dashboard`, `/scans/new`, `/scans/history`,
 `/settings/billing`, `/settings/team`.
 
 Admin routes: `/admin`, `/admin/analytics`, `/admin/audit`,
-`/admin/marketplace`, `/admin/users/[id]` - under `app/admin/layout.tsx`,
-which is `AdminGate` (TOTP) wrapping `widgets/admin-shell`.
+`/admin/marketplace`, `/admin/marketplace/new`, `/admin/marketplace/[id]`,
+`/admin/users/[id]` - under `app/admin/layout.tsx`, which is `AdminGate`
+(TOTP) wrapping `widgets/admin-shell`.
+
+The `/marketplace` routes are the Aevrin Registry
+(`docs/features/MCP_MARKETPLACE.md`); the path is kept, the navigation
+says "Registry". `views/marketplace` is the browse page (type chips,
+rails, and a "Use the registry from your agent" disclosure with the
+Aevrin MCP config); `views/marketplace-detail` renders by item type, and
+shows the security panel and install dialog only for MCP servers.
+`views/admin-marketplace` is the admin list (lifecycle actions,
+suggestions, reports, categories) and `views/admin-marketplace-item` the
+create/edit editor (tabs: Details, Content, Install, Security, Related,
+Preview, History). The editor's Preview renders the public detail
+sections from `entities/marketplace` (`ItemContentSections`,
+`UseSection`, `RelatedSection`), which live there rather than in the
+detail view because a view may not import another view. The admin UI
+does not pre-check the publish gate; it shows the API's refusal reasons
+verbatim, so there is one definition of "may be published".
 
 `admin-shell` is a collapsible sidebar plus a sticky header with breadcrumbs
 and the theme toggle, following the shadcn-admin layout. It replaced a single
@@ -169,7 +186,10 @@ caller fight the base - `max-h-none` does not reliably beat an arbitrary
 `backend/api`), and often a small `ui/` (badges, pills - e.g.
 `entities/marketplace/ui/grade-badge.tsx`, which *requires* a `state` prop
 so a bare confident letter grade can never be rendered without its scan
-state alongside it).
+state alongside it). `entities/marketplace` also owns `TypeBadge`, the
+item-type labels (`ITEM_TYPE_LABELS`, mirroring the API's `ITEM_TYPES`),
+and `AevrinMcpSnippet`, the one place the hosted MCP URL and its client
+config are written.
 
 `GradeBadge` has two variants, and the split is a layout constraint rather
 than a preference. `full` pairs the tile with its explanation and is used

@@ -1,9 +1,12 @@
 ---
-title: Installing from the marketplace
+title: Installing an MCP server
 description: What Aevrin does and deliberately does not do when you install an MCP server.
 ---
 
 ## Aevrin prepares; you apply
+
+Install applies to MCP servers. Other registry items show what you need to use them directly: a
+prompt to copy, instructions to follow, or a `git clone` command for a repository and its ref.
 
 Pressing **Install** does not install anything. It produces the exact configuration your client
 needs, alongside the security grade, the declared capabilities and every warning that applies.
@@ -17,7 +20,7 @@ decision is made by a person who has seen both the grade and the capabilities.
 **The grade**, with its scan state, at the top.
 
 **The agent and scope.** Only clients the server's own metadata supports are offered. If it
-declares no transport Aevrin recognises, there is no install option — speaking MCP in principle is
+declares no transport Aevrin recognises, there is no install option: speaking MCP in principle is
 not the same as being installable.
 
 **Declared capabilities.** Read from the server's environment variables and transport. "Holds
@@ -27,14 +30,14 @@ server asks for, not what it has been observed doing.
 **Warnings**, which may include:
 
 - A secret-valued environment variable, named so you know what to set
-- No pinned version, meaning the launcher fetches whatever is current at run time — while the grade
+- No pinned version, meaning the launcher fetches whatever is current at run time, while the grade
   shown was earned by a specific version
 - A remote server, whose operator can change its behaviour without changing anything visible locally
-- An unscanned, stale, or partially covered scan
+- An unscanned, stale, or partially covered scan, or a scan that could not establish a grade
 
 **The configuration**, with secret values left blank. Aevrin has no business supplying a credential,
 and a config that arrived pre-filled would be a config carrying somebody's token through a
-marketplace.
+registry.
 
 ## Organisation policy
 

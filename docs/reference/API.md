@@ -13,7 +13,7 @@ JWT) unless noted.
 |---|---|---|
 | `/account` | `account.py` | `GET /usage` |
 | `/admin` | `admin.py` | `GET /session`, `POST /totp/enrol`, `POST /totp/verify`, `GET /users`, `GET /users/{id}`, `POST /users/{id}/status`, `POST /users/{id}/plan`, `POST /users/{id}/seats`, `POST /users/{id}/overrides`, `DELETE /users/{id}/overrides/{bucket}`, `DELETE /users/{id}`, `POST /users/{id}/reset-usage`, `POST /users/{id}/password-reset`, `GET /analytics`, `GET /account-usage`, `GET /audit`, `GET /login-attempts` |
-| `/admin/marketplace` | `admin_marketplace.py` | `GET /summary`, `GET /mcp`, `POST /mcp`, `PATCH /mcp/{listing_id}`, `POST /mcp/{listing_id}/status`, `POST /mcp/{listing_id}/scan`, `POST /mcp/regrade-ungraded`, `GET /submissions`, `POST /submissions/{id}/decision`, `GET /reports`, `POST /reports/{id}/decision` |
+| `/admin/marketplace` | `admin_marketplace.py` | `GET /summary`, `GET /mcp`, `POST /mcp`, `GET /mcp/{listing_id}`, `PATCH /mcp/{listing_id}`, `POST /mcp/{listing_id}/status`, `DELETE /mcp/{listing_id}`, `PUT /mcp/{listing_id}/links`, `POST /mcp/{listing_id}/refresh-metadata`, `POST /mcp/{listing_id}/scan`, `POST /mcp/regrade-ungraded`, `GET /submissions`, `POST /submissions/{id}/decision`, `GET /reports`, `POST /reports/{id}/decision`, `GET /categories`, `PUT /categories`, `DELETE /categories/{slug}` |
 | `/agents` | `agents.py` | `POST /snapshots`, `GET ""`, `GET /mcp-servers`, `GET /skills`, `GET /permissions`, `GET /attack-paths`, `GET /{id}`, `DELETE /{id}` |
 | `/ai` | `ai.py` | `GET /providers`, `PUT /providers`, `PATCH /providers/{provider}`, `DELETE /providers/{provider}`, `GET /models`, `POST /explain` |
 | `/api-keys` | `api_keys.py` | `POST ""`, `GET ""`, `DELETE /revoked`, `DELETE /{key_id}` |
@@ -26,7 +26,7 @@ JWT) unless noted.
 | `/findings` | `findings.py` | `GET /{id}`, `PATCH /{id}` (`X-API-Key` accepted, for CLI triage) |
 | `/github` | `github.py` | `GET /status`, `GET /repos`, `GET /install-url`, `GET /callback` |
 | `/hook` | `hook.py` | `POST /override` (`X-API-Key`), `GET /cache`, `POST /cache` |
-| `/marketplace` | `marketplace.py` | `GET /mcp`, `GET /categories`, `GET /mcp/{slug}`, `POST /mcp/{slug}/install-plan`, `POST /submissions`, `GET /submissions`, `POST /mcp/{id}/report`, `PUT /mcp/{id}/favorite`, `GET /favorites`, `GET /policy`, `PUT /policy` |
+| `/marketplace` | `marketplace.py` | `GET /mcp`, `GET /types`, `GET /categories`, `GET /mcp/{slug}`, `POST /mcp/{slug}/install-plan`, `POST /submissions`, `GET /submissions`, `POST /mcp/{id}/report`, `PUT /mcp/{id}/favorite`, `GET /favorites`, `GET /policy`, `PUT /policy` |
 | `/orgs` | `orgs.py` | `GET /permissions`, `GET /me`, `POST ""`, `PATCH ""`, `POST /leave`, `GET /members`, `PATCH /members/{id}`, `DELETE /members/{id}`, `GET /invites`, `POST /invites`, `DELETE /invites/{id}`, `POST /invites/{id}/accept`, `GET /roles`, `POST /roles`, `PATCH /roles/{id}`, `DELETE /roles/{id}` |
 | `/scans` | `scans.py` | `POST ""`, `POST /upload` (`X-API-Key`), `GET /{id}/diff`, `GET ""`, `DELETE ""`, `GET /{id}`, `POST /{id}/cancel`, `DELETE /{id}`, `GET /{id}/stages`, `GET /{id}/findings` |
 | `/scheduler` | `scheduler.py` | `POST /reap-stuck-scans`, `POST /registry-sync`, `POST /provider-sync`, `POST /uptime-check`, `GET /scan-queue` - all gated by `require_scheduler_token` (HMAC comparison against `SCHEDULER_TOKEN`, fails closed if unconfigured), not a user session |
@@ -60,10 +60,22 @@ JWT) unless noted.
   codebase without a tenancy filter, so nothing client-supplied may choose
   which scan it reads. It publishes no more than the letter and risk score
   already did.
+- **`/marketplace/mcp` serves every registry item type, not only MCP
+  servers.** The path predates the registry and is kept because clients
+  (the frontend, the registry MCP tools, the CLI) already call it; the
+  `mcp` segment is naming debt, not a filter. Filter by type with
+  `?type=` (also `technology`, `capability`, `category`, `min_grade`,
+  `sort=trending`). Anonymous callers see only published public items.
 - **`admin_marketplace.py`**'s edit route (`PATCH /mcp/{listing_id}`)
   writes only from `services/marketplace/admin.py`'s `EDITABLE_FIELDS`
-  allow-list, which contains no security-bearing column - an admin can
-  correct curation metadata, never a grade.
+  allow-list, which contains no security-bearing column and no `status` -
+  an admin can correct curation metadata, never a grade, and publishing
+  goes only through `POST /mcp/{listing_id}/status`, which runs the
+  publish gate and returns `400` with the reasons when it refuses.
+- **`DELETE /admin/marketplace/mcp/{listing_id}`** takes a body
+  `{"confirm_slug": "<the item's slug>"}` and refuses without an exact
+  match. **`DELETE /admin/marketplace/categories/{slug}`** is refused while
+  any item is filed under the category.
 
 ## Error responses and the CDN
 
