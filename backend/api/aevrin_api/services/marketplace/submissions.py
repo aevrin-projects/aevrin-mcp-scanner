@@ -34,6 +34,7 @@ from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest
 from aevrin_api.integrations.github_app import parse_github_repo
 from aevrin_api.integrations.github_public import fetch_readme, fetch_repo_metadata
+from aevrin_api.services.marketplace.items import PUBLISH_CHECK_COLUMNS, publish_blockers
 from aevrin_api.services.marketplace.normalize import (
     infer_categories,
     infer_price_type,
@@ -106,7 +107,7 @@ async def create_submission(
     """
     kind, url = validate_source_url(source_url)
 
-    duplicate = await _find_duplicate(db, url)
+    duplicate = await find_duplicate(db, url)
     if duplicate:
         raise SubmissionRejected(
             f"That server is already listed as \"{duplicate.get('title')}\"."
@@ -130,7 +131,7 @@ async def create_submission(
     return {"submission": submission[0] if submission else None, "listing": listing}
 
 
-async def _find_duplicate(db: SupabaseRest, url: str) -> dict[str, Any] | None:
+async def find_duplicate(db: SupabaseRest, url: str) -> dict[str, Any] | None:
     rows = await db.select(
         "mcp_listings", {"repository_url": f"eq.{url}"}, columns="id,title,slug", limit=1
     )
@@ -146,8 +147,16 @@ async def derive_listing(
     user_id: str,
     org_id: str | None = None,
     visibility: str = "public",
+    status: str = "review",
+    source: str = "user_submission",
+    item_type: str = "mcp_server",
 ) -> dict[str, Any]:
     """Build a listing from the source, asking the submitter for nothing.
+
+    `status` and `source` are parameters rather than values patched on
+    afterwards: an admin-created item is a `draft` from `admin`, and writing it
+    as a `review` from `user_submission` first left a window where it sat in
+    the suggestion queue under the wrong provenance.
 
     A GitHub URL yields a name, description, licence, stars and README. A
     remote endpoint yields far less, and what it does not yield is left empty
@@ -182,15 +191,20 @@ async def derive_listing(
         homepage_url = url
 
     now = datetime.now(UTC).isoformat()
+    # A remote URL is an MCP endpoint only when the item *is* an MCP server.
+    # For a product, a dataset or documentation it is just a homepage, and
+    # recording it as a remote would offer to install a website as a server.
+    serves_mcp = kind == "remote" and item_type == "mcp_server"
     installation = (
         {"packages": [], "remotes": [{"type": "streamable-http", "url": url}]}
-        if kind == "remote"
+        if serves_mcp
         else {"packages": [], "remotes": []}
     )
 
     row: dict[str, Any] = {
-        "source": "user_submission",
-        "slug": await _unique_slug(db, slugify(publisher, title)),
+        "source": source,
+        "item_type": item_type,
+        "slug": await unique_slug(db, slugify(publisher, title)),
         "title": title[:120],
         "description": description[:4000],
         "readme": readme,
@@ -208,11 +222,11 @@ async def derive_listing(
         # A submitted server's compatibility is not known until its packaging
         # is. Claiming "works with Claude Code" on the strength of a GitHub URL
         # would be exactly the unfounded compatibility claim to avoid.
-        "install_targets": ["generic"] if kind == "remote" else [],
+        "install_targets": ["generic"] if serves_mcp else [],
         "installation": installation,
-        # Review, not published. Nothing reaches the catalogue without a scan
-        # and a human decision.
-        "status": "review",
+        # Never published from here. Nothing reaches the catalogue without a
+        # human decision, and an MCP server additionally needs a scan.
+        "status": status,
         "visibility": visibility,
         "org_id": org_id,
         "created_by": user_id,
@@ -237,30 +251,39 @@ async def derive_listing(
         raise SubmissionRejected("The listing could not be created.")
     listing = inserted[0]
 
-    # A version row so there is something to scan against. Falls back to the
-    # tagged release, then to the default branch name, because a submitted
-    # repository often has no version at all and "unknown" is more honest than
-    # inventing 1.0.0.
-    version = (metadata.latest_release if metadata else None) or "unversioned"
-    await db.insert(
-        "mcp_listing_versions",
-        {"listing_id": listing["id"], "version": version},
-        upsert_on="listing_id,version",
-    )
+    # A version row so there is something to scan against - for an MCP
+    # server, the only type with a scanner. Falls back to the tagged release,
+    # then to "unversioned", because a submitted repository often has no
+    # version at all and "unknown" is more honest than inventing 1.0.0.
+    if item_type == "mcp_server":
+        version = (metadata.latest_release if metadata else None) or "unversioned"
+        await db.insert(
+            "mcp_listing_versions",
+            {"listing_id": listing["id"], "version": version},
+            upsert_on="listing_id,version",
+        )
+        # Recorded on the listing too, so the publish gate and the freshness
+        # state name the version the scan has to cover.
+        await db.update("mcp_listings", {"id": listing["id"]}, {"latest_version": version})
+        listing["latest_version"] = version
     await db.insert(
         "mcp_events",
         {
             "listing_id": listing["id"],
             "event_type": "listing_added",
             "new_value": listing["slug"],
-            "reason": "submitted by a user",
+            "reason": "submitted by a user" if source == "user_submission" else "added by an administrator",
             "actor_id": user_id,
         },
     )
     return listing
 
 
-async def _unique_slug(db: SupabaseRest, base: str) -> str:
+async def unique_slug(db: SupabaseRest, base: str) -> str:
+    """Slugs are unique, and two publishers can legitimately produce the same
+    one. Suffix rather than reject: a colliding entry that failed to ingest
+    would be an item permanently missing from the registry. Shared by the
+    sync, suggestions and admin creation."""
     existing = await db.select("mcp_listings", {"slug": f"eq.{base}"}, columns="id", limit=1)
     if not existing:
         return base
@@ -329,17 +352,16 @@ async def decide(
         if not listing_id:
             raise SubmissionRejected("That submission has no listing to publish.")
         listing_rows = await db.select(
-            "mcp_listings",
-            {"id": listing_id},
-            columns="id,slug,current_trust_grade,current_version",
-            limit=1,
+            "mcp_listings", {"id": listing_id}, columns=PUBLISH_CHECK_COLUMNS, limit=1
         )
-        listing = listing_rows[0] if listing_rows else {}
-        if not listing.get("current_trust_grade"):
-            raise SubmissionRejected(
-                "This server has not been scanned yet. Run a scan before publishing: "
-                "an unscanned listing must never appear in the catalogue."
-            )
+        if not listing_rows:
+            raise SubmissionRejected("That submission's listing no longer exists.")
+        # The same gate an admin's Publish button uses. Approval used to carry
+        # its own copy - "has a grade" - which diverged from the registry's
+        # rule the moment the registry accepted scanned-but-ungraded servers.
+        blockers = await publish_blockers(db, listing_rows[0])
+        if blockers:
+            raise SubmissionRejected(" ".join(blockers))
         await db.update(
             "mcp_listings", {"id": listing_id}, {"status": "published", "updated_at": now}
         )

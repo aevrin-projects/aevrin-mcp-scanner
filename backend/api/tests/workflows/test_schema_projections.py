@@ -214,6 +214,12 @@ def test_the_migration_set_parses_into_a_believable_schema() -> None:
     assert "mcp_capabilities" not in schema["scans"]
     assert "mcp_components" not in schema["scans"]
     assert "rug_pull_signatures" not in schema, "0047 drops the drift table"
+    # 0048: the registry.
+    assert {"item_type", "content", "technologies", "capabilities", "use_cases"} <= schema[
+        "mcp_listings"
+    ]
+    assert "search_vector" in schema["mcp_listings"], "0048 drops and re-adds it"
+    assert {"listing_id", "related_id", "relation"} <= schema["mcp_listing_links"]
 
 
 def test_every_column_projection_names_a_column_that_exists() -> None:

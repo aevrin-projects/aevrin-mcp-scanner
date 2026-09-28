@@ -28,6 +28,7 @@ from aevrin_api.schemas.marketplace import (
     PolicyRequest,
     ReportRequest,
     SubmitListingRequest,
+    TypeCount,
 )
 
 router = APIRouter(prefix="/marketplace", tags=["marketplace"])
@@ -66,8 +67,15 @@ async def browse_listings(
     page: Annotated[int, Query(ge=1, le=500)] = 1,
     page_size: Annotated[int, Query(ge=1, le=60)] = 24,
     featured: Annotated[bool, Query()] = False,
+    item_type: Annotated[str | None, Query(alias="type", max_length=30)] = None,
+    technology: Annotated[str | None, Query(max_length=60)] = None,
+    capability: Annotated[str | None, Query(max_length=60)] = None,
 ) -> Any:
-    """Browse and search MCP servers.
+    """Browse and search the registry: MCP servers, skills, prompts and more.
+
+    This is the one search both the marketplace UI and the agent-facing
+    registry tools call, so a human and an agent searching for the same thing
+    see the same items.
 
     Security and popularity are returned as separate objects and are never
     combined into a single number. A server can be extremely popular and
@@ -87,7 +95,17 @@ async def browse_listings(
         page=page,
         page_size=page_size,
         featured_only=featured,
+        item_type=item_type,
+        technology=technology,
+        capability=capability,
     )
+
+
+@router.get("/types", response_model=list[TypeCount])
+async def list_types(db: Annotated[SupabaseRest, Depends(get_db)]) -> Any:
+    """How many published items there are of each type. Types with none are
+    omitted, so a client never offers an empty section."""
+    return await ctl.types(db)
 
 
 @router.get("/categories", response_model=list[CategoryOut])
@@ -102,7 +120,8 @@ async def listing_detail(
     db: Annotated[SupabaseRest, Depends(get_db)],
     user: Annotated[AuthenticatedUser | None, Depends(optional_user)],
 ) -> Any:
-    """One server in full: security, versions, source, popularity, timeline.
+    """One item in full: content, security, versions, source, popularity,
+    related items, and a ready-to-copy config per supported agent.
 
     The security block always carries its freshness state. A grade earned by
     an older version is reported as covering that version, never as a verdict

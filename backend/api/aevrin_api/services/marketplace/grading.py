@@ -31,6 +31,7 @@ from aevrin_scanner_core.mcp.risk import Grade, GradeResult, grade_scan
 from aevrin_scanner_core.models import Finding, Severity
 
 from aevrin_api.db import SupabaseRest
+from aevrin_api.services.marketplace.items import is_scannable
 
 logger = logging.getLogger("aevrin.marketplace.grading")
 
@@ -154,7 +155,11 @@ async def record_version_scan(
             if trust.grade
             else f"not graded (risk {trust.risk_score}/100, coverage incomplete)"
         ),
-        reason=trust.summary.headline,
+        # The explanation rather than the headline when there is no grade: the
+        # timeline is the one public place a reader can see *why* a published
+        # server carries no letter ("could not be started" reads very
+        # differently from "returned no tools").
+        reason=trust.summary.headline if trust.grade else trust.summary.explanation,
         actor_id=actor_id,
     )
 
@@ -224,12 +229,28 @@ def scan_freshness(listing: dict[str, Any]) -> dict[str, Any]:
     """Is the stored grade actually about the version on offer?
 
     This is the check that stops a marketplace quietly showing v1.4.2's B
-    against v1.5.0. The three states are distinct and are named, because
-    collapsing "outdated" into "scanned" is precisely the bug.
+    against v1.5.0. The states are distinct and are named, because collapsing
+    "outdated" into "scanned" is precisely the bug.
+
+    Two states exist because the registry holds more than MCP servers, and
+    because an MCP server can be published without a grade:
+
+    * `not_applicable` - a prompt, a skill, a template. No scanner exists for
+      these, and "unscanned" would read as an omission waiting to be fixed.
+    * `ungraded` - a scan ran and could not establish enough to grade. This
+      used to be reported as "Not yet scanned", which is false: Aevrin looked,
+      and the honest answer is what it could not see.
     """
+    if not is_scannable(listing.get("item_type")):
+        return {
+            "state": "not_applicable",
+            "applies_to_latest": False,
+            "label": "Not security-scanned by Aevrin. Curated by an administrator.",
+            "scanned_version": None,
+        }
     current = listing.get("current_version")
     latest = listing.get("latest_version")
-    if not current or not listing.get("current_trust_grade"):
+    if not current:
         return {
             "state": "unscanned",
             "applies_to_latest": False,
@@ -241,6 +262,16 @@ def scan_freshness(listing: dict[str, Any]) -> dict[str, Any]:
             "state": "outdated",
             "applies_to_latest": False,
             "label": f"Scan covers {current}, current release is {latest}",
+            "scanned_version": current,
+        }
+    if not listing.get("current_trust_grade"):
+        return {
+            "state": "ungraded",
+            "applies_to_latest": True,
+            "label": (
+                "Scanned, not graded. The scan could not establish enough about this server "
+                "to grade it. Treat it as unknown, not as safe."
+            ),
             "scanned_version": current,
         }
     if listing.get("current_coverage_complete") is False:

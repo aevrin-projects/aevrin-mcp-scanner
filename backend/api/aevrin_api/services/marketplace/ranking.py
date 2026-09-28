@@ -211,5 +211,9 @@ SORT_ORDERS: dict[str, str] = {
     "recently_updated": "registry_updated_at.desc.nullslast",
     "recently_added": "created_at.desc",
     "az": "title.asc",
+    # Most viewed. `search_listings` restricts it to items updated within
+    # TRENDING_WINDOW, because views are cumulative and "trending" is a claim
+    # about now.
+    "trending": "marketplace_views.desc,favorite_count.desc",
 }
 DEFAULT_SORT = "recommended"

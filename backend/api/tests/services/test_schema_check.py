@@ -44,8 +44,8 @@ def test_a_missing_column_is_reported_with_its_table() -> None:
     missing = asyncio.run(missing_columns(db))  # type: ignore[arg-type]
 
     assert missing, "drift must be detected"
-    assert all(entry.startswith("scans.") for entry in missing)
     assert "scans.server_command" in missing
+    assert "mcp_listings.item_type" in missing
 
 
 def test_an_unrelated_failure_is_not_reported_as_drift() -> None:
@@ -69,21 +69,23 @@ def test_a_healthy_answer_is_cached_and_a_broken_one_is_not() -> None:
     status_ok = SchemaStatus()
     asyncio.run(status_ok.missing(healthy))  # type: ignore[arg-type]
     asyncio.run(status_ok.missing(healthy))  # type: ignore[arg-type]
-    assert healthy.calls == 1, "a healthy schema is only probed once"
+    # One probe per table, once. Counted from the list rather than written as
+    # a literal, which is what broke the first time a table was added to it.
+    assert healthy.calls == len(REQUIRED_COLUMNS), "a healthy schema is only probed once"
 
     broken = _Db(RuntimeError("column scans.scanner_name does not exist"))
     status_bad = SchemaStatus()
     assert asyncio.run(status_bad.missing(broken))  # type: ignore[arg-type]
     assert asyncio.run(status_bad.missing(broken))  # type: ignore[arg-type]
-    assert broken.calls == 2, "drift must be re-checked so it can clear itself"
+    assert broken.calls == 2 * len(REQUIRED_COLUMNS), "drift must be re-checked so it can clear itself"
 
 
-def test_the_required_columns_are_the_ones_migration_0047_adds() -> None:
+def test_the_required_columns_are_the_ones_the_migrations_add() -> None:
     """Pinned deliberately. This list gates every deploy: a name added here in
     error takes the site down, and one removed lets the outage recur."""
-    assert REQUIRED_COLUMNS["scans"] == (
-        "server_command",
-        "scanner_name",
-        "scanner_version",
-        "invocation_channel",
-    )
+    assert REQUIRED_COLUMNS == {
+        # 0047
+        "scans": ("server_command", "scanner_name", "scanner_version", "invocation_channel"),
+        # 0048
+        "mcp_listings": ("item_type", "content"),
+    }

@@ -16,12 +16,16 @@ from fastapi import HTTPException, status
 from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest
 from aevrin_api.schemas.marketplace import (
+    AdminCreateListingRequest,
     AdminListingPatch,
+    CategoryRequest,
     InstallPlanRequest,
+    LinkIn,
     PolicyRequest,
     ReportRequest,
     SubmitListingRequest,
 )
+from aevrin_api.services.admin_auth import AdminIdentity, write_audit
 from aevrin_api.services.marketplace import admin as admin_service
 from aevrin_api.services.marketplace import catalog, scanning, submissions
 
@@ -57,6 +61,9 @@ async def browse(
     page: int = 1,
     page_size: int = 24,
     featured_only: bool = False,
+    item_type: str | None = None,
+    technology: str | None = None,
+    capability: str | None = None,
 ) -> dict[str, Any]:
     return await catalog.search_listings(
         db,
@@ -72,7 +79,14 @@ async def browse(
         org_id=await _org_for(db, user_id),
         featured_only=featured_only,
         user_id=user_id,
+        item_type=item_type,
+        technology=technology,
+        capability=capability,
     )
+
+
+async def types(db: SupabaseRest) -> list[dict[str, Any]]:
+    return await catalog.list_types(db)
 
 
 async def detail(db: SupabaseRest, *, slug: str, user_id: str | None) -> dict[str, Any]:
@@ -149,16 +163,6 @@ async def favorites(db: SupabaseRest, *, user_id: str) -> list[dict[str, Any]]:
 # Install
 
 
-# Which client wants which config shape. Data rather than branches, so adding
-# a client is a row.
-_CONFIG_SHAPE: dict[str, str] = {
-    "claude-code": "mcpServers",
-    "cursor": "mcpServers",
-    "codex": "mcp_servers",
-    "generic": "mcpServers",
-}
-
-
 async def install_plan(
     db: SupabaseRest, *, slug: str, user_id: str, body: InstallPlanRequest
 ) -> dict[str, Any]:
@@ -199,7 +203,10 @@ async def install_plan(
             detail=f"Your organisation's policy blocks this install. {decision['reason']}",
         )
 
-    config, warnings = _build_config(listing, body.agent)
+    try:
+        config, warnings = catalog.build_install_config(listing, body.agent)
+    except catalog.NotInstallable as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return {
         "listing": listing,
@@ -211,75 +218,6 @@ async def install_plan(
         "policy_action": decision["action"],
         "policy_reason": decision["reason"],
     }
-
-
-def _build_config(listing: dict[str, Any], agent: str) -> tuple[dict[str, Any], list[str]]:
-    """The client configuration for this server.
-
-    Secret-valued environment variables are emitted as empty placeholders with
-    their names intact. Aevrin has no business supplying a credential, and a
-    config that arrived pre-filled would be a config carrying somebody's
-    token through a marketplace.
-    """
-    installation = listing.get("installation") or {}
-    key = _CONFIG_SHAPE.get(agent, "mcpServers")
-    name = listing.get("slug", "server")
-    warnings: list[str] = []
-
-    packages = installation.get("packages") or []
-    remotes = installation.get("remotes") or []
-
-    if packages:
-        package = packages[0]
-        runtime = package.get("runtime_hint") or _default_runtime(package.get("registry_type"))
-        identifier = package.get("identifier") or ""
-        version = package.get("version")
-        spec = f"{identifier}@{version}" if version else identifier
-
-        environment = {}
-        for variable in package.get("environment") or []:
-            environment[variable["name"]] = ""
-            if variable.get("secret"):
-                warnings.append(
-                    f"{variable['name']} is a secret. Set it in your own environment; "
-                    "never commit it."
-                )
-        entry: dict[str, Any] = {"command": runtime, "args": [spec]}
-        if environment:
-            entry["env"] = environment
-        if not version:
-            warnings.append(
-                "This server declares no pinned version, so the launcher will fetch whatever "
-                "is current at run time. The grade shown here was earned by a specific version."
-            )
-    elif remotes:
-        remote = remotes[0]
-        entry = {"type": remote.get("type") or "streamable-http", "url": remote.get("url")}
-        warnings.append(
-            "This is a remote server. Its operator can change what it does without changing "
-            "anything you can see locally."
-        )
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This server declares no installable package or endpoint.",
-        )
-
-    security = listing.get("security") or {}
-    if security.get("state") == "unscanned":
-        warnings.append("This server has not been scanned. Treat it as unknown, not as safe.")
-    elif security.get("state") == "outdated":
-        warnings.append(security.get("label") or "The stored scan is older than the current release.")
-    elif security.get("state") == "partial":
-        warnings.append("Scan coverage was incomplete. Absence of findings is not evidence of safety.")
-
-    return {key: {name: entry}}, warnings
-
-
-def _default_runtime(registry_type: str | None) -> str:
-    return {"npm": "npx", "pypi": "uvx", "oci": "docker", "nuget": "dnx"}.get(
-        registry_type or "", "npx"
-    )
 
 
 def _declared_capabilities(listing: dict[str, Any]) -> list[str]:
@@ -314,55 +252,112 @@ async def admin_overview(db: SupabaseRest) -> dict[str, Any]:
     return await admin_service.admin_summary(db)
 
 
+def _refused(exc: admin_service.AdminActionRefused) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+async def admin_get(db: SupabaseRest, *, listing_id: str) -> dict[str, Any]:
+    try:
+        return await admin_service.get_item(db, listing_id=listing_id)
+    except admin_service.AdminActionRefused as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 async def admin_patch(
-    db: SupabaseRest, *, listing_id: str, body: AdminListingPatch, actor_id: str
+    db: SupabaseRest, *, listing_id: str, body: AdminListingPatch, admin: AdminIdentity
 ) -> dict[str, Any]:
-    patch = body.model_dump(exclude_unset=True, exclude_none=True)
+    patch = body.model_dump(exclude_unset=True)
     reason = patch.pop("reason", None)
     try:
         return await admin_service.update_listing(
-            db, listing_id=listing_id, patch=patch, actor_id=actor_id, reason=reason
+            db, listing_id=listing_id, patch=patch, admin=admin, reason=reason
         )
     except admin_service.AdminActionRefused as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise _refused(exc) from exc
 
 
 async def admin_set_status(
-    db: SupabaseRest, *, listing_id: str, new_status: str, reason: str | None, actor_id: str
+    db: SupabaseRest, *, listing_id: str, new_status: str, reason: str | None, admin: AdminIdentity
 ) -> dict[str, Any]:
     try:
         return await admin_service.set_status(
-            db, listing_id=listing_id, status=new_status, actor_id=actor_id, reason=reason
+            db, listing_id=listing_id, status=new_status, admin=admin, reason=reason
         )
     except admin_service.AdminActionRefused as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise _refused(exc) from exc
 
 
 async def admin_create(
-    db: SupabaseRest,
-    settings: Settings,
-    *,
-    source_url: str,
-    visibility: str,
-    org_id: str | None,
-    actor_id: str,
+    db: SupabaseRest, settings: Settings, *, body: AdminCreateListingRequest, admin: AdminIdentity
 ) -> dict[str, Any]:
-    """Add a listing by URL, exactly as a submission does.
-
-    Same derivation, same validation, same SSRF guard. An admin gets no
-    shortcut around the checks: the URL is still untrusted, and being typed by
-    an administrator does not make an internal address safe to fetch.
-    """
     try:
-        kind, url = submissions.validate_source_url(source_url)
-        listing = await submissions.derive_listing(
-            db, settings, kind=kind, url=url, user_id=actor_id, org_id=org_id, visibility=visibility
+        return await admin_service.create_item(
+            db,
+            settings,
+            admin=admin,
+            item_type=body.item_type,
+            source_url=body.source_url,
+            title=body.title,
+            description=body.description,
+            visibility=body.visibility,
+            org_id=body.org_id,
         )
-    except submissions.SubmissionRejected as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except admin_service.AdminActionRefused as exc:
+        raise _refused(exc) from exc
 
-    await db.update("mcp_listings", {"id": listing["id"]}, {"source": "admin"})
-    return listing
+
+async def admin_delete(
+    db: SupabaseRest, *, listing_id: str, confirm_slug: str, admin: AdminIdentity
+) -> dict[str, Any]:
+    try:
+        return await admin_service.delete_item(
+            db, listing_id=listing_id, confirm_slug=confirm_slug, admin=admin
+        )
+    except admin_service.AdminActionRefused as exc:
+        raise _refused(exc) from exc
+
+
+async def admin_set_links(
+    db: SupabaseRest, *, listing_id: str, links: list[LinkIn], admin: AdminIdentity
+) -> list[dict[str, Any]]:
+    try:
+        return await admin_service.set_links(
+            db, listing_id=listing_id, links=[link.model_dump() for link in links], admin=admin
+        )
+    except admin_service.AdminActionRefused as exc:
+        raise _refused(exc) from exc
+
+
+async def admin_refresh_metadata(
+    db: SupabaseRest, settings: Settings, *, listing_id: str, admin: AdminIdentity
+) -> dict[str, Any]:
+    try:
+        return await admin_service.refresh_metadata(db, settings, listing_id=listing_id, admin=admin)
+    except admin_service.AdminActionRefused as exc:
+        raise _refused(exc) from exc
+
+
+async def admin_categories(db: SupabaseRest) -> list[dict[str, Any]]:
+    return await admin_service.list_all_categories(db)
+
+
+async def admin_save_category(
+    db: SupabaseRest, *, body: CategoryRequest, admin: AdminIdentity
+) -> dict[str, Any]:
+    try:
+        return await admin_service.save_category(
+            db, slug=body.slug, name=body.name, description=body.description,
+            sort_order=body.sort_order, admin=admin,
+        )
+    except admin_service.AdminActionRefused as exc:
+        raise _refused(exc) from exc
+
+
+async def admin_delete_category(db: SupabaseRest, *, slug: str, admin: AdminIdentity) -> dict[str, Any]:
+    try:
+        return await admin_service.delete_category(db, slug=slug, admin=admin)
+    except admin_service.AdminActionRefused as exc:
+        raise _refused(exc) from exc
 
 
 async def admin_scan(
@@ -372,7 +367,7 @@ async def admin_scan(
     listing_id: str,
     version_id: str | None,
     force: bool,
-    actor_id: str,
+    admin: AdminIdentity,
     schedule: Callable[..., Any],
 ) -> dict[str, Any]:
     """Run or reuse a scan for a listing.
@@ -397,17 +392,22 @@ async def admin_scan(
         version_id = rows[0]["id"]
 
     try:
-        return await scanning.scan_listing_version(
+        result = await scanning.scan_listing_version(
             db,
             settings,
             listing_id=listing_id,
             version_id=version_id,
-            actor_id=actor_id,
+            actor_id=admin.user_id,
             force=force,
             schedule=schedule,
         )
     except scanning.ScanNotPossible as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    await write_audit(
+        db, admin, "registry.scan", target_resource=listing_id,
+        metadata={"reused": result.get("reused"), "scan_id": result.get("scan_id"), "force": force},
+    )
+    return result
 
 
 # How many listings one "rescan the ungraded ones" press may enqueue. The
@@ -422,7 +422,7 @@ async def admin_regrade_ungraded(
     db: SupabaseRest,
     settings: Settings,
     *,
-    actor_id: str,
+    admin: AdminIdentity,
     schedule: Callable[..., Any],
     limit: int = REGRADE_BATCH_LIMIT,
 ) -> dict[str, Any]:
@@ -440,12 +440,15 @@ async def admin_regrade_ungraded(
     nothing published) are counted and named rather than retried: an
     unlaunchable server stays ungraded, and that is a result, not an error.
     """
-    rows = await db.select(
-        "mcp_listings",
-        {"current_trust_grade": "is.null", "status": "neq.rejected"},
-        columns="id,slug",
-        limit=limit,
-    )
+    # MCP servers only - the one type with a scanner. A prompt or a skill has
+    # no grade to recover, and without this filter would be "skipped" on every
+    # press, forever. Archived items are retired on purpose.
+    ungraded = {
+        "current_trust_grade": "is.null",
+        "status": "not.in.(rejected,archived)",
+        "item_type": "eq.mcp_server",
+    }
+    rows = await db.select("mcp_listings", ungraded, columns="id,slug", limit=limit)
 
     queued: list[str] = []
     skipped: list[dict[str, str]] = []
@@ -457,7 +460,7 @@ async def admin_regrade_ungraded(
                 listing_id=str(listing["id"]),
                 version_id=None,
                 force=True,
-                actor_id=actor_id,
+                admin=admin,
                 schedule=schedule,
             )
             queued.append(str(listing.get("slug") or listing["id"]))
@@ -467,12 +470,7 @@ async def admin_regrade_ungraded(
             skipped.append({"listing": str(listing.get("slug") or listing["id"]),
                             "reason": str(exc.detail)})
 
-    remaining = await db.select(
-        "mcp_listings",
-        {"current_trust_grade": "is.null", "status": "neq.rejected"},
-        columns="id",
-        limit=1000,
-    )
+    remaining = await db.select("mcp_listings", ungraded, columns="id", limit=1000)
     return {
         "queued": len(queued),
         "listings": queued,
@@ -486,18 +484,22 @@ async def admin_submissions(db: SupabaseRest, *, review_status: str | None) -> l
 
 
 async def admin_decide(
-    db: SupabaseRest, *, submission_id: str, decision: str, reason: str | None, actor_id: str
+    db: SupabaseRest, *, submission_id: str, decision: str, reason: str | None, admin: AdminIdentity
 ) -> dict[str, Any]:
     try:
-        return await submissions.decide(
+        result = await submissions.decide(
             db,
             submission_id=submission_id,
             decision=decision,
-            reviewer_id=actor_id,
+            reviewer_id=admin.user_id,
             reason=reason,
         )
     except submissions.SubmissionRejected as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    await write_audit(
+        db, admin, f"registry.suggestion.{decision}", target_resource=submission_id, reason=reason
+    )
+    return result
 
 
 async def admin_reports(db: SupabaseRest, *, report_status: str | None) -> list[dict[str, Any]]:
@@ -505,14 +507,18 @@ async def admin_reports(db: SupabaseRest, *, report_status: str | None) -> list[
 
 
 async def admin_resolve_report(
-    db: SupabaseRest, *, report_id: str, new_status: str, note: str | None, actor_id: str
+    db: SupabaseRest, *, report_id: str, new_status: str, note: str | None, admin: AdminIdentity
 ) -> dict[str, Any]:
     try:
-        return await admin_service.resolve_report(
-            db, report_id=report_id, status=new_status, actor_id=actor_id, note=note
+        result = await admin_service.resolve_report(
+            db, report_id=report_id, status=new_status, actor_id=admin.user_id, note=note
         )
     except admin_service.AdminActionRefused as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise _refused(exc) from exc
+    await write_audit(
+        db, admin, f"registry.report.{new_status}", target_resource=report_id, reason=note
+    )
+    return result
 
 
 # --------------------------------------------------------------------------

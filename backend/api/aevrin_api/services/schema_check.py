@@ -34,6 +34,9 @@ logger = logging.getLogger("aevrin.schema")
 # marked finished.
 REQUIRED_COLUMNS: dict[str, tuple[str, ...]] = {
     "scans": ("server_command", "scanner_name", "scanner_version", "invocation_channel"),
+    # Migration 0048. The registry reads and writes both on every catalogue
+    # request, so without them browse, detail and every admin edit fail.
+    "mcp_listings": ("item_type", "content"),
 }
 
 

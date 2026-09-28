@@ -22,8 +22,11 @@ from aevrin_api.db import SupabaseRest
 from aevrin_api.routes.deps import get_current_user, get_db
 from aevrin_api.schemas.marketplace import (
     AdminCreateListingRequest,
+    AdminDeleteRequest,
+    AdminLinksRequest,
     AdminListingPatch,
     AdminStatusRequest,
+    CategoryRequest,
     ReportDecisionRequest,
     ScanRequest,
     SubmissionDecisionRequest,
@@ -59,13 +62,14 @@ async def list_all(
     grade: Annotated[str | None, Query(max_length=1)] = None,
     unscanned: Annotated[bool, Query()] = False,
     q: Annotated[str | None, Query(max_length=100)] = None,
+    item_type: Annotated[str | None, Query(alias="type", max_length=30)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Any:
-    """Every listing in every state, not just the published ones."""
+    """Every item in every state, not just the published ones."""
     return await ctl.admin_browse(
         db, status=listing_status, grade=grade, unscanned=unscanned, query=q,
-        limit=limit, offset=offset,
+        item_type=item_type, limit=limit, offset=offset,
     )
 
 
@@ -76,20 +80,25 @@ async def create_listing(
     settings: Annotated[Settings, Depends(get_settings)],
     admin: Annotated[AdminIdentity, Depends(admin_identity)],
 ) -> Any:
-    """Add a server by URL.
+    """Add an item, always as a draft: from a URL, or by hand.
 
-    Runs the same derivation and the same SSRF validation a user submission
+    A URL runs the same derivation and the same SSRF validation a suggestion
     does. Being typed by an administrator does not make an internal address
     safe to fetch, so there is no privileged shortcut past those checks.
+    Without a URL - a prompt, a skill with no repository - a title is required.
     """
-    return await ctl.admin_create(
-        db,
-        settings,
-        source_url=body.source_url,
-        visibility=body.visibility,
-        org_id=body.org_id,
-        actor_id=admin.user_id,
-    )
+    return await ctl.admin_create(db, settings, body=body, admin=admin)
+
+
+@router.get("/mcp/{listing_id}")
+async def get_item(
+    listing_id: str,
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    admin: Annotated[AdminIdentity, Depends(admin_identity)],
+) -> Any:
+    """One item in any state: the preview, with versions, events, every link,
+    and `validation_issues` - each reason it cannot be published yet."""
+    return await ctl.admin_get(db, listing_id=listing_id)
 
 
 @router.patch("/mcp/{listing_id}")
@@ -99,13 +108,16 @@ async def patch_listing(
     db: Annotated[SupabaseRest, Depends(get_db)],
     admin: Annotated[AdminIdentity, Depends(admin_identity)],
 ) -> Any:
-    """Edit a listing's editorial metadata.
+    """Edit an item. Never its status and never its security result.
 
-    Consequential changes -- visibility, status, price, featured, licence --
-    are recorded on the public listing timeline with the actor, the before and
-    after values, and the reason given.
+    Consequential changes -- visibility, price, featured, licence, type -- are
+    recorded on the public timeline with the actor, the before and after
+    values, and the reason given; every edit is in the admin audit log. For an
+    MCP server, changing its repository, ref, install recipe or version opens
+    a new unscanned version, so the old grade shows as outdated rather than
+    carrying over.
     """
-    return await ctl.admin_patch(db, listing_id=listing_id, body=body, actor_id=admin.user_id)
+    return await ctl.admin_patch(db, listing_id=listing_id, body=body, admin=admin)
 
 
 @router.post("/mcp/{listing_id}/status")
@@ -115,15 +127,57 @@ async def set_status(
     db: Annotated[SupabaseRest, Depends(get_db)],
     admin: Annotated[AdminIdentity, Depends(admin_identity)],
 ) -> Any:
-    """Publish, suspend, or otherwise move a listing.
+    """Publish, unpublish, archive, restore (archived -> draft), suspend.
 
-    Publishing is refused for a server that has never been scanned: a listing
-    in the catalogue implies Aevrin has looked at it.
+    Publishing runs the one publish gate: the item must be complete for its
+    type, and an MCP server must have been scanned by the current engine. Every
+    reason it fails is returned at once.
     """
     return await ctl.admin_set_status(
-        db, listing_id=listing_id, new_status=body.status, reason=body.reason,
-        actor_id=admin.user_id,
+        db, listing_id=listing_id, new_status=body.status, reason=body.reason, admin=admin,
     )
+
+
+@router.delete("/mcp/{listing_id}")
+async def delete_item(
+    listing_id: str,
+    body: AdminDeleteRequest,
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    admin: Annotated[AdminIdentity, Depends(admin_identity)],
+) -> Any:
+    """Remove the registry entry, and only that.
+
+    The upstream repository, the package and any scan are untouched. The slug
+    must be typed back. Audited before the delete, with a snapshot, because
+    the item's own timeline is deleted with it.
+    """
+    return await ctl.admin_delete(
+        db, listing_id=listing_id, confirm_slug=body.confirm_slug, admin=admin
+    )
+
+
+@router.put("/mcp/{listing_id}/links")
+async def set_links(
+    listing_id: str,
+    body: AdminLinksRequest,
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    admin: Annotated[AdminIdentity, Depends(admin_identity)],
+) -> Any:
+    """Replace this item's related items. The public page only ever shows
+    targets that are published and visible."""
+    return await ctl.admin_set_links(db, listing_id=listing_id, links=body.links, admin=admin)
+
+
+@router.post("/mcp/{listing_id}/refresh-metadata")
+async def refresh_metadata(
+    listing_id: str,
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    admin: Annotated[AdminIdentity, Depends(admin_identity)],
+) -> Any:
+    """Re-read the repository's own signals and README. Never touches the
+    title, description, tags, categories or content an administrator wrote."""
+    return await ctl.admin_refresh_metadata(db, settings, listing_id=listing_id, admin=admin)
 
 
 @router.post("/mcp/{listing_id}/scan")
@@ -147,7 +201,7 @@ async def scan_listing(
         listing_id=listing_id,
         version_id=body.version_id,
         force=body.force,
-        actor_id=admin.user_id,
+        admin=admin,
         # The pipeline clones a repository and runs several analysers. Awaited
         # inside the request it outlives the edge's timeout every time, which
         # is why no catalogue scan had ever completed.
@@ -172,7 +226,7 @@ async def regrade_ungraded(
     return await ctl.admin_regrade_ungraded(
         db,
         settings,
-        actor_id=admin.user_id,
+        admin=admin,
         schedule=background.add_task,
     )
 
@@ -200,8 +254,7 @@ async def decide_submission(
     scanned. The reason given is shown to the submitter.
     """
     return await ctl.admin_decide(
-        db, submission_id=submission_id, decision=body.decision, reason=body.reason,
-        actor_id=admin.user_id,
+        db, submission_id=submission_id, decision=body.decision, reason=body.reason, admin=admin,
     )
 
 
@@ -224,5 +277,34 @@ async def resolve_report(
 ) -> Any:
     """Mark a report reviewing, dismissed, or actioned."""
     return await ctl.admin_resolve_report(
-        db, report_id=report_id, new_status=body.status, note=body.note, actor_id=admin.user_id
+        db, report_id=report_id, new_status=body.status, note=body.note, admin=admin
     )
+
+
+@router.get("/categories")
+async def list_categories(
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    admin: Annotated[AdminIdentity, Depends(admin_identity)],
+) -> Any:
+    """Every category, including ones nothing is filed under yet."""
+    return await ctl.admin_categories(db)
+
+
+@router.put("/categories")
+async def save_category(
+    body: CategoryRequest,
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    admin: Annotated[AdminIdentity, Depends(admin_identity)],
+) -> Any:
+    """Create or rename a category (upsert on slug)."""
+    return await ctl.admin_save_category(db, body=body, admin=admin)
+
+
+@router.delete("/categories/{slug}")
+async def delete_category(
+    slug: str,
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    admin: Annotated[AdminIdentity, Depends(admin_identity)],
+) -> Any:
+    """Delete a category. Refused while any item is still filed under it."""
+    return await ctl.admin_delete_category(db, slug=slug, admin=admin)

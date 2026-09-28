@@ -55,7 +55,7 @@ def _versions(scan_id: str | None = SCAN_ID) -> list[dict[str, Any]]:
 
 
 def _rationale(db: _Db, versions: list[dict[str, Any]], scanned: str | None = "1.2.0"):
-    return asyncio.run(catalog._grade_rationale(db, versions, {"scanned_version": scanned}))
+    return asyncio.run(catalog.grade_rationale(db, versions, {"scanned_version": scanned}))
 
 
 def test_the_rationale_names_the_findings_that_earned_the_letter() -> None:

@@ -52,6 +52,7 @@ from aevrin_api.services.marketplace.normalize import (
     registry_server_to_listing,
 )
 from aevrin_api.services.marketplace.ranking import compute_ranking
+from aevrin_api.services.marketplace.submissions import unique_slug
 
 logger = logging.getLogger("aevrin.marketplace.sync")
 
@@ -197,11 +198,13 @@ async def _upsert_from_registry(
     """Create or update one listing, and record a version row if the version
     is new to us.
 
-    A registry-sourced listing is published immediately. The registry
-    namespace-verifies publishers via DNS or GitHub, so this is not unvetted
-    content; and a marketplace that hid every server behind manual approval
-    would be a directory of whatever one team had time to click through.
-    Security is a separate axis and is never implied by being listed.
+    A registry-sourced listing lands as a **draft**. The registry is curated
+    by administrators (migration 0048, DECISIONS.md): the sync fills a pool of
+    candidates, and a server reaches the public catalogue only when an admin
+    scans and publishes it. It used to publish immediately, which put hundreds
+    of servers nobody at Aevrin had looked at into the public catalogue -
+    namespace verification says who published a server, not that anyone here
+    has reviewed it.
     """
     candidate = registry_server_to_listing(server)
 
@@ -215,8 +218,8 @@ async def _upsert_from_registry(
     )
 
     if not existing_rows:
-        candidate["slug"] = await _unique_slug(db, candidate["slug"])
-        candidate["status"] = "published"
+        candidate["slug"] = await unique_slug(db, candidate["slug"])
+        candidate["status"] = "draft"
         inserted = await db.insert("mcp_listings", candidate)
         if not inserted:
             return
@@ -225,9 +228,8 @@ async def _upsert_from_registry(
         await _event(db, listing["id"], "listing_added", new_value=server.name)
     else:
         listing = existing_rows[0]
-        # Only fields the registry owns are overwritten. Anything an admin
-        # curated -- categories, description, featured -- is left alone, which
-        # is what makes admin curation survive the next sync.
+        # Only fields the registry owns are overwritten, and only while the
+        # listing is still in the uncurated pool.
         patch = {
             "title": candidate["title"],
             "repository_url": candidate["repository_url"],
@@ -240,6 +242,14 @@ async def _upsert_from_registry(
             "registry_updated_at": candidate["registry_updated_at"],
             "updated_at": datetime.now(UTC).isoformat(),
         }
+        if listing.get("status") != "draft":
+            # Once an administrator has taken a listing out of the pool, its
+            # title, links, publisher and install recipe are theirs: this used
+            # to overwrite them every week, silently reverting curation. Only
+            # what upstream alone can know still flows in - a new version,
+            # which is what makes a stale scan show as outdated, and the link
+            # back to the registry entry.
+            patch = {k: v for k, v in patch.items() if k in _UPSTREAM_ONLY}
         changed = {k: v for k, v in patch.items() if listing.get(k) != v and k != "updated_at"}
         if changed:
             await db.update("mcp_listings", {"id": listing["id"]}, patch)
@@ -257,21 +267,8 @@ async def _upsert_from_registry(
     await _ensure_version_row(db, listing["id"], server, report)
 
 
-async def _unique_slug(db: SupabaseRest, base: str) -> str:
-    """Slugs are unique, and two publishers can legitimately produce the same
-    one. Suffix rather than reject: a colliding entry that failed to ingest
-    would be a server permanently missing from the marketplace."""
-    existing = await db.select("mcp_listings", {"slug": f"eq.{base}"}, columns="id", limit=1)
-    if not existing:
-        return base
-    for suffix in range(2, 60):
-        candidate = f"{base}-{suffix}"
-        clash = await db.select("mcp_listings", {"slug": f"eq.{candidate}"}, columns="id", limit=1)
-        if not clash:
-            return candidate
-    # Astronomically unlikely; a timestamp suffix is still better than losing
-    # the listing.
-    return f"{base}-{int(datetime.now(UTC).timestamp())}"
+# What the sync may still write on a listing an administrator has curated.
+_UPSTREAM_ONLY = frozenset({"latest_version", "registry_updated_at", "registry_url", "updated_at"})
 
 
 async def _ensure_version_row(
@@ -339,22 +336,35 @@ async def _refresh_metadata(
     async def refresh(listing: dict[str, Any]) -> None:
         async with semaphore:
             try:
-                await _refresh_one(db, settings, listing, report)
+                if await refresh_listing_metadata(db, settings, listing):
+                    report.metadata_refreshed += 1
             except Exception as exc:  # noqa: BLE001
                 report.failures.append(f"metadata {listing.get('id')}: {exc}")
 
     await asyncio.gather(*(refresh(row) for row in rows))
 
 
-async def _refresh_one(
-    db: SupabaseRest, settings: Settings, listing: dict[str, Any], report: SyncReport
-) -> None:
+async def refresh_listing_metadata(
+    db: SupabaseRest,
+    settings: Settings,
+    listing: dict[str, Any],
+    *,
+    refetch_readme: bool = False,
+) -> bool:
+    """Re-read what the upstream repository says about itself. True if written.
+
+    Used by the weekly sync and by an admin's "Refresh metadata". Writes only
+    fields the repository owns - popularity, maintenance signals, licence, the
+    README - never the title, description, tags, categories or `content`
+    an administrator wrote. `refetch_readme` is the admin's explicit request;
+    the weekly job fetches a README once and leaves it (see below).
+    """
     metadata = await fetch_repo_metadata(settings, listing.get("repository_url") or "")
     if metadata is None:
         # Nothing is written, deliberately. Not even the timestamp: marking it
         # refreshed would push this listing to the back of the queue for
         # another six days on the strength of a failed request.
-        return
+        return False
 
     patch: dict[str, Any] = {
         "github_stars": metadata.stars,
@@ -369,8 +379,11 @@ async def _refresh_one(
     }
     if metadata.license_id:
         patch["license"] = metadata.license_id
-        # Licence is the one signal that can honestly upgrade price_type off
-        # 'unknown', and only for a self-hosted package.
+    # Licence is the one signal that can honestly upgrade price_type off
+    # 'unknown', and only for a self-hosted package. Off 'unknown' only: the
+    # check was described here but never made, so an administrator's pricing
+    # was recomputed from the licence every week.
+    if metadata.license_id and listing.get("price_type", "unknown") == "unknown":
         installation = listing.get("installation") or {}
         patch["price_type"] = infer_price_type(
             license_id=metadata.license_id,
@@ -381,7 +394,7 @@ async def _refresh_one(
     # The README is fetched once and then left alone. It is large, it changes
     # rarely, and re-fetching it weekly for every listing would dominate the
     # request budget for a field almost nobody's copy has changed.
-    if not listing.get("readme"):
+    if refetch_readme or not listing.get("readme"):
         readme = await fetch_readme(settings, listing.get("repository_url") or "")
         if readme:
             patch["readme"] = readme
@@ -393,7 +406,7 @@ async def _refresh_one(
             patch["npm_downloads_last_month"] = downloads
 
     await db.update("mcp_listings", {"id": listing["id"]}, patch)
-    report.metadata_refreshed += 1
+    return True
 
 
 def _npm_identifier(installation: dict[str, Any]) -> str | None:

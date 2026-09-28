@@ -13,9 +13,17 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-Sort = Literal["recommended", "security", "popular", "recently_updated", "recently_added", "az"]
+Sort = Literal[
+    "recommended", "security", "popular", "recently_updated", "recently_added", "az", "trending"
+]
 PriceType = Literal["free", "freemium", "paid", "open_source", "commercial", "unknown"]
-Grade = Literal["A", "B", "C", "D"]
+Grade = Literal["A", "B", "C", "D", "F"]
+# Mirrors ITEM_TYPES in services/marketplace/items.py and the check in 0048.
+ItemType = Literal[
+    "mcp_server", "skill", "prompt", "tool", "agent", "component", "template",
+    "workflow", "library", "cli", "backend", "frontend", "infrastructure",
+    "product", "repository", "integration", "dataset", "documentation", "other",
+]
 Visibility = Literal["public", "private", "unlisted"]
 PolicyAction = Literal["allow", "require_approval", "block"]
 
@@ -33,6 +41,8 @@ class ListingSummary(BaseModel):
     slug: str
     title: str
     description: str = ""
+    item_type: str = "mcp_server"
+    author: str | None = None
     publisher: str | None = None
     repository_url: str | None = None
     homepage_url: str | None = None
@@ -41,6 +51,9 @@ class ListingSummary(BaseModel):
     license: str | None = None
     categories: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    technologies: list[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
+    use_cases: list[str] = Field(default_factory=list)
     price_type: PriceType = "unknown"
     pricing_url: str | None = None
     install_targets: list[str] = Field(default_factory=list)
@@ -67,6 +80,11 @@ class CategoryOut(BaseModel):
     name: str
     description: str | None = None
     count: int = 0
+
+
+class TypeCount(BaseModel):
+    type: str
+    count: int
 
 
 class SubmitListingRequest(BaseModel):
@@ -128,13 +146,29 @@ class AdminListingPatch(BaseModel):
     There is no field here that touches a grade, a score, or coverage. That is
     not an oversight: those are written from scan evidence and an admin who
     could type a better letter would be able to make an unsafe server look
-    safe.
+    safe. Nor is there a `status`: that changes only through the status
+    endpoint, which runs the publish gate.
+
+    `content` and `installation` are validated in full by
+    services/marketplace/items.py; they are typed loosely here so the service
+    can report every problem at once rather than FastAPI reporting the first.
     """
 
     title: str | None = Field(default=None, max_length=120)
     description: str | None = Field(default=None, max_length=4000)
+    item_type: ItemType | None = None
+    author: str | None = Field(default=None, max_length=200)
+    publisher: str | None = Field(default=None, max_length=200)
     categories: list[str] | None = None
     tags: list[str] | None = None
+    technologies: list[str] | None = None
+    capabilities: list[str] | None = None
+    use_cases: list[str] | None = None
+    content: dict[str, Any] | None = None
+    repository_url: str | None = Field(default=None, max_length=500)
+    repository_ref: str | None = Field(default=None, max_length=200)
+    installation: dict[str, Any] | None = None
+    latest_version: str | None = Field(default=None, max_length=100)
     price_type: PriceType | None = None
     price_amount: float | None = None
     price_currency: str | None = Field(default=None, max_length=3)
@@ -150,15 +184,46 @@ class AdminListingPatch(BaseModel):
 
 
 class AdminStatusRequest(BaseModel):
-    status: Literal["draft", "review", "approved", "rejected", "published", "suspended"]
+    # Restoring an archived item is a move to "draft".
+    status: Literal["draft", "review", "approved", "rejected", "published", "suspended", "archived"]
     reason: str | None = Field(default=None, max_length=1000)
 
 
 class AdminCreateListingRequest(BaseModel):
-    source_url: str = Field(min_length=8, max_length=500)
+    """Add an item: from a URL (derived like a suggestion), or by hand.
+
+    A prompt or a skill often has no repository at all, so the URL is
+    optional; without one, a title is required.
+    """
+
+    item_type: ItemType = "mcp_server"
+    source_url: str | None = Field(default=None, min_length=8, max_length=500)
+    title: str | None = Field(default=None, max_length=120)
+    description: str | None = Field(default=None, max_length=4000)
     visibility: Visibility = "public"
-    # Set only for a private, organisation-owned server.
+    # Set only for a private, organisation-owned item.
     org_id: str | None = None
+
+
+class AdminDeleteRequest(BaseModel):
+    # The item's slug, typed back. A stray click cannot delete anything.
+    confirm_slug: str = Field(min_length=1, max_length=200)
+
+
+class LinkIn(BaseModel):
+    related_id: str = Field(min_length=1, max_length=64)
+    relation: Literal["uses", "related"] = "related"
+
+
+class AdminLinksRequest(BaseModel):
+    links: list[LinkIn] = Field(default_factory=list, max_length=50)
+
+
+class CategoryRequest(BaseModel):
+    slug: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=500)
+    sort_order: int = Field(default=100, ge=0, le=10000)
 
 
 class SubmissionDecisionRequest(BaseModel):
@@ -174,9 +239,11 @@ class ReportDecisionRequest(BaseModel):
 class PolicyRequest(BaseModel):
     """An organisation's install policy.
 
-    All four grades are required. A partial policy leaves a grade undefined,
-    and an undefined grade has to fall back to something -- a decision the
-    organisation should make deliberately rather than inherit.
+    A through D are required. A partial policy leaves a grade undefined, and an
+    undefined grade has to fall back to something -- a decision the
+    organisation should make deliberately rather than inherit. F is accepted
+    and defaults to block when omitted, so a client written before F existed
+    can still save a policy without F ever falling to a milder action.
     """
 
     grade_actions: dict[Grade, PolicyAction]

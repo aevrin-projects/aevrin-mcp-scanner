@@ -118,7 +118,7 @@ async def scan_listing_version(
     listing_rows = await db.select(
         "mcp_listings",
         {"id": listing_id},
-        columns="id,slug,title,repository_url,registry_name,visibility,org_id",
+        columns="id,slug,title,repository_url,registry_name,visibility,org_id,installation",
         limit=1,
     )
     if not listing_rows:
@@ -135,18 +135,13 @@ async def scan_listing_version(
         raise ScanNotPossible("version not found")
     version = version_rows[0]
 
-    repository_url = listing.get("repository_url")
-    if not repository_url:
-        raise ScanNotPossible(
-            "This server declares no source repository, so there is nothing to analyse. "
-            "A grade cannot be issued without evidence."
-        )
+    target, target_type = _scan_target(listing)
 
     if not force:
         if version.get("scan_id"):
             return {"reused": True, "scan_id": version["scan_id"], "reason": "this version is already scanned"}
         existing = await find_reusable_scan(
-            db, repository_url=repository_url, source_hash=version.get("source_hash")
+            db, repository_url=target, source_hash=version.get("source_hash")
         )
         if existing:
             await _apply_scan_to_version(
@@ -166,6 +161,8 @@ async def scan_listing_version(
         db,
         settings,
         listing=listing,
+        target=target,
+        target_type=target_type,
         actor_id=actor_id,
         schedule=schedule,
         server_command=_server_command_for(version),
@@ -178,10 +175,14 @@ async def scan_listing_version(
     await invalidate_for_subject(db, subject_type="listing", subject_id=listing_id)
     await invalidate_for_subject(db, subject_type="trust_grade", subject_id=listing_id)
 
+    # Progress lives on the version. The listing's status is not touched: it
+    # used to be parked in `scanning` and then set to `published` when the scan
+    # finished, whatever it had been before - so scanning a draft or a
+    # suggestion under review published it with no admin decision. A scan
+    # produces evidence; publishing is a separate act by a person.
     await db.update(
         "mcp_listing_versions", {"id": version_id}, {"scan_id": scan_id, "scan_status": "running"}
     )
-    await db.update("mcp_listings", {"id": listing_id}, {"status": "scanning"})
 
     return {"reused": False, "scan_id": scan_id, "reason": "a new scan was started"}
 
@@ -197,6 +198,30 @@ _REGISTRY_RUNNERS = {"npm": "npx -y", "pypi": "uvx"}
 # published package name never contains these, and the marketplace takes
 # submissions from the public.
 _SHELL_SHAPED_RE = re.compile(r"""[\s;|&$`<>()'"\\]""")
+
+
+def _scan_target(listing: dict[str, Any]) -> tuple[str, TargetType]:
+    """What to point the scanner at: the repository, or the hosted endpoint.
+
+    A repository is preferred because the scan can then resolve the package
+    from the project's own manifest. A server that is only offered as a hosted
+    endpoint has no repository, and used to be refused outright - so it could
+    never be scanned, and therefore never published. The pipeline scans a live
+    HTTPS endpoint directly (through the stdio bridge, with the same SSRF
+    guard), so that is what it is given. The URL was validated when the
+    installation was saved; the resolver checks it again before any fetch.
+    """
+    repository_url = listing.get("repository_url")
+    if repository_url:
+        return repository_url, TargetType.GITHUB_REPO
+    remotes = (listing.get("installation") or {}).get("remotes") or []
+    remote_url = next((r.get("url") for r in remotes if r.get("url")), None)
+    if remote_url:
+        return str(remote_url), TargetType.LIVE_MCP_SERVER
+    raise ScanNotPossible(
+        "This server declares neither a source repository nor a hosted endpoint, so there "
+        "is nothing to scan. A grade cannot be issued without evidence."
+    )
 
 
 def _server_command_for(version: dict[str, Any]) -> str | None:
@@ -228,6 +253,8 @@ async def _start_scan(
     settings: Settings,
     *,
     listing: dict[str, Any],
+    target: str,
+    target_type: TargetType,
     actor_id: str | None,
     schedule: Callable[..., Any] | None = None,
     server_command: str | None = None,
@@ -259,8 +286,8 @@ async def _start_scan(
         {
             "id": str(scan_id),
             "user_id": owner_id,
-            "target_type": TargetType.GITHUB_REPO.value,
-            "target": listing["repository_url"],
+            "target_type": target_type.value,
+            "target": target,
             "status": ScanStatus.QUEUED.value,
             "created_at": now,
         },
@@ -273,14 +300,15 @@ async def _start_scan(
             settings,
             scan_id,
             owner_id,
-            listing["repository_url"],
+            target,
             actor_id,
             server_command,
+            target_type,
         )
     else:
         # Inline, for tests and any caller that genuinely wants to block.
         await _scan_then_grade(
-            db, settings, scan_id, owner_id, listing["repository_url"], actor_id, server_command
+            db, settings, scan_id, owner_id, target, actor_id, server_command, target_type
         )
     logger.info("mcp_scan_started listing=%s scan=%s", listing["slug"], scan_id)
     return str(scan_id)
@@ -291,9 +319,10 @@ async def _scan_then_grade(
     settings: Settings,
     scan_id: UUID,
     owner_id: str,
-    repository_url: str,
+    target: str,
     actor_id: str | None,
     server_command: str | None = None,
+    target_type: TargetType = TargetType.GITHUB_REPO,
 ) -> None:
     """Run the pipeline, then write the grade it produced onto the version.
 
@@ -317,8 +346,8 @@ async def _scan_then_grade(
         await start_scan(
             scan_id,
             owner_id,
-            TargetType.GITHUB_REPO,
-            repository_url,
+            target_type,
+            target,
             settings,
             channel=InvocationChannel.MARKETPLACE,
             server_command=server_command,
@@ -420,10 +449,6 @@ async def _apply_scan_to_version(
         package_identifier=version.get("package_identifier"),
         actor_id=actor_id,
     )
-
-    # A listing parked in 'scanning' has to come back out, or it disappears
-    # from the catalogue permanently the first time it is scanned.
-    await db.update("mcp_listings", {"id": listing["id"]}, {"status": "published"})
 
     logger.info(
         "mcp_scan_completed listing=%s version=%s grade=%s risk=%s",

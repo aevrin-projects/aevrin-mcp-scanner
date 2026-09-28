@@ -17,6 +17,7 @@ letter it could mistake for a current verdict on the current release.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from aevrin_scanner_core.mcp.risk import grade_drivers, severity_counts
@@ -31,6 +32,16 @@ logger = logging.getLogger("aevrin.marketplace.catalog")
 
 MAX_PAGE_SIZE = 60
 DEFAULT_PAGE_SIZE = 24
+TRENDING_WINDOW = timedelta(days=30)
+
+# Which client wants which config shape. Data rather than branches, so adding
+# a client is a row.
+_CONFIG_SHAPE: dict[str, str] = {
+    "claude-code": "mcpServers",
+    "cursor": "mcpServers",
+    "codex": "mcp_servers",
+    "generic": "mcpServers",
+}
 
 # The columns a browse card needs. Named explicitly rather than `*` so that
 # adding a column to the table -- an internal note, a moderation flag -- does
@@ -42,10 +53,18 @@ LIST_COLUMNS = (
     "github_last_commit_at,github_latest_release,github_language,npm_downloads_last_month,"
     "favorite_count,ranking_score,featured,status,visibility,latest_version,"
     "current_version,current_trust_grade,current_risk_score,current_coverage_complete,"
-    "current_scanned_at,registry_updated_at,created_at,updated_at"
+    "current_scanned_at,registry_updated_at,created_at,updated_at,"
+    "item_type,author,technologies,capabilities,use_cases,repository_ref"
 )
 
-DETAIL_COLUMNS = LIST_COLUMNS + ",readme,installation,org_id,created_by,marketplace_views"
+DETAIL_COLUMNS = (
+    LIST_COLUMNS + ",readme,installation,org_id,created_by,marketplace_views,content"
+)
+
+# The shape a related item takes on a detail page: a card, not a document.
+# Enough to decide whether to follow the link, and nothing that belongs only
+# to the item's own page.
+_RELATED_COLUMNS = "id,slug,title,description,item_type,current_trust_grade,status,visibility"
 
 
 def _visibility_filters(
@@ -98,6 +117,8 @@ def decorate(listing: dict[str, Any], *, favorited: bool = False) -> dict[str, A
     ) or listing.get("registry_url")
     return {
         **listing,
+        # Rows written before 0048 have no type; they were all MCP servers.
+        "item_type": listing.get("item_type") or "mcp_server",
         "registry_url": registry_url,
         "is_favorited": favorited,
         "security": {
@@ -134,6 +155,10 @@ def _badges(listing: dict[str, Any], state: str) -> list[str]:
     nobody has written down is a claim the product cannot stand behind.
     """
     badges: list[str] = []
+    if state == "not_applicable":
+        # Said plainly rather than left off: an item with no security badge at
+        # all is easy to read as one whose check came back fine.
+        return ["Not security-scanned"]
     if state == "unscanned":
         badges.append("Unscanned")
         return badges
@@ -142,11 +167,18 @@ def _badges(listing: dict[str, Any], state: str) -> list[str]:
     if state == "partial":
         badges.append("Partial coverage")
     badges.append("Aevrin scanned")
+    if state == "ungraded":
+        badges.append("Not graded")
+        return badges
     grade = listing.get("current_trust_grade")
     if grade in ("A", "B") and state == "complete":
         badges.append(f"Grade {grade}")
     if grade in ("C", "D"):
         badges.append("Needs review")
+    if grade == "F":
+        # GRADE_LABELS["F"]. Without this the worst grade carried the mildest
+        # badge set of all: "Aevrin scanned" and nothing else.
+        badges.append("Do not use")
     return badges
 
 
@@ -165,6 +197,9 @@ async def search_listings(
     org_id: str | None = None,
     featured_only: bool = False,
     user_id: str | None = None,
+    item_type: str | None = None,
+    technology: str | None = None,
+    capability: str | None = None,
 ) -> dict[str, Any]:
     """One page of the catalogue.
 
@@ -192,6 +227,19 @@ async def search_listings(
         filters["install_targets"] = f"cs.{{{_sanitise_token(install_target)}}}"
     if featured_only:
         filters["featured"] = "is.true"
+    if item_type:
+        filters["item_type"] = f"eq.{_sanitise_token(item_type)}"
+    if technology:
+        filters["technologies"] = f"cs.{{{_sanitise_token(technology)}}}"
+    if capability:
+        filters["capabilities"] = f"cs.{{{_sanitise_token(capability)}}}"
+    if sort == "trending":
+        # "Trending" is a claim about now, so it only ranks items that are
+        # current. Views are cumulative; restricting to recently updated items
+        # is what stops a listing that was popular a year ago ranking as
+        # trending forever. The UI names it for what it is.
+        since = (datetime.now(UTC) - TRENDING_WINDOW).isoformat()
+        filters["updated_at"] = f"gte.{since}"
     if min_grade in ("A", "B", "C"):
         # Grades sort alphabetically in the direction we want here: "at least
         # B" is A or B, which is `lte.B`.
@@ -275,11 +323,95 @@ async def get_listing(
 
     listing["versions"] = versions
     listing["events"] = events
-    listing["grade_rationale"] = await _grade_rationale(db, versions, listing["security"])
+    listing["grade_rationale"] = await grade_rationale(db, versions, listing["security"])
     # The installation recipe is what an Install button acts on, so the
     # detail view is the only place it is returned.
     listing["installation"] = rows[0].get("installation") or {}
+    listing["content"] = rows[0].get("content") or {}
+    listing["install_configs"] = _install_configs(listing)
+    listing["related"] = await _related(db, listing_id)
     return listing
+
+
+def _install_configs(listing: dict[str, Any]) -> dict[str, Any]:
+    """A ready-to-copy config per agent this server supports.
+
+    No organisation policy is applied: this is what the public page and the
+    agent-facing registry tools show, and neither has a caller whose policy
+    could apply. The signed-in install plan applies it on top of the same
+    builder. Empty for anything that is not an installable MCP server.
+    """
+    if listing.get("item_type") != "mcp_server":
+        return {}
+    configs: dict[str, Any] = {}
+    for agent in listing.get("install_targets") or []:
+        try:
+            config, warnings = build_install_config(listing, agent)
+        except NotInstallable:
+            return {}
+        configs[agent] = {"config": config, "warnings": warnings}
+    return configs
+
+
+async def _related(db: SupabaseRest, listing_id: str) -> list[dict[str, Any]]:
+    """Linked items a public reader may see, as cards.
+
+    The link table is readable wherever its source item is, but its *target*
+    may be a draft, archived, or another organisation's private item. Only
+    published public or unlisted targets are returned, so a link can never be
+    the way a hidden item gets named on a public page.
+    """
+    links = await db.select(
+        "mcp_listing_links",
+        {"listing_id": listing_id},
+        columns="related_id,relation",
+        limit=50,
+    )
+    if not links:
+        return []
+    relation = {str(link["related_id"]): link["relation"] for link in links}
+    rows = await db.select(
+        "mcp_listings",
+        {
+            "id": f"in.({','.join(relation)})",
+            "status": "eq.published",
+            "visibility": "in.(public,unlisted)",
+        },
+        columns=_RELATED_COLUMNS,
+    )
+    return [
+        {
+            "id": row["id"],
+            "slug": row["slug"],
+            "title": row["title"],
+            "description": row.get("description") or "",
+            "item_type": row.get("item_type") or "mcp_server",
+            "grade": row.get("current_trust_grade"),
+            "relation": relation.get(str(row["id"]), "related"),
+        }
+        for row in rows
+    ]
+
+
+async def list_types(db: SupabaseRest) -> list[dict[str, Any]]:
+    """How many published public items there are of each type.
+
+    Counted in Python over one projection, like `list_categories`: the
+    registry is thousands of rows at most, and one round trip beats nineteen.
+    Types with nothing published are omitted, so the tabs never offer an
+    empty section.
+    """
+    rows = await db.select(
+        "mcp_listings",
+        {"status": "eq.published", "visibility": "eq.public"},
+        columns="item_type",
+        limit=10000,
+    )
+    counts: dict[str, int] = {}
+    for row in rows:
+        kind = row.get("item_type") or "mcp_server"
+        counts[kind] = counts.get(kind, 0) + 1
+    return [{"type": kind, "count": count} for kind, count in sorted(counts.items())]
 
 
 async def list_categories(db: SupabaseRest) -> list[dict[str, Any]]:
@@ -373,7 +505,7 @@ async def list_favorites(db: SupabaseRest, *, user_id: str) -> list[dict[str, An
     return [decorate(by_id[i], favorited=True) for i in listing_ids if i in by_id]
 
 
-async def _grade_rationale(
+async def grade_rationale(
     db: SupabaseRest, versions: list[dict[str, Any]], security: dict[str, Any]
 ) -> dict[str, Any] | None:
     """The findings behind the letter, for the version the letter belongs to.
@@ -414,3 +546,88 @@ async def _grade_rationale(
             for driver in grade_drivers(findings)
         ],
     }
+
+
+# --------------------------------------------------------------------------
+# Install configuration
+#
+# Shared by the install plan (signed-in, policy-checked) and the public detail
+# view (every supported agent, no policy). One builder, so the config a person
+# copies from the page and the one an agent reads over MCP are the same text.
+
+
+class NotInstallable(Exception):
+    """This item declares nothing a client could be configured to launch."""
+
+
+def build_install_config(
+    listing: dict[str, Any], agent: str
+) -> tuple[dict[str, Any], list[str]]:
+    """The client configuration for this server.
+
+    Secret-valued environment variables are emitted as empty placeholders with
+    their names intact. Aevrin has no business supplying a credential, and a
+    config that arrived pre-filled would be a config carrying somebody's
+    token through a marketplace.
+    """
+    installation = listing.get("installation") or {}
+    key = _CONFIG_SHAPE.get(agent, "mcpServers")
+    name = listing.get("slug", "server")
+    warnings: list[str] = []
+
+    packages = installation.get("packages") or []
+    remotes = installation.get("remotes") or []
+
+    if packages:
+        package = packages[0]
+        runtime = package.get("runtime_hint") or _default_runtime(package.get("registry_type"))
+        identifier = package.get("identifier") or ""
+        version = package.get("version")
+        spec = f"{identifier}@{version}" if version else identifier
+
+        environment = {}
+        for variable in package.get("environment") or []:
+            environment[variable["name"]] = ""
+            if variable.get("secret"):
+                warnings.append(
+                    f"{variable['name']} is a secret. Set it in your own environment; "
+                    "never commit it."
+                )
+        entry: dict[str, Any] = {"command": runtime, "args": [spec]}
+        if environment:
+            entry["env"] = environment
+        if not version:
+            warnings.append(
+                "This server declares no pinned version, so the launcher will fetch whatever "
+                "is current at run time. The grade shown here was earned by a specific version."
+            )
+    elif remotes:
+        remote = remotes[0]
+        entry = {"type": remote.get("type") or "streamable-http", "url": remote.get("url")}
+        warnings.append(
+            "This is a remote server. Its operator can change what it does without changing "
+            "anything you can see locally."
+        )
+    else:
+        raise NotInstallable("This server declares no installable package or endpoint.")
+
+    security = listing.get("security") or {}
+    if security.get("state") == "unscanned":
+        warnings.append("This server has not been scanned. Treat it as unknown, not as safe.")
+    elif security.get("state") == "ungraded":
+        warnings.append(
+            "This server was scanned, but the scan could not establish enough to grade it. "
+            "Treat it as unknown, not as safe."
+        )
+    elif security.get("state") == "outdated":
+        warnings.append(security.get("label") or "The stored scan is older than the current release.")
+    elif security.get("state") == "partial":
+        warnings.append("Scan coverage was incomplete. Absence of findings is not evidence of safety.")
+
+    return {key: {name: entry}}, warnings
+
+
+def _default_runtime(registry_type: str | None) -> str:
+    return {"npm": "npx", "pypi": "uvx", "oci": "docker", "nuget": "dnx"}.get(
+        registry_type or "", "npx"
+    )

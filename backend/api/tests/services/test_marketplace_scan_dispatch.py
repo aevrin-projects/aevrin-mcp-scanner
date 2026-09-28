@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from aevrin_scanner_core.models import InvocationChannel
+from aevrin_scanner_core.models import InvocationChannel, TargetType
 
 from aevrin_api.services.marketplace import scanning
 
@@ -162,19 +162,26 @@ async def test_a_failed_scan_is_still_graded(monkeypatch):
     assert graded == ["scan-1"]
 
 
+class _NoRepo(_Db):
+    def __init__(self, *, remote: str | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._remote = remote
+
+    async def select(self, table: str, filters=None, **kwargs):
+        rows = await super().select(table, filters, **kwargs)
+        if table == "mcp_listings":
+            rows[0]["repository_url"] = None
+            rows[0]["installation"] = (
+                {"remotes": [{"type": "streamable-http", "url": self._remote}]} if self._remote else {}
+            )
+        return rows
+
+
 @pytest.mark.asyncio
-async def test_a_server_with_no_repository_is_refused_rather_than_faked(monkeypatch):
-    """Unchanged behaviour, asserted because it is the honest half of this
-    feature: a remote-only server has no source, and a clean-looking grade from
-    having examined nothing would be worse than no grade."""
-
-    class _NoRepo(_Db):
-        async def select(self, table: str, filters=None, **kwargs):
-            rows = await super().select(table, filters, **kwargs)
-            if table == "mcp_listings":
-                rows[0]["repository_url"] = None
-            return rows
-
+async def test_a_server_with_nothing_to_scan_is_refused_rather_than_faked(monkeypatch):
+    """The honest half of this feature: with neither a repository nor a hosted
+    endpoint there is nothing to examine, and a clean-looking grade from having
+    examined nothing would be worse than no grade."""
     with pytest.raises(scanning.ScanNotPossible) as excinfo:
         await scanning.scan_listing_version(
             _NoRepo(),
@@ -184,7 +191,90 @@ async def test_a_server_with_no_repository_is_refused_rather_than_faked(monkeypa
             force=True,
             schedule=lambda *a: None,
         )
-    assert "no source repository" in str(excinfo.value)
+    assert "neither a source repository nor a hosted endpoint" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_a_hosted_only_server_is_scanned_at_its_endpoint(monkeypatch):
+    """A server offered only as a hosted endpoint used to be refused, so it could
+    never be scanned and therefore never published. The pipeline scans a live
+    HTTPS endpoint directly, so that is the target it is handed."""
+    monkeypatch.setattr(scanning, "invalidate_for_subject", _noop)
+    scheduled: list[tuple] = []
+
+    await scanning.scan_listing_version(
+        _NoRepo(remote="https://mcp.context7.com/mcp"),
+        _Settings(),  # type: ignore[arg-type]
+        listing_id="listing-1",
+        version_id="version-1",
+        force=True,
+        schedule=lambda fn, *args: scheduled.append((fn, args)),
+    )
+
+    (_, args), = scheduled
+    # (db, settings, scan_id, owner_id, target, actor_id, server_command, target_type)
+    assert args[4] == "https://mcp.context7.com/mcp"
+    assert args[7] is TargetType.LIVE_MCP_SERVER
+
+
+# --------------------------------------------------------------------------
+# A scan produces evidence; it never publishes anything.
+#
+# The listing used to be set to `scanning` when a scan started and to
+# `published` when it was graded - whatever its status had been before. So
+# scanning a draft, or a user's suggestion still under review, published it
+# with no admin decision. Nothing tested it, which is how it survived.
+
+
+def _listing_status_writes(db: _Db) -> list[dict[str, Any]]:
+    return [patch for table, patch in db.updates if table == "mcp_listings" and "status" in patch]
+
+
+@pytest.mark.asyncio
+async def test_starting_a_scan_does_not_change_the_listing_status(monkeypatch):
+    monkeypatch.setattr(scanning, "invalidate_for_subject", _noop)
+    db = _Db()
+
+    await scanning.scan_listing_version(
+        db,
+        _Settings(),  # type: ignore[arg-type]
+        listing_id="listing-1",
+        version_id="version-1",
+        force=True,
+        schedule=lambda *a: None,
+    )
+
+    assert _listing_status_writes(db) == []
+    # Progress still lives somewhere: on the version.
+    assert ("mcp_listing_versions", {"scan_id": db.updates[0][1]["scan_id"], "scan_status": "running"}) in db.updates
+
+
+@pytest.mark.asyncio
+async def test_grading_a_finished_scan_does_not_publish_the_listing(monkeypatch):
+    """The regression that matters: `_apply_scan_to_version` ended with an
+    unconditional `status = published`."""
+
+    class _Graded(_Db):
+        async def select(self, table: str, filters=None, **kwargs):
+            if table == "mcp_listing_versions":
+                return [{"id": "version-1", "listing_id": "listing-1", "version": "1.0.0",
+                         "source_hash": None, "package_registry": None, "package_identifier": None}]
+            if table == "scans":
+                return [{"id": "scan-1", "status": "completed", "unreliable_stages": [],
+                         "mcp_tools_declared": ["search"], "risk_score": 10, "grade": "A"}]
+            if table == "mcp_listings":
+                return [{"id": "listing-1", "slug": "acme-server", "status": "draft"}]
+            return []
+
+    async def fake_record(db, **kwargs):
+        return {"version": kwargs["version"]}
+
+    monkeypatch.setattr(scanning, "record_version_scan", fake_record)
+    db = _Graded()
+
+    await scanning.apply_completed_scan(db, scan_id="scan-1")
+
+    assert _listing_status_writes(db) == [], "grading a scan published the listing"
 
 
 async def _noop(*args: Any, **kwargs: Any) -> None:
