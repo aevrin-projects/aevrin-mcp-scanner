@@ -67,6 +67,31 @@ async def missing_columns(db: SupabaseRest) -> list[str]:
     return missing
 
 
+def main() -> int:
+    """`python -m aevrin_api.services.schema_check`: the same check, run once.
+
+    `remote-deploy.sh` runs this in a throwaway container of the new image
+    *before* it replaces the live one. `/health` catches drift too, but only
+    after the swap, and the new container serves live traffic while it waits
+    to be judged - three minutes of 500s on every request that touches a
+    missing column, for a deploy that was always going to roll back.
+
+    Exit 1 only for definite drift. An inconclusive check (a timeout, a reset)
+    exits 0, as it does not fail `/health` either; the post-swap health wait
+    still stands behind it.
+    """
+    import asyncio
+
+    from aevrin_api.config import get_settings
+
+    missing = asyncio.run(missing_columns(SupabaseRest(get_settings())))
+    if missing:
+        print(f"schema drift: this build needs {', '.join(missing)}; apply the migration first")
+        return 1
+    print("schema: every column this build requires is present")
+    return 0
+
+
 class SchemaStatus:
     """Remembers a healthy answer; keeps re-asking an unhealthy one.
 
@@ -87,3 +112,7 @@ class SchemaStatus:
         if not found:
             self._ok = True
         return found
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

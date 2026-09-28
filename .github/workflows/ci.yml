@@ -154,3 +154,15 @@ jobs:
       # catches a COPY path breaking when directories move.
       - name: Build API image
         run: docker build -f backend/api/Dockerfile -t aevrin-api:ci .
+
+      # Until this, the registry MCP image was only ever built by the deploy.
+      - name: Build registry MCP image
+        run: docker build -f backend/cli/Dockerfile.registry-mcp -t aevrin-registry-mcp:ci .
+
+      # The deploy installs this file into the live Caddy and refuses an
+      # invalid one - which kept production safe, but only after a red deploy.
+      # Validating here fails the push instead.
+      - name: Validate Caddyfile
+        run: >-
+          docker run --rm -v "$PWD/backend/deploy/Caddyfile:/etc/caddy/Caddyfile:ro"
+          caddy:2.11.4-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile

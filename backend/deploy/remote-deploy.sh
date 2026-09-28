@@ -99,6 +99,18 @@ sudo docker build -t "$SCANNER_TAG" -f backend/scanner-image/Dockerfile backend/
 
 sudo docker build -f backend/api/Dockerfile -t aevrin-api:new .
 
+# Ask the database whether it has what the new image needs, from a throwaway
+# container, before the live one is touched. `/health` would catch drift too,
+# but only after the swap: the new container takes live traffic while it waits
+# to be judged, so a missing migration meant three minutes of 500s followed by
+# a rollback. This way that deploy stops here with the live API untouched.
+if ! sudo docker run --rm --env-file "$ENV_FILE" aevrin-api:new \
+    python -m aevrin_api.services.schema_check; then
+  echo "the database is behind this build; the live API was not touched."
+  echo "apply the migration named above, then re-run the deploy."
+  exit 1
+fi
+
 # Keep the outgoing image addressable so the rollback below has a target.
 sudo docker tag aevrin-api:latest aevrin-api:previous 2>/dev/null || true
 sudo docker tag aevrin-api:new aevrin-api:latest

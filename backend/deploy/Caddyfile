@@ -18,7 +18,10 @@ api.mcp.aevrin.net {
 	# `handle` rather than `handle_path`: the prefix is kept, because the
 	# server itself serves at /mcp. Exactly /mcp and below, not `/mcp*`, which
 	# would also capture any API path that merely begins with those letters.
-	handle /mcp /mcp/* {
+	# A named matcher, because `handle` takes one matcher token and an inline
+	# path matcher is a single path; `path` with two values matches either.
+	@registry_mcp path /mcp /mcp/*
+	handle @registry_mcp {
 		reverse_proxy registry-mcp:8080
 	}
 	handle {

@@ -34,9 +34,14 @@ Sequence:
    given, never removes others), mints a `BYOK_ENCRYPTION_KEY` if the env
    file has none (only fills a blank - never rotates an existing one, since
    that would make every already-encrypted secret unreadable), builds the
-   image, starts the new container, polls the image's own `HEALTHCHECK` for
-   up to three minutes, and **rolls back to the previous image tag** if it
-   never turns healthy.
+   image, and runs `python -m aevrin_api.services.schema_check` in a
+   throwaway container of it. If the database lacks a column the new image
+   requires, the deploy stops there with the live API untouched: before this
+   check, the new container took live traffic while `/health` failed, so a
+   missing migration meant three minutes of 500s and then a rollback. Only
+   then does it start the new container, poll the image's own `HEALTHCHECK`
+   for up to three minutes, and **roll back to the previous image tag** if
+   it never turns healthy.
 4. The same script builds `backend/cli/Dockerfile.registry-mcp` and runs
    it as the `registry-mcp` container on the `aevrin` network (non-root,
    `AEVRIN_API_URL=http://api:8000`, port 8080, not published to the host).
@@ -304,8 +309,12 @@ Runs on every push/PR, needs no secret (so it runs for forks too):
   runtime (`output: "export"` has no runtime to re-read them) - the CI
   build is a smoke test only; the real values live in each app's own
   `deploy-*.yml`.
-- **`docker` job** - builds the API image from repo root as a build-only
-  smoke test (catches a `COPY` path breaking before a real deploy would).
+- **`docker` job** - builds the API image and the registry MCP image from
+  repo root as build-only smoke tests (catches a `COPY` path breaking before
+  a real deploy would), and runs `caddy validate` on
+  `backend/deploy/Caddyfile` in the official Caddy image. The deploy also
+  refuses an invalid Caddyfile, but only after the run has gone red; an
+  invalid `handle` matcher reached a deploy exactly that way.
 
 `.github/workflows/codeql.yml` runs CodeQL for `javascript-typescript` and
 `python` on push, PR, and weekly; `upload: false` because this is a private

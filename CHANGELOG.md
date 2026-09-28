@@ -71,6 +71,18 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **The registry deploy failed on the Caddyfile.** `handle /mcp /mcp/*`
+  is not valid Caddy syntax: `handle` takes one matcher token. It is now a
+  named matcher, `@registry_mcp path /mcp /mcp/*`. The deploy's own guard
+  refused the file and kept the live config, so production was unaffected;
+  CI now runs `caddy validate` and builds the registry MCP image, so the next
+  one fails on push instead.
+- **A deploy against a database missing a migration served 500s for three
+  minutes before rolling back**, because the new container took live traffic
+  while `/health` judged it. `remote-deploy.sh` now runs
+  `python -m aevrin_api.services.schema_check` in a throwaway container of the
+  new image first, and stops with the live API untouched if a column is
+  missing.
 - **An F-graded server fell through to "require approval" in org install
   policies**, because `grade_actions` had no F entry. F now defaults to
   `block`, in the column default and in every existing policy.
@@ -122,6 +134,21 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   retired pipeline, recognised by finding tool or stage name, are now told
   to upgrade with `pip install -U aevrin`. Every shipped CLI prints the API's
   message verbatim, so this reaches the installed base with no client release.
+- **Cross-page links on docs.mcp.aevrin.net returned 404.** Pages linked to
+  `/docs/...`, but the docs site serves its content at its own root, so every
+  one of those links missed. They now point at the real page and heading, and
+  `/concepts#scoring`, a heading that never existed, now goes to
+  `#risk-score-and-grade`. Links into the dashboard pointed at
+  `mcp.aevrin.net/dashboard`, which the ADR-011 cutover handed to the public
+  site; they now point at `app.mcp.aevrin.net/dashboard`.
+
+### Removed
+
+- **The AV-001..AV-005 entries in the rule catalogue** (`mcp/catalog.py`).
+  Their emitters were deleted with the switch to the ToolTrust engine
+  (ADR-033), and nothing has produced one since. A stored finding that still
+  carries one of those ids renders the way any unrecognised rule id does:
+  its own title and remediation, with no catalogue impact text.
 
 ## [0.5.0] - 2026-09-06 (CLI)
 

@@ -89,3 +89,23 @@ def test_the_required_columns_are_the_ones_the_migrations_add() -> None:
         # 0048
         "mcp_listings": ("item_type", "content"),
     }
+
+
+def test_the_pre_swap_check_exits_nonzero_only_for_definite_drift(monkeypatch: Any) -> None:
+    """remote-deploy.sh branches on this exit code before touching the live
+    container. Drift must stop the deploy; a blip must not."""
+    from aevrin_api.services import schema_check
+
+    monkeypatch.setattr(schema_check, "SupabaseRest", lambda _settings: None)
+    monkeypatch.setattr("aevrin_api.config.get_settings", lambda: None)
+
+    async def drift(_db: Any) -> list[str]:
+        return ["mcp_listings.item_type"]
+
+    async def clean(_db: Any) -> list[str]:
+        return []
+
+    monkeypatch.setattr(schema_check, "missing_columns", drift)
+    assert schema_check.main() == 1
+    monkeypatch.setattr(schema_check, "missing_columns", clean)
+    assert schema_check.main() == 0
