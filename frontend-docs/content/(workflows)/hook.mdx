@@ -24,7 +24,7 @@ nothing reliable to scan before the edit.
 
 <Steps>
   <Step>
-    Install the CLI if you have not already. See [Getting Started](/docs/getting-started).
+    Install the CLI if you have not already. See [Getting Started](/getting-started).
   </Step>
   <Step>
     Log in the hook (a separate credential from `aevrin login`, so hook and CLI usage stay
@@ -92,7 +92,7 @@ nothing reliable to scan before the edit.
     **A cached scan whose tools could not run blocks as incomplete**, never silently allowed. Docker
     down, a missing binary, or no network access on the machine that scanned it means the
     findings list is empty because nothing ran, not because the target is clean. See
-    [Concepts → Incomplete scans](/docs/concepts#incomplete-scans).
+    [Concepts → Incomplete scans](/concepts#incomplete-scans).
   </Step>
   <Step>
     **No cached result allows, with a visible "not yet scanned" warning.** The actual scan
@@ -114,6 +114,6 @@ nothing reliable to scan before the edit.
 ## Quota
 
 Hook auto-scans are metered separately from CLI and dashboard scans. See
-[Concepts → Quota](/docs/concepts#quota-and-tiers). Running out mid-month doesn't block
+[Concepts → Quota](/concepts#quota-and-tiers). Running out mid-month doesn't block
 installs; it allows with a note that the install wasn't checked, the same way an unreachable
 API does.

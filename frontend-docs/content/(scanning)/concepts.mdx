@@ -5,7 +5,7 @@ description: OWASP MCP Top 10, scoring, incomplete scans, target types, and quot
 
 ## OWASP MCP Top 10
 
-Every finding carries both a rule id (`AS-006`, `AV-001`) and one of ten OWASP MCP categories,
+Every finding carries both a rule id (`AS-001`, `AS-006`) and one of ten OWASP MCP categories,
 so a rule result and a scanner result read the same way, and the same categories appear
 identically in the CLI, the hook, and the dashboard.
 
@@ -208,7 +208,7 @@ own limit:
 
 AI review runs on every plan, capped per scan so one very large repository cannot consume an
 unbounded budget. Paid plans use a stronger model. A scan that hits the cap says so, and reviews
-its highest-severity findings first. See [AI review](/docs/results#ai-review) for what the review
+its highest-severity findings first. See [AI review](/results#ai-review) for what the review
 does and does not affect.
 
 Exceeding a bucket's limit returns a two-part message everywhere it can happen (CLI, hook,

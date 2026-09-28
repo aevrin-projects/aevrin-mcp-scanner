@@ -1,9 +1,9 @@
 ---
 title: Dashboard
-description: What's on mcp.aevrin.net and how it stays in sync with the CLI and hook.
+description: What's on app.mcp.aevrin.net and how it stays in sync with the CLI and hook.
 ---
 
-[mcp.aevrin.net/dashboard](https://mcp.aevrin.net/dashboard) is where every scan lands,
+[app.mcp.aevrin.net/dashboard](https://app.mcp.aevrin.net/dashboard) is where every scan lands,
 regardless of where it came from. The CLI, a hook auto-scan, and the dashboard's own "scan a
 repo" form all write to the same `scans` table and render through the same scan-detail page.
 
@@ -17,7 +17,7 @@ while it's running.
 
 Every scan page shows:
 
-- **Score and verdict.** See [Concepts → Scoring](/docs/concepts#scoring).
+- **Score and verdict.** See [Concepts → Risk score and grade](/concepts#risk-score-and-grade).
 - **Per-stage results.** Cloning, tool discovery, MCP tool rules, MCP behavior analysis,
   credential exposure, supply chain
   check, each with a status icon. A scan flagged **incomplete** shows a destructive-styled
@@ -34,7 +34,7 @@ Every scan page shows:
 
 CLI-originated results carry a visible note: **uploaded by the authenticated CLI; score
 recomputed by the API; findings not independently re-scanned**. See [Concepts → Self-reported
-results](/docs/concepts#self-reported-results) for exactly what that does and doesn't mean.
+results](/concepts#self-reported-results) for exactly what that does and doesn't mean.
 
 ## Usage meters
 
@@ -42,7 +42,7 @@ The dedicated **Usage** page shows CLI, hook, and dashboard scan counts against 
 monthly limit, resetting on a rolling window from your signup date. Its activity ledger lists the
 latest 50 charged scans with source filters, timestamp, status, score, target type, and a link to
 the full report. Hook cache hits are not listed because they do not consume a scan credit. See
-[Concepts → Quota & tiers](/docs/concepts#quota-and-tiers) for the exact numbers per plan.
+[Concepts → Quota & tiers](/concepts#quota-and-tiers) for the exact numbers per plan.
 
 ## History and deletion
 
@@ -54,7 +54,7 @@ cascades to that scan's stages and findings; it does not refund quota already co
 
 Finding detail supports `open`, `fixed`, and `false_positive` triage. False-positive reports
 require a review reason, and the reason plus triage timestamp remain visible in the report and
-printable export. See [Triage and False Positives](/docs/triage).
+printable export. See [Triage and False Positives](/triage).
 
 ## API keys
 

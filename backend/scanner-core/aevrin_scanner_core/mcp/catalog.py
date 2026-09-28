@@ -7,15 +7,11 @@ guidance from here rather than storing their own copy per finding - so a
 wording fix lands everywhere at once, and a finding row stays evidence
 rather than a snapshot of prose.
 
-Two id namespaces, kept distinct on purpose so provenance is legible:
-
-* `AS-0xx` - rules adapted from the ToolTrust Scanner
-  (https://github.com/AgentSafe-AI/tooltrust-scanner, MIT, Copyright (c)
-  2026 AgentSafe-AI). Ids match upstream so a finding here and a finding on
-  tooltrust.dev refer to the same check.
-* `AV-0xx` - Aevrin's own rules, which have no upstream equivalent: the
-  taint-based behavior pack, launch-command inspection, transport auth, and
-  verified credential exposure.
+Every id is an `AS-0xx` rule from the ToolTrust Scanner
+(https://github.com/AgentSafe-AI/tooltrust-scanner, MIT, Copyright (c)
+2026 AgentSafe-AI), the engine that emits every finding (DECISIONS.md
+ADR-033). Ids match upstream so a finding here and a finding on
+tooltrust.dev refer to the same check.
 
 `impact` answers "why should I care", `fix` answers "what do I change".
 Both are written for a developer who did not ask to become a security
@@ -312,81 +308,6 @@ def _rules() -> dict[str, Rule]:
             fix=(
                 "Register tools with literal names and descriptions, or publish a manifest, so "
                 "the exposed surface can be reviewed without running the code."
-            ),
-        ),
-        Rule(
-            id="AV-001",
-            title="Dangerous Launch Command",
-            short_label="Dangerous Launch",
-            owasp=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
-            impact=(
-                "The command that starts this server runs before any tool is called and before "
-                "any policy applies. A launch line that pipes a download into a shell has already "
-                "executed attacker-controlled code by the time the agent connects."
-            ),
-            fix=(
-                "Launch the server from a pinned, published package or a checked-out revision. "
-                "Never pipe a network fetch into a shell in a launch command."
-            ),
-        ),
-        Rule(
-            id="AV-002",
-            title="Weak Or Missing Transport Authentication",
-            short_label="Weak Authentication",
-            owasp=OwaspMcpCategory.WEAK_AUTH,
-            impact=(
-                "The transport carries no credential, so reaching the endpoint is the same as "
-                "being authorised to use it. Every tool the server exposes is exposed to whoever "
-                "can route to it."
-            ),
-            fix=(
-                "Put authentication in front of the endpoint - a bearer token or mTLS at minimum "
-                "- and serve it only over HTTPS."
-            ),
-        ),
-        Rule(
-            id="AV-003",
-            title="No Audit Logging Found",
-            short_label="No Audit Logging",
-            owasp=OwaspMcpCategory.WEAK_AUDIT_LOGGING,
-            impact=(
-                "No logging of tool invocations was found in the source. If this server is later "
-                "misused, there will be no record of which tool was called, with what arguments, "
-                "or on whose behalf."
-            ),
-            fix=(
-                "Log every tool invocation with the tool name, the caller, and a redacted "
-                "argument summary, and ship those logs somewhere the server cannot rewrite."
-            ),
-        ),
-        Rule(
-            id="AV-004",
-            title="Tool Input Reaches A Dangerous Sink",
-            short_label="Unsafe Dataflow",
-            owasp=OwaspMcpCategory.INJECTION_TRAVERSAL_SSRF,
-            impact=(
-                "An argument the agent controls flows into a shell, a file write, an outbound "
-                "request, or a credential read, with no validation in between. This is observed "
-                "dataflow in the server's own code, not an inference from its description."
-            ),
-            fix=(
-                "Validate and constrain the argument before it reaches the sink: allow-list the "
-                "values, resolve and bound file paths, and pass arguments as a list rather than "
-                "through a shell."
-            ),
-        ),
-        Rule(
-            id="AV-005",
-            title="Credential Committed In Source",
-            short_label="Committed Credential",
-            owasp=OwaspMcpCategory.TOKEN_MISMANAGEMENT,
-            impact=(
-                "A credential is present in this repository's source or history. Anyone who can "
-                "read the repository holds it, and a verified one is live right now."
-            ),
-            fix=(
-                "Rotate the credential first - removing the commit does not revoke it - then "
-                "move it to environment configuration and add a secret scan to CI."
             ),
         ),
     ]

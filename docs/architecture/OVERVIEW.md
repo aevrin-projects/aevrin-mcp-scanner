@@ -64,8 +64,10 @@ sandbox carries no Aevrin credentials of its own (ADR-034).
 - The `Scan` / `Finding` / `ScanStage` Pydantic models (single source of
   truth for what a finding *is*, everywhere).
 - The scanner adapters and the pipeline orchestrator.
-- The MCP rule engine (AS-001..AS-018 plus Aevrin's AV-001..AV-005), OWASP MCP
-  Top 10 classification, and the one risk/grade model (`grade_scan()`).
+- The ToolTrust engine adapter (`mcp/tooltrust.py`) and the rule catalogue
+  (`mcp/catalog.py`, AS-001..AS-018) that supplies the prose for its
+  findings, OWASP MCP Top 10 classification, and the one risk/grade model
+  (`grade_scan()`).
 - MCP-server detection and agent-posture scoring.
 
 Nothing above `scanner-core` re-implements any of this. A finding rendered

@@ -16,7 +16,7 @@ export const baseOptions: BaseLayoutProps = {
     },
     {
       text: "Dashboard",
-      url: "https://mcp.aevrin.net/dashboard",
+      url: "https://app.mcp.aevrin.net/dashboard",
     },
     {
       text: "Support",

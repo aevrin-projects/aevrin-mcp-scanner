@@ -51,7 +51,7 @@ Runs the full scan pipeline against `TARGET` and prints a report.
   <Tab value="Source target">
     Full pipeline: cloning (repos only), tool discovery, MCP tool rules, behavior analysis,
     credential exposure, supply chain, then the tool
-    description check. See [Introduction](/docs/#what-a-scan-actually-checks).
+    description check. See [Introduction](/#what-a-scan-actually-checks).
   </Tab>
   <Tab value="Live server">
     Only the tool description check runs, because there is no source to clone or scan statically. The
@@ -68,7 +68,7 @@ Runs the full scan pipeline against `TARGET` and prints a report.
 | `0` | Scan completed; no findings at or above `--fail-on`. |
 | `1` | Scan completed; at least one finding at or above `--fail-on`. |
 | `2` | Could not run at all: not logged in, quota exceeded, unreachable API, an invalid target or flag, or a target that could not be fetched (a repository that will not clone). Nothing is written to stdout, so a `--json` redirect leaves an empty file rather than a partial one. |
-| `3` | Scan ran but is **incomplete**: a required tool category failed to execute (Docker not running, a missing binary, no network). This fires regardless of `--fail-on`, because an incomplete scan is never treated as a pass. See [Concepts → Incomplete scans](/docs/concepts#incomplete-scans). |
+| `3` | Scan ran but is **incomplete**: a required tool category failed to execute (Docker not running, a missing binary, no network). This fires regardless of `--fail-on`, because an incomplete scan is never treated as a pass. See [Concepts → Incomplete scans](/concepts#incomplete-scans). |
 
 ```bash title="Fail a CI job only on unresolved criticals, keep local scan history out of the dashboard"
 aevrin scan . --fail-on critical --no-upload
@@ -114,7 +114,7 @@ aevrin hook setup
 
 Logs in a **separate** credential (`~/.aevrin/hook_credentials`) for the Claude Code hook, then
 prints a `.claude/settings.json` snippet pointing at the hook script bundled inside this exact
-`aevrin` install, so there is nothing else to download or clone. See [Hook](/docs/hook) for the full setup
+`aevrin` install, so there is nothing else to download or clone. See [Hook](/hook) for the full setup
 walkthrough and why hook and CLI usage are tracked separately.
 
 ## `hook logout`
@@ -180,7 +180,7 @@ dashboard is read-only about your machines and cannot change any configuration o
 
 `--json` returns a versioned snapshot (`schema_version` `"1"`) that is stable across runs, so two
 snapshots can be diffed. Credential **values** are never included; only that one is present and
-where. See [AI agent posture](/docs/agent-posture) for what is discovered and how permissions are
+where. See [AI agent posture](/agent-posture) for what is discovered and how permissions are
 resolved.
 
 ## `findings triage`

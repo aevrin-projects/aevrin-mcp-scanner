@@ -7,7 +7,7 @@ Aevrin scans [Model Context Protocol](https://modelcontextprotocol.io) (MCP) ser
 security risks before you trust them. Give it a repository, a local path, or a launch command,
 and it starts the server, reads the tools it actually exposes, and runs a fixed set of MCP
 security rules against them — then maps every result onto the
-[OWASP MCP Top 10](/docs/concepts#owasp-mcp-top-10), so a finding means the same thing
+[OWASP MCP Top 10](/concepts#owasp-mcp-top-10), so a finding means the same thing
 everywhere it appears: in the CLI, in a Claude Code hook block, and on the dashboard.
 
 Aevrin is **not** a general-purpose code scanner. It will not tell you about a SQL-injection bug
@@ -18,15 +18,15 @@ server safe to give an agent.
 ## The three ways to use it
 
 <Cards>
-  <Card title="CLI" href="/docs/cli">
+  <Card title="CLI" href="/cli">
     `aevrin scan <target>` runs every scanner locally and gives you a full report in your terminal.
   </Card>
-  <Card title="Claude Code hook" href="/docs/hook">
+  <Card title="Claude Code hook" href="/hook">
     Blocks `claude mcp add` and MCP config writes automatically when a server has unresolved
     high or critical findings, before Claude ever installs it.
   </Card>
-  <Card title="Dashboard" href="/docs/dashboard">
-    Every scan (CLI or hook-triggered) is saved to your account at mcp.aevrin.net, with full
+  <Card title="Dashboard" href="/dashboard">
+    Every scan (CLI or hook-triggered) is saved to your account at app.mcp.aevrin.net, with full
     findings, stage-by-stage detail, and an OWASP MCP-mapped report export on paid tiers.
   </Card>
 </Cards>
@@ -39,7 +39,7 @@ aevrin login
 aevrin scan https://github.com/owner/mcp-server
 ```
 
-See [Getting Started](/docs/getting-started) for the full walkthrough, including installing on
+See [Getting Started](/getting-started) for the full walkthrough, including installing on
 older Python versions and connecting the Claude Code hook.
 
 ## What a scan actually checks
@@ -52,14 +52,14 @@ A repository or local-path scan clones (or reads) the target and runs, in order:
 2. **MCP tool rules.** Twenty-four rules over every discovered tool: tool poisoning, permission
    surface, scope mismatch, arbitrary code execution, privilege escalation, secret handling,
    typosquatting, tool shadowing, missing rate limits, compromised packages, install-time
-   scripts, dangerous launch commands, and more. See [Rules and coverage](/docs/scanners).
+   scripts, dangerous launch commands, and more. See [Rules and coverage](/scanners).
 3. **Supply chain**, scoped to the dependencies the scanned server itself exposes: known CVEs,
    confirmed-compromised package versions, install-time scripts and malicious indicators. Where a
    server exposes no dependency metadata, that is reported as limited coverage rather than
    treated as clean.
 
 Your grade is the **worst tool's** grade, not an average. You install the whole server, and the
-worst tool is the one that reaches your data. See [Concepts](/docs/concepts#target-types).
+worst tool is the one that reaches your data. See [Concepts](/concepts#target-types).
 
 ## Honesty over false confidence
 
@@ -74,4 +74,4 @@ into saying "clean" is worse than no scanner at all:
   requires dynamic, adversarial testing against a running server and is out of scope for static
   scanning. Every report says so explicitly rather than silently omitting it.
 
-Read more in [Concepts](/docs/concepts).
+Read more in [Concepts](/concepts).
