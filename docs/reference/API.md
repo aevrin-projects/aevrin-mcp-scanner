@@ -40,6 +40,12 @@ JWT) unless noted.
   upgrade_url}` when quota is exhausted, `401` for an invalid/revoked key -
   the CLI's `_authenticated_preflight()` renders both directly rather than
   making a scan attempt that would fail anyway.
+- **`POST /cli/upload`** returns `422` with `OUTDATED_CLI_DETAIL` for a result
+  from a pre-0.5.0 CLI, recognised by a finding `tool` or a stage name that the
+  current engine does not produce. It is checked before any field is parsed,
+  so an old client is told to upgrade rather than shown the first enum its
+  payload trips. Old clients send no version header, so upload time is the
+  earliest this can be detected for them; precheck cannot see it.
 - **`PATCH /findings/{id}`** accepts either a user session or `X-API-Key`
   (the hook and `aevrin findings triage` both use the API key path).
   `false_positive` requires a `reason`.

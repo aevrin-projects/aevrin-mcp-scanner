@@ -48,8 +48,32 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   panel inverted the meaning of every number on the page it sat on. It now
   describes what the engine actually does: risk counts up, the worst tool
   decides the grade, and a scan that read no tools carries no letter.
+- **A monorepo's MCP server could not be found from its GitHub URL.**
+  `github.com/upstash/context7` stopped at `resolving` while
+  `https://mcp.context7.com/mcp` scanned, because resolution only read the
+  root `package.json`, and that root is a private workspace build. Workspace
+  packages (npm/yarn `workspaces`, `pnpm-workspace.yaml`) are now read too, and
+  the one that declares a `bin` and depends on the MCP SDK is scanned: for
+  Context7, `npx -y @upstash/context7-mcp`. The SDK requirement keeps
+  Context7's own CLI, `ctx7`, from being graded as its server. A repository
+  that publishes several servers, such as `modelcontextprotocol/servers`, is
+  refused with their names rather than having one picked for it.
+- **An upload from a 0.4.x CLI failed with "'aevrin-manifest-rules' is not a
+  valid ToolName".** The refusal was correct: those CLIs run the retired
+  pipeline and score on the withdrawn scale, and storing their grades would
+  undo what migration 0047 cleared. The reason was not. Uploads from the
+  retired pipeline, recognised by finding tool or stage name, are now told
+  to upgrade with `pip install -U aevrin`. Every shipped CLI prints the API's
+  message verbatim, so this reaches the installed base with no client release.
 
 ## [0.5.0] - 2026-09-06 (CLI)
+
+**The npm wrapper was not published with this release.** `publish-npm.yml`
+failed at the tag (`EOTP`: the token could not bypass 2FA), and a re-run over
+OIDC failed with `E404`, which is how npm answers when the run matches no
+registered trusted publisher: either none exists for the package, or one does
+with a different repository, workflow file or environment. `npm install -g aevrin` therefore still installs 0.4.0, which runs the
+retired pipeline. Install 0.5.0 from PyPI: `pip install -U aevrin`.
 
 ### Fixed
 

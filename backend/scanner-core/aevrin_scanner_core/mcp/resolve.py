@@ -47,8 +47,9 @@ class ResolvedTarget:
     """A command that can be handed to the scanner, and where it came from."""
 
     command: str
-    # "explicit" | "npm_manifest" | "pypi_manifest". Shown in the report so a
-    # reader can see whether Aevrin was told the command or derived it.
+    # "explicit" | "remote_url" | "npm_manifest" | "npm_workspace" |
+    # "pypi_manifest". Shown in the report so a reader can see whether Aevrin
+    # was told the command or derived it, and from where.
     source: str
     package: str | None = None
     version: str | None = None
@@ -167,6 +168,141 @@ def _npm_target(repo_root: Path) -> ResolvedTarget | None:
     )
 
 
+# The official MCP SDKs publish under this scope: `@modelcontextprotocol/sdk`,
+# and the v2 split into `/server`, `/node` and friends. Depending on one is
+# what distinguishes a monorepo's MCP server from its other executables -
+# upstash/context7 publishes both `ctx7`, a CLI, and `@upstash/context7-mcp`,
+# and both declare a `bin`. Only runtime and peer dependencies count: a CLI
+# that pulls the SDK in to test against is not thereby a server.
+_MCP_SDK_SCOPE = "@modelcontextprotocol/"
+
+# Workspace globs come from an untrusted repository. Bounded so a pathological
+# pattern cannot turn resolution into a walk of the whole clone.
+_MAX_WORKSPACE_DIRS = 200
+
+
+def _pnpm_workspace_packages(path: Path) -> list[str]:
+    """The `packages:` list from pnpm-workspace.yaml, without a YAML parser.
+
+    Only the block-list form pnpm documents is understood. Anything else reads
+    as no patterns, which ends in an honest refusal rather than a guess - and
+    keeps a YAML dependency out of a package the CLI installs.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    found: list[str] = []
+    inside = False
+    for raw in lines:
+        line = raw.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        if not line[0].isspace():
+            inside = line == "packages:"
+        elif inside and line.strip().startswith("-"):
+            found.append(line.strip()[1:].strip().strip("'\""))
+    return found
+
+
+def _workspace_dirs(repo_root: Path, root_manifest: dict[str, object]) -> list[Path]:
+    """Directories named by npm/yarn `workspaces` or pnpm-workspace.yaml.
+
+    Every candidate is resolved and must stay inside the clone. A workspace
+    entry can be a symlink, and one pointing outside the repository would make
+    resolution read a file on the scanning host and put its `name` into a
+    command line.
+    """
+    patterns: list[str] = []
+    workspaces = root_manifest.get("workspaces")
+    if isinstance(workspaces, dict):  # yarn's {"packages": [...]} form
+        workspaces = workspaces.get("packages")
+    if isinstance(workspaces, list):
+        patterns.extend(p for p in workspaces if isinstance(p, str))
+    pnpm = repo_root / "pnpm-workspace.yaml"
+    if pnpm.is_file():
+        patterns.extend(_pnpm_workspace_packages(pnpm))
+
+    root = repo_root.resolve()
+    dirs: list[Path] = []
+    for pattern in patterns:
+        relative = Path(pattern)
+        # Negations exclude packages, and anchored or `..` patterns leave the
+        # clone. Skipping a negation can only add a candidate, which still has
+        # to pass the server test below and the ambiguity refusal after it.
+        # `anchor` rather than `is_absolute()`: on Windows "/etc/*" has a root
+        # but no drive, so it is not absolute - yet `glob` refuses it as
+        # non-relative and raises. The CLI resolves on Windows machines.
+        if not pattern or pattern.startswith("!") or relative.anchor or ".." in relative.parts:
+            continue
+        for candidate in repo_root.glob(pattern):
+            try:
+                real = candidate.resolve()
+            except OSError:
+                continue
+            if real.is_dir() and real.is_relative_to(root) and real not in dirs:
+                dirs.append(real)
+            if len(dirs) >= _MAX_WORKSPACE_DIRS:
+                return dirs
+    return dirs
+
+
+def _is_mcp_server_package(data: dict[str, object]) -> bool:
+    for section in ("dependencies", "peerDependencies"):
+        deps = data.get(section)
+        if isinstance(deps, dict) and any(
+            isinstance(name, str) and name.startswith(_MCP_SDK_SCOPE) for name in deps
+        ):
+            return True
+    return False
+
+
+def _npm_workspace_target(repo_root: Path) -> ResolvedTarget | None:
+    """The MCP server inside a monorepo, when there is exactly one.
+
+    A workspace root is usually `private` with no `bin` - it is the build, not
+    a package - so `_npm_target` correctly declines it and the server sitting
+    in `packages/mcp` was never looked for. Every rule the root check applies
+    still applies to each workspace package, plus one more: it must depend on
+    the MCP SDK, because a monorepo routinely ships other executables beside
+    its server.
+
+    More than one qualifying package is refused, not ranked. A repository that
+    publishes several MCP servers has not said which one a URL means, and
+    choosing would grade one server under a name that covers them all.
+    """
+    manifest = repo_root / "package.json"
+    root_manifest = _read_json(manifest) if manifest.is_file() else {}
+    if root_manifest is None:
+        # Present but unreadable is not the same as "no workspaces declared".
+        return None
+
+    servers: dict[str, str | None] = {}
+    for directory in _workspace_dirs(repo_root, root_manifest):
+        data = _read_json(directory / "package.json")
+        if not data or data.get("private") is True or not data.get("bin"):
+            continue
+        name = str(data.get("name") or "").strip()
+        if not name or name.lower() in _NEVER_LAUNCH or not _NPM_NAME.match(name):
+            continue
+        if _is_mcp_server_package(data):
+            servers[name] = str(data.get("version") or "").strip() or None
+
+    if not servers:
+        return None
+    if len(servers) > 1:
+        names = sorted(servers)
+        raise UnresolvableTarget(
+            f"This repository publishes more than one MCP server ({', '.join(names)}), so "
+            "a link to the repository does not say which one to scan. Scan one by the "
+            f'command that starts it, for example `aevrin scan mcp "npx -y {names[0]}"`.'
+        )
+    name, version = next(iter(servers.items()))
+    return ResolvedTarget(
+        command=f"npx -y {name}", source="npm_workspace", package=name, version=version
+    )
+
+
 def _pypi_target(repo_root: Path) -> ResolvedTarget | None:
     manifest = repo_root / "pyproject.toml"
     if not manifest.is_file():
@@ -201,14 +337,18 @@ def from_repository(repo_root: Path) -> ResolvedTarget:
     npm is tried before PyPI only because MCP servers are overwhelmingly
     published there; a repository declaring both is ambiguous in a way this
     cannot resolve, and picking the first is no worse than picking the second.
+
+    The root manifest is tried before its workspaces, so a repository whose
+    root *is* the server resolves exactly as it always did.
     """
-    for resolver in (_npm_target, _pypi_target):
+    for resolver in (_npm_target, _npm_workspace_target, _pypi_target):
         resolved = resolver(repo_root)
         if resolved is not None:
             return resolved
 
     raise UnresolvableTarget(
-        "This repository does not declare a published, executable package, so "
-        "there is no server for Aevrin to start. A grade requires running the "
-        "server and reading its tools; nothing here says how to do that."
+        "This repository does not declare a published, executable package, at its "
+        "root or in its workspaces, so there is no server for Aevrin to start. A "
+        "grade requires running the server and reading its tools; nothing here says "
+        "how to do that."
     )

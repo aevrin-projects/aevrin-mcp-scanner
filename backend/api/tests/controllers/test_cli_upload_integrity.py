@@ -331,6 +331,74 @@ def test_an_honest_upload_still_stores_the_engine_verdict_unchanged(monkeypatch,
     assert db.tables["scans"][0]["risk_score"] == 60
 
 
+def _old_finding(tool: str) -> CliUploadFinding:
+    return CliUploadFinding(
+        id=uuid4(),
+        tool=tool,
+        owasp_category="MCP06",
+        severity="medium",
+        title="No authentication declared for this MCP server",
+        description="d",
+        remediation="r",
+    )
+
+
+def test_an_upload_from_a_pre_engine_cli_is_told_to_upgrade(monkeypatch, settings):
+    """The exact payload a 0.4.x CLI sent for https://mcp.context7.com/mcp.
+
+    It was already refused, correctly: a result scored on the withdrawn scale
+    must not re-enter history. What was wrong was the reason, which reached the
+    user as "'aevrin-manifest-rules' is not a valid ToolName" - an internal enum
+    name and no instruction. Old CLIs print `detail` verbatim, so this is the
+    one place a fix reaches the installed base.
+    """
+    db = _UploadDb()
+    with pytest.raises(HTTPException) as excinfo:
+        _upload(
+            monkeypatch, settings, db,
+            target_type="live_mcp_server",
+            target="https://mcp.context7.com/mcp",
+            findings=[_old_finding("aevrin-manifest-rules")],
+            stages=[CliUploadStage(name="cloning", status="skipped")],
+        )
+    assert excinfo.value.status_code == 422
+    assert excinfo.value.detail == cli.OUTDATED_CLI_DETAIL
+    assert "ToolName" not in str(excinfo.value.detail)
+    assert "pip install -U aevrin" in str(excinfo.value.detail)
+    # npm can lag PyPI, and its wrapper pins the Python release to its own
+    # version - so "npm install aevrin@latest" can reinstall the refused client.
+    assert "npm" not in str(excinfo.value.detail)
+    assert not db.tables["scans"], "a retired-model grade must not be stored"
+
+
+def test_an_old_cli_that_found_nothing_is_caught_by_its_stage_names(monkeypatch, settings):
+    """No findings means no tool name to check. Its stage rows still name the
+    retired pipeline, and would otherwise reach the database and be refused
+    there by the stage-name constraint - as a 500, not an instruction."""
+    db = _UploadDb()
+    with pytest.raises(HTTPException) as excinfo:
+        _upload(
+            monkeypatch, settings, db,
+            findings=[],
+            stages=[CliUploadStage(name="static analysis", status="done")],
+        )
+    assert excinfo.value.detail == cli.OUTDATED_CLI_DETAIL
+    assert not db.tables["scan_stages"]
+
+
+def test_a_current_cli_upload_is_not_mistaken_for_an_old_one(monkeypatch, settings):
+    """Every current stage name passes, so the check cannot refuse a real scan."""
+    db = _UploadDb()
+    stages = [CliUploadStage(name=s, status="done") for s in
+              ("resolving", "launching", "enumerating", "analyzing", "grading")]
+    result = _upload(
+        monkeypatch, settings, db,
+        grade="C", risk_score=27, mcp_tools_declared=["search"], stages=stages,
+    )
+    assert result.grade == "C"
+    assert len(db.tables["scan_stages"]) == 5
+
+
 def test_an_ungraded_incomplete_upload_is_still_accepted(monkeypatch, settings):
     """An incomplete scan reports no tools *and* no grade. That is the honest
     shape of a failed scan and must not be caught by the guard above."""

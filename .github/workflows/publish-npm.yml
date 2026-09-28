@@ -55,6 +55,13 @@ jobs:
         # published package. That was true when it was written. aevrin@0.4.0 is
         # published, so it no longer is.
         #
-        # The publisher is registered out of band, once, with:
-        #   npm trust github aevrin --repo aevrin-projects/aevrin-mcp-scanner         #     --file publish-npm.yml --env npm --allow-publish
+        # The publisher is registered out of band, once, by the package owner
+        # (it needs their 2FA), and can be checked with `npm trust list aevrin`:
+        #   npm trust github aevrin --repo aevrin-projects/aevrin-mcp-scanner \
+        #     --file publish-npm.yml --env npm --allow-publish
+        #
+        # npm does not validate that registration when it is saved. A missing or
+        # mismatched one surfaces only here, as `E404 ... you do not have
+        # permission` on the PUT - which is what the first OIDC run (v0.5.0,
+        # dispatched from master) failed with.
         run: npm publish

@@ -19,7 +19,15 @@ resolve. It is the only form that needs no resolution at all, which matters
 because resolving the wrong command grades somebody else's package under
 this one's name: `microsoft/playwright-mcp` publishes as `@playwright/mcp`,
 and an unrelated `playwright-mcp` also exists on npm. Every other target is
-resolved from the project's own manifest, never from its repository name.
+resolved from the project's own manifest, never from its repository name. In a
+monorepo that manifest can be a workspace package: the one that declares a
+`bin` and depends on the MCP SDK. A repository that publishes several MCP
+servers is refused with their names, and `scan mcp` is how to pick one.
+
+**Upgrading from 0.4.x.** CLIs before 0.5.0 run the retired pipeline
+(`cloning`, `static analysis`, a score out of 100 where higher is better). The
+API refuses to store their results and says so on upload. Upgrade with
+`pip install -U aevrin`; `aevrin version` should print 0.5.0 or later.
 
 | Option | Default | Meaning |
 |---|---|---|

@@ -19,6 +19,7 @@ from aevrin_scanner_core import (
     Location,
     OwaspMcpCategory,
     Severity,
+    StageName,
     ToolName,
 )
 from fastapi import BackgroundTasks, HTTPException, status
@@ -51,6 +52,40 @@ def _to_core_finding(f: CliUploadFinding, scan_id: UUID) -> Finding:
             tool_name_in_manifest=f.tool_name_in_manifest,
         ),
         remediation=f.remediation,
+    )
+
+
+# A result from a CLI that predates the engine replacement. Those clients ran
+# a different set of scanners over a cloned repository, named their findings
+# after them (`aevrin-manifest-rules`, `mcp-shield`, ...) and their stages
+# after that pipeline (`cloning`, `static analysis`, ...), and scored on the
+# withdrawn scale where 100 was clean. Storing one would put a grade from the
+# retired model back into history that migration 0047 deliberately cleared.
+#
+# Refusing was already happening - `ToolName(f.tool)` raises - but the reason
+# reached the user as "'aevrin-manifest-rules' is not a valid ToolName", which
+# names an internal enum and says nothing about what to do. Every CLI ever
+# shipped prints `detail` verbatim, so this message reaches the installed base
+# without a client release.
+_CURRENT_TOOLS = frozenset(t.value for t in ToolName)
+_CURRENT_STAGES = frozenset(s.value for s in StageName)
+
+# PyPI only, deliberately. The npm wrapper pins the Python release matching
+# its own version, so `npm install -g aevrin@latest` installs whatever npm has
+# as latest - which was 0.4.0, the retired pipeline, for weeks after 0.5.0
+# shipped to PyPI. An instruction here outlives any one release; pointing it at
+# the channel that can lag would reinstall the very client being refused.
+OUTDATED_CLI_DETAIL = (
+    "This result came from an Aevrin CLI older than 0.5.0. That version runs a scanner "
+    "Aevrin no longer uses and scores on a scale that has been withdrawn, so the result "
+    "was not saved. Upgrade with `pip install -U aevrin`, check that `aevrin version` "
+    "shows 0.5.0 or later, and scan again."
+)
+
+
+def _from_retired_pipeline(body: CliUploadRequest) -> bool:
+    return any(f.tool not in _CURRENT_TOOLS for f in body.findings) or any(
+        s.name not in _CURRENT_STAGES for s in body.stages
     )
 
 
@@ -204,6 +239,16 @@ async def upload_scan(
 ) -> ScanOut:
     enforce_rate_limit(settings, "cli_upload", user_id, settings.cli_uploads_per_key_per_hour)
     scan_id = body.scan_id or uuid4()
+
+    # Checked before any field is parsed, so an outdated client is told to
+    # upgrade instead of being shown whichever enum its payload tripped first.
+    # Stage names are checked as well as finding tools: an old CLI that found
+    # nothing uploads no findings, and its `cloning` stage row would otherwise
+    # reach the database and be refused there by `scan_stages_name_check`.
+    if _from_retired_pipeline(body):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=OUTDATED_CLI_DETAIL
+        )
 
     try:
         core_findings = [_to_core_finding(f, scan_id) for f in body.findings]

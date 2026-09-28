@@ -65,8 +65,17 @@ mechanics of each:
      shared/remote state).
   6. The tag triggers `publish.yml` (scanner-core, then CLI, verifying the
      published wheel registers every command) and `publish-npm.yml`.
-  7. Verify: `pip install aevrin==X.Y.Z` and
-     `npm install -g aevrin@X.Y.Z` actually work post-publish.
+     **A tag runs the workflow files as they were at that tag.** A fix to
+     `publish-npm.yml` pushed after tagging does not apply to that release;
+     re-run it with `gh workflow run publish-npm.yml --ref master` once the
+     package directory is confirmed unchanged since the tag
+     (`git diff --stat vX.Y.Z master -- backend/cli-npm`).
+  7. Verify both registries, not just the one that is easier to check:
+     `pip install aevrin==X.Y.Z` **and** `npm view aevrin version`. This step
+     is not optional. The npm publish failed on every tag from v0.3.1 to
+     v0.5.0 and nothing noticed, because PyPI succeeded. The wrapper pins the
+     Python release to its own version, so a stale npm package silently hands
+     npm users the previous CLI - for 0.5.0, the retired scan pipeline.
 
 **Product and CLI version independently** (the API's `FastAPI(version=...)`
 moves separately from `backend/cli/pyproject.toml`). `CHANGELOG.md` covers

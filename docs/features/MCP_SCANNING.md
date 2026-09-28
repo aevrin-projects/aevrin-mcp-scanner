@@ -115,9 +115,27 @@ read individually, by name.
 2. An explicit command from the user (`aevrin scan mcp "..."`). Being told
    how to start a server is better evidence than inferring it.
 3. `package.json` — `name` plus a `bin`, giving `npx -y <name>`.
-4. `pyproject.toml` — `name` plus `[project.scripts]`, giving `uvx <name>`.
-5. Otherwise: **refuse**, with a reason that goes into the scan's incomplete
+4. **A workspace package**, when the root is a monorepo build rather than a
+   package (npm/yarn `workspaces`, or `pnpm-workspace.yaml`). Each workspace
+   package must pass every rule in step 3 and, in addition, depend at runtime
+   on the MCP SDK (`@modelcontextprotocol/*`). Exactly one match resolves to
+   `npx -y <name>`; **more than one is refused**, naming them.
+5. `pyproject.toml` — `name` plus `[project.scripts]`, giving `uvx <name>`.
+6. Otherwise: **refuse**, with a reason that goes into the scan's incomplete
    message.
+
+Step 4 exists because `github.com/upstash/context7` failed at `resolving`
+while its hosted endpoint scanned. Its root `package.json` is private with no
+`bin`, and the server is `packages/mcp`. The SDK requirement is not decoration:
+that repository also ships `ctx7`, a CLI with its own `bin`, and picking by
+`bin` alone would grade Context7's CLI as its MCP server. The refusal for
+several matches covers `github.com/modelcontextprotocol/servers`, which
+publishes four; a link to the repository does not say which one it means.
+
+Workspace globs are untrusted input. Negated, anchored and `..` patterns are
+skipped, every matched directory is resolved and must stay inside the clone
+(a symlinked workspace entry could otherwise put a host file's `name` into a
+command), and at most 200 directories are read.
 
 **The command is never derived from the repository name.** This is the
 load-bearing rule of the whole file.
