@@ -1,4 +1,5 @@
-"""Aevrin as an MCP server: let an agent scan a server before it installs one.
+"""Aevrin as an MCP server: find capabilities in the registry, and scan an MCP
+server before installing it.
 
 This is the `mcp` invocation channel. It runs the same pipeline as
 `aevrin scan mcp "<command>"` and returns the same verdict - one scanner, one
@@ -23,6 +24,9 @@ from aevrin_scanner_core.mcp.risk import GRADE_POLICIES, Grade, Policy
 from aevrin_scanner_core.models import InvocationChannel, ScanStatus, TargetType
 from aevrin_scanner_core.pipeline import PipelineConfig, PipelineError, run_pipeline
 from pydantic import BaseModel, Field
+
+from aevrin_cli.registry_tools import register_registry_tools
+from aevrin_cli.services.auth import api_url
 
 try:
     from mcp.server import MCPServer
@@ -52,7 +56,21 @@ class ScanResult(BaseModel):
     summary: str = Field(description="Plain-language verdict, including why a scan was incomplete")
 
 
-mcp = MCPServer("Aevrin MCP Security Scan")
+mcp = MCPServer(
+    "Aevrin",
+    instructions=(
+        "Aevrin finds and vets capabilities for coding agents. search_registry and "
+        "get_registry_item read the curated Aevrin Registry (MCP servers, skills, prompts, "
+        "templates, repositories). scan_mcp_server security-scans an MCP server by its launch "
+        "command before you add it. A missing grade never means safe."
+    ),
+)
+
+# The registry tools, beside the scan. Read-only GETs against the same public
+# endpoints the web marketplace reads - see registry_tools.py. `api_url` is
+# passed as the function, so AEVRIN_API_URL is honoured at call time exactly
+# as the rest of the CLI honours it.
+register_registry_tools(mcp, api_url=api_url)
 
 
 def _summarise(scan) -> str:  # type: ignore[no-untyped-def]

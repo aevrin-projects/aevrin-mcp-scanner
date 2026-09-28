@@ -1,15 +1,16 @@
 name: Deploy backend
 
-# Rebuilds and restarts the API on the EC2 instance whenever something the
-# image is actually built from changes on master. scanner-core is in the path
-# list because the Dockerfile copies it as a sibling: a change there is a
-# change to the API image even though nothing under backend/api moved.
+# Rebuilds and restarts the API, and the hosted registry MCP endpoint, on the
+# EC2 instance whenever something either image is built from changes on
+# master. scanner-core is in the path list because both Dockerfiles copy it as
+# a sibling; backend/cli because the registry MCP image is built from it.
 on:
   push:
     branches: [master]
     paths:
       - "backend/api/**"
       - "backend/scanner-core/**"
+      - "backend/cli/**"
       - "backend/deploy/**"
       - ".github/workflows/deploy-backend.yml"
   workflow_dispatch:
@@ -98,6 +99,29 @@ jobs:
           done
           echo "::error::api.mcp.aevrin.net/health never returned 200"
           echo "last body:"; curl -sS --max-time 20 https://api.mcp.aevrin.net/health || true
+          exit 1
+
+      - name: Verify the registry MCP endpoint through Cloudflare
+        # Speaks MCP to the public endpoint exactly as an agent would, and
+        # requires the three registry tools and nothing else. The "nothing
+        # else" is the point: a scan tool on this endpoint would let anyone
+        # make Aevrin's server launch arbitrary commands.
+        run: |
+          request='{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+          names='import json,sys; print(",".join(sorted(t["name"] for t in json.load(sys.stdin)["result"]["tools"])))'
+          for attempt in $(seq 1 12); do
+            body="$(curl -s --max-time 20 -X POST https://api.mcp.aevrin.net/mcp \
+              -H 'Content-Type: application/json' \
+              -H 'Accept: application/json, text/event-stream' \
+              -d "$request" || true)"
+            tools="$(printf '%s' "$body" | python3 -c "$names" 2>/dev/null || true)"
+            echo "attempt ${attempt}: ${tools:-no valid response}"
+            if [ "$tools" = "get_registry_item,list_registry_categories,search_registry" ]; then
+              echo "registry MCP endpoint serves exactly the registry tools"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::https://api.mcp.aevrin.net/mcp did not serve exactly the three registry tools"
           exit 1
 
       - name: Close the SSH rule

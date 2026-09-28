@@ -153,13 +153,118 @@ if [ "$(health)" != "healthy" ]; then
   exit 1
 fi
 
-# Recreating the container can hand it a new address on the docker network,
-# and Caddy may still be holding the previous one. A reload costs nothing and
-# forces the upstream to be resolved again, so the first request after a
-# deploy cannot land on a dead address.
-sudo docker exec caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null ||   echo "caddy reload failed; continuing since the container is healthy"
+# ------------------------------------------------------------------
+# The hosted Aevrin Registry MCP endpoint (https://api.mcp.aevrin.net/mcp).
+#
+# Its own container: it speaks MCP and nothing else, holds no database
+# credential and no env file, and reads the registry through the API's public
+# endpoints over the private network - so it is started only once the API it
+# depends on is healthy. It serves the registry tools only; the scan tool is
+# not registered in it in any configuration (registry_mcp.py).
+REGISTRY_FAILED=0
+sudo docker build -f backend/cli/Dockerfile.registry-mcp -t aevrin-registry-mcp:new .
+sudo docker tag aevrin-registry-mcp:latest aevrin-registry-mcp:previous 2>/dev/null || true
+sudo docker tag aevrin-registry-mcp:new aevrin-registry-mcp:latest
+
+start_registry() {
+  sudo docker rm -f registry-mcp >/dev/null 2>&1 || true
+  sudo docker run -d --name registry-mcp --network aevrin --restart unless-stopped \
+    -e AEVRIN_API_URL=http://api:8000 \
+    -e AEVRIN_MCP_ALLOWED_HOSTS=api.mcp.aevrin.net \
+    -e AEVRIN_WEB_URL=https://app.mcp.aevrin.net \
+    aevrin-registry-mcp:latest >/dev/null
+}
+
+registry_health() {
+  sudo docker inspect -f '{{.State.Health.Status}}' registry-mcp 2>/dev/null || echo starting
+}
+
+start_registry
+for _ in $(seq 1 24); do
+  [ "$(registry_health)" = "healthy" ] && break
+  sleep 5
+done
+if [ "$(registry_health)" != "healthy" ]; then
+  echo "registry-mcp never became healthy after 2 minutes; rolling it back"
+  sudo docker logs registry-mcp --tail 40 || true
+  if sudo docker image inspect aevrin-registry-mcp:previous >/dev/null 2>&1; then
+    sudo docker tag aevrin-registry-mcp:previous aevrin-registry-mcp:latest
+    start_registry
+  fi
+  # The API is deployed and healthy either way. The failure is still reported
+  # at the end, so the run goes red rather than looking like a clean deploy.
+  REGISTRY_FAILED=1
+fi
+
+# ------------------------------------------------------------------
+# Caddy.
+#
+# The repository's Caddyfile is installed into the running Caddy, which is
+# what makes a new route - like /mcp above - take effect at all. Until this,
+# the deploy only reloaded whatever Caddy already had, so a routing change in
+# the repository never reached production.
+#
+# The live file is not something this repository can see, so installing over
+# it is guarded three ways: the new file must validate inside Caddy; it must
+# not drop any site the live config serves (a site defined only on the host
+# would otherwise vanish silently, and a reload would not fail to warn us);
+# and the live file is kept, and restored if the reload fails. Any refusal
+# leaves the running config exactly as it was.
+sites() {
+  # Site addresses: top-level lines that open a block, other than the global
+  # options block. Enough to tell whether one config serves a site the other
+  # does not.
+  grep -E '^[^[:space:]#{][^{]*\{[[:space:]]*$' | sed -E 's/[[:space:]]*\{[[:space:]]*$//' | sort -u
+}
+
+install_caddyfile() {
+  local live missing
+  if ! sudo docker exec caddy test -f /etc/caddy/Caddyfile; then
+    echo "caddy: no /etc/caddy/Caddyfile in the container; not installing"
+    return 1
+  fi
+  sudo docker cp backend/deploy/Caddyfile caddy:/etc/caddy/Caddyfile.new
+  if ! sudo docker exec caddy caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null 2>&1; then
+    echo "caddy: the repository Caddyfile does not validate; keeping the live one"
+    sudo docker exec caddy caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile 2>&1 | tail -5 || true
+    return 1
+  fi
+  live="$(sudo docker exec caddy cat /etc/caddy/Caddyfile | sites)"
+  missing="$(comm -23 <(printf '%s\n' "$live") <(sites < backend/deploy/Caddyfile))"
+  if [ -n "$missing" ]; then
+    echo "caddy: the live config serves sites the repository Caddyfile does not: ${missing//$'\n'/, }"
+    echo "caddy: keeping the live config. Add those sites to backend/deploy/Caddyfile to install it."
+    return 1
+  fi
+  sudo docker exec caddy cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.prev
+  # `cat >` rather than `mv`: if the file is a bind mount, it cannot be
+  # replaced by a rename, only written through.
+  sudo docker exec caddy sh -c 'cat /etc/caddy/Caddyfile.new > /etc/caddy/Caddyfile'
+  if ! sudo docker exec caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+    echo "caddy: reload failed with the new Caddyfile; restoring the previous one"
+    sudo docker exec caddy sh -c 'cat /etc/caddy/Caddyfile.prev > /etc/caddy/Caddyfile'
+    sudo docker exec caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || true
+    return 1
+  fi
+  echo "caddy: repository Caddyfile installed and reloaded"
+}
+
+CADDY_FAILED=0
+if ! install_caddyfile; then
+  CADDY_FAILED=1
+  # Recreating the containers can hand them new addresses on the docker
+  # network, and Caddy may still be holding the previous ones. A reload of the
+  # config it already has forces the upstreams to be resolved again.
+  sudo docker exec caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null ||
+    echo "caddy reload failed; continuing since the containers are healthy"
+fi
 
 # Each build leaves its predecessor's layers behind and the root volume is
 # 30 GB; two or three deploys would fill it otherwise.
 sudo docker image prune -f >/dev/null
-echo "deployed, container is $(health)"
+echo "deployed, api is $(health), registry-mcp is $(registry_health)"
+
+if [ "$REGISTRY_FAILED" -ne 0 ] || [ "$CADDY_FAILED" -ne 0 ]; then
+  echo "the API is live, but the registry MCP endpoint is not (registry=${REGISTRY_FAILED}, caddy=${CADDY_FAILED})" >&2
+  exit 1
+fi

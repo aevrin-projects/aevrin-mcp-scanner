@@ -1,0 +1,43 @@
+# The hosted Aevrin Registry MCP endpoint (aevrin_cli/registry_mcp.py).
+#
+# Build context is the repository root, like the API image, because the CLI
+# depends on the sibling scanner-core package:
+#
+#   docker build -f backend/cli/Dockerfile.registry-mcp -t aevrin-registry-mcp .
+#
+# A separate image and container from the API on purpose: this process speaks
+# MCP and nothing else, holds no database credential, and reaches the registry
+# only through the API's public endpoints over the private `aevrin` network. It
+# serves the registry tools only - the scan tool is not registered here in any
+# configuration.
+
+FROM python:3.11-slim
+
+WORKDIR /repo/backend/cli
+
+COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /usr/local/bin/uv
+ENV UV_PYTHON=3.11
+ENV UV_PYTHON_DOWNLOADS=never
+ENV UV_PROJECT_ENVIRONMENT=/opt/registry-venv
+
+COPY backend/scanner-core /repo/backend/scanner-core
+COPY backend/cli /repo/backend/cli
+
+# --frozen: exactly the lockfile, or fail. --no-editable: scanner-core is
+# installed into the venv rather than linked back to the source tree.
+RUN uv sync --frozen --no-dev --extra mcp --no-editable
+
+RUN useradd --create-home --uid 10002 --shell /usr/sbin/nologin registry
+USER registry
+
+ENV PORT=8080
+EXPOSE 8080
+
+# Asks the real endpoint for its tools and requires exactly the three registry
+# tools. A plain "is the port open" check would pass on a server that had lost
+# its tools, or that had somehow gained a fourth. Does not depend on the API
+# being up: listing tools makes no registry call.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD ["/opt/registry-venv/bin/python", "-c", "import json,sys,urllib.request as u; r=u.Request('http://127.0.0.1:8080/mcp', data=json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/list'}).encode(), headers={'Content-Type':'application/json','Accept':'application/json, text/event-stream'}); tools={t['name'] for t in json.load(u.urlopen(r, timeout=4))['result']['tools']}; sys.exit(0 if tools == {'search_registry','get_registry_item','list_registry_categories'} else 1)"]
+
+CMD ["/opt/registry-venv/bin/python", "-m", "aevrin_cli.registry_mcp"]
