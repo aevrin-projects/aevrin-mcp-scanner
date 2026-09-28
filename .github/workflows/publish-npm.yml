@@ -38,6 +38,7 @@ jobs:
         run: npm test
 
       - name: Publish
+        id: publish
         # No token. This authenticates over OIDC as a trusted publisher, which
         # is why `id-token: write` and `environment: npm` above are load-bearing
         # rather than decorative: npm matches the minted token against the
@@ -55,13 +56,29 @@ jobs:
         # published package. That was true when it was written. aevrin@0.4.0 is
         # published, so it no longer is.
         #
-        # The publisher is registered out of band, once, by the package owner
-        # (it needs their 2FA), and can be checked with `npm trust list aevrin`:
-        #   npm trust github aevrin --repo aevrin-projects/aevrin-mcp-scanner \
-        #     --file publish-npm.yml --env npm --allow-publish
+        # The publisher is registered once, by the package owner, on
+        # https://www.npmjs.com/package/aevrin/access under "Trusted Publisher",
+        # GitHub Actions:
+        #   Organization or user   aevrin-projects
+        #   Repository             aevrin-mcp-scanner
+        #   Workflow filename      publish-npm.yml
+        #   Environment name       npm
         #
-        # npm does not validate that registration when it is saved. A missing or
-        # mismatched one surfaces only here, as `E404 ... you do not have
-        # permission` on the PUT - which is what the first OIDC run (v0.5.0,
-        # dispatched from master) failed with.
+        # Use the website. It needs the owner's interactive login with 2FA - an
+        # access token, including the one in .npmjs-key/, gets 401 from the trust
+        # endpoint - and it needs no particular npm version. The `npm trust`
+        # command does the same thing but does not exist in npm 11.6.2 ("Unknown
+        # command"), and npm 12 needs Node 22.22.2 or later, so it is not a
+        # dependable recipe to hand anyone.
+        #
+        # npm does not validate a registration when it is saved. A missing or
+        # mismatched one surfaces only here: OIDC is not accepted, npm falls back
+        # to setup-node's placeholder token (hence the "tokens that bypass 2FA"
+        # notice in the log), and the PUT fails with `E404 ... you do not have
+        # permission`. The step below says so, because E404 alone does not.
         run: npm publish
+
+      - name: Explain a failed publish
+        if: failure() && steps.publish.outcome == 'failure'
+        run: |
+          echo "::error title=npm publish refused::If the Publish step ended in E404, no trusted publisher on npmjs.com matches this run. Register one at https://www.npmjs.com/package/aevrin/access (GitHub Actions: aevrin-projects / aevrin-mcp-scanner / publish-npm.yml / environment npm), then re-run with: gh workflow run publish-npm.yml --ref master"
