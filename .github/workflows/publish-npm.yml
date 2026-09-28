@@ -86,7 +86,18 @@ jobs:
         # reason only ever reached the debug log on the runner, which is thrown
         # away. Only the `oidc` lines are printed: verbose output as a whole
         # also carries config and request detail nobody needs in a public log.
+        #
+        # The registration hint is only given for E404. The commonest failure
+        # after a release is a second dispatch of a version that already
+        # published ("cannot publish over the previously published versions"),
+        # and telling someone to go register a publisher that plainly worked
+        # would send them to fix the one thing that is not broken.
         run: |
+          logs=("$HOME"/.npm/_logs/*-debug-*.log)
           echo "--- npm's OIDC log lines ---"
-          grep -h " oidc " "$HOME"/.npm/_logs/*-debug-*.log || echo "npm logged no OIDC step at all (is id-token: write still set?)"
-          echo "::error title=npm publish refused::If the Publish step ended in E404, no trusted publisher on npmjs.com matches this run. Register one at https://www.npmjs.com/package/aevrin/access (GitHub Actions: aevrin-projects / aevrin-mcp-scanner / publish-npm.yml / environment npm), then re-run with: gh workflow run publish-npm.yml --ref master"
+          grep -h " oidc " "${logs[@]}" || echo "npm logged no OIDC step at all (is id-token: write still set?)"
+          if grep -q "cannot publish over the previously published versions" "${logs[@]}"; then
+            echo "::error title=Version already published::$(node -p 'require("./package.json").version') is already on npm, and npm versions cannot be replaced. Bump backend/cli-npm/package.json for a new release."
+          elif grep -q "E404" "${logs[@]}"; then
+            echo "::error title=npm publish refused::No trusted publisher on npmjs.com matches this run. Register one at https://www.npmjs.com/package/aevrin/access (GitHub Actions: aevrin-projects / aevrin-mcp-scanner / publish-npm.yml / environment npm), then re-run with: gh workflow run publish-npm.yml --ref master"
+          fi

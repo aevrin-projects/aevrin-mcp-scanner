@@ -68,16 +68,15 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ## [0.5.0] - 2026-09-06 (CLI)
 
-**The npm wrapper was not published with this release.** `publish-npm.yml`
-failed at the tag (`EOTP`: the token could not bypass 2FA), and a re-run over
-OIDC failed with `E404`, which is how npm answers when the run matches no
-registered trusted publisher: either none exists for the package, or one does
-with a different repository, workflow file or environment. The registration
-recipe first recorded for this, `npm trust github ...`, cannot be run with
-npm 11.6.2, which has no `trust` command; it is done on the package's
-settings page on npmjs.com instead. `npm install -g aevrin` therefore still
-installs 0.4.0, which runs the retired pipeline. Install 0.5.0 from PyPI:
-`pip install -U aevrin`.
+**The npm wrapper reached npm three weeks after PyPI, on 2026-09-28.** Until
+then `npm install -g aevrin` installed 0.4.0, which runs the retired pipeline.
+`publish-npm.yml` failed at the tag (`EOTP`: the token could not bypass 2FA),
+and re-runs over OIDC failed with `E404` until a trusted publisher was
+registered on the package's settings page on npmjs.com. The recipe first
+recorded for that, `npm trust github ...`, cannot be run with npm 11.6.2,
+which has no `trust` command. 0.5.0 is now published from GitHub Actions with
+a provenance attestation, and `npm install aevrin@0.5.0` was verified to
+install and run the 0.5.0 CLI.
 
 ### Fixed
 
