@@ -4,16 +4,15 @@ Mounted under the same `/admin` prefix and behind the same `require_admin`
 dependency as the rest of the admin panel, so there is one definition of "is
 an admin" in this codebase rather than two that can drift apart.
 
-Nothing here can write a grade, a score, or a coverage flag. Curation is
-editorial; security comes from scans. An admin who disagrees with a grade
-forces a rescan and gets a new one from evidence.
+The registry is discovery only: curation is editorial, and nothing here
+scans, grades, or records a scan result.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 
 from aevrin_api.config import Settings, get_settings
 from aevrin_api.controllers import marketplace_controller as ctl
@@ -28,7 +27,6 @@ from aevrin_api.schemas.marketplace import (
     AdminStatusRequest,
     CategoryRequest,
     ReportDecisionRequest,
-    ScanRequest,
     SubmissionDecisionRequest,
 )
 from aevrin_api.services.admin_auth import AdminIdentity, require_admin
@@ -50,7 +48,7 @@ async def summary(
     db: Annotated[SupabaseRest, Depends(get_db)],
     admin: Annotated[AdminIdentity, Depends(admin_identity)],
 ) -> Any:
-    """Catalogue health: totals, grades, unscanned, stale, open reports."""
+    """Catalogue totals by status and type, open reports, pending suggestions."""
     return await ctl.admin_overview(db)
 
 
@@ -59,8 +57,6 @@ async def list_all(
     db: Annotated[SupabaseRest, Depends(get_db)],
     admin: Annotated[AdminIdentity, Depends(admin_identity)],
     listing_status: Annotated[str | None, Query(alias="status", max_length=20)] = None,
-    grade: Annotated[str | None, Query(max_length=1)] = None,
-    unscanned: Annotated[bool, Query()] = False,
     q: Annotated[str | None, Query(max_length=100)] = None,
     item_type: Annotated[str | None, Query(alias="type", max_length=30)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -68,7 +64,7 @@ async def list_all(
 ) -> Any:
     """Every item in every state, not just the published ones."""
     return await ctl.admin_browse(
-        db, status=listing_status, grade=grade, unscanned=unscanned, query=q,
+        db, status=listing_status, query=q,
         item_type=item_type, limit=limit, offset=offset,
     )
 
@@ -108,14 +104,12 @@ async def patch_listing(
     db: Annotated[SupabaseRest, Depends(get_db)],
     admin: Annotated[AdminIdentity, Depends(admin_identity)],
 ) -> Any:
-    """Edit an item. Never its status and never its security result.
+    """Edit an item. Never its status.
 
     Consequential changes -- visibility, price, featured, licence, type -- are
     recorded on the public timeline with the actor, the before and after
     values, and the reason given; every edit is in the admin audit log. For an
-    MCP server, changing its repository, ref, install recipe or version opens
-    a new unscanned version, so the old grade shows as outdated rather than
-    carrying over.
+    MCP server, a new `latest_version` is added to its version list.
     """
     return await ctl.admin_patch(db, listing_id=listing_id, body=body, admin=admin)
 
@@ -130,8 +124,7 @@ async def set_status(
     """Publish, unpublish, archive, restore (archived -> draft), suspend.
 
     Publishing runs the one publish gate: the item must be complete for its
-    type, and an MCP server must have been scanned by the current engine. Every
-    reason it fails is returned at once.
+    type. Every reason it fails is returned at once.
     """
     return await ctl.admin_set_status(
         db, listing_id=listing_id, new_status=body.status, reason=body.reason, admin=admin,
@@ -147,8 +140,8 @@ async def delete_item(
 ) -> Any:
     """Remove the registry entry, and only that.
 
-    The upstream repository, the package and any scan are untouched. The slug
-    must be typed back. Audited before the delete, with a snapshot, because
+    The upstream repository and the package are untouched. The slug must be
+    typed back. Audited before the delete, with a snapshot, because
     the item's own timeline is deleted with it.
     """
     return await ctl.admin_delete(
@@ -180,64 +173,13 @@ async def refresh_metadata(
     return await ctl.admin_refresh_metadata(db, settings, listing_id=listing_id, admin=admin)
 
 
-@router.post("/mcp/{listing_id}/scan")
-async def scan_listing(
-    listing_id: str,
-    body: ScanRequest,
-    background: BackgroundTasks,
-    db: Annotated[SupabaseRest, Depends(get_db)],
-    settings: Annotated[Settings, Depends(get_settings)],
-    admin: Annotated[AdminIdentity, Depends(admin_identity)],
-) -> Any:
-    """Scan this server, or reuse an existing scan of the same source.
-
-    `force` runs a real scan regardless. The response says which happened, so
-    "Force rescan" cannot quietly return a cached result. A forced rescan also
-    invalidates any cached AI explanation of the evidence it replaces.
-    """
-    return await ctl.admin_scan(
-        db,
-        settings,
-        listing_id=listing_id,
-        version_id=body.version_id,
-        force=body.force,
-        admin=admin,
-        # The pipeline clones a repository and runs several analysers. Awaited
-        # inside the request it outlives the edge's timeout every time, which
-        # is why no catalogue scan had ever completed.
-        schedule=background.add_task,
-    )
-
-
-@router.post("/mcp/regrade-ungraded")
-async def regrade_ungraded(
-    background: BackgroundTasks,
-    db: Annotated[SupabaseRest, Depends(get_db)],
-    settings: Annotated[Settings, Depends(get_settings)],
-    admin: Annotated[AdminIdentity, Depends(admin_identity)],
-) -> Any:
-    """Queue scans for catalogued listings that currently carry no grade.
-
-    The recovery path after an engine change withdraws every stored grade.
-    Bounded per press, and each listing goes through the same scan the single
-    "Force rescan" button uses. The response reports what was queued, what was
-    skipped and why, and how many remain.
-    """
-    return await ctl.admin_regrade_ungraded(
-        db,
-        settings,
-        admin=admin,
-        schedule=background.add_task,
-    )
-
-
 @router.get("/submissions")
 async def list_submissions(
     db: Annotated[SupabaseRest, Depends(get_db)],
     admin: Annotated[AdminIdentity, Depends(admin_identity)],
     review_status: Annotated[str | None, Query(alias="status", max_length=20)] = "review",
 ) -> Any:
-    """Submissions awaiting a decision, with each one's scan result."""
+    """Submissions awaiting a decision."""
     return await ctl.admin_submissions(db, review_status=review_status)
 
 
@@ -250,8 +192,8 @@ async def decide_submission(
 ) -> Any:
     """Approve or reject a submission.
 
-    Approval publishes the listing and is refused if the server has not been
-    scanned. The reason given is shown to the submitter.
+    Approval publishes the listing through the same publish gate as the
+    status endpoint. The reason given is shown to the submitter.
     """
     return await ctl.admin_decide(
         db, submission_id=submission_id, decision=body.decision, reason=body.reason, admin=admin,

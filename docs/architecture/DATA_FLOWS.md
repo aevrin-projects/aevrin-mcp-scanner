@@ -72,14 +72,14 @@ clean - this is the single most consistently enforced rule in the product
 `INCOMPLETE` always exits `3`, independent of `--fail-on`, so a broken
 scanning environment can never look like a clean CI pass).
 
-## Registry ingestion, curation and scanning
+## Registry ingestion and curation
 
 ```
 Weekly scheduled job (POST /scheduler/registry-sync, HMAC-token auth)
     -> integrations/mcp_registry.py pulls servers changed since the last
        successful sync (a watermark, not a queue)
     -> services/marketplace/sync.py: new servers inserted as DRAFT (never
-       published); new versions recorded UNSCANNED; for an item an admin
+       published); new versions recorded as bare version rows; for an item an admin
        has moved out of draft, only upstream-owned fields are patched;
        GitHub/npm metadata refreshed for the stalest listings (budgeted,
        best-effort, never overwrites good data with a fetch failure);
@@ -87,25 +87,22 @@ Weekly scheduled job (POST /scheduler/registry-sync, HMAC-token auth)
 ```
 
 ```
-A listing gets scanned
-    -> triggered by evidence only: a new version, a changed source hash,
-       or an admin forcing a rescan -- never by a timer
-    -> services/marketplace/scanning.py runs the same scanner-core
-       pipeline used everywhere else, then services/marketplace/grading.py
-       calls scanner-core's grade_scan() (the same function the CLI
-       and agent-posture view use) and writes the result onto that
-       specific mcp_listing_versions row
-    -> mcp_listings.current_* columns (a maintained projection) are
-       updated by grading.py, and only by grading.py
-    -> the item's status is NOT changed: a scan never publishes
+A user wants to check an MCP server they found in the registry
+    -> the item page's "Scan with Aevrin" links to
+       /scans/new?mode=github_repo|live_mcp_server&target=<url>
+       (or shows the `aevrin scan mcp "..."` command for a package-only
+       server); nothing is scanned by the registry itself
+    -> signed out: the auth proxy redirects to /login?next=<path+query>,
+       and the login flow returns there (relative paths only)
+    -> POST /scans: the canonical scan, the user's own, on their quota;
+       nothing is written back to the registry
 ```
 
 ```
 An admin publishes an item (POST /admin/marketplace/mcp/{id}/status)
     -> admin_identity dependency (admin session + TOTP)
-    -> services/marketplace/items.py publish_blockers(): validate_item()
-       for every type; for an MCP server, a completed or incomplete scan
-       of its current version by the current engine
+    -> services/marketplace/items.py validate_item(): the item is
+       complete for its type (no scan requirement)
     -> refused: 400 with every reason; accepted: status written,
        mcp_events status_changed, admin_audit_log registry.status.published
 ```
@@ -124,9 +121,8 @@ An agent queries the registry
 **Failure behavior**: if the registry is unreachable, the marketplace
 stays online with what it already has - it just stops growing until the
 next run. If GitHub is unreachable, the previously stored star count is
-kept rather than overwritten with zero. A publish is refused for an MCP
-server whose current version has no scan; an admin can curate metadata
-but cannot write a grade. If the API is down, the registry MCP tools
+kept rather than overwritten with zero. A publish is refused, with every
+reason, for an item that is incomplete for its type. If the API is down, the registry MCP tools
 return a tool error naming that, never an empty result that reads as "no
 matches".
 See [`../features/MCP_MARKETPLACE.md`](../features/MCP_MARKETPLACE.md).
@@ -157,8 +153,9 @@ permissive one, rewarding opacity). See
 ## AI review (explanations)
 
 ```
-User clicks "Explain this" on a finding / grade / scan / marketplace
-listing (only where a real evidence source exists)
+User clicks "Explain with AI" on their own scan (its grade) or finding
+(only where a real evidence source exists; ai_controller checks the caller
+owns the scan or belongs to its organisation, else 404)
     -> services/ai/evidence.py builds a bounded, redacted document from
        real findings/grade/coverage -- never the scanner's raw payload,
        never a credential value, every free-text field length-capped
@@ -181,12 +178,25 @@ a scan, a finding, or a grade. See
 ## Billing
 
 ```
-Dashboard "Upgrade" -> backend/api/controllers/billing_controller.py
-    -> integrations/razorpay_client.py creates a Standard Checkout order
-       (one-time payment per cycle, not a Razorpay Subscription)
-    -> Razorpay webhook confirms payment -> accounts.tier updated
+Pricing page "Upgrade" -> POST /billing/checkout {tier, cycle, seats}
+    -> Team only: billing_controller._assert_may_buy_team (the caller must
+       own their workspace if they are in one; seats >= members + live
+       invites, else 409); seats 3-500
+    -> integrations/razorpay_client.py creates an Orders API order for
+       price x seats (one-time payment per cycle, not a Subscription);
+       notes carry tier, cycle, seats -> payments row `created`
+    -> Checkout.js -> POST /billing/verify (HMAC of order|payment)
+       and/or the webhook (payment.captured or order.paid, signature
+       checked before the body is parsed); whichever arrives first claims
+       the row with a compare-and-set on status `created` -> `paid`, and
+       only that one writes accounts.tier, paid_until, and seats (seats
+       only for Team). The grant is computed before the claim.
+    -> every gate calls quota.entitled_tier(db, account): the account's
+       own effective tier, or "team" while its workspace owner's Team plan
+       is active; quota.seat_limit(owner) is the owner's seats while Team
+       is active, else 1
     -> services/quota.py reads tier_limits (a config table, not hardcoded
-       constants) for every quota check from then on
+       constants) for that tier on every quota check
 ```
 
 Currency is chosen from the caller's resolved country

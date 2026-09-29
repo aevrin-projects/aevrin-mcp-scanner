@@ -30,8 +30,10 @@ export const adminApi = {
       payments_deleted: number;
     }>(`/admin/users/${id}`, { method: "DELETE", body: JSON.stringify(body) }),
   /** Seats an account's workspace may fill. The same number a Team purchase
-   *  writes, so granting and buying move one value, not two. */
-  setSeats: (id: string, body: { seats: number; reason: string }) =>
+   *  writes, so granting and buying move one value, not two. Gated on the
+   *  authentication code like a plan change, and in force only while the
+   *  account's own Team plan is active. */
+  setSeats: (id: string, body: { seats: number; reason: string; totp_code: string }) =>
     request<{ seats: number }>(`/admin/users/${id}/seats`, {
       method: "POST",
       body: JSON.stringify(body),
@@ -77,21 +79,13 @@ export const adminApi = {
  * published from or removed from the Aevrin Registry.
  *
  * Mounted under the same `/admin` prefix as everything else here, so it goes
- * through the same admin-session and TOTP checks. There is deliberately no
- * method below that writes a grade, a score, or a coverage flag: those come
- * from scans, and an admin who could type a better letter could make an unsafe
- * server look safe. Nor does `patch` change status: publishing goes through
- * `setStatus`, which runs the publish gate.
+ * through the same admin-session and TOTP checks. `patch` never changes
+ * status: publishing goes through `setStatus`, which runs the publish gate.
  */
 export const marketplaceAdminApi = {
   summary: () =>
     request<{
       total: number;
-      scanned: number;
-      unscanned: number;
-      stale_scans: number;
-      partial_coverage: number;
-      grades: Record<string, number>;
       statuses: Record<string, number>;
       types: Record<string, number>;
       open_reports: number;
@@ -100,8 +94,6 @@ export const marketplaceAdminApi = {
 
   list: (params: {
     status?: string;
-    grade?: string;
-    unscanned?: boolean;
     q?: string;
     type?: string;
     limit?: number;
@@ -110,8 +102,6 @@ export const marketplaceAdminApi = {
     const search = new URLSearchParams();
     if (params.status) search.set("status", params.status);
     if (params.type) search.set("type", params.type);
-    if (params.grade) search.set("grade", params.grade);
-    if (params.unscanned) search.set("unscanned", "true");
     if (params.q) search.set("q", params.q);
     if (params.limit) search.set("limit", String(params.limit));
     if (params.offset) search.set("offset", String(params.offset));
@@ -137,7 +127,7 @@ export const marketplaceAdminApi = {
    *  be published yet. The editor's preview reads this. */
   get: (id: string) => request<Record<string, unknown>>(`/admin/marketplace/mcp/${id}`),
 
-  /** Removes the registry entry only - never the repository or its scans.
+  /** Removes the registry entry only - never the repository.
    *  The slug must be typed back. */
   remove: (id: string, confirmSlug: string) =>
     request<{ deleted: boolean; slug: string }>(`/admin/marketplace/mcp/${id}`, {
@@ -183,24 +173,6 @@ export const marketplaceAdminApi = {
       method: "POST",
       body: JSON.stringify({ status, reason: reason ?? null }),
     }),
-
-  /** Queue scans for every listing that currently carries no grade, in
-   *  bounded batches. The recovery path after an engine change withdraws
-   *  every stored grade at once; the response says what was queued, what was
-   *  skipped and why, and how many are left. */
-  regradeUngraded: () =>
-    request<{
-      queued: number;
-      listings: string[];
-      skipped: Array<{ listing: string; reason: string }>;
-      remaining_ungraded: number;
-    }>("/admin/marketplace/mcp/regrade-ungraded", { method: "POST" }),
-
-  scan: (id: string, force: boolean) =>
-    request<{ reused: boolean; scan_id: string; reason: string }>(
-      `/admin/marketplace/mcp/${id}/scan`,
-      { method: "POST", body: JSON.stringify({ force, version_id: null }) },
-    ),
 
   submissions: (status = "review") =>
     request<Record<string, unknown>[]>(`/admin/marketplace/submissions?status=${status}`),

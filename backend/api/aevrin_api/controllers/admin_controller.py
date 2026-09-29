@@ -21,10 +21,12 @@ from aevrin_api.config import Settings
 from aevrin_api.core.security import AuthenticatedUser
 from aevrin_api.db import SupabaseRest
 from aevrin_api.schemas.admin import (
+    AdminPaymentRow,
     AdminSessionOut,
     AdminUserDetail,
     AdminUserPage,
     AdminUserRow,
+    AdminWorkspace,
     DeleteUserIn,
     DeleteUserResult,
     OverrideIn,
@@ -36,6 +38,7 @@ from aevrin_api.schemas.admin import (
     TotpEnrolOut,
     TotpVerifyIn,
 )
+from aevrin_api.schemas.billing import TEAM_MIN_SEATS
 from aevrin_api.services.admin_auth import (
     AdminIdentity,
     has_confirmed_totp,
@@ -49,7 +52,16 @@ from aevrin_api.services.admin_auth import (
     verify_code,
     write_audit,
 )
-from aevrin_api.services.quota import Bucket, get_or_create_account, get_usage
+from aevrin_api.services.quota import (
+    Bucket,
+    effective_tier,
+    entitled_tier,
+    get_or_create_account,
+    get_usage,
+    seat_limit,
+    seats_used,
+    workspace_of,
+)
 from aevrin_api.utils.crypto import EncryptionUnavailable
 
 logger = logging.getLogger("aevrin.admin.controller")
@@ -179,14 +191,14 @@ async def user_detail(user_id: str, admin: AdminIdentity, db: SupabaseRest, sett
     scans = await db.select("scans", {"user_id": user_id}, order="created_at.desc", limit=10)
     keys = await db.select("api_keys", {"user_id": user_id}, columns="id,revoked_at")
     installs = await db.select("github_installations", {"user_id": user_id}, columns="installation_id", limit=1)
-
-    from aevrin_api.services.quota import effective_tier
+    payments = await db.select("payments", {"user_id": user_id}, order="created_at.desc", limit=50)
 
     return AdminUserDetail(
         user_id=user_id,
         email=row.get("email"),
         tier=account["tier"],
         effective_tier=effective_tier(account),
+        entitled_tier=await entitled_tier(db, account),
         status=account.get("status", "active"),
         status_reason=account.get("status_reason"),
         flagged=bool(account.get("flagged")),
@@ -210,6 +222,45 @@ async def user_detail(user_id: str, admin: AdminIdentity, db: SupabaseRest, sett
         api_key_count=sum(1 for k in keys if not k.get("revoked_at")),
         github_connected=bool(installs),
         seats=int(account.get("seats") or 1),
+        workspace=await _workspace_for_admin(db, user_id),
+        payments=[
+            AdminPaymentRow(
+                id=str(p["id"]),
+                tier=p["tier"],
+                cycle=p["cycle"],
+                seats=int(p.get("seats") or 1),
+                amount_paise=int(p["amount_paise"]),
+                currency=p["currency"],
+                status=p["status"],
+                razorpay_order_id=p.get("razorpay_order_id"),
+                razorpay_payment_id=p.get("razorpay_payment_id"),
+                created_at=p.get("created_at"),
+                verified_at=p.get("verified_at"),
+            )
+            for p in payments
+        ],
+    )
+
+
+async def _workspace_for_admin(db: SupabaseRest, user_id: str) -> AdminWorkspace | None:
+    org = await workspace_of(db, user_id)
+    if org is None:
+        return None
+    is_owner = org["owner_id"] == user_id
+    role: str | None = None
+    membership = await db.select(
+        "organization_members", {"org_id": org["id"], "user_id": user_id}, columns="role_id", limit=1
+    )
+    if membership:
+        roles = await db.select("organization_roles", {"id": membership[0]["role_id"]}, columns="name", limit=1)
+        role = roles[0]["name"] if roles else None
+    return AdminWorkspace(
+        org_id=str(org["id"]),
+        name=org["name"],
+        role=role,
+        is_owner=is_owner,
+        seat_limit=await seat_limit(db, user_id) if is_owner else None,
+        seats_used=await seats_used(db, str(org["id"])) if is_owner else None,
     )
 
 
@@ -262,27 +313,43 @@ async def change_plan(
         patch["paid_until"] = None
     else:
         patch["paid_until"] = (datetime.now(UTC) + timedelta(days=30 * body.months)).isoformat()
+    # A comped Team with the column default of 1 seat was a Team workspace
+    # nobody could be invited to. Team's floor is the checkout minimum; a
+    # larger number an admin already granted is kept.
+    if body.tier == "team":
+        patch["seats"] = max(int(before.get("seats") or 1), TEAM_MIN_SEATS)
     await db.update("accounts", {"user_id": user_id}, patch)
 
     await write_audit(
         db, admin, "account.plan_change",
         target_user_id=user_id, target_email=target_email, reason=body.reason,
-        metadata={"from": before["tier"], "to": body.tier, "months": body.months, "comp": True},
+        metadata={
+            "from": before["tier"], "to": body.tier, "months": body.months, "comp": True,
+            **({"seats": patch["seats"]} if "seats" in patch else {}),
+        },
     )
-    return {"tier": body.tier, "paid_until": patch["paid_until"]}
+    return {"tier": body.tier, "paid_until": patch["paid_until"], "seats": patch.get("seats", before.get("seats", 1))}
 
 
 async def set_seats(
-    user_id: str, body: SeatsIn, admin: AdminIdentity, db: SupabaseRest
+    user_id: str, body: SeatsIn, admin: AdminIdentity, db: SupabaseRest, settings: Settings
 ) -> dict[str, Any]:
+    """Seats decide who gets Team limits, so this is gated on the second
+    factor exactly like change_plan: a seat is an entitlement for a person."""
+    await require_sudo(db, settings, admin, body.totp_code)
+
+    before = await db.select("accounts", {"user_id": user_id}, columns="seats", limit=1)
+    if not before:
+        # Used to update nothing and still write an audit entry saying the
+        # seats had changed.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No account for that user.")
     identity = await db.rpc("admin_user_identity", {"p_user_id": user_id})
     target_email = identity[0].get("email") if identity else None
-    before = await db.select("accounts", {"user_id": user_id}, columns="seats", limit=1)
     await db.update("accounts", {"user_id": user_id}, {"seats": body.seats})
     await write_audit(
         db, admin, "account.seats_change",
         target_user_id=user_id, target_email=target_email, reason=body.reason,
-        metadata={"from": (before[0]["seats"] if before else None), "to": body.seats},
+        metadata={"from": before[0]["seats"], "to": body.seats},
     )
     return {"seats": body.seats}
 
@@ -433,7 +500,44 @@ async def analytics(
     days: int = 30,
 ) -> dict[str, Any]:
     # Shape guaranteed by the admin_analytics SQL function.
-    return cast(dict[str, Any], await db.rpc("admin_analytics", {"p_days": days}))
+    result = cast(dict[str, Any], await db.rpc("admin_analytics", {"p_days": days}))
+    result["revenue_by_currency"] = await _revenue_by_currency(db, days)
+    return result
+
+
+async def _revenue_by_currency(db: SupabaseRest, days: int) -> dict[str, dict[str, int]]:
+    """Paid revenue per currency, in that currency's minor units.
+
+    Computed here because the admin_analytics function's body is not in this
+    repository (migration 0022 is a stub), so whether its revenue_paise_*
+    figures add USD cents to INR paise cannot be checked. Those two units
+    differ by roughly 88x, so a single sum is not a number anyone can use.
+
+    Paged until an empty page rather than until a short one, so a PostgREST
+    max-rows setting below the page size cannot silently truncate the total.
+    """
+    since = datetime.now(UTC) - timedelta(days=days)
+    totals: dict[str, dict[str, int]] = {}
+    offset = 0
+    while True:
+        rows = await db.select(
+            "payments",
+            {"status": "paid"},
+            columns="id,amount_paise,currency,verified_at,created_at",
+            order="created_at.asc,id.asc",
+            limit=1000,
+            offset=offset,
+        )
+        if not rows:
+            return totals
+        for row in rows:
+            entry = totals.setdefault(str(row["currency"]), {"total": 0, "in_window": 0})
+            amount = int(row["amount_paise"])
+            entry["total"] += amount
+            settled = row.get("verified_at") or row.get("created_at")
+            if settled and datetime.fromisoformat(str(settled)) >= since:
+                entry["in_window"] += amount
+        offset += len(rows)
 
 
 async def account_usage(admin: AdminIdentity, db: SupabaseRest) -> list[dict[str, Any]]:

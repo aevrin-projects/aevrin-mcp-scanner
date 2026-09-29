@@ -145,18 +145,35 @@ general-purpose SAST pass in the product standing in for it here.
   weakened to make a refactor pass** - they encode the product's actual
   security promises, not incidental behavior.
   `services/test_registry.py` and `routes/test_registry_routes.py` are the
-  registry's equivalent (ADR-045 to ADR-048): the publish gate per item
-  type (an unscanned MCP server is refused, a scanned-but-ungraded one is
-  allowed, a failed or previous-engine scan does not count), the sync
-  landing drafts and never overwriting curation, `status` and every
-  security column unreachable through an edit, delete auditing *before* it
-  deletes, links never exposing a draft target, and F blocking by default.
+  registry's equivalent (ADR-045, ADR-047 to ADR-049): the publish gate per
+  item type (an MCP server publishes with no scan; an incomplete one is
+  refused; suggestion approval runs the same gate), bare version rows from
+  an edited `latest_version` and from the sync, the sync landing drafts and
+  never overwriting curation, `status` unreachable through an edit, delete
+  auditing *before* it deletes, and links never exposing a draft target.
   The route test walks `ROUTERS` (FastAPI keeps included routers lazy, so
   `app.routes` would not list them) and fails if any `/admin/marketplace`
   route lacks the `admin_identity` dependency - a new admin route cannot
-  ship unguarded by being forgotten. `services/test_marketplace_scan_dispatch.py`
-  pins that a finished scan never changes an item's status (a scan used to
-  publish whatever it scanned).
+  ship unguarded by being forgotten - and if any removed registry scanning
+  route (item scan, regrade, policy, scan queue, install plan) or grade
+  query parameter comes back. `services/test_marketplace_security.py`
+  asserts that a decorated card, the browse response model and the detail
+  response carry no security, grade or scan key for any of the 19 item
+  types (`ListingSummary.security` used to be required, so removing it from
+  one side alone would fail every browse).
+  Billing is tested through the real controllers, not through fakes of
+  them: `controllers/test_billing_activation.py` drives `verify_payment` and
+  `razorpay_webhook` against an in-memory database that models the
+  compare-and-set on `payments.status` (one payment, one grant, whichever of
+  the two arrives first; month-end and Feb 29 cycle dates; the grant
+  computed before the claim; a bad signature leaving the payment
+  settleable; `order.paid`; an unsigned body refused before it is parsed).
+  `controllers/test_billing_entitlements.py` covers Team checkout (price x
+  seats in USD and INR, seat bounds, owner-only, not fewer seats than in
+  use), `quota.entitled_tier` through account usage, export and the
+  subscription response, seats lapsing with Team, the triage tier, and the
+  admin Team grant and TOTP-gated seat changes. A test that only exercised
+  its own fake of the double-grant claim was deleted when these replaced it.
   `services/test_status_history.py` belongs in the same category: it pins the
   status feed's one load-bearing rule, that a day with no recorded checks is
   reported as `no_data` and left out of the uptime percentage rather than
@@ -178,17 +195,6 @@ general-purpose SAST pass in the product standing in for it here.
   left it silently absent from every exported report - caught only because
   it was checked for by hand once, which is exactly the failure mode this
   style of test exists to stop recurring.
-  `services/test_marketplace_capability_grading.py` pins the other end of
-  the same shape of gap: `scan.mcp_capabilities` must actually reach
-  `grade_from_scan`'s `capabilities` argument through `apply_completed_scan`,
-  not just exist as a column nothing reads. Asserted by spying on
-  `grade_from_scan` rather than checking the letter grade
-  `apply_completed_scan` writes: with zero findings, `UNKNOWN_CAPABILITY_WEIGHT`
-  alone doesn't reliably cross a letter boundary given the always-present
-  unknown-authentication factor this path also carries (it never passes
-  `authenticated=`/`transport=` at all) - a letter-based assertion would
-  couple the test to today's exact weights for no real reason, so it checks
-  the actual dict reaching the call instead.
   `controllers/test_agent_snapshots.py::test_live_capability_data_reaches_the_agent_posture_grade`
   (ADR-022) covers the same shape for agent posture's own
   `_trust_by_identity`: a `live_mcp_server` scan row's `mcp_capabilities`
@@ -204,7 +210,8 @@ general-purpose SAST pass in the product standing in for it here.
   live server) prints "capability could not be established", a confirmed
   `can_execute: False`/`can_write: False` target does not.
   `test_registry_tools.py` covers the registry MCP tools against a mocked
-  API: result mapping, the untrusted-README wrapping, a foreign `Host`
+  API: result mapping, no security field reaching an agent (even one an
+  older API still sends), the untrusted-README wrapping, a foreign `Host`
   refused with `421`, and - the one that matters most - that the hosted
   server registers no `scan_mcp_server`.
 - **`backend/hook/tests/`** - the hook script's block/allow decision logic.
@@ -245,6 +252,9 @@ five viewports (`mobile`, `tablet-small`, `tablet`, `desktop-small`,
 - Failed (4xx/5xx) network responses.
 - Horizontal scroll overflow (`scrollWidth - innerWidth`, must be non-positive).
 - Accessibility violations via `@axe-core/playwright`.
+- That a protected path (`/usage`, and `/scans/new` with a `mode`/`target`
+  prefill) redirects to `/login` carrying itself, query included, as
+  `next` - the registry's "Scan with Aevrin" link depends on it.
 
 `frontend/scripts/admin-smoke.mjs` (`npm run test:admin`) does the same for
 `/admin`, which the public script cannot reach. Two layers of access sit in

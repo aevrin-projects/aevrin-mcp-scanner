@@ -4,7 +4,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, Gift, KeyRound, RotateCcw, ShieldOff, SlidersHorizontal, Trash2, Users } from "lucide-react";
+import { ArrowLeft, Gift, KeyRound, Receipt, RotateCcw, ShieldOff, SlidersHorizontal, Trash2, Users } from "lucide-react";
 import { ApiError } from "@/shared/api";
 import { StatusPill, adminApi } from "@/entities/admin";
 import type { AdminUserDetail } from "@/entities/admin";
@@ -17,6 +17,20 @@ import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { formatDate } from "@/shared/lib/format";
+
+/** Minor units in their own currency. USD rows are cents and INR rows are
+ *  paise, so an amount is never shown without its currency. */
+function formatMinor(amount: number, currency: string) {
+  try {
+    return new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", { style: "currency", currency }).format(
+      amount / 100,
+    );
+  } catch {
+    return `${(amount / 100).toFixed(2)} ${currency}`;
+  }
+}
+
+const PAYMENT_STATUS_LABEL: Record<string, string> = { paid: "Paid", created: "Not completed", failed: "Failed" };
 
 const BUCKET_LABEL: Record<string, string> = {
   cli: "CLI scans",
@@ -64,6 +78,12 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <StatusPill status={detail.status} />
           <span className="capitalize">{detail.effective_tier}</span>
+          {detail.entitled_tier !== detail.effective_tier ? (
+            <span>
+              · <span className="capitalize">{detail.entitled_tier}</span> limits through workspace{" "}
+              {detail.workspace?.name ?? ""}
+            </span>
+          ) : null}
           {detail.paid_until ? <span>· paid until {formatDate(detail.paid_until)}</span> : null}
           <span>· joined {detail.created_at ? formatDate(detail.created_at) : "—"}</span>
           <span>· {detail.auth_providers.join(", ") || "password"}</span>
@@ -94,6 +114,53 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
                 </li>
               ))}
             </ul>
+          </AdminCard>
+
+          <AdminCard title="Workspace">
+            {detail.workspace ? (
+              <dl className="space-y-2 text-sm">
+                <Row label="Name" value={detail.workspace.name} />
+                <Row
+                  label="Role"
+                  value={detail.workspace.is_owner ? "Owner" : (detail.workspace.role ?? "Unknown role")}
+                />
+                {detail.workspace.is_owner ? (
+                  <Row
+                    label="Seats in force"
+                    value={`${detail.workspace.seats_used ?? "-"} of ${detail.workspace.seat_limit ?? "-"} used`}
+                  />
+                ) : null}
+              </dl>
+            ) : (
+              <p className="text-sm text-muted-foreground">Not in a workspace.</p>
+            )}
+          </AdminCard>
+
+          <AdminCard title="Payments" icon={<Receipt className="size-4 text-brand-text" />}>
+            {detail.payments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No checkouts started.</p>
+            ) : (
+              <ul className="space-y-2.5 text-sm">
+                {detail.payments.map((p) => (
+                  <li key={p.id} className="space-y-0.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="capitalize">
+                        {p.tier}
+                        {p.seats > 1 ? `, ${p.seats} seats` : ""}, {p.cycle}
+                      </span>
+                      <span className="shrink-0 tabular-nums">{formatMinor(p.amount_paise, p.currency)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <span>{p.created_at ? formatDate(p.created_at) : "-"}</span>
+                      <span>{PAYMENT_STATUS_LABEL[p.status] ?? p.status}</span>
+                    </div>
+                    {p.razorpay_order_id ? (
+                      <p className="truncate font-mono text-xs text-muted-foreground">{p.razorpay_order_id}</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
           </AdminCard>
 
           <AdminCard title="Account">
@@ -156,7 +223,8 @@ function GrantPlan({ detail, onDone }: { detail: AdminUserDetail; onDone: () => 
     <AdminCard title="Grant a plan" icon={<Gift className="size-4 text-brand-text" />}>
       <p className="text-sm text-muted-foreground">
         Entitlement only, with no payment object. A comped plan is indistinguishable from a purchased
-        one at the point of use, because the entitlement <em>is</em> tier plus paid-until.
+        one at the point of use, because the entitlement <em>is</em> tier plus paid-until. Granting
+        Team raises the seats to at least 3 and keeps a larger number already set.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -241,14 +309,21 @@ function GrantPlan({ detail, onDone }: { detail: AdminUserDetail; onDone: () => 
 function GrantSeats({ detail, onDone }: { detail: AdminUserDetail; onDone: () => Promise<void> }) {
   const [seats, setSeats] = useState(detail.seats);
   const [reason, setReason] = useState("");
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const teamActive = detail.effective_tier === "team";
 
   async function apply() {
     setBusy(true);
     try {
-      await adminApi.setSeats(detail.user_id, { seats, reason });
-      toast.success(`Workspace can now hold ${seats} ${seats === 1 ? "person" : "people"}.`);
+      await adminApi.setSeats(detail.user_id, { seats, reason, totp_code: code });
+      toast.success(
+        teamActive
+          ? `Workspace can now hold ${seats} ${seats === 1 ? "person" : "people"}.`
+          : `Seats set to ${seats}. They apply once this account's Team plan is active.`,
+      );
       setReason("");
+      setCode("");
       await onDone();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not change the seats.");
@@ -261,8 +336,10 @@ function GrantSeats({ detail, onDone }: { detail: AdminUserDetail; onDone: () =>
     <AdminCard title="Seats" icon={<Users className="size-4 text-brand-text" />}>
       <p className="text-sm text-muted-foreground">
         How many people this account&apos;s workspace may hold, owner included. The same number a
-        Team purchase writes, so granting and buying move one value rather than two. Lowering it
-        never removes anyone: it stops the next invitation.
+        Team purchase writes, so granting and buying move one value rather than two. Seats are in
+        force only while this account&apos;s own Team plan is active
+        {teamActive ? "" : " (it is not, so the workspace currently holds 1)"}. Lowering it never
+        removes anyone: it stops the next invitation.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -293,7 +370,19 @@ function GrantSeats({ detail, onDone }: { detail: AdminUserDetail; onDone: () =>
         </div>
       </div>
 
-      <Button disabled={busy || reason.trim().length < 3} onClick={() => void apply()}>
+      <div className="space-y-1.5">
+        <Label htmlFor="seat-code">Authentication code</Label>
+        <Input
+          id="seat-code"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="123456"
+        />
+      </div>
+
+      <Button disabled={busy || reason.trim().length < 3 || code.trim().length < 6} onClick={() => void apply()}>
         Set to {seats} seat{seats === 1 ? "" : "s"}
       </Button>
     </AdminCard>

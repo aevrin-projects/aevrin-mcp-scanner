@@ -91,7 +91,7 @@ export function UsageMeters() {
 
                   <span className="text-xs text-muted-foreground">
                     {unlimited
-                      ? "Usage-based"
+                      ? "No monthly cap"
                       : ratio >= 1
                         ? "Limit reached"
                         : `Resets in ${daysUntil(bucket.resets_at)}d`}

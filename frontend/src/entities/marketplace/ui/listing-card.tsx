@@ -2,8 +2,7 @@ import Link from "next/link";
 import { Star } from "lucide-react";
 
 import { Badge } from "@/shared/ui/badge";
-import { PRICE_LABELS, type Listing, type ScanState } from "../model/types";
-import { GradeBadge } from "./grade-badge";
+import { PRICE_LABELS, type Listing } from "../model/types";
 import { ListingLogo } from "./listing-logo";
 import { PopularitySignals } from "./popularity-signals";
 import { TypeBadge } from "./type-badge";
@@ -11,69 +10,29 @@ import { TypeBadge } from "./type-badge";
 /**
  * One registry item, as a browse card.
  *
- * The layout puts the security grade and the popularity signals in visually
- * distinct regions: grade top-right in its own bordered tile, popularity
- * along the footer in muted text. That separation is doing real work: a
- * reader scanning a grid should never come away with the impression that a
- * high star count is the reason a card looks reassuring.
+ * The registry is discovery only: a card describes what an item is and how
+ * widely it is used, and makes no security claim. Popularity sits in the
+ * footer in muted text, named for what it measures.
  */
-
-// The footer's word for every state except `complete`, which needs none.
-// A map rather than a chain of ternaries: the chain ended in "Partial scan"
-// for anything it did not name, which called an ungraded server and a prompt
-// a partial scan - false for both.
-const STATE_PILL: Record<Exclude<ScanState, "complete">, { text: string; tone: "warn" | "muted" }> = {
-  partial: { text: "Partial scan", tone: "warn" },
-  outdated: { text: "Stale scan", tone: "warn" },
-  ungraded: { text: "Not graded", tone: "warn" },
-  unscanned: { text: "Unscanned", tone: "warn" },
-  // Neutral, not a warning: a prompt without a scan is not a server that
-  // failed one. It is labelled so nobody mistakes the absence for a pass.
-  not_applicable: { text: "Not scanned", tone: "muted" },
-};
-
 export function ListingCard({ listing }: { listing: Listing }) {
-  const { security, popularity } = listing;
-
   return (
     <Link
       href={`/marketplace/${listing.slug}`}
       className="group flex flex-col rounded-xl border border-border bg-card p-5 transition-colors hover:border-foreground/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
-      {/* The grade is the `tile` variant, not the full badge, and that is a
-          layout requirement rather than a style choice: the full badge's
-          explanation ("No security evidence. Not a statement that this is
-          safe.") is a max-content flex sibling, so on a card it claimed the
-          width it wanted and squeezed the title -- whose container is
-          `min-w-0` and therefore free to collapse -- down to nothing. Every
-          card rendered with no visible title at all. `shrink-0` on the tile
-          and `min-w-0` on the text column keep the title the element that
-          survives. The scan state it used to spell out is still stated, in
-          the footer below. */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
-          <ListingLogo listing={listing} className="size-9" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h3 className="truncate font-medium group-hover:underline">{listing.title}</h3>
-              {listing.featured ? (
-                <Star className="size-3.5 shrink-0 text-severity-medium" aria-label="Featured" />
-              ) : null}
-            </div>
-            {listing.publisher ? (
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">{listing.publisher}</p>
+      <div className="flex min-w-0 items-start gap-3">
+        <ListingLogo listing={listing} className="size-9" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="truncate font-medium group-hover:underline">{listing.title}</h3>
+            {listing.featured ? (
+              <Star className="size-3.5 shrink-0 text-severity-medium" aria-label="Featured" />
             ) : null}
           </div>
+          {listing.publisher ? (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{listing.publisher}</p>
+          ) : null}
         </div>
-
-        {/* Security lives in its own tile, never inline with the metrics. */}
-        <GradeBadge
-          grade={security.grade}
-          riskScore={security.risk_score}
-          state={security.state}
-          size="sm"
-          variant="tile"
-        />
       </div>
 
       <p className="mt-3 line-clamp-2 flex-1 text-sm text-muted-foreground">
@@ -99,24 +58,8 @@ export function ListingCard({ listing }: { listing: Listing }) {
         ) : null}
       </div>
 
-      {/* With the grade tile absent on an unscanned listing, this is the only
-          place the card states its scan status, so it is a labelled pill
-          rather than loose text. The word carries the meaning on its own --
-          the colour is reinforcement, never the signal. */}
-      <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
-        <PopularitySignals popularity={popularity} />
-        {security.state !== "complete" ? (
-          <span
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-              STATE_PILL[security.state].tone === "warn"
-                ? "border-severity-medium/25 bg-severity-medium/10 text-severity-medium"
-                : "border-border bg-muted text-muted-foreground"
-            }`}
-          >
-            <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-            {STATE_PILL[security.state].text}
-          </span>
-        ) : null}
+      <div className="mt-4 border-t border-border pt-3">
+        <PopularitySignals popularity={listing.popularity} />
       </div>
     </Link>
   );

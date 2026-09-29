@@ -25,24 +25,21 @@ this month** and **Recently added**.
 | Filter | Applies to | What it does |
 | --- | --- | --- |
 | Category | Every type | One of the registry's categories, inferred from the publisher's own text for synced servers and set by an administrator otherwise |
-| Minimum grade | MCP servers | "Grade B or better" includes A and B. Servers with no grade are excluded, because "at least B" is a claim about evidence |
 | Pricing | MCP servers | Open source, free, freemium, or paid |
 | Client | MCP servers | Only servers that actually declare a transport the client supports |
 
-The security, pricing and client filters appear once you choose **MCP servers**, because only
-servers have a grade or an install target. Agents can also filter by technology (for example
-`typescript` or `aws`) through `search_registry`.
+The pricing and client filters appear once you choose **MCP servers**, because only servers have a
+price or an install target. Agents can also filter by technology (for example `typescript` or
+`aws`) through `search_registry`.
 
-The grade filter sits beside the category filter and has the same visual weight. A registry that
-lets you narrow by "database" but not by "at least a B" has decided which of those questions
-matters more.
+There is no security filter or security sort. The registry does not scan what it lists, so it has
+no grade to filter on.
 
 ## Sorting
 
 | Sort | Order |
 | --- | --- |
 | Recommended | The weighted ranking score, described below |
-| Security | Grade first (A before F), then score. Items with no grade sort last |
 | Popular | GitHub stars, highest first. Items with no star data sort last, not as zero |
 | Most viewed this month | Page views, among items updated in the last 30 days |
 | Recently updated | By the official registry's own update timestamp |
@@ -59,20 +56,16 @@ publisher whose item ranked third.
 
 | Component | Weight |
 | --- | --- |
-| Security | 45% |
-| Popularity | 20% |
-| Maintenance | 15% |
-| Community | 10% |
-| Documentation | 10% |
+| Popularity | 36% |
+| Maintenance | 28% |
+| Community | 18% |
+| Documentation | 18% |
+
+"Recommended" orders the registry by how used, maintained and documented an item is. It is not a
+statement that an item is safe.
 
 Some details worth knowing:
 
-- **No grade scores zero on security**, not "average". Treating no evidence as a middling result
-  would let a server outrank a scanned C by never having been examined, which is an incentive
-  pointing the wrong way. Items of types Aevrin does not scan are ranked the same way, so they
-  never outrank a graded server on security they were not checked for.
-- **A grade earned under partial coverage counts for less** than the same letter earned under full
-  coverage, because it is a weaker claim.
 - **Popularity uses the best available signal, not the sum.** Stars and downloads are each placed
   on a logarithmic curve and the higher of the two is taken.
 - **Missing metadata scores zero, and means "unknown".** A repository whose data could not be

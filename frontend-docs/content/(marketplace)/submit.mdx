@@ -21,8 +21,7 @@ metadata would accept whatever anyone chose to claim about software they do not 
 
 - **Anything that is not HTTPS.** No `http://`, no `file://`, no `javascript:`.
 - **Anything internal.** Loopback, private ranges, link-local, `.internal`, `.local`, and cloud
-  metadata endpoints. Suggested URLs go through the same SSRF guard the live-target scanner uses,
-  so a URL that could not be scanned safely cannot be suggested either.
+  metadata endpoints. Suggested URLs go through the same SSRF guard the live-target scanner uses.
 - **Credentials in the URL.** `https://user:password@host` is rejected.
 - **Duplicates.** If the server is already in the registry, report a problem with the existing item
   instead.
@@ -34,17 +33,11 @@ scripts, postinstall hooks, or MCP commands.
 
 1. You suggest a URL.
 2. Aevrin derives the metadata from the source.
-3. An administrator scans the server with Aevrin.
-4. The administrator approves or rejects it.
-5. If approved, it is published with its scan result.
+3. An administrator approves or rejects it.
+4. If approved, it is published.
 
-**Nothing is published without a scan.** Approval is refused for a server whose current version
-Aevrin has not scanned, because a server in the registry implies Aevrin has looked at it, and that
-has to be true.
-
-A scan does not have to produce a grade. A server that needs an API key to start cannot be
-examined without one, and can be published as **Scanned, not graded**, which is shown in words
-and never presented as safe.
+Approval runs the same check as an administrator's **Publish**: the item must be complete for its
+type. Publishing is curation, not a security verdict: the registry does not scan what it lists.
 
 ## Status
 
@@ -52,7 +45,7 @@ Your suggestions are listed on the same page with their state:
 
 | Status | Meaning |
 | --- | --- |
-| In review | Waiting on a scan and a decision |
+| In review | Waiting on a decision |
 | Published | Live in the registry |
 | Not accepted | Rejected, with the reviewer's reason shown |
 

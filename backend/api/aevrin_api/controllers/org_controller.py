@@ -32,6 +32,7 @@ from aevrin_api.schemas.orgs import (
     RoleOut,
 )
 from aevrin_api.services import permissions as perms
+from aevrin_api.services.quota import seat_limit, seats_used
 
 INVITE_TTL_DAYS = 14
 
@@ -87,32 +88,6 @@ async def require_membership(user_id: str, db: SupabaseRest) -> Membership:
     return membership
 
 
-async def _seat_limit(org: dict[str, Any], db: SupabaseRest) -> int:
-    """How many people this workspace may hold.
-
-    Read from the owner's account rather than stored on the workspace.
-    Billing already writes accounts.seats on every payment and an admin can
-    already change it there, so a copy here would be a second number to keep
-    in step with the one the customer actually paid for.
-    """
-    rows = await db.select("accounts", {"user_id": org["owner_id"]}, columns="seats", limit=1)
-    return int(rows[0]["seats"]) if rows and rows[0].get("seats") else 1
-
-
-async def _seats_used(org_id: str, db: SupabaseRest) -> int:
-    """Members plus invites that are still open.
-
-    An invite counts. Otherwise a three-seat workspace could invite thirty
-    people and discover the limit only as they arrived, which turns a billing
-    limit into a race between colleagues.
-    """
-    members = await db.select("organization_members", {"org_id": org_id}, columns="user_id")
-    invites = await db.select(
-        "organization_invites", {"org_id": org_id, "accepted_at": "is.null"}, columns="id"
-    )
-    return len(members) + len(invites)
-
-
 async def _role_names(org_id: str, db: SupabaseRest) -> dict[str, str]:
     rows = await db.select("organization_roles", {"org_id": org_id}, columns="id,name")
     return {r["id"]: r["name"] for r in rows}
@@ -134,8 +109,8 @@ async def _organization_out(membership: Membership, db: SupabaseRest) -> Organiz
     return OrganizationOut(
         id=UUID(org["id"]),
         name=org["name"],
-        seats=await _seat_limit(org, db),
-        seats_used=await _seats_used(org["id"], db),
+        seats=await seat_limit(db, org["owner_id"]),
+        seats_used=await seats_used(db, org["id"]),
         owner_id=UUID(org["owner_id"]),
         created_at=org["created_at"],
         my_role=membership.role["name"],
@@ -320,13 +295,14 @@ async def invite_member(
             detail="The Owner role cannot be handed out by invitation.",
         )
 
-    limit = await _seat_limit(membership.org, db)
-    if await _seats_used(membership.org_id, db) >= limit:
+    limit = await seat_limit(db, membership.org["owner_id"])
+    if await seats_used(db, membership.org_id) >= limit:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=(
                 f"All {limit} seat(s) are taken, counting invitations that have not been "
-                "accepted. Buy more seats on the billing page, or revoke an invitation."
+                "accepted. Seats come with the owner's active Team plan: the owner can buy "
+                "Team with more seats from the pricing page, or you can revoke an invitation."
             ),
         )
 
@@ -426,10 +402,10 @@ async def accept_invite(
 
     # Re-checked at the moment of joining, not only when the invite was sent:
     # seats can have been filled or reduced in the days since.
-    if await _seats_used(org["id"], db) > await _seat_limit(org, db):
+    if await seats_used(db, org["id"]) > await seat_limit(db, org["owner_id"]):
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="That workspace has no seat free. Ask an owner to add one.",
+            detail="That workspace has no seat free. Ask its owner to buy Team with more seats.",
         )
 
     await db.insert(

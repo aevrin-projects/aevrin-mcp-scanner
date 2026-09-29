@@ -100,7 +100,7 @@ that indistinguishability is the failure this project exists to avoid.
 [ToolTrust Scanner](https://github.com/AgentSafe-AI/tooltrust-scanner) (MIT), pinned by version
 and SHA-256. Aevrin does not decide what a vulnerability is, how severe it is, or what grade a
 tool earns. There is no second grader and no severity-weight table anywhere in this repository,
-so the dashboard, the terminal, CI and the marketplace cannot disagree about the same server.
+so the dashboard, the terminal, CI and the hook cannot disagree about the same server.
 
 **The worst tool decides the grade.** The engine grades per tool, and its own average cannot be
 shown to anyone: on a real run, a five-tool server whose `run_shell` tool carried a Critical
@@ -126,10 +126,11 @@ records which one asked; it never changes the result.
 | **CI** | A [GitHub Action](action.yml) that fails the build on serious findings |
 | **MCP server** | `aevrin mcp-server`, so an agent can check a server before installing it |
 
-Aevrin also runs a public [marketplace](https://app.mcp.aevrin.net/marketplace) of MCP servers
-ingested from the official [MCP Registry](https://registry.modelcontextprotocol.io), each
-carrying a real scan, a grade bound to the exact version scanned, and the findings that earned
-that grade.
+Aevrin also runs a public, admin-curated [registry](https://app.mcp.aevrin.net/marketplace) of
+MCP servers (partly ingested from the official
+[MCP Registry](https://registry.modelcontextprotocol.io)), skills, prompts and more. It is for
+discovery only: it carries no scan or grade, and an MCP server's page hands off to the scan page
+("Scan with Aevrin") so you scan it yourself with the same engine.
 
 ## How a scan runs
 

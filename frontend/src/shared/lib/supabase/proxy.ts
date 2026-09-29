@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { safeNextPath } from "@/shared/lib/safe-next";
+
 // /device is reachable pre-auth so an unauthenticated visit redirects into
 // the normal /login flow with a return path, rather than a bare 404; see
 // the /device page itself for the post-login redirect back. The rest are
@@ -78,8 +80,13 @@ export async function updateSession(request: NextRequest) {
   const isProtectedPath = PROTECTED_PATH_PREFIXES.some((path) => matchesPath(pathname, path));
 
   if (!user && !isPublicPath && isProtectedPath) {
+    // The original path and query ride along as a relative `next`, so a
+    // signed-out visitor sent to /scans/new?mode=...&target=... lands back on
+    // that prefilled form after signing in rather than on the dashboard.
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    url.search = "";
+    url.searchParams.set("next", safeNextPath(`${pathname}${request.nextUrl.search}`, "/dashboard"));
     return NextResponse.redirect(url);
   }
 

@@ -9,7 +9,7 @@ thing to operate.
 Authentication is a shared token rather than a session, because the caller is
 a machine with no user behind it. It is compared in constant time and is
 required: with no token configured these endpoints refuse everything, which is
-the safe direction for something that can start scans.
+the safe direction for something that writes to the catalogue and closes scans.
 
 Every one of these is safe to call more often than intended and safe to
 re-run after a failure. Nothing here is destructive.
@@ -29,7 +29,7 @@ from aevrin_api.db import SupabaseRest
 from aevrin_api.routes.deps import get_db
 from aevrin_api.services import status as status_service
 from aevrin_api.services.ai.provider_sync import sync_all_providers
-from aevrin_api.services.marketplace.sync import listings_needing_scan, run_weekly_sync
+from aevrin_api.services.marketplace.sync import run_weekly_sync
 
 logger = logging.getLogger("aevrin.scheduler")
 
@@ -43,7 +43,7 @@ def require_scheduler_token(
     """Authenticate the scheduler.
 
     Fails closed when unconfigured. An unset token must not mean "anyone may
-    trigger a catalogue-wide scan"; it means this capability is switched off.
+    trigger a catalogue-wide sync"; it means this capability is switched off.
     """
     if not settings.scheduler_token:
         raise HTTPException(
@@ -128,17 +128,3 @@ async def reap_stuck_scans(
     established about these targets.
     """
     return await scan_controller.reap_stuck_scans(db)
-
-
-@router.get("/scan-queue", dependencies=[Depends(require_scheduler_token)])
-async def scan_queue(
-    db: Annotated[SupabaseRest, Depends(get_db)],
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
-) -> Any:
-    """Versions that exist but have never been scanned.
-
-    A query, not a stored queue. The set of unscanned versions is derivable
-    from the data at any moment, so keeping a separate list would only create
-    something that could disagree with reality.
-    """
-    return await listings_needing_scan(db, limit=limit)

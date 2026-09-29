@@ -1989,3 +1989,90 @@ timeline is removed with it.
 Suggestions from users are kept, relabelled "Suggest an item": they land in
 review and reach the public registry only through an admin's approval, which
 runs the same publish gate.
+
+## ADR-049: The registry is discovery only; scanning stays on the scan page
+
+**Status:** accepted (2026-09-29). Reverses ADR-046 and the scan parts of
+ADR-048.
+
+The registry scanned catalogue servers under a service account, stored a
+grade projection on `mcp_listings` and per-version scan state on
+`mcp_listing_versions`, gated publishing on a scan, applied an org install
+policy by grade, and offered AI explanations of a listing's grade. That made
+the registry a second place security results lived, with its own freshness
+rules, its own scan queue and its own failure modes (lost background scans,
+stale version rows, an ungraded backlog), beside the scan page that already
+does this properly. It also implied that everything in the registry could be
+scanned, when only a runnable MCP server can.
+
+Decision:
+
+- **Discovery only.** The registry curates and ranks. It does not scan, grade
+  or store scan state for any item, and shows no scan state of any kind.
+- **Scanning stays on the scan page.** An MCP server's page links to
+  `/scans/new` with the page's existing `mode`/`target` prefill (a GitHub
+  repository, else a remote endpoint), or shows the `aevrin scan mcp` command
+  for a package-only server. The scan is the user's own, through `POST
+  /scans`, on their quota; nothing is written back to the registry. No other
+  item type gets a scan action. No new scanner, service or result model
+  exists.
+- **Explain moves to scan results.** The `trust_grade` and `listing`
+  explanation subjects are removed; Explain is offered on the scan detail
+  page (subject `scan`) and the finding detail page (subject `finding`), both
+  behind the existing scan-ownership check.
+- **A bare version list is kept.** `mcp_listing_versions` keeps `id`,
+  `listing_id`, `version`, `first_seen_at`. A row is added by the sync, on
+  creation, and when an admin changes `latest_version`.
+- **Install policy is removed.** With no grade there is nothing for a
+  per-grade policy to decide; `org_mcp_policies` and
+  `tier_limits.marketplace_policies` are dropped.
+- **Publishing needs a complete item, not a scan.** `items.validate_item` is
+  the single gate for admin publish and suggestion approval.
+- **Ranking loses its security component**; the other weights are rescaled
+  proportionally.
+- **Contract migration, applied after deploy.** `0049` drops the columns and
+  tables only once the image that no longer reads them is live, because the
+  previous image selects them on every registry read. After 0049, 0048 must
+  not be re-run: its data statements read the dropped columns.
+
+Historic `scans` rows with `invocation_channel = marketplace` and `mcp_events`
+rows of type `scan_completed` / `grade_changed` are kept (the UI hides those
+events); the enum and checks that allow them are unchanged.
+
+## ADR-050: Team is self-serve and per seat; members inherit Team through one resolver
+
+**Status:** accepted (2026-09-29)
+
+Team was advertised per seat but sold only through a `mailto:` link, and
+limits resolved per person, so a Team purchase gave the owner's colleagues
+nothing: each member stayed on their own plan while the owner paid for their
+seat. The mailto was left from an earlier decision (commit b6364d0) whose
+reason, that seats were not real multi-user access, stopped being true when
+workspaces were built.
+
+Decision:
+
+- **Self-serve.** Team is bought through the existing Razorpay Orders
+  checkout at the per-seat price times the seat count (3 to 500), by the
+  workspace owner only, and not with fewer seats than the workspace already
+  holds (members plus live invites).
+- **Members inherit Team.** While the owner's own effective tier is `team`,
+  every member of that workspace is served at Team limits. Only Team is
+  inherited: an owner on Pro bought Pro for themselves.
+- **One resolver.** `quota.entitled_tier(db, account)` is the only function
+  that decides the tier a person is served at, and every server-side gate
+  (scan buckets, report export, monitored devices, AI triage) calls it. It
+  reads the membership row keyed by the caller's own user id, never a
+  client-supplied org id.
+- **Seats lapse with the plan.** `accounts.seats` is written only by a Team
+  payment or an admin, and counts only while the owner's Team is active
+  (`quota.seat_limit`), otherwise 1.
+- **Usage is still counted per person.**
+- **No proration.** A purchase replaces the plan and seat count immediately
+  and extends `paid_until` one cycle from the later of now and the current
+  `paid_until`; the pricing FAQ and BILLING.md say so.
+
+Consequences: the admin SQL functions `admin_account_usage()` and
+`admin_list_users()` still compute each account's own tier and do not show
+inherited Team; `billing.manage` stays unenforced, ownership being the gate
+for buying Team.

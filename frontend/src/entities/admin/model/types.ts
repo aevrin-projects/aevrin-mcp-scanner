@@ -37,11 +37,40 @@ export type AdminQuotaOverride = {
   created_at: string;
 };
 
+export type AdminPayment = {
+  id: string;
+  tier: string;
+  cycle: string;
+  seats: number;
+  /** Minor units of `currency`: cents for USD, paise for INR. */
+  amount_paise: number;
+  currency: string;
+  status: "created" | "paid" | "failed";
+  razorpay_order_id: string | null;
+  razorpay_payment_id: string | null;
+  created_at: string | null;
+  verified_at: string | null;
+};
+
+export type AdminWorkspace = {
+  org_id: string;
+  name: string;
+  role: string | null;
+  is_owner: boolean;
+  /** Owner only. 1 unless the owner's own Team plan is active. */
+  seat_limit: number | null;
+  /** Owner only. Members plus open invitations. */
+  seats_used: number | null;
+};
+
 export type AdminUserDetail = {
   user_id: string;
   email: string | null;
   tier: string;
+  /** This account's own plan, if still paid for. */
   effective_tier: string;
+  /** What is enforced: "team" for a member of an active Team workspace. */
+  entitled_tier: string;
   status: "active" | "disabled" | "blocked";
   status_reason: string | null;
   flagged: boolean;
@@ -55,8 +84,11 @@ export type AdminUserDetail = {
   recent_scans: Array<Record<string, unknown>>;
   api_key_count: number;
   github_connected: boolean;
-  /** People this account's workspace may hold, owner included. */
+  /** accounts.seats as bought or granted; in force only while this
+   *  account's own Team plan is active. */
   seats: number;
+  workspace: AdminWorkspace | null;
+  payments: AdminPayment[];
 };
 
 export type AdminAuditEntry = {

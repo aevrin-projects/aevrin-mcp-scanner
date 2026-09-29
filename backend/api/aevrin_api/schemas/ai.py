@@ -15,8 +15,7 @@ from pydantic import BaseModel, Field
 
 Provider = Literal["groq", "gemini", "anthropic", "openai"]
 SubjectType = Literal[
-    "finding", "trust_grade", "agent_posture", "permission", "skill",
-    "attack_path", "scan", "listing",
+    "finding", "agent_posture", "permission", "skill", "attack_path", "scan",
 ]
 
 

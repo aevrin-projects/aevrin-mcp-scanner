@@ -14,14 +14,14 @@ import { EmptyState, PageHeader, Panel, PanelBody, PanelHeader, PanelTitle } fro
 /**
  * Suggesting an item for the registry.
  *
- * One field, plus an optional note. Everything else — name, description,
- * licence, stars, README, packaging — is read from the source by Aevrin. A
+ * One field, plus an optional note. Everything else (name, description,
+ * licence, stars, README, packaging) is read from the source by Aevrin. A
  * form that asked a submitter to type metadata would be a form that lets
  * someone write whatever they like about software they do not own.
  *
- * The copy is explicit that nothing is published without a scan, because a
- * submitter who expects instant publication and gets a review queue will
- * assume something is broken.
+ * The copy is explicit that nothing is published without an administrator's
+ * review, because a submitter who expects instant publication and gets a
+ * review queue will assume something is broken.
  */
 
 export function SubmitPage() {
@@ -71,15 +71,12 @@ export function SubmitPage() {
         <PanelBody>
           <ol className="space-y-3 text-sm text-muted-foreground">
             <li>1. Aevrin fetches the source and derives the metadata.</li>
-            <li>
-              2. An administrator reviews it. An MCP server is also security-scanned by Aevrin,
-              which reads the tools it actually exposes.
-            </li>
+            <li>2. An administrator reviews it.</li>
             <li>
               3. If approved, it is published in the registry.{" "}
               <span className="text-foreground">
-                Nothing is published without an administrator deciding to, and no MCP server
-                without a scan.
+                Nothing is published without an administrator deciding to. Publication is
+                curation, not a security verdict.
               </span>
             </li>
           </ol>
@@ -100,7 +97,7 @@ export function SubmitPage() {
               <div>
                 <p className="text-sm font-medium">Submission received</p>
                 <p className="mt-0.5 text-sm text-muted-foreground">
-                  It is queued for scanning and review. You can track it below.
+                  It is queued for review. You can track it below.
                 </p>
               </div>
             </div>
@@ -218,7 +215,6 @@ function StatusPill({ status }: { status: string }) {
   const label =
     {
       review: "In review",
-      scanning: "Scanning",
       published: "Published",
       rejected: "Not accepted",
       approved: "Approved",

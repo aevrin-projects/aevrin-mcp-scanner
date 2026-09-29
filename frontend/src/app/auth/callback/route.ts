@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/shared/lib/supabase/server";
+import { safeNextPath } from "@/shared/lib/safe-next";
 
 // Built from NEXT_PUBLIC_SITE_URL rather than request.nextUrl: behind a
 // load balancer, request.nextUrl's origin resolves to the container's own
@@ -13,8 +14,7 @@ const siteUrl = () => process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next");
-  const path = next && next.startsWith("/") && !next.startsWith("//") ? next : "/onboarding";
+  const path = safeNextPath(searchParams.get("next"), "/onboarding");
 
   // The provider appends its own error instead of a code when the person
   // denies consent or the request itself was malformed, surfacing which

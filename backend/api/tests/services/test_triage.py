@@ -63,7 +63,7 @@ def test_routing_for_tier():
 async def test_free_tier_is_triaged_on_the_flash_model(settings):
     with respx.mock:
         respx.post(_COMPLETIONS).mock(return_value=httpx.Response(200, json=_reply()))
-        results, note = await triage_findings(_keyed(settings), {"tier": "free"}, [_finding(Severity.CRITICAL)])
+        results, note = await triage_findings(_keyed(settings), "free", [_finding(Severity.CRITICAL)])
     assert [r.model for r in results] == ["deepseek-v4-flash"]
     assert note is None
 
@@ -72,7 +72,7 @@ async def test_free_tier_is_triaged_on_the_flash_model(settings):
 async def test_paid_tiers_use_the_pro_model(settings):
     with respx.mock:
         respx.post(_COMPLETIONS).mock(return_value=httpx.Response(200, json=_reply()))
-        results, _ = await triage_findings(_keyed(settings), {"tier": "hobby"}, [_finding(Severity.LOW)])
+        results, _ = await triage_findings(_keyed(settings), "hobby", [_finding(Severity.LOW)])
     assert [r.model for r in results] == ["deepseek-v4-pro"]
 
 
@@ -84,7 +84,7 @@ async def test_every_reported_finding_is_a_triage_candidate(settings):
     findings = [_finding(Severity.HIGH), _finding(Severity.LOW)]
     with respx.mock:
         route = respx.post(_COMPLETIONS).mock(return_value=httpx.Response(200, json=_reply()))
-        results, _ = await triage_findings(_keyed(settings), {"tier": "pro"}, findings)
+        results, _ = await triage_findings(_keyed(settings), "pro", findings)
     assert len(results) == len(findings)
     assert route.call_count == len(findings)
 
@@ -95,7 +95,7 @@ async def test_free_tier_caps_triage_and_says_so(settings):
     findings = [_finding(Severity.MEDIUM) for _ in range(_TRIAGE_CAP_FREE * 2)]
     with respx.mock:
         route = respx.post(_COMPLETIONS).mock(return_value=httpx.Response(200, json=_reply()))
-        results, note = await triage_findings(_keyed(settings), {"tier": "free"}, findings)
+        results, note = await triage_findings(_keyed(settings), "free", findings)
 
     assert route.call_count == _TRIAGE_CAP_FREE
     assert len(results) == _TRIAGE_CAP_FREE
@@ -121,7 +121,7 @@ async def test_cap_spends_the_budget_on_the_worst_findings_first(settings):
 
     with respx.mock:
         respx.post(_COMPLETIONS).mock(side_effect=_capture)
-        await triage_findings(_keyed(settings), {"tier": "free"}, findings)
+        await triage_findings(_keyed(settings), "free", findings)
 
     assert any("The one that matters" in body for body in seen)
 
@@ -130,7 +130,7 @@ async def test_cap_spends_the_budget_on_the_worst_findings_first(settings):
 async def test_fails_open_when_the_api_errors(settings):
     with respx.mock:
         respx.post(_COMPLETIONS).mock(return_value=httpx.Response(500))
-        results, _ = await triage_findings(_keyed(settings), {"tier": "pro"}, [_finding(Severity.HIGH)])
+        results, _ = await triage_findings(_keyed(settings), "pro", [_finding(Severity.HIGH)])
     assert results == []
 
 
@@ -144,12 +144,12 @@ async def test_one_bad_response_does_not_sink_the_others(settings):
     ]
     with respx.mock:
         respx.post(_COMPLETIONS).mock(side_effect=responses)
-        results, _ = await triage_findings(_keyed(settings), {"tier": "pro"}, findings)
+        results, _ = await triage_findings(_keyed(settings), "pro", findings)
     assert len(results) == 1
 
 
 @pytest.mark.asyncio
 async def test_no_key_yields_no_results(settings):
-    results, note = await triage_findings(settings, {"tier": "pro"}, [_finding(Severity.HIGH)])
+    results, note = await triage_findings(settings, "pro", [_finding(Severity.HIGH)])
     assert results == []
     assert note is None

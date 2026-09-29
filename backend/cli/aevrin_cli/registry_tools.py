@@ -9,7 +9,8 @@ API's public registry endpoints - the same `/marketplace/*` the web
 marketplace reads - so a human and an agent searching for the same thing see
 the same items, and there is one registry, not a copy per interface. Nothing
 here can create, edit, publish or delete anything: mutation belongs to the
-authenticated `/admin` surface.
+authenticated `/admin` surface. The registry is discovery only: nothing
+returned here is a scan result or a security grade.
 
 The same functions are served two ways: inside `aevrin mcp-server` (stdio, on
 the user's machine, beside the scan tool) and by `registry_mcp.py` (hosted
@@ -44,20 +45,6 @@ _UNTRUSTED_PREFIX = (
 )
 
 
-class SecuritySummary(BaseModel):
-    """What Aevrin established about this item's security.
-
-    `grade` is null far more often than not, and null never means safe: an
-    MCP server that has not been graded is unknown, and every other item type
-    has no security scanner at all. `state` and `label` say which in words.
-    """
-
-    state: str = Field(description="complete, partial, outdated, ungraded, unscanned or not_applicable")
-    grade: str | None = Field(description="A-F for an MCP server Aevrin graded; otherwise null")
-    risk_score: int | None = Field(description="0-100, higher is worse. Null when ungraded")
-    label: str = Field(description="The state in plain words, including what a null grade means")
-
-
 class RegistryItemSummary(BaseModel):
     slug: str = Field(description="Pass to get_registry_item for the full item")
     name: str
@@ -67,7 +54,6 @@ class RegistryItemSummary(BaseModel):
     technologies: list[str] = Field(default_factory=list)
     capabilities: list[str] = Field(default_factory=list)
     use_cases: list[str] = Field(default_factory=list)
-    security: SecuritySummary
     url: str = Field(description="Where a person can view this item")
 
 
@@ -118,16 +104,6 @@ class CategoryItem(BaseModel):
     count: int = Field(description="Published items in this category")
 
 
-def _security(raw: dict[str, Any] | None) -> SecuritySummary:
-    raw = raw or {}
-    return SecuritySummary(
-        state=str(raw.get("state") or "unscanned"),
-        grade=raw.get("grade"),
-        risk_score=raw.get("risk_score"),
-        label=str(raw.get("label") or "Not yet scanned"),
-    )
-
-
 def _summary(raw: dict[str, Any], web_url: str) -> dict[str, Any]:
     return {
         "slug": raw["slug"],
@@ -138,7 +114,6 @@ def _summary(raw: dict[str, Any], web_url: str) -> dict[str, Any]:
         "technologies": raw.get("technologies") or [],
         "capabilities": raw.get("capabilities") or [],
         "use_cases": raw.get("use_cases") or [],
-        "security": _security(raw.get("security")),
         "url": f"{web_url}/marketplace/{raw['slug']}",
     }
 
@@ -217,15 +192,15 @@ def register_registry_tools(
             items=[RegistryItemSummary(**_summary(item, web_url)) for item in data.get("items", [])],
             has_more=bool(data.get("has_more")),
             note=(
-                "Only items an Aevrin administrator published are listed. A null security grade "
-                "never means safe: read `security.label` for what it does mean."
+                "Only items an Aevrin administrator published are listed. Listing is curation, "
+                "not a security assessment: to check an MCP server, scan it with Aevrin "
+                "(`aevrin scan mcp`) before installing it."
             ),
         )
 
     @server.tool()
     async def get_registry_item(slug: str) -> RegistryItem:
-        """Read one registry item in full: what it is, how to use it, and its
-        security state.
+        """Read one registry item in full: what it is and how to use it.
 
         `content` holds what the item delivers - a prompt's text, a skill's
         instructions, usage and examples. `install_configs` gives an MCP

@@ -29,7 +29,7 @@ from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest
 from aevrin_api.routes.deps import enforce_rate_limit
 from aevrin_api.schemas import CliUploadFinding, CliUploadRequest, ScanOut
-from aevrin_api.services.quota import check_and_increment_quota, would_exceed_quota
+from aevrin_api.services.quota import check_and_increment_quota, entitled_tier, would_exceed_quota
 from aevrin_api.services.triage import triage_findings
 
 logger = logging.getLogger("aevrin.cli_upload")
@@ -342,7 +342,7 @@ async def _triage_upload_best_effort(
         accounts = await db.select("accounts", {"user_id": user_id})
         if not accounts:
             return
-        results, note = await triage_findings(settings, accounts[0], findings)
+        results, note = await triage_findings(settings, await entitled_tier(db, accounts[0]), findings)
         if note:
             await db.update("scans", {"id": str(scan_id), "user_id": user_id}, {"triage_note": note})
         triaged_at = datetime.now(UTC).isoformat()

@@ -133,7 +133,7 @@ const analytics = {
   plan_distribution: { free: 100, pro: 28 },
   device_authorizations: { cli: 40, hook: 12 },
   scan_outcomes: { completed: 300, incomplete: 40 },
-  payments_by_status: { created: 4, captured: 20 },
+  payments_by_status: { created: 4, paid: 20 },
   cli_authenticated_accounts: 60,
   cli_active_accounts: 25,
   hook_active_accounts: 14,
@@ -178,8 +178,7 @@ const loginAttempts = [
 ];
 
 const marketplaceSummary = {
-  total: 42, scanned: 30, unscanned: 12, stale_scans: 3, partial_coverage: 2,
-  grades: { A: 10, B: 8, C: 7, D: 3, F: 2 },
+  total: 42,
   statuses: { published: 40, draft: 2 },
   types: { mcp_server: 30, prompt: 8, skill: 4 },
   open_reports: 1, pending_submissions: 2,
@@ -189,12 +188,10 @@ const marketplaceList = [
   {
     id: "listing-1", slug: "acme-server", title: "Acme MCP Server", status: "published",
     item_type: "mcp_server",
-    security: { grade: "C", risk_score: 27, state: "complete", label: "Complete" },
   },
   {
     id: "listing-2", slug: "review-a-pr", title: "Review a pull request", status: "draft",
     item_type: "prompt",
-    security: { grade: null, risk_score: null, state: "not_applicable", label: "Not security-scanned by Aevrin." },
   },
 ];
 
@@ -209,9 +206,8 @@ const marketplaceItem = {
   license: "MIT", featured: false, visibility: "public", updated_at: now, created_at: now,
   content: { prompt: "Review this diff for security issues.", usage: "Paste a diff.", inputs: ["A diff"] },
   installation: {}, install_configs: {},
-  security: { grade: null, risk_score: null, state: "not_applicable", label: "Not security-scanned by Aevrin.", badges: [] },
   popularity: { github_stars: null, github_forks: null, github_open_issues: null, npm_downloads_last_month: null, favorites: 0 },
-  versions: [], grade_rationale: null,
+  versions: [],
   events: [{ id: "e1", event_type: "listing_added", new_value: "review-a-pr", reason: "added by an administrator", severity: "info", created_at: now }],
   related: [{ id: "listing-1", slug: "acme-server", title: "Acme MCP Server", item_type: "mcp_server", status: "published", relation: "uses" }],
   validation_issues: ["A description is required."],

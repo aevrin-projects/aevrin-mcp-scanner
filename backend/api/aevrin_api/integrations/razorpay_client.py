@@ -1,15 +1,16 @@
-"""Razorpay Standard Checkout (Orders API): one-time payments for Hobby/Team
-tiers, billed per cycle rather than auto-recurring (explicit product
-decision: paying activates a tier through accounts.paid_until; nothing
-charges again automatically, the account pays again next cycle).
+"""Razorpay Standard Checkout (Orders API): one-time payments for the Hobby,
+Pro and Team tiers, billed per cycle rather than auto-recurring (explicit
+product decision: paying activates a tier through accounts.paid_until;
+nothing charges again automatically, the account pays again next cycle).
 
-Razorpay itself is never queried on the scan hot-path, routers/billing.py's
-/verify endpoint (plus the /webhook safety net) is the only writer of
-accounts.tier/paid_until, which is what quota.py actually reads.
+Razorpay itself is never queried on the scan hot-path. routes/billing.py's
+/verify endpoint (plus the /webhook safety net) is the only payment-driven
+writer of accounts.tier/paid_until/seats, which is what quota.py reads; the
+admin panel's comp grant is the only other writer.
 
-Prep-only until the user supplies real Key ID/Secret: every method raises
-RazorpayUnavailable if unconfigured, mirroring defectdojo_client.py's
-DefectDojoUnavailable pattern.
+Billing is off, not broken, while RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET are
+unset: constructing the client raises RazorpayUnavailable, mirroring
+defectdojo_client.py's DefectDojoUnavailable pattern.
 """
 
 from __future__ import annotations

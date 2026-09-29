@@ -84,9 +84,7 @@ async def razorpay_webhook(
     # The raw bytes are what the signature covers, so they are read here and
     # handed down verbatim; re-serialising the parsed body would change them.
     raw_body = await request.body()
-    return await billing_controller.razorpay_webhook(
-        raw_body, await request.json(), db, settings, x_razorpay_signature
-    )
+    return await billing_controller.razorpay_webhook(raw_body, db, settings, x_razorpay_signature)
 
 
 @router.get("/subscription", response_model=SubscriptionResponse)

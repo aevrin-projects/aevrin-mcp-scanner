@@ -92,14 +92,7 @@ class Settings(BaseSettings):
     admin_user_ids: str | None = None
     admin_session_idle_minutes: int = 30
 
-    # ---------------------------------------------------------------- marketplace
-    # The Supabase user id catalogue scans are attributed to. A marketplace
-    # scan has no customer: it is Aevrin scanning a public server once so
-    # every user can read the result. Attributing it to a real customer would
-    # put a catalogue scan in their history and against their quota, so a
-    # dedicated account is used instead. None disables catalogue scanning,
-    # which is a refusal at the point of use rather than an error here.
-    marketplace_scan_user_id: str | None = None
+    # ---------------------------------------------------------------- scheduler
     # Token protecting the scheduled-job endpoints. The weekly sync and
     # provider refresh are triggered by an external scheduler (EventBridge,
     # cron, a container task) rather than by a signed-in human, so they

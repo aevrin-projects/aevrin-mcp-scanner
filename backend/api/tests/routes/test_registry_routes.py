@@ -33,7 +33,7 @@ def _registry_admin_routes() -> list[APIRoute]:
 
 def test_every_registry_admin_route_requires_an_administrator() -> None:
     routes = _registry_admin_routes()
-    assert len(routes) >= 15, "suspiciously few admin registry routes found"
+    assert len(routes) >= 13, "suspiciously few admin registry routes found"
     unguarded = [f"{sorted(r.methods)} {r.path}" for r in routes if not _depends_on(r.dependant, admin_identity)]
     assert unguarded == []
 
@@ -50,7 +50,6 @@ def test_the_registry_control_plane_is_complete() -> None:
         ("DELETE", "/admin/marketplace/mcp/{listing_id}"),
         ("PUT", "/admin/marketplace/mcp/{listing_id}/links"),
         ("POST", "/admin/marketplace/mcp/{listing_id}/refresh-metadata"),
-        ("POST", "/admin/marketplace/mcp/{listing_id}/scan"),
         ("GET", "/admin/marketplace/categories"),
         ("PUT", "/admin/marketplace/categories"),
         ("DELETE", "/admin/marketplace/categories/{slug}"),
@@ -75,3 +74,26 @@ def test_public_registry_reads_need_no_login() -> None:
 
     for path, route in public.items():
         assert not _depends_on(route.dependant, get_current_user), f"{path} requires a login"
+
+
+def test_the_registry_has_no_scanning_or_policy_routes() -> None:
+    """The registry is discovery only. Scanning is `POST /scans`; nothing
+    under the registry may start a scan, grade an item, or apply a policy."""
+    have = {(m, r.path) for r in _ALL_ROUTES for m in r.methods}
+    removed = {
+        ("POST", "/admin/marketplace/mcp/{listing_id}/scan"),
+        ("POST", "/admin/marketplace/mcp/regrade-ungraded"),
+        ("GET", "/marketplace/policy"),
+        ("PUT", "/marketplace/policy"),
+        ("GET", "/scheduler/scan-queue"),
+        ("POST", "/marketplace/mcp/{slug}/install-plan"),
+    }
+    assert removed.isdisjoint(have), removed & have
+    assert ("POST", "/scans") in have, "the canonical scan route stays"
+
+
+def test_no_registry_route_takes_a_grade_filter() -> None:
+    for route in _ALL_ROUTES:
+        if route.path.startswith(("/marketplace", "/admin/marketplace")):
+            params = {p.alias or p.name for p in route.dependant.query_params}
+            assert not {"min_grade", "grade", "unscanned"} & params, route.path

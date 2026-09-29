@@ -21,7 +21,7 @@ and only one of those facts matters when the agent calls the tool.
 | Dashboard | New scan → GitHub URL or live server |
 | CLI | `aevrin scan <target>`, or `aevrin scan mcp "npx -y @playwright/mcp"` |
 | Claude Code hook | `PreToolUse`, via the cached grade |
-| Marketplace | Admin-triggered scan of a catalogued listing |
+| Marketplace | Historic only. The registry scanned catalogued listings until `DECISIONS.md` ADR-049; old `scans` rows still carry the channel, and nothing records it now. The registry's "Scan with Aevrin" opens the dashboard's New scan instead |
 
 Every one of these produces the same findings, the same grade and the same
 policy for the same server. They are invocation channels, not separate

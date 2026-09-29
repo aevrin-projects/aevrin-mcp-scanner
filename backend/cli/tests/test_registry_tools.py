@@ -32,8 +32,6 @@ LISTING = {
     "technologies": ["typescript"],
     "capabilities": ["documentation-lookup"],
     "use_cases": ["answer library questions"],
-    "security": {"state": "ungraded", "grade": None, "risk_score": None,
-                 "label": "Scanned, not graded. Treat it as unknown, not as safe."},
 }
 
 
@@ -94,8 +92,18 @@ def test_search_reads_the_same_endpoint_the_marketplace_does() -> None:
 
     items = result.structured_content["items"]  # type: ignore[union-attr]
     assert items[0]["slug"] == "context7"
-    assert items[0]["security"]["grade"] is None
-    assert "not as safe" in items[0]["security"]["label"]
+    # The registry is discovery only: no security claim reaches the agent,
+    # even if an older API still sends one.
+    assert "security" not in items[0]
+    assert "not a security assessment" in result.structured_content["note"]  # type: ignore[index]
+
+
+def test_a_stale_security_block_from_the_api_is_not_passed_through() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={**LISTING, "security": {"grade": "A", "state": "complete"}})
+
+    item = asyncio.run(_server(handler).call_tool("get_registry_item", {"slug": "context7"}))
+    assert "security" not in item.structured_content  # type: ignore[operator]
 
 
 def test_a_readme_reaches_the_agent_labelled_and_truncated() -> None:

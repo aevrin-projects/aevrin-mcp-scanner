@@ -1,7 +1,7 @@
 # Database
 
 Supabase (Postgres + Auth). Migrations live in
-`backend/infra/migrations/`, numbered `0001`-`0048` sequentially - read
+`backend/infra/migrations/`, numbered `0001`-`0049` sequentially - read
 them in order to see how the schema arrived at its current shape; never
 edit a historical migration to make current schema prettier.
 
@@ -46,10 +46,10 @@ see [`../features/MCP_SCANNING.md`](../features/MCP_SCANNING.md#data).
 (`can_execute`/`can_write`/`can_read`/`handles_credentials`/`makes_network_calls`),
 computed by the pipeline on every scan whose tool discovery ran and, before
 this migration, discarded rather than persisted anywhere. Null (not a dict
-of all-false) for a target where tool discovery never ran at all. This is
-what lets the marketplace read real declared-capability evidence -
-see [`../features/MCP_MARKETPLACE.md`](../features/MCP_MARKETPLACE.md) and
-`DECISIONS.md` ADR-020.
+of all-false) for a target where tool discovery never ran at all. It was
+added for the marketplace's capability evidence (`DECISIONS.md` ADR-020),
+which went with the registry's scanning (ADR-049); the column stays on
+`scans` as part of the scan record.
 
 `0046_risk_score_and_grade.sql` is the migration that turned the score
 around, and it is the one to read before touching any scoring code.
@@ -109,10 +109,24 @@ that class of bug.
 **Auth, tiering, billing** (`0003_tiering_auth_billing.sql`, `0005`, `0013`,
 `0016`, `0028`, `0033`)
 `accounts` (tier/billing metadata per Supabase user - `tier` is one of
-`free` / `hobby` / `team`), `device_codes` (CLI/hook device-flow login),
-`abuse_signals`, `tier_limits` (config table, not hardcoded - quota limits
-per tier live here, `null` means unlimited), `payments` (Razorpay Standard
-Checkout, one-time payments per cycle rather than Subscriptions).
+`free` / `hobby` / `pro` / `team`; `seats` is written only by a Team payment
+or an admin, and is in force only while the account's own Team plan is
+active), `device_codes` (CLI/hook device-flow login), `abuse_signals`,
+`tier_limits` (config table, not hardcoded - quota limits per tier live
+here, `null` means unlimited), `payments` (Razorpay Orders API, one-time
+payments per cycle rather than Subscriptions).
+
+Columns code actually reads from `tier_limits`: the four
+`*_scans_per_month` buckets, `monitored_devices`, `pdf_export`.
+`history_retention_days`, `seats_included`, `auto_fix_prs_per_month`,
+`ai_explanations_per_month` and `private_mcp_listings` are unread by the
+application (`auto_fix_prs_per_month` is still referenced by the SQL
+function `admin_account_usage()`). `accounts.razorpay_customer_id`,
+`razorpay_subscription_id`, `subscription_status`, `downgrade_effective_at`
+and `auto_fix_bonus_prs` are likewise unread by application code (the last
+is read by `admin_account_usage()`). None is dropped yet: the body of
+`admin_analytics()` is not in the repository (migration 0022 is a stub), so
+nothing can show it does not read them. See `ROADMAP.md`.
 
 **Hook** (`0006_hook_overrides.sql`)
 `hook_overrides` - short-lived grants from `aevrin hook allow`.
@@ -144,12 +158,10 @@ rewriting the first (avoids an AND-of-conditions where OR was needed).
 
 **MCP Marketplace** (`0037_mcp_marketplace.sql`)
 `mcp_categories` (17 seeded), `mcp_listings`, `mcp_listing_versions`,
-`mcp_submissions`, `mcp_reports`, `mcp_events`, `mcp_favorites`,
-`org_mcp_policies`. See
-[`../features/MCP_MARKETPLACE.md`](../features/MCP_MARKETPLACE.md) for the
-structural reasoning (why security lives on the *version*, never the
-listing; the `current_*` denormalized projection on `mcp_listings` and who
-is allowed to write it).
+`mcp_submissions`, `mcp_reports`, `mcp_events`, `mcp_favorites`, and
+`org_mcp_policies` (dropped by `0049`). The scan columns this migration put
+on `mcp_listings` and `mcp_listing_versions` are dropped by `0049` too. See
+[`../features/MCP_MARKETPLACE.md`](../features/MCP_MARKETPLACE.md).
 
 **Aevrin Registry** (`0048_registry.sql`)
 Extends `mcp_listings` into the registry table for every item type rather
@@ -169,12 +181,34 @@ current-engine scan backs it; `org_mcp_policies.grade_actions` gains
 `mcp_listings.item_type` and `content`, so a build that needs 0048 rolls
 back if it is deployed first.
 
+**Registry is discovery only** (`0049_marketplace_scanning_contract.sql`)
+A **contract** migration, applied only after the API image that no longer
+reads these columns is deployed and healthy (the previous image selects
+them on every browse, detail and admin read, so applying it first takes
+the registry down). Drops `mcp_listings.current_version`,
+`current_trust_grade`, `current_risk_score`, `current_coverage_complete`,
+`current_scanned_at` with their check constraints and
+`mcp_listings_grade_idx`; drops every scan column on
+`mcp_listing_versions` (`scan_id` and its foreign key, `trust_grade`,
+`risk_score`, `coverage_complete`, `scanner_versions`, `scan_status`,
+`scanned_at`, `source_hash`, `package_registry`, `package_identifier`),
+leaving a bare version list (`id`, `listing_id`, `version`,
+`first_seen_at`); drops `org_mcp_policies` (and its policy) and
+`tier_limits.marketplace_policies`; deletes cached `ai_explanations` rows
+with subject `trust_grade` or `listing` and narrows that check to
+`finding`, `agent_posture`, `permission`, `skill`, `attack_path`, `scan`.
+Left alone on purpose: `scans` rows with `invocation_channel =
+'marketplace'` and the check that allows it, `mcp_events` rows and the
+`event_type` check allowing `scan_completed`/`grade_changed`, and the
+`mcp_submissions` check still allowing the legacy `scanning` status. Every
+drop is `if exists`, so a re-run is a no-op. `DECISIONS.md` ADR-049.
+
 **AI providers** (`0038_ai_providers.sql`)
 `ai_provider_models`, `ai_provider_sync_state`, `ai_provider_model_changes`,
 `ai_provider_credentials` (Fernet-encrypted, **no select policy at all** -
 the ciphertext is unreachable over the Data API by design, not just by
 convention), `ai_explanations` (cached by evidence hash - **also no select
-policy**: its content can describe a private scan or listing, and the
+policy**: its content can describe a private scan, and the
 API's own ownership check (`controllers/ai_controller.py::_owned_scan`)
 must not be bypassable by querying PostgREST directly with a valid
 session).
@@ -208,15 +242,13 @@ percentage entirely.
   through `increment_listing_views(uuid)`; favorite counts are kept by a
   `sync_favorite_count()` trigger. Both exist because a read-then-write in
   application code loses concurrent increments.
-- **A maintained projection needs one documented writer.** `mcp_listings`
-  carries `current_version`/`current_trust_grade`/`current_risk_score`/
-  `current_coverage_complete`/`current_scanned_at` purely so "sort/filter by
-  security" doesn't need a join per row. `services/marketplace/grading.py`
-  is the only code that writes those columns - follow that pattern (one
-  documented writer) for any future denormalization rather than letting
-  multiple call sites maintain the same projection.
+- **A maintained projection needs one documented writer.** Any future
+  denormalization gets exactly one documented writer rather than several
+  call sites maintaining the same projection. (The registry's `current_*`
+  grade projection followed this rule until `0049` removed it.)
 - **Deliberate reversals are migrations too, not silent drops.** `0033` and
-  `0034` drop BYOK and agent-policy tables added earlier; the history stays
+  `0034` drop BYOK and agent-policy tables added earlier, and `0049` drops
+  the registry's scan state; the history stays
   visible rather than squashed, because a later engineer asking "why isn't
   this here" should be able to find the migration that removed it and why.
 

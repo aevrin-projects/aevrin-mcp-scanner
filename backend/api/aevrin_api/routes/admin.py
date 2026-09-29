@@ -157,9 +157,16 @@ async def change_plan(
 
 
 @router.post("/users/{user_id}/seats")
-async def set_seats(user_id: str, body: SeatsIn, admin: AdminDep, db: DbDep) -> dict[str, Any]:
-    """Grant or reduce the seats an account's workspace may fill."""
-    return await admin_controller.set_seats(user_id, body, admin, db)
+async def set_seats(
+    user_id: str, body: SeatsIn, admin: AdminDep, db: DbDep, settings: SettingsDep
+) -> dict[str, Any]:
+    """Grant or reduce the seats an account's workspace may fill.
+
+    Takes the authentication code with the request, like a plan change: the
+    seats are what give each person in the workspace Team limits. They count
+    only while the account's own Team plan is active.
+    """
+    return await admin_controller.set_seats(user_id, body, admin, db, settings)
 
 
 @router.post("/users/{user_id}/overrides")

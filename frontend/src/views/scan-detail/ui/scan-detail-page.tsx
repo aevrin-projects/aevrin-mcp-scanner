@@ -19,6 +19,7 @@ import { formatDateTime, formatDuration } from "@/shared/lib/format";
 import { PageHeader, SectionCard, EmptyState } from "@/shared/ui";
 import { Select } from "@/shared/ui/select";
 import { StatusBadge } from "@/entities/scan";
+import { ExplainButton } from "@/features/ai-explain";
 import { SeverityBadge } from "@/entities/finding";
 import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
@@ -257,6 +258,17 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                 <p className="mt-0.5 text-xs text-muted-foreground">{resultSummary}</p>
               </div>
             </div>
+
+            {/* On-demand, and only once there is a result to explain. The
+                explanation is built from this scan's own evidence, and the
+                API refuses it to anyone who cannot read the scan. */}
+            {scan.status === "completed" || scan.status === "incomplete" ? (
+              <ExplainButton
+                subjectType="scan"
+                subjectId={scanId}
+                label={scan.grade ? `Why is this grade ${scan.grade}?` : "Explain this result"}
+              />
+            ) : null}
 
             <div className="grid gap-4 sm:grid-cols-3">
               <MetaBlock label="Scanned at" value={formatDateTime(scan.completed_at ?? scan.created_at)} />

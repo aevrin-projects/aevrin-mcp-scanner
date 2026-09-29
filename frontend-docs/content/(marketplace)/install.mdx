@@ -8,57 +8,34 @@ description: What Aevrin does and deliberately does not do when you install an M
 Install applies to MCP servers. Other registry items show what you need to use them directly: a
 prompt to copy, instructions to follow, or a `git clone` command for a repository and its ref.
 
-Pressing **Install** does not install anything. It produces the exact configuration your client
-needs, alongside the security grade, the declared capabilities and every warning that applies.
+Pressing **Install** does not install anything. It shows the exact configuration your client
+needs, with every warning that applies.
 
 This is deliberate. Aevrin never writes to your machine's configuration, never runs a server's
-install command, and never executes a package's postinstall hooks to find out what it does. The
-decision is made by a person who has seen both the grade and the capabilities.
+install command, and never executes a package's postinstall hooks to find out what it does.
 
-## What the install plan shows
+The registry does not scan what it lists, so nothing here tells you whether the server is safe. Scan
+it first with **Scan with Aevrin** on its page (see
+[Scanning a server you found](/overview#scanning-a-server-you-found)).
 
-**The grade**, with its scan state, at the top.
+## What the install dialog shows
 
-**The agent and scope.** Only clients the server's own metadata supports are offered. If it
-declares no transport Aevrin recognises, there is no install option: speaking MCP in principle is
-not the same as being installable.
-
-**Declared capabilities.** Read from the server's environment variables and transport. "Holds
-credentials", "runs as a local process", "connects to a remote endpoint". These describe what the
-server asks for, not what it has been observed doing.
+**The agent.** Only clients the server's own metadata supports are offered. If it declares no
+transport Aevrin recognises, there is no install option: speaking MCP in principle is not the same
+as being installable.
 
 **Warnings**, which may include:
 
 - A secret-valued environment variable, named so you know what to set
-- No pinned version, meaning the launcher fetches whatever is current at run time, while the grade
-  shown was earned by a specific version
+- No pinned version, meaning the launcher fetches whatever is current at run time
 - A remote server, whose operator can change its behaviour without changing anything visible locally
-- An unscanned, stale, or partially covered scan, or a scan that could not establish a grade
 
 **The configuration**, with secret values left blank. Aevrin has no business supplying a credential,
 and a config that arrived pre-filled would be a config carrying somebody's token through a
 registry.
 
-## Organisation policy
-
-If your workspace has an install policy, it is applied here.
-
-| Grade | Default action |
-| --- | --- |
-| A | Allow |
-| B | Allow |
-| C | Require approval |
-| D | Block |
-| Unscanned | Require approval |
-
-A blocked grade stops the flow with the reason, rather than letting you copy a config your
-organisation has decided against.
-
-A grade earned under incomplete coverage is escalated one step: an "allow" becomes "require
-approval", because the same letter under partial coverage is a weaker claim.
-
-Unscanned has its own setting rather than falling back to a grade default. Defaulting "no evidence"
-to "allow" would make the least-known state the most permissive one.
+The same configuration and warnings are on the item page under **Use it**, and are what the registry
+MCP tools return to an agent.
 
 ## After installing
 

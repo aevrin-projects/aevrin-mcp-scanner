@@ -8,13 +8,11 @@ import { Switch } from "@/shared/ui/switch";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/shared/ui/accordion";
 import { Check } from "lucide-react";
 import { ApiError } from "@/shared/api";
-import { billingApi } from "@/entities/billing";
+import { TEAM_MAX_SEATS, TEAM_MIN_SEATS, billingApi, clampTeamSeats } from "@/entities/billing";
 import { createClient } from "@/shared/lib/supabase/client";
 import { Reveal } from "@/shared/ui/reveal";
 
 type TierId = "free" | "hobby" | "pro" | "team";
-
-const TEAM_MIN_SEATS = 3;
 
 interface Tier {
   id: TierId;
@@ -24,7 +22,6 @@ interface Tier {
   cli: string;
   hook: string;
   dashboard: string;
-  retention: string;
   seats: string;
   pdfExport: boolean;
   aiRemediation: boolean;
@@ -43,7 +40,6 @@ const TIERS: Tier[] = [
     cli: "5 / month",
     hook: "2 / month",
     dashboard: "5 / month",
-    retention: "7 days",
     seats: "1",
     pdfExport: false,
     aiRemediation: true,
@@ -53,7 +49,6 @@ const TIERS: Tier[] = [
       "5 CLI scans / month",
       "2 hook auto-scans / month",
       "5 dashboard scans / month",
-      "7-day scan history",
       "AI review on findings: confirmed, false positive, or needs review",
     ],
   },
@@ -65,7 +60,6 @@ const TIERS: Tier[] = [
     cli: "50 / month",
     hook: "20 / month",
     dashboard: "50 / month",
-    retention: "90 days",
     seats: "1",
     pdfExport: true,
     aiRemediation: true,
@@ -75,9 +69,8 @@ const TIERS: Tier[] = [
       "50 CLI scans / month",
       "20 hook auto-scans / month",
       "50 dashboard scans / month",
-      "90-day scan history",
       "AI review on a stronger model, with a higher per-scan limit",
-      "OWASP MCP-mapped report export",
+      "Printable, OWASP MCP-mapped report export",
     ],
   },
   {
@@ -88,7 +81,6 @@ const TIERS: Tier[] = [
     cli: "200 / month",
     hook: "100 / month",
     dashboard: "200 / month",
-    retention: "1 year",
     seats: "1",
     pdfExport: true,
     aiRemediation: true,
@@ -99,10 +91,8 @@ const TIERS: Tier[] = [
       "200 CLI scans / month",
       "100 hook auto-scans / month",
       "200 dashboard scans / month",
-      "1-year scan history",
-      "AI-drafted remediation suggestions",
-      "Plain-language scan summary",
-      "Upgraded tool-poisoning detection",
+      "AI review on a stronger model, with a higher per-scan limit",
+      "Printable, OWASP MCP-mapped report export",
     ],
   },
   {
@@ -110,24 +100,24 @@ const TIERS: Tier[] = [
     name: "Team",
     monthly: 34,
     annual: 28,
-    cli: "Usage-based",
-    hook: "Usage-based",
-    dashboard: "Usage-based",
-    retention: "Unlimited",
-    seats: "3-seat minimum",
+    cli: "No monthly cap",
+    hook: "No monthly cap",
+    dashboard: "No monthly cap",
+    seats: `${TEAM_MIN_SEATS} to ${TEAM_MAX_SEATS}, per seat`,
     pdfExport: true,
     aiRemediation: true,
     aiReviewPerScan: "200 findings / scan",
-    cta: "Contact us",
+    cta: "Start Team",
     // Only what a Team account actually gets. This list previously promised
     // an org-wide hook policy console, SSO, and bring-your-own model key --
     // none of which exist, and two of which were removed from the product.
     features: [
-      "Everything in Pro, usage-based instead of fixed",
+      "Everything in Pro, with no monthly scan cap",
+      "Everyone in your workspace gets Team limits while the plan is active",
       "A shared workspace: scans, agents and findings everyone can see",
       "Invite colleagues by email and remove them again",
       "Roles you define: choose what each one is allowed to do",
-      "3-seat minimum, billed per seat",
+      `Billed per seat, ${TEAM_MIN_SEATS}-seat minimum`,
     ],
   },
 ];
@@ -178,16 +168,11 @@ const COMPARISON_GROUPS: {
     ],
   },
   {
-    title: "History and seats",
+    title: "Seats and reports",
     rows: [
-      { label: "Scan history retained", render: (t) => t.retention },
       { label: "Seats", render: (t) => t.seats },
-    ],
-  },
-  {
-    title: "Automation",
-    rows: [
-      { label: "Compliance PDF export", render: (t) => (t.pdfExport ? <Included /> : <NotIncluded />) },
+      // An HTML report the browser prints or saves as PDF, not a generated PDF.
+      { label: "Printable report export", render: (t) => (t.pdfExport ? <Included /> : <NotIncluded />) },
     ],
   },
   {
@@ -215,7 +200,11 @@ const FAQ = [
   { q: "Is there a student or nonprofit rate?", a: "A separate student or nonprofit rate is not currently offered." },
   {
     q: "How does Team's per-seat pricing work?",
-    a: "Team is billed per seat with a 3-seat minimum, and a seat is a person. Buying seats sets how many people your workspace can hold; you invite them by email from Workspace, and each one signs in as themselves. An invitation nobody has accepted still holds its seat, so the limit cannot be raced.",
+    a: `Team is billed per seat, from ${TEAM_MIN_SEATS} to ${TEAM_MAX_SEATS} seats, and a seat is a person. The workspace owner buys it, and the seat count sets how many people the workspace can hold; you invite them by email from Workspace, and each one signs in as themselves. Everyone in the workspace gets Team limits while the owner's Team plan is active. An invitation nobody has accepted still holds its seat, so the limit cannot be raced.`,
+  },
+  {
+    q: "How do I change my seat count or my plan?",
+    a: "Buy again with the new seat count or plan. The change applies as soon as the payment is confirmed, and the payment adds one full cycle after your current paid-until date. There is no proration: time already paid for is neither refunded nor credited, it simply continues on the new plan or seat count. You cannot buy fewer seats than your workspace currently holds, counting open invitations.",
   },
 ];
 
@@ -269,8 +258,21 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
   // why a price moves when you press a button.
   const [pricing, setPricing] = useState<Pricing | null>(null);
   const [loadingTier, setLoadingTier] = useState<TierId | null>(null);
-  const [teamSeats, setTeamSeats] = useState(TEAM_MIN_SEATS);
+  // The field holds what is typed; the seat count used for the price and the
+  // order is always clamped. Clamping on every keystroke made "10" impossible
+  // to type: the "1" snapped to the minimum first.
+  const [seatInput, setSeatInput] = useState(String(TEAM_MIN_SEATS));
+  const teamSeats = clampTeamSeats(Number(seatInput));
   const Heading = headingLevel;
+
+  // The billing page links here with the seat count already chosen. Read
+  // once on mount from the URL rather than through useSearchParams, which
+  // would force this whole section behind a Suspense boundary.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("seats");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (requested) setSeatInput(String(clampTeamSeats(Number(requested))));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -322,13 +324,15 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
       return;
     }
 
-    setLoadingTier(tier.id);
+    const paidTier = tier.id;
+    const seats = paidTier === "team" ? teamSeats : 1;
+    setLoadingTier(paidTier);
     try {
       const cycle = annual ? "annual" : "monthly";
       const { order_id, amount_paise, currency: orderCurrency, razorpay_key_id } = await billingApi.createCheckout(
-        tier.id as "hobby" | "pro",
+        paidTier,
         cycle,
-        { seats: 1 },
+        { seats },
       );
       await loadRazorpayScript();
       type RazorpaySuccess = { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string };
@@ -340,7 +344,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
         amount: amount_paise,
         currency: orderCurrency,
         name: "Aevrin",
-        description: `${tier.name}, ${cycle}`,
+        description: paidTier === "team" ? `${tier.name}, ${seats} seats, ${cycle}` : `${tier.name}, ${cycle}`,
         // Razorpay emails the payment receipt to whatever address it is
         // given here. Without a prefill it has none, so receipts cannot be
         // sent at all no matter what the dashboard is set to. It also saves
@@ -351,10 +355,20 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
           const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = resp as RazorpaySuccess;
           try {
             await billingApi.verifyPayment(razorpay_order_id, razorpay_payment_id, razorpay_signature);
-            toast.success(`${tier.name} plan activated.`);
-            router.push("/dashboard");
+            toast.success(
+              paidTier === "team" ? `Team activated with ${seats} seats.` : `${tier.name} plan activated.`,
+            );
+            router.push(paidTier === "team" ? "/settings/team" : "/dashboard");
           } catch (err) {
-            toast.error(err instanceof ApiError ? err.message : "Payment succeeded but activation failed: contact support.");
+            // Only a resolved verify means the plan is active. A 409 says the
+            // payment could not be activated; the server's message names what
+            // to do and is shown as it is, never replaced by a success.
+            toast.error(
+              err instanceof ApiError
+                ? err.message
+                : `The payment went through but activation could not be confirmed. Contact support@aevrin.net with order ${razorpay_order_id}.`,
+              { duration: Infinity },
+            );
           }
         },
       });
@@ -398,6 +412,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
           return (
             <Reveal key={tier.id} delay={i * 80} className="h-full">
               <div
+                id={`plan-${tier.id}`}
                 className={
                   tier.popular
                     ? "plan-card plan-card-featured relative flex h-full flex-col overflow-hidden"
@@ -462,44 +477,36 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
                 </div>
 
                 <div className="mt-5">
-                  {tier.id === "team" ? (
-                    <a
-                      href="mailto:team@aevrin.net"
-                      className="block w-full rounded-[10px] bg-secondary px-4 py-3.5 text-center text-[15px] font-semibold text-secondary-foreground ring-1 ring-border transition-colors outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
-                    >
-                      {tier.cta}
-                    </a>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={loadingTier === tier.id}
-                      onClick={() => handleCta(tier)}
-                      className={
-                        tier.popular
-                          ? "w-full rounded-[10px] bg-primary px-4 py-3.5 text-[15px] font-semibold text-primary-foreground transition-colors outline-none hover:bg-primary/90 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
-                          : "w-full rounded-[10px] bg-secondary px-4 py-3.5 text-[15px] font-semibold text-secondary-foreground ring-1 ring-border transition-colors outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
-                      }
-                    >
-                      {loadingTier === tier.id ? "Please wait\u2026" : tier.cta}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    disabled={loadingTier === tier.id}
+                    onClick={() => handleCta(tier)}
+                    className={
+                      tier.popular
+                        ? "w-full rounded-[10px] bg-primary px-4 py-3.5 text-[15px] font-semibold text-primary-foreground transition-colors outline-none hover:bg-primary/90 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                        : "w-full rounded-[10px] bg-secondary px-4 py-3.5 text-[15px] font-semibold text-secondary-foreground ring-1 ring-border transition-colors outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                    }
+                  >
+                    {loadingTier === tier.id ? "Please wait\u2026" : tier.cta}
+                  </button>
                 </div>
 
                 <div className="relative z-10 mt-6 flex flex-1 flex-col gap-4">
                   {tier.id === "team" && (
                     <div className="flex items-center justify-between rounded-lg ring-1 ring-border px-3 py-2 text-sm">
                       <label htmlFor="team-seats" className="text-muted-foreground">
-                        Seats (min {TEAM_MIN_SEATS})
+                        Seats ({TEAM_MIN_SEATS} to {TEAM_MAX_SEATS})
                       </label>
                       <input
                         id="team-seats"
                         type="number"
+                        inputMode="numeric"
                         min={TEAM_MIN_SEATS}
-                        value={teamSeats}
-                        onChange={(e) =>
-                          setTeamSeats(Math.max(TEAM_MIN_SEATS, Number(e.target.value) || TEAM_MIN_SEATS))
-                        }
-                        className="w-16 rounded-md border border-input bg-background px-2 py-1 text-right"
+                        max={TEAM_MAX_SEATS}
+                        value={seatInput}
+                        onChange={(e) => setSeatInput(e.target.value)}
+                        onBlur={() => setSeatInput(String(teamSeats))}
+                        className="w-20 rounded-md border border-input bg-background px-2 py-1 text-right"
                       />
                     </div>
                   )}

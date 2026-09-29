@@ -47,6 +47,10 @@ class FakeDb:
             elif value.startswith("ilike."):
                 want = value[6:].lower()
                 rows = [r for r in rows if str(r.get(key, "")).lower() == want]
+            elif value.startswith("gt."):
+                # Timestamps, as PostgREST compares them.
+                bound = datetime.fromisoformat(value[3:])
+                rows = [r for r in rows if r.get(key) and datetime.fromisoformat(str(r[key])) > bound]
             else:
                 rows = [r for r in rows if str(r.get(key)) == str(value)]
         return rows
@@ -101,9 +105,12 @@ def org_row() -> dict[str, Any]:
             "created_at": datetime.now(UTC).isoformat()}
 
 
-def account_row(seats: int) -> dict[str, Any]:
-    """Seats live on the owner's account, which is what billing writes."""
-    return {"_table": "accounts", "user_id": OWNER, "seats": seats}
+def account_row(seats: int, *, team_active: bool = True) -> dict[str, Any]:
+    """Seats live on the owner's account, which is what billing writes. They
+    count only while that account's own Team plan is active."""
+    paid_until = datetime.now(UTC) + timedelta(days=30 if team_active else -1)
+    return {"_table": "accounts", "user_id": OWNER, "tier": "team", "seats": seats,
+            "paid_until": paid_until.isoformat()}
 
 
 def role_row(role_id: str, name: str, permissions: list[str], *, owner: bool = False,
@@ -283,6 +290,21 @@ def test_open_invites_count_against_seats():
     with pytest.raises(HTTPException) as exc:
         run(org_controller.invite_member(InviteIn(email="fourth@example.com", role_id=MEMBER_ROLE), owner, db))
     assert exc.value.status_code == 402
+
+
+def test_an_expired_invite_does_not_hold_a_seat():
+    """It can no longer be accepted, so counting it would call the workspace
+    full and send the owner to buy seats nobody can use."""
+    db = workspace(seats=3)  # two members already
+    db.rows.append({
+        "_table": "organization_invites", "id": str(uuid4()), "org_id": ORG,
+        "email": "lapsed@example.com", "role_id": MEMBER_ROLE, "accepted_at": None,
+        "created_at": datetime.now(UTC).isoformat(),
+        "expires_at": (datetime.now(UTC) - timedelta(days=1)).isoformat(),
+    })
+    invite = run(org_controller.invite_member(
+        InviteIn(email="third@example.com", role_id=MEMBER_ROLE), membership_for(OWNER, db), db))
+    assert invite.email == "third@example.com"
 
 
 def test_an_invite_can_only_be_accepted_by_the_address_it_names():

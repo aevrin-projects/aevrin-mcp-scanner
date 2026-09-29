@@ -50,8 +50,8 @@ export function ExplainButton({
       setResult(next);
       if (detailed) setExpanded(true);
     } catch (error) {
-      // Including a 401. Someone signed out looking at a public listing gets
-      // told to sign in, not an exception.
+      // Including a 401. Someone whose session lapsed gets told to sign in,
+      // not an exception.
       setResult({
         available: false,
         reason:

@@ -46,7 +46,7 @@ from aevrin_api.schemas.agents import (
 )
 from aevrin_api.services.quota import (
     check_and_increment_quota,
-    effective_tier,
+    entitled_tier,
     get_or_create_account,
 )
 
@@ -79,7 +79,7 @@ async def _assert_device_is_covered(
     coverage, not a clean result.
     """
     account = await get_or_create_account(db, user_id)
-    rows = await db.select("tier_limits", {"tier": effective_tier(account)}, columns="monitored_devices")
+    rows = await db.select("tier_limits", {"tier": await entitled_tier(db, account)}, columns="monitored_devices")
     limit = rows[0]["monitored_devices"] if rows else None
     if limit is None:
         return

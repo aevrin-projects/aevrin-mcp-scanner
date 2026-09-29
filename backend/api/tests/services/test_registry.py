@@ -3,9 +3,8 @@
 The registry is admin-curated (migration 0048, DECISIONS.md). These tests pin
 the rules that make that true, and the defects that made it false before:
 
-* the weekly sync published every server it found, unscanned;
+* the weekly sync published every server it found;
 * its update step overwrote fields an administrator had curated;
-* `evaluate_policy` let an F server through more leniently than a D;
 * `status` sat in the edit allow-list, so `update_listing` could publish
   without the publish gate.
 
@@ -20,13 +19,13 @@ from __future__ import annotations
 import asyncio
 import copy
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 
 from aevrin_api.services.admin_auth import AdminIdentity
-from aevrin_api.services.marketplace import admin, catalog, items, sync
-from aevrin_api.services.marketplace.grading import scan_freshness
+from aevrin_api.services.marketplace import admin, catalog, items, submissions, sync
 
 ADMIN = AdminIdentity(user_id="admin-1", email="admin@example.com", ip_address="203.0.113.9", user_agent="pytest")
 
@@ -132,16 +131,6 @@ def listing(db: FakeDb, **fields: Any) -> dict[str, Any]:
     return row
 
 
-def scanned(db: FakeDb, row: dict[str, Any], *, version: str = "1.0.0", status: str = "incomplete",
-            scanner_name: str | None = "mcp-scanner") -> None:
-    """Record that `version` of `row` was scanned, the way grading.py leaves it."""
-    scan_id = str(uuid.uuid4())
-    db.rows("scans").append({"id": scan_id, "status": status, "scanner_name": scanner_name})
-    db.rows("mcp_listing_versions").append({"listing_id": row["id"], "version": version, "scan_id": scan_id})
-    row["latest_version"] = version
-    row["current_version"] = version
-
-
 # --------------------------------------------------------------------------
 # What an item must contain
 
@@ -185,12 +174,14 @@ def test_content_rejects_keys_nobody_renders() -> None:
 )
 def test_an_install_recipe_cannot_smuggle_a_command(package: dict[str, Any]) -> None:
     """`runtime_hint` becomes the `command` in every config a user copies, and
-    the identifier becomes an argv element of a scan."""
+    the identifier becomes one of its arguments."""
     with pytest.raises(items.InvalidItem):
         items.clean_installation({"packages": [package]})
 
 
-def test_an_install_recipe_cannot_point_a_scan_inside_the_network() -> None:
+def test_an_install_recipe_remote_must_be_a_public_https_url() -> None:
+    """The remote is copied into client configs and offered to the scan page
+    as a target, so an internal address is refused at the edit."""
     with pytest.raises(items.InvalidItem) as exc:
         items.clean_installation({"remotes": [{"url": "https://169.254.169.254/latest"}]})
     assert "cannot be used" in str(exc.value)
@@ -200,44 +191,31 @@ def test_an_install_recipe_cannot_point_a_scan_inside_the_network() -> None:
 # The publish gate
 
 
-def test_an_unscanned_mcp_server_cannot_be_published() -> None:
+def test_an_mcp_server_is_published_without_a_scan() -> None:
+    """The registry is discovery only: a complete MCP server publishes on an
+    administrator's decision alone, with no scan and no version row needed."""
     db = FakeDb()
     row = listing(db, repository_url="https://github.com/acme/server", latest_version="1.0.0")
+    result = run(admin.set_status(db, listing_id=row["id"], status="published", admin=ADMIN))
+    assert result["status"] == "published"
+    assert "scans" not in db.tables, "publishing never reads a scan"
+
+
+def test_an_incomplete_mcp_server_is_still_refused() -> None:
+    db = FakeDb()
+    row = listing(db)
     with pytest.raises(admin.AdminActionRefused) as exc:
         run(admin.set_status(db, listing_id=row["id"], status="published", admin=ADMIN))
-    assert "not been scanned" in str(exc.value)
+    assert "package, a remote endpoint, or a repository" in str(exc.value)
     assert db.rows("mcp_listings")[0]["status"] == "draft"
 
 
-def test_a_scanned_but_ungraded_mcp_server_can_be_published() -> None:
-    """A server that needs a credential to start is never graded in a sandbox
-    that holds none. Scanned, not graded, is its honest result."""
+def test_approving_a_suggestion_uses_the_same_gate_and_needs_no_scan() -> None:
     db = FakeDb()
-    row = listing(db, repository_url="https://github.com/acme/server")
-    scanned(db, row, status="incomplete")
-    result = run(admin.set_status(db, listing_id=row["id"], status="published", admin=ADMIN))
-    assert result["status"] == "published"
-
-
-@pytest.mark.parametrize(("status", "scanner_name"), [("failed", "mcp-scanner"), ("completed", None)])
-def test_a_broken_or_retired_engine_scan_does_not_count(status: str, scanner_name: str | None) -> None:
-    """A failed run is a broken worker, not an assessment; a scan without
-    `scanner_name` predates the current engine, whose grades 0047 withdrew."""
-    db = FakeDb()
-    row = listing(db, repository_url="https://github.com/acme/server")
-    scanned(db, row, status=status, scanner_name=scanner_name)
-    with pytest.raises(admin.AdminActionRefused):
-        run(admin.set_status(db, listing_id=row["id"], status="published", admin=ADMIN))
-
-
-def test_a_prompt_is_published_without_a_scan_and_says_so() -> None:
-    db = FakeDb()
-    row = listing(db, item_type="prompt", content={"prompt": "Summarise this."})
-    run(admin.set_status(db, listing_id=row["id"], status="published", admin=ADMIN))
-    security = catalog.decorate(db.rows("mcp_listings")[0])["security"]
-    assert security["state"] == "not_applicable"
-    assert security["badges"] == ["Not security-scanned"]
-    assert security["grade"] is None
+    row = listing(db, status="review", repository_url="https://github.com/acme/server")
+    db.rows("mcp_submissions").append({"id": "s1", "listing_id": row["id"], "status": "review"})
+    run(submissions.decide(db, submission_id="s1", decision="approved", reviewer_id="admin-1"))  # type: ignore[arg-type]
+    assert db.rows("mcp_listings")[0]["status"] == "published"
 
 
 def test_status_cannot_be_changed_by_an_edit() -> None:
@@ -250,10 +228,8 @@ def test_status_cannot_be_changed_by_an_edit() -> None:
     assert db.rows("mcp_listings")[0]["status"] == "draft"
 
 
-def test_no_edit_can_reach_a_security_column() -> None:
-    forbidden = {"current_trust_grade", "current_risk_score", "current_coverage_complete",
-                 "current_version", "current_scanned_at", "ranking_score", "status"}
-    assert forbidden.isdisjoint(admin.EDITABLE_FIELDS)
+def test_no_edit_can_reach_status_or_ranking() -> None:
+    assert {"ranking_score", "status"}.isdisjoint(admin.EDITABLE_FIELDS)
 
 
 def test_every_publish_is_audited() -> None:
@@ -267,29 +243,29 @@ def test_every_publish_is_audited() -> None:
 
 
 # --------------------------------------------------------------------------
-# Editing an MCP server's source
+# The version list
 
 
-def test_changing_a_servers_source_makes_its_grade_outdated() -> None:
-    """The grade stays on the version it was earned by. Editing the install
-    recipe opens a new, unscanned version, so the catalogue shows the old
-    grade as covering the old version rather than carrying it over."""
+def test_a_new_latest_version_is_recorded_as_a_bare_version_row() -> None:
     db = FakeDb()
-    row = listing(db, repository_url="https://github.com/acme/server", current_trust_grade="B")
-    scanned(db, row, version="1.0.0", status="completed")
+    row = listing(db, repository_url="https://github.com/acme/server", latest_version="1.0.0")
+    run(admin.update_listing(db, listing_id=row["id"], patch={"latest_version": "1.1.0"}, admin=ADMIN))
 
+    assert db.rows("mcp_listings")[0]["latest_version"] == "1.1.0"
+    (version,) = db.rows("mcp_listing_versions")
+    assert version == {"listing_id": row["id"], "version": "1.1.0"}
+
+
+def test_editing_an_install_recipe_opens_no_version() -> None:
+    """Versions are what the publisher released, not a record of edits."""
+    db = FakeDb()
+    row = listing(db, repository_url="https://github.com/acme/server", latest_version="1.0.0")
     run(admin.update_listing(
         db, listing_id=row["id"], admin=ADMIN,
         patch={"installation": {"packages": [{"registry_type": "npm", "identifier": "acme-mcp"}]}},
     ))
-
-    stored = db.rows("mcp_listings")[0]
-    assert stored["latest_version"].startswith("1.0.0+edit.")
-    assert stored["current_version"] == "1.0.0"
-    assert stored["current_trust_grade"] == "B", "the grade itself is never rewritten"
-    assert scan_freshness(stored)["state"] == "outdated"
-    new_version = db.rows("mcp_listing_versions")[-1]
-    assert new_version["package_identifier"] == "acme-mcp", "the scan launches what was declared"
+    assert db.rows("mcp_listing_versions") == []
+    assert db.rows("mcp_listings")[0]["latest_version"] == "1.0.0"
 
 
 def test_editing_a_prompts_text_opens_no_version() -> None:
@@ -394,37 +370,6 @@ def test_type_counts_cover_only_what_the_public_can_see() -> None:
 
 
 # --------------------------------------------------------------------------
-# Security states
-
-
-def test_a_scanned_ungraded_server_is_not_reported_as_unscanned() -> None:
-    """It used to read "Not yet scanned" - false, once a scan has run."""
-    state = scan_freshness({"item_type": "mcp_server", "current_version": "1.0.0",
-                            "latest_version": "1.0.0", "current_trust_grade": None})
-    assert state["state"] == "ungraded"
-    assert "not as safe" in state["label"]
-
-
-def test_an_f_carries_a_warning_badge_at_least_as_strong_as_a_d() -> None:
-    """It carried "Aevrin scanned" alone - the mildest badge set of any grade."""
-    row = catalog.decorate({
-        "slug": "acme", "item_type": "mcp_server", "current_version": "1.0.0",
-        "latest_version": "1.0.0", "current_trust_grade": "F", "current_coverage_complete": True,
-    })
-    assert "Do not use" in row["security"]["badges"]
-
-
-def test_the_install_config_warns_about_an_ungraded_server() -> None:
-    row = catalog.decorate({
-        "slug": "acme", "item_type": "mcp_server", "current_version": "1.0.0",
-        "latest_version": "1.0.0", "current_trust_grade": None,
-        "installation": {"packages": [{"registry_type": "npm", "identifier": "acme", "version": "1.0.0"}]},
-    })
-    _, warnings = catalog.build_install_config(row, "claude-code")
-    assert any("could not establish enough" in w for w in warnings)
-
-
-# --------------------------------------------------------------------------
 # The registry sync
 
 
@@ -469,23 +414,17 @@ def test_the_sync_does_not_overwrite_a_curated_listing(monkeypatch: pytest.Monke
     assert stored["latest_version"] == "1.1.0", "a new version must still flow in"
 
 
-# --------------------------------------------------------------------------
-# Organisation policy
-
-
-def test_an_f_server_is_blocked_even_by_a_policy_written_before_f_existed() -> None:
-    old_policy = {"grade_actions": {"A": "allow", "B": "allow", "C": "allow", "D": "allow"}}
-    assert admin.evaluate_policy(old_policy, grade="F", coverage_complete=True)["action"] == "block"
-
-
-def test_saving_a_policy_without_f_defaults_it_to_block() -> None:
+def test_the_sync_records_a_bare_version_row() -> None:
     db = FakeDb()
-    saved = run(admin.set_policy(
-        db, org_id="org-1", actor_id="u",
-        grade_actions={"A": "allow", "B": "allow", "C": "allow", "D": "allow"},
-        unscanned_action="require_approval",
-    ))
-    assert saved["grade_actions"]["F"] == "block"
+    row = listing(db)
+    server = type("Server", (), {"version": "2.0.0"})()
+    report = sync.SyncReport(started_at=datetime.now(UTC))
+    run(sync._ensure_version_row(db, row["id"], server, report))  # type: ignore[arg-type]
+    run(sync._ensure_version_row(db, row["id"], server, report))  # type: ignore[arg-type]
+
+    assert db.rows("mcp_listing_versions") == [{"listing_id": row["id"], "version": "2.0.0"}]
+    assert report.versions_added == 1
+    assert "rescans_queued" not in report.as_dict()
 
 
 @pytest.mark.parametrize("ref", ["main; rm -rf ~", "v1 && curl x", "--force", "$(id)", "a b"])

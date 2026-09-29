@@ -21,7 +21,6 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
 
 import httpx
 from aevrin_scanner_core import Finding
@@ -136,12 +135,17 @@ Deterministic signals already computed for this finding:
 
 
 async def triage_findings(
-    settings: Settings, account: dict[str, Any], findings: list[Finding]
+    settings: Settings, tier: str, findings: list[Finding]
 ) -> tuple[list[TriageResult], str | None]:
     """Returns (results, note). `note` is a user-facing sentence when triage
     was capped, so a partially-triaged scan says so instead of quietly
-    looking fully reviewed."""
-    routing = routing_for_tier(str(account.get("tier", "free")))
+    looking fully reviewed.
+
+    `tier` is the caller's quota.entitled_tier(). This used to read the
+    stored accounts.tier, so an expired Pro kept the paid model and cap
+    forever and a member of an active Team workspace never got them.
+    """
+    routing = routing_for_tier(tier)
     api_key = settings.deepseek_api_key
     if not api_key:
         logger.info("triage: no DeepSeek key configured, skipping")

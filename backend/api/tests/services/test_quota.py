@@ -59,7 +59,7 @@ class _FakeDb:
                     "agent_scans_per_month": limit,
                 }
             ]
-        if table in ("scans", "findings", "account_quota_overrides"):
+        if table in ("scans", "findings", "account_quota_overrides", "organization_members"):
             return []
         raise AssertionError(f"unexpected table {table}")
 

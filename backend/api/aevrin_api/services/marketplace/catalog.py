@@ -8,10 +8,8 @@ this API talks to PostgREST with the service-role key, which bypasses RLS
 entirely -- so the policies protect direct Data API access, and this protects
 everything that goes through the application. Neither is redundant.
 
-The second rule is about honesty in presentation. A listing carries a cached
-grade so the catalogue can sort by security cheaply, but the cache is always
-returned *with* its freshness state attached. A caller never receives a bare
-letter it could mistake for a current verdict on the current release.
+The registry is discovery only: nothing returned here is a scan result or a
+grade, for any item type (DECISIONS.md).
 """
 
 from __future__ import annotations
@@ -20,12 +18,8 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from aevrin_scanner_core.mcp.risk import grade_drivers, severity_counts
-from aevrin_scanner_core.models import Finding
-
 from aevrin_api.db import SupabaseRest
 from aevrin_api.services.marketplace import normalize
-from aevrin_api.services.marketplace.grading import scan_freshness
 from aevrin_api.services.marketplace.ranking import DEFAULT_SORT, SORT_ORDERS
 
 logger = logging.getLogger("aevrin.marketplace.catalog")
@@ -52,8 +46,7 @@ LIST_COLUMNS = (
     "billing_period,pricing_url,install_targets,github_stars,github_forks,github_open_issues,"
     "github_last_commit_at,github_latest_release,github_language,npm_downloads_last_month,"
     "favorite_count,ranking_score,featured,status,visibility,latest_version,"
-    "current_version,current_trust_grade,current_risk_score,current_coverage_complete,"
-    "current_scanned_at,registry_updated_at,created_at,updated_at,"
+    "registry_updated_at,created_at,updated_at,"
     "item_type,author,technologies,capabilities,use_cases,repository_ref"
 )
 
@@ -64,7 +57,11 @@ DETAIL_COLUMNS = (
 # The shape a related item takes on a detail page: a card, not a document.
 # Enough to decide whether to follow the link, and nothing that belongs only
 # to the item's own page.
-_RELATED_COLUMNS = "id,slug,title,description,item_type,current_trust_grade,status,visibility"
+_RELATED_COLUMNS = "id,slug,title,description,item_type,status,visibility"
+
+# The version list is a bare record of what has been seen. Named rather than
+# `*`, for the same reason as LIST_COLUMNS.
+VERSION_COLUMNS = "id,listing_id,version,first_seen_at"
 
 
 def _visibility_filters(
@@ -94,18 +91,11 @@ def _visibility_filters(
 def decorate(listing: dict[str, Any], *, favorited: bool = False) -> dict[str, Any]:
     """Attach everything derived that a client must not compute itself.
 
-    `security` is the important one. Handing back `current_trust_grade` alone
-    invites a UI to render a letter next to a version that letter was never
-    about; bundling it with the freshness state makes the stale case
-    impossible to miss and awkward to ignore.
-
     `is_favorited` is the caller's own relationship to this listing, never a
     property of the listing itself -- it is `False` by default (an
     unauthenticated browse has no favourites) and is only ever `True` when the
     caller has separately looked it up for this specific user.
     """
-    freshness = scan_freshness(listing)
-    grade = listing.get("current_trust_grade")
     # Derived, not trusted from the row: every listing ingested before the
     # link format was corrected still stores a URL that 404s, and only a full
     # re-sync would rewrite it. Recomputing here fixes those rows on read and
@@ -121,19 +111,6 @@ def decorate(listing: dict[str, Any], *, favorited: bool = False) -> dict[str, A
         "item_type": listing.get("item_type") or "mcp_server",
         "registry_url": registry_url,
         "is_favorited": favorited,
-        "security": {
-            "grade": grade,
-            "risk_score": listing.get("current_risk_score"),
-            "scanned_version": freshness["scanned_version"],
-            "latest_version": listing.get("latest_version"),
-            "coverage_complete": listing.get("current_coverage_complete"),
-            "scanned_at": listing.get("current_scanned_at"),
-            "state": freshness["state"],
-            "applies_to_latest": freshness["applies_to_latest"],
-            "label": freshness["label"],
-            # Badges are computed here so every surface shows the same set.
-            "badges": _badges(listing, freshness["state"]),
-        },
         "popularity": {
             # Each metric named for what it actually measures. `null` is
             # absent, and the client renders absent as "not available" rather
@@ -147,41 +124,6 @@ def decorate(listing: dict[str, Any], *, favorited: bool = False) -> dict[str, A
     }
 
 
-def _badges(listing: dict[str, Any], state: str) -> list[str]:
-    """The badge vocabulary, in one place.
-
-    "Aevrin Verified" is deliberately absent. There is no documented
-    verification procedure behind it yet, and a trust badge whose criteria
-    nobody has written down is a claim the product cannot stand behind.
-    """
-    badges: list[str] = []
-    if state == "not_applicable":
-        # Said plainly rather than left off: an item with no security badge at
-        # all is easy to read as one whose check came back fine.
-        return ["Not security-scanned"]
-    if state == "unscanned":
-        badges.append("Unscanned")
-        return badges
-    if state == "outdated":
-        badges.append("Outdated scan")
-    if state == "partial":
-        badges.append("Partial coverage")
-    badges.append("Aevrin scanned")
-    if state == "ungraded":
-        badges.append("Not graded")
-        return badges
-    grade = listing.get("current_trust_grade")
-    if grade in ("A", "B") and state == "complete":
-        badges.append(f"Grade {grade}")
-    if grade in ("C", "D"):
-        badges.append("Needs review")
-    if grade == "F":
-        # GRADE_LABELS["F"]. Without this the worst grade carried the mildest
-        # badge set of all: "Aevrin scanned" and nothing else.
-        badges.append("Do not use")
-    return badges
-
-
 async def search_listings(
     db: SupabaseRest,
     *,
@@ -190,7 +132,6 @@ async def search_listings(
     tag: str | None = None,
     price_type: str | None = None,
     install_target: str | None = None,
-    min_grade: str | None = None,
     sort: str = DEFAULT_SORT,
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
@@ -240,10 +181,6 @@ async def search_listings(
         # trending forever. The UI names it for what it is.
         since = (datetime.now(UTC) - TRENDING_WINDOW).isoformat()
         filters["updated_at"] = f"gte.{since}"
-    if min_grade in ("A", "B", "C"):
-        # Grades sort alphabetically in the direction we want here: "at least
-        # B" is A or B, which is `lte.B`.
-        filters["current_trust_grade"] = f"lte.{min_grade}"
 
     order = SORT_ORDERS.get(sort, SORT_ORDERS[DEFAULT_SORT])
 
@@ -314,6 +251,7 @@ async def get_listing(
     versions = await db.select(
         "mcp_listing_versions",
         {"listing_id": listing_id},
+        columns=VERSION_COLUMNS,
         order="first_seen_at.desc",
         limit=20,
     )
@@ -323,7 +261,6 @@ async def get_listing(
 
     listing["versions"] = versions
     listing["events"] = events
-    listing["grade_rationale"] = await grade_rationale(db, versions, listing["security"])
     # The installation recipe is what an Install button acts on, so the
     # detail view is the only place it is returned.
     listing["installation"] = rows[0].get("installation") or {}
@@ -336,10 +273,8 @@ async def get_listing(
 def _install_configs(listing: dict[str, Any]) -> dict[str, Any]:
     """A ready-to-copy config per agent this server supports.
 
-    No organisation policy is applied: this is what the public page and the
-    agent-facing registry tools show, and neither has a caller whose policy
-    could apply. The signed-in install plan applies it on top of the same
-    builder. Empty for anything that is not an installable MCP server.
+    What the public page, its install dialog and the agent-facing registry
+    tools all show. Empty for anything that is not an installable MCP server.
     """
     if listing.get("item_type") != "mcp_server":
         return {}
@@ -386,7 +321,6 @@ async def _related(db: SupabaseRest, listing_id: str) -> list[dict[str, Any]]:
             "title": row["title"],
             "description": row.get("description") or "",
             "item_type": row.get("item_type") or "mcp_server",
-            "grade": row.get("current_trust_grade"),
             "relation": relation.get(str(row["id"]), "related"),
         }
         for row in rows
@@ -505,55 +439,11 @@ async def list_favorites(db: SupabaseRest, *, user_id: str) -> list[dict[str, An
     return [decorate(by_id[i], favorited=True) for i in listing_ids if i in by_id]
 
 
-async def grade_rationale(
-    db: SupabaseRest, versions: list[dict[str, Any]], security: dict[str, Any]
-) -> dict[str, Any] | None:
-    """The findings behind the letter, for the version the letter belongs to.
-
-    Derived on read rather than stored beside the grade. A stored copy would
-    drift the moment a finding is triaged, and the marketplace showing one set
-    of reasons while the scan report shows another is worse than showing none.
-
-    The scan id comes from the version row, never from the caller: this reads
-    findings without a tenancy filter, so the only thing that may choose which
-    scan it reads is the catalogue itself. What it returns is a reading of the
-    same scan the published grade already came from, so it discloses nothing
-    the letter and the risk score did not.
-    """
-    scanned = next(
-        (v for v in versions if v.get("version") == security.get("scanned_version")), None
-    )
-    scan_id = scanned.get("scan_id") if scanned else None
-    if not scan_id:
-        return None
-
-    rows = await db.select("findings", {"scan_id": str(scan_id)})
-    findings = [Finding.model_validate(r) for r in rows]
-    if not findings:
-        return None
-
-    return {
-        "scan_id": str(scan_id),
-        "version": scanned.get("version") if scanned else None,
-        "severity_counts": severity_counts(findings),
-        "drivers": [
-            {
-                "rule_id": driver.rule_id,
-                "label": driver.label,
-                "severity": driver.severity,
-                "occurrences": driver.occurrences,
-            }
-            for driver in grade_drivers(findings)
-        ],
-    }
-
-
 # --------------------------------------------------------------------------
 # Install configuration
 #
-# Shared by the install plan (signed-in, policy-checked) and the public detail
-# view (every supported agent, no policy). One builder, so the config a person
-# copies from the page and the one an agent reads over MCP are the same text.
+# One builder, so the config a person copies from the page and the one an
+# agent reads over MCP are the same text.
 
 
 class NotInstallable(Exception):
@@ -599,7 +489,7 @@ def build_install_config(
         if not version:
             warnings.append(
                 "This server declares no pinned version, so the launcher will fetch whatever "
-                "is current at run time. The grade shown here was earned by a specific version."
+                "is current at run time."
             )
     elif remotes:
         remote = remotes[0]
@@ -610,19 +500,6 @@ def build_install_config(
         )
     else:
         raise NotInstallable("This server declares no installable package or endpoint.")
-
-    security = listing.get("security") or {}
-    if security.get("state") == "unscanned":
-        warnings.append("This server has not been scanned. Treat it as unknown, not as safe.")
-    elif security.get("state") == "ungraded":
-        warnings.append(
-            "This server was scanned, but the scan could not establish enough to grade it. "
-            "Treat it as unknown, not as safe."
-        )
-    elif security.get("state") == "outdated":
-        warnings.append(security.get("label") or "The stored scan is older than the current release.")
-    elif security.get("state") == "partial":
-        warnings.append("Scan coverage was incomplete. Absence of findings is not evidence of safety.")
 
     return {key: {name: entry}}, warnings
 

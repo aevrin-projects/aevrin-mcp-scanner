@@ -7,12 +7,11 @@ import { ArrowLeft, ExternalLink, Loader2, Plus, RefreshCw, Trash2, X } from "lu
 
 import { marketplaceAdminApi } from "@/entities/admin";
 import {
-  GradeBadge,
   ITEM_TYPE_LABELS,
   ITEM_TYPES,
   ItemContentSections,
   RelatedSection,
-  ScanStatePill,
+  ScanWithAevrin,
   TypeBadge,
   UseSection,
   toListingDetail,
@@ -21,6 +20,7 @@ import {
   type ListingDetail,
 } from "@/entities/marketplace";
 import { ApiError } from "@/shared/api";
+import { formatDate } from "@/shared/lib/format";
 import { Button, buttonVariants } from "@/shared/ui/button";
 import {
   Dialog,
@@ -39,12 +39,11 @@ import { Field, ListField, LongTextField, TextField } from "./editor-fields";
 
 /**
  * Admin → Registry → one item: create it, edit it, move it through its
- * lifecycle, scan it, link it, preview it.
+ * lifecycle, link it, preview it.
  *
  * Only the fields that changed are sent. Re-sending an untouched install
  * recipe would re-validate data written by the registry sync against the
- * stricter admin schema, and would open a new scan version for an MCP server
- * whose source had not moved.
+ * stricter admin schema.
  *
  * Publishing is refused by the server with every reason at once; the editor
  * shows them as the server gives them rather than guessing ahead of it, so
@@ -313,8 +312,6 @@ function EditItem({ itemId }: { itemId: string }) {
     void act("save", () => marketplaceAdminApi.patch(itemId, patch), "Saved.");
   };
 
-  const security = preview.security;
-
   return (
     <div className="space-y-6">
       <BackLink />
@@ -446,7 +443,6 @@ function EditItem({ itemId }: { itemId: string }) {
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="content">Content</TabsTrigger>
           {isServer ? <TabsTrigger value="install">Install</TabsTrigger> : null}
-          {isServer ? <TabsTrigger value="security">Security</TabsTrigger> : null}
           <TabsTrigger value="links">Related</TabsTrigger>
           <TabsTrigger value="preview">Preview</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
@@ -488,7 +484,7 @@ function EditItem({ itemId }: { itemId: string }) {
               <TextField label="Homepage URL" value={form.homepage_url} onChange={(v) => set("homepage_url", v)} type="url" />
               <TextField
                 label="Version"
-                hint={isServer ? "Changing it opens a new, unscanned version: the current grade will show as outdated." : undefined}
+                hint={isServer ? "Changing it records a new entry in the version list." : undefined}
                 value={form.latest_version}
                 onChange={(v) => set("latest_version", v)}
               />
@@ -560,86 +556,27 @@ function EditItem({ itemId }: { itemId: string }) {
               <PanelBody className="space-y-3 py-6">
                 <LongTextField
                   label="Install recipe (JSON)"
-                  hint='{"packages": [{"registry_type": "npm", "identifier": "@scope/server", "version": "1.2.0", "environment": [{"name": "API_KEY", "secret": true}]}], "remotes": [{"type": "streamable-http", "url": "https://..."}]}. Secret values are never stored: name the variable and mark it secret. Changing this opens a new, unscanned version.'
+                  hint='{"packages": [{"registry_type": "npm", "identifier": "@scope/server", "version": "1.2.0", "environment": [{"name": "API_KEY", "secret": true}]}], "remotes": [{"type": "streamable-http", "url": "https://..."}]}. Secret values are never stored: name the variable and mark it secret.'
                   value={form.installation}
                   onChange={(v) => set("installation", v)}
                   rows={14}
                   mono
                 />
-              </PanelBody>
-            </Panel>
-          </TabsContent>
-        ) : null}
-
-        {isServer ? (
-          <TabsContent value="security">
-            <Panel>
-              <PanelBody className="space-y-5 py-6">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <GradeBadge grade={security.grade} riskScore={security.risk_score} state={security.state} size="lg" />
-                  <ScanStatePill security={security} />
-                </div>
-                <p className="text-sm text-muted-foreground">{security.label}</p>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    disabled={busy !== null}
-                    onClick={() =>
-                      void act(
-                        "scan",
-                        () => marketplaceAdminApi.scan(itemId, false),
-                        "Scan requested. The result appears here when it finishes; reload in a minute.",
-                      )
-                    }
-                  >
-                    Scan
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy !== null}
-                    onClick={() =>
-                      void act(
-                        "rescan",
-                        () => marketplaceAdminApi.scan(itemId, true),
-                        "A fresh scan was started. Reload in a minute for the result.",
-                      )
-                    }
-                  >
-                    <RefreshCw className="size-3.5" aria-hidden="true" />
-                    Force rescan
-                  </Button>
-                </div>
-                {preview.gradeRationale?.drivers.length ? (
-                  <div>
-                    <p className="mb-2 text-sm font-medium">Findings behind the grade</p>
-                    <ul className="divide-y divide-border rounded-md border border-border">
-                      {preview.gradeRationale.drivers.map((driver) => (
-                        <li key={driver.ruleId} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                          <span>
-                            {driver.label}
-                            <span className="ml-2 text-xs text-muted-foreground tabular-nums">
-                              {driver.ruleId} · {driver.occurrences} {driver.occurrences === 1 ? "tool" : "tools"}
-                            </span>
-                          </span>
-                          <span className="text-xs font-medium uppercase">{driver.severity}</span>
+                <ScanWithAevrin listing={preview} />
+                <div>
+                  <p className="mb-2 text-sm font-medium">Versions</p>
+                  {preview.versions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No versions recorded.</p>
+                  ) : (
+                    <ul className="space-y-1 text-sm">
+                      {preview.versions.map((v) => (
+                        <li key={v.id} className="flex justify-between gap-3 rounded-md border border-border px-3 py-1.5">
+                          <span className="font-mono text-xs">{v.version}</span>
+                          <span className="text-xs text-muted-foreground">{formatDate(v.firstSeenAt)}</span>
                         </li>
                       ))}
                     </ul>
-                  </div>
-                ) : null}
-                <div>
-                  <p className="mb-2 text-sm font-medium">Versions</p>
-                  <ul className="space-y-1 text-sm">
-                    {preview.versions.map((v) => (
-                      <li key={v.id} className="flex justify-between gap-3 rounded-md border border-border px-3 py-1.5">
-                        <span className="font-mono text-xs">{v.version}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {v.trustGrade ? `Grade ${v.trustGrade}` : v.scanId ? "scanned, not graded" : "not scanned"}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                  )}
                 </div>
               </PanelBody>
             </Panel>
@@ -921,7 +858,7 @@ function DeleteDialog({
           <DialogTitle>Delete this item</DialogTitle>
           <DialogDescription>
             This removes the registry entry, its versions, links and timeline. It does not touch the
-            repository, the package, or any scan. Archiving hides an item and keeps it; deleting cannot
+            repository or the package. Archiving hides an item and keeps it; deleting cannot
             be undone. Type <span className="font-mono font-medium">{slug}</span> to confirm.
           </DialogDescription>
         </DialogHeader>

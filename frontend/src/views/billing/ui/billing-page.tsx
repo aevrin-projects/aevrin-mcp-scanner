@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Archive, ArchiveRestore, CreditCard, Eye, EyeOff, Laptop, Receipt } from "lucide-react";
 import { ApiError } from "@/shared/api";
-import { billingApi, useBillingHistoryPrefs } from "@/entities/billing";
+import { billingApi, teamPricingHref, useBillingHistoryPrefs } from "@/entities/billing";
 import { cn } from "@/shared/lib/utils";
 import type { Payment, Subscription } from "@/entities/billing";
 import type { AccountUsage } from "@/entities/usage";
@@ -23,6 +23,7 @@ const PAYMENT_TIER_LABEL: Record<Payment["tier"], string> = {
   team: "Team",
   // No longer sold; historical rows in billing history still render.
   autofix_addon: "+10 auto-fix PRs",
+  byok_addon: "Bring-your-own-key add-on",
 };
 
 const PAYMENT_STATUS_STYLE: Record<Payment["status"], string> = {
@@ -66,7 +67,10 @@ const PLAN_COPY = {
   free: { billing: "No renewal", body: "Five CLI scans, two hook auto-scans, and five dashboard scans each month." },
   hobby: { billing: "One cycle at a time", body: "Monthly / effective annual monthly price, with no automatic renewal." },
   pro: { billing: "One cycle at a time", body: "Monthly / effective annual monthly price, with no automatic renewal." },
-  team: { billing: "One cycle at a time", body: "Monthly / effective annual per-seat price, with no automatic renewal." },
+  team: {
+    billing: "One cycle at a time",
+    body: "Per-seat price, monthly or annual, with no automatic renewal. Everyone in your workspace gets Team limits while it is active.",
+  },
 } as const;
 
 // Full labels for every bucket: a `capitalize` utility was previously doing
@@ -100,6 +104,11 @@ export function BillingPage() {
   }, []);
 
   const plan = subscription ? PLAN_COPY[subscription.tier] : null;
+  // Team limits that come from the workspace owner's plan rather than a
+  // purchase on this account. The header names the plan enforced, and says
+  // where it comes from, so a member who bought nothing is not shown a price.
+  const inherited = subscription !== null && subscription.effective_tier !== subscription.own_effective_tier;
+  const ownsTeam = subscription?.own_effective_tier === "team";
 
   /** Monthly / effective-annual-monthly for the current tier, in the
    *  account's own currency. Null until pricing loads, so nothing renders a
@@ -114,7 +123,7 @@ export function BillingPage() {
     const each = tier === "team" ? " per seat" : "";
     return `${formatMoney(monthly, pricing.currency)}${each} monthly, or ${formatMoney(Math.round(annual / 12), pricing.currency)}${each} monthly on the annual cycle`;
   })();
-  const expired = subscription?.tier !== "free" && subscription?.effective_tier === "free";
+  const expired = subscription?.tier !== "free" && subscription?.own_effective_tier === "free";
 
   // Earliest bucket reset: the only period a Free account actually has.
   const nextReset =
@@ -174,8 +183,12 @@ export function BillingPage() {
                     <h2 className="text-3xl font-semibold tracking-tight">
                       {subscription.effective_tier.charAt(0).toUpperCase() + subscription.effective_tier.slice(1)}
                     </h2>
-                    <span className="text-lg text-muted-foreground">{planPrice}</span>
-                    {expired ? (
+                    {inherited ? null : <span className="text-lg text-muted-foreground">{planPrice}</span>}
+                    {inherited ? (
+                      <Badge variant="outline" className="border-chart-1/40 bg-chart-1/10 text-chart-1">
+                        Through your workspace
+                      </Badge>
+                    ) : expired ? (
                       <Badge variant="outline" className="border-severity-high/40 bg-severity-high/10 text-severity-high">
                         Period ended
                       </Badge>
@@ -185,10 +198,18 @@ export function BillingPage() {
                       </Badge>
                     ) : null}
                   </div>
-                  <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">{plan?.body}</p>
-                  {subscription.effective_tier === "team" ? (
+                  <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">
+                    {inherited
+                      ? `Your workspace owner's Team plan gives you Team limits while it is active. Your own plan is ${subscription.own_effective_tier.charAt(0).toUpperCase() + subscription.own_effective_tier.slice(1)}${expired ? ", and its paid period has ended" : ""}.`
+                      : plan?.body}
+                  </p>
+                  {ownsTeam ? (
                     <p className="mt-2 text-sm text-muted-foreground">
-                      Seats are people.{" "}
+                      <span className="font-medium text-foreground">
+                        {subscription.seats} seat{subscription.seats === 1 ? "" : "s"}
+                      </span>
+                      {subscription.seats_used !== null ? `, ${subscription.seats_used} in use counting open invitations` : ""}
+                      . Seats are people.{" "}
                       <Link href="/settings/team" className="font-medium underline">
                         Open your workspace
                       </Link>{" "}
@@ -197,8 +218,22 @@ export function BillingPage() {
                   ) : null}
                 </div>
 
-                <Button nativeButton={false} render={<Link href="/pricing" />} className="shrink-0">
-                  {expired ? "Renew plan" : subscription.effective_tier === "free" ? "Upgrade" : "Change plan"}
+                <Button
+                  nativeButton={false}
+                  render={
+                    <Link
+                      href={
+                        subscription.tier === "team" && !inherited ? teamPricingHref(subscription.seats) : "/pricing"
+                      }
+                    />
+                  }
+                  className="shrink-0"
+                >
+                  {expired && !inherited
+                    ? "Renew plan"
+                    : subscription.effective_tier === "free"
+                      ? "Upgrade"
+                      : "Change plan"}
                 </Button>
               </div>
 
@@ -234,11 +269,28 @@ export function BillingPage() {
                   />
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  {expired
+                  {expired && !inherited
                     ? "Higher limits will not return until you pay for another cycle."
                     : "Nothing is charged automatically; each cycle is an explicit checkout."}
                 </p>
               </div>
+
+              {ownsTeam ? (
+                <div className="mt-6 border-t border-border pt-5 text-sm">
+                  <p className="font-medium">Change the seat count</p>
+                  <p className="mt-1 max-w-lg leading-relaxed text-muted-foreground">
+                    Buy Team again with the number of seats you want. The new seat count applies as soon as the
+                    payment is confirmed, and the payment adds one full cycle after your current paid-until date.
+                    There is no proration: the time already paid for continues at the new seat count.
+                  </p>
+                  <Link
+                    href={teamPricingHref(subscription.seats)}
+                    className="mt-2 inline-block font-medium underline underline-offset-2"
+                  >
+                    Buy Team with a different seat count
+                  </Link>
+                </div>
+              ) : null}
 
               <dl className="mt-6 grid gap-4 border-t border-border pt-5 sm:grid-cols-3">
                 <div>
@@ -288,7 +340,7 @@ export function BillingPage() {
                         </span>
                         <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
                           {unlimited ? (
-                            "Usage-based"
+                            "No monthly cap"
                           ) : (
                             <>
                               <span className="font-medium text-foreground">{bucket.used}</span> / {bucket.limit}

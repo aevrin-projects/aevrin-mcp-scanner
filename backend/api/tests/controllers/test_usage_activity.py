@@ -18,7 +18,7 @@ class _UsageDb:
     ) -> list[dict[str, Any]]:
         # The usage view also reads fleet coverage now; this test is about
         # the activity list, so the other lookups answer empty.
-        if table in ("agent_snapshots", "tier_limits"):
+        if table in ("agent_snapshots", "tier_limits", "organization_members"):
             return []
         assert table == "scans"
         assert filters == {"user_id": "user-1"}
@@ -43,7 +43,7 @@ def test_usage_returns_attributed_scan_activity(monkeypatch, settings) -> None:
     now = datetime.now(UTC)
 
     async def fake_account(*args: Any) -> dict[str, Any]:
-        return {"tier": "free", "paid_until": None}
+        return {"user_id": "user-1", "tier": "free", "paid_until": None}
 
     async def fake_usage(*args: Any) -> list[BucketUsage]:
         return [BucketUsage(bucket="cli", used=1, limit=5, resets_at=now)]

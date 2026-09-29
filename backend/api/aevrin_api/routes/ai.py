@@ -97,7 +97,7 @@ async def explain(
     settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[AuthenticatedUser, Depends(get_current_user)],
 ) -> Any:
-    """Explain a finding, grade, or scan in plain language.
+    """Explain a finding or a scan (including its grade) in plain language.
 
     Returns 200 with `available: false` and a reason when no provider could
     answer. An AI outage does not invalidate the security result being

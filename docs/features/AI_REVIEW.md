@@ -18,9 +18,19 @@ enforce structurally, not just by policy.
 ## User workflow
 
 Configure a provider at Settings → AI providers (Groq, OpenAI, Anthropic,
-or Google Gemini - the user's own key). "Explain this" appears on a trust
-grade ("Why is this grade C?"), an individual finding, a scan result, or a
-marketplace listing's security position - never on a decorative element.
+or Google Gemini - the user's own key). "Explain with AI" appears on a scan
+result, next to its grade ("Why is this grade C?", subject `scan`), and on
+an individual finding (subject `finding`) - never on a decorative element.
+Both are the caller's own scans: `ai_controller._owned_scan` allows the
+scan's owner or a member of the scan's organisation and answers 404
+otherwise, the same rule the scans API applies, and the scan id is never
+taken as proof of access.
+
+The registry has no explanation. Before `DECISIONS.md` ADR-049 a listing's
+grade could be explained (subjects `trust_grade` and `listing`); the
+registry no longer carries a grade, so those subjects were removed and
+migration `0049` deletes their cached rows and narrows the
+`ai_explanations.subject_type` check.
 
 ## Architecture
 
@@ -51,13 +61,12 @@ marketplace listing's security position - never on a decorative element.
 ## Cache correctness
 
 Cached against `evidence_hash()` - a canonical-JSON SHA-256 of the exact
-document shown to the model. Two people viewing the same public listing
-are asking the identical question and share one answer; evidence built
-from a private scan hashes differently by construction, so nothing crosses
-a tenant boundary through the cache. A rescan changes the evidence, changes
-the hash, and the next reader gets a fresh explanation - there's nothing to
-invalidate by hand. A forced rescan additionally clears cached explanations
-for that subject.
+document shown to the model. Two members of a workspace viewing the same
+scan are asking the identical question and share one answer; evidence built
+from a different scan hashes differently by construction, so nothing crosses
+a tenant boundary through the cache. A rescan is a new scan with new
+evidence, so the next reader gets a fresh explanation - there's nothing to
+invalidate by hand.
 
 ## Model catalogue
 
@@ -187,6 +196,6 @@ prompt-injection-bounding tests. See
 ## Related docs
 
 [`../security/SECURITY.md`](../security/SECURITY.md),
-[`MCP_MARKETPLACE.md`](MCP_MARKETPLACE.md) (a listing's security position
-can carry an explanation), `DECISIONS.md` ADR-004 (the LiteLLM decision,
+[`MCP_SCANNING.md`](MCP_SCANNING.md) (the scan and finding being
+explained), `DECISIONS.md` ADR-004 (the LiteLLM decision,
 recorded at the time it was made).

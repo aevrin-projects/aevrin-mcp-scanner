@@ -319,13 +319,3 @@ def registry_server_to_listing(server: RegistryServer) -> dict[str, Any]:
         "registry_updated_at": server.updated_at,
         "visibility": "public",
     }
-
-
-def primary_package(server: RegistryServer) -> dict[str, Any] | None:
-    """The package a version's identity should be pinned to.
-
-    First declared wins. A server publishing both npm and PyPI builds of the
-    same version is one release, and picking one consistently is what stops
-    the version table gaining a duplicate row on every sync.
-    """
-    return server.packages[0] if server.packages else None

@@ -84,9 +84,10 @@ Never report a test as passed without having run it in this session.
 ## Handling security-sensitive changes
 
 Anything touching authentication, authorization, tenancy isolation, secret
-storage, SSRF protection, the marketplace submission/scan pipeline, or the
-AI evidence builder needs explicit reasoning in your response: what the
-change allows that it didn't before, and why that's safe. See
+storage, SSRF protection, the registry submission pipeline, the
+post-login redirect (`next`), or the AI evidence builder needs explicit
+reasoning in your response: what the change allows that it didn't before,
+and why that's safe. See
 [`docs/security/SECURITY.md`](docs/security/SECURITY.md) for the existing
 model and its test coverage
 (`backend/api/tests/services/test_marketplace_hardening.py` is the canonical

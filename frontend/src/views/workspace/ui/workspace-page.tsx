@@ -386,7 +386,8 @@ function InvitesPanel({
             <AlertTitle>Every seat is taken</AlertTitle>
             <AlertDescription>
               {org.seats_used} of {org.seats} seats are in use, counting invitations nobody has
-              accepted. Add seats on the billing page, or revoke an invitation below.
+              accepted. Seats come with the owner&apos;s active Team plan: the owner can buy Team
+              again with more seats from Billing, or you can revoke an invitation below.
             </AlertDescription>
           </Alert>
         </PanelBody>

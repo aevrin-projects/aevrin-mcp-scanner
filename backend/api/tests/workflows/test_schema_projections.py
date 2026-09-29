@@ -207,7 +207,6 @@ def test_the_migration_set_parses_into_a_believable_schema() -> None:
     assert "grade" in schema["scans"]
     assert {"rule_id", "evidence", "affected_tools"} <= schema["findings"]
     assert "last_risk_score" in schema["hook_cache"]
-    assert "current_risk_score" in schema["mcp_listings"]
     assert "code_score" not in schema["mcp_listing_versions"]
     # 0047: the engine replacement.
     assert {"server_command", "scanner_version", "invocation_channel"} <= schema["scans"]
@@ -220,6 +219,15 @@ def test_the_migration_set_parses_into_a_believable_schema() -> None:
     ]
     assert "search_vector" in schema["mcp_listings"], "0048 drops and re-adds it"
     assert {"listing_id", "related_id", "relation"} <= schema["mcp_listing_links"]
+    # 0049: the registry is discovery only. A projection naming any of these
+    # would 400 against the post-0049 schema.
+    assert not {
+        "current_version", "current_trust_grade", "current_risk_score",
+        "current_coverage_complete", "current_scanned_at",
+    } & schema["mcp_listings"]
+    assert schema["mcp_listing_versions"] == {"id", "listing_id", "version", "first_seen_at"}
+    assert "org_mcp_policies" not in schema, "0049 drops the install policy table"
+    assert "marketplace_policies" not in schema["tier_limits"]
 
 
 def test_every_column_projection_names_a_column_that_exists() -> None:

@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/shared/lib/supabase/server";
 import { checkRateLimit, RateLimitExceededError } from "@/shared/lib/rate-limit";
+import { safeNextPath } from "@/shared/lib/safe-next";
 
 export type LoginState = {
   status: "idle" | "verify-code" | "google-only" | "error";
@@ -41,13 +42,10 @@ async function lookupAccount(email: string): Promise<AccountLookup> {
 
 // Only ever redirect to a relative, in-app path; formData is
 // user-controlled, and an unvalidated redirect target is an open-redirect
-// vector (never accept a full URL / protocol-relative "//" path here).
+// vector. See safeNextPath for what "relative" is checked to mean.
 function safeNext(formData: FormData): string {
-  const next = formData.get("next");
-  if (typeof next === "string" && next.startsWith("/") && !next.startsWith("//") && next !== "/") {
-    return next;
-  }
-  return "/onboarding";
+  const next = safeNextPath(formData.get("next"), "/onboarding");
+  return next === "/" ? "/onboarding" : next;
 }
 
 export async function signInWithGoogle(formData: FormData): Promise<void> {

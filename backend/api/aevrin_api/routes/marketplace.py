@@ -22,10 +22,7 @@ from aevrin_api.routes.deps import client_ip, enforce_rate_limit, get_current_us
 from aevrin_api.schemas.marketplace import (
     CategoryOut,
     FavoriteRequest,
-    InstallPlanRequest,
-    InstallPlanResponse,
     ListingPage,
-    PolicyRequest,
     ReportRequest,
     SubmitListingRequest,
     TypeCount,
@@ -62,7 +59,6 @@ async def browse_listings(
     tag: Annotated[str | None, Query(max_length=60)] = None,
     price_type: Annotated[str | None, Query(max_length=20)] = None,
     install_target: Annotated[str | None, Query(max_length=30)] = None,
-    min_grade: Annotated[str | None, Query(max_length=1)] = None,
     sort: Annotated[str, Query(max_length=30)] = "recommended",
     page: Annotated[int, Query(ge=1, le=500)] = 1,
     page_size: Annotated[int, Query(ge=1, le=60)] = 24,
@@ -77,10 +73,9 @@ async def browse_listings(
     registry tools call, so a human and an agent searching for the same thing
     see the same items.
 
-    Security and popularity are returned as separate objects and are never
-    combined into a single number. A server can be extremely popular and
-    extremely unsafe, and the response shape is built so a client cannot
-    accidentally present one as the other.
+    The registry is discovery only: no item carries a scan result or a grade.
+    Popularity is returned as its own object, each metric named for what it
+    measures.
     """
     return await ctl.browse(
         db,
@@ -90,7 +85,6 @@ async def browse_listings(
         tag=tag,
         price_type=price_type,
         install_target=install_target,
-        min_grade=min_grade,
         sort=sort,
         page=page,
         page_size=page_size,
@@ -120,31 +114,13 @@ async def listing_detail(
     db: Annotated[SupabaseRest, Depends(get_db)],
     user: Annotated[AuthenticatedUser | None, Depends(optional_user)],
 ) -> Any:
-    """One item in full: content, security, versions, source, popularity,
-    related items, and a ready-to-copy config per supported agent.
+    """One item in full: content, versions, source, popularity, related
+    items, and a ready-to-copy config per supported agent, with warnings.
 
-    The security block always carries its freshness state. A grade earned by
-    an older version is reported as covering that version, never as a verdict
-    on the current release.
+    Carries no scan result or grade. To security-check an MCP server, scan it
+    with `POST /scans`.
     """
     return await ctl.detail(db, slug=slug, user_id=user.id if user else None)
-
-
-@router.post("/mcp/{slug}/install-plan", response_model=InstallPlanResponse)
-async def install_plan(
-    slug: str,
-    body: InstallPlanRequest,
-    db: Annotated[SupabaseRest, Depends(get_db)],
-    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
-) -> Any:
-    """The exact configuration installing this would apply, plus its risks.
-
-    Returns a plan; it does not install. Aevrin never writes to a developer's
-    machine, and never executes a server's install command to find out what it
-    does. The person applies the config, having seen the grade and the
-    capabilities alongside it.
-    """
-    return await ctl.install_plan(db, slug=slug, user_id=user.id, body=body)
 
 
 @router.post("/submissions", status_code=status.HTTP_201_CREATED)
@@ -155,10 +131,10 @@ async def submit_server(
     settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[AuthenticatedUser, Depends(get_current_user)],
 ) -> Any:
-    """Submit an MCP server for the marketplace.
+    """Suggest an item for the registry.
 
     Supply a URL; Aevrin derives everything else from the source. The listing
-    is created for review and is never published until it has been scanned.
+    is created for review and is published only by an administrator.
     """
     enforce_rate_limit(
         settings,
@@ -221,22 +197,3 @@ async def list_favorites(
 ) -> Any:
     """Your favourited servers."""
     return await ctl.favorites(db, user_id=user.id)
-
-
-@router.get("/policy")
-async def get_policy(
-    db: Annotated[SupabaseRest, Depends(get_db)],
-    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
-) -> Any:
-    """Your workspace's rule for which trust grades may be installed."""
-    return await ctl.get_policy(db, user_id=user.id)
-
-
-@router.put("/policy")
-async def set_policy(
-    body: PolicyRequest,
-    db: Annotated[SupabaseRest, Depends(get_db)],
-    user: Annotated[AuthenticatedUser, Depends(get_current_user)],
-) -> Any:
-    """Set what happens at each trust grade: allow, require approval, or block."""
-    return await ctl.set_policy(db, user_id=user.id, body=body)

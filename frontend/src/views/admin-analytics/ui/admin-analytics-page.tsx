@@ -96,7 +96,24 @@ export function AdminAnalyticsPage() {
     );
   }
 
-  const money = (paise: number) => `₹${(paise / 100).toLocaleString()}`;
+  // Per currency, in that currency's minor units, from the API's own sum over
+  // `payments`. USD rows are cents and INR rows are paise: adding them, or
+  // printing either with a rupee sign, produced a figure that was neither.
+  const revenue = Object.entries(
+    (data.revenue_by_currency ?? {}) as Record<string, { total: number; in_window: number }>,
+  ).sort(([a], [b]) => a.localeCompare(b));
+  const money = (minor: number, currency: string) =>
+    new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+    }).format(minor / 100);
+  const revenueValue =
+    revenue.length === 0 ? "None" : revenue.map(([currency, r]) => money(r.in_window, currency)).join(" + ");
+  const revenueSub =
+    revenue.length === 0
+      ? "No paid checkouts yet"
+      : `${revenue.map(([currency, r]) => money(r.total, currency)).join(" + ")} all time, currencies not converted`;
   const byDay = (rows: any[], key: string) => // eslint-disable-line @typescript-eslint/no-explicit-any
     (rows ?? []).map((r) => ({ day: String(r.day).slice(5), [key]: r[key] ?? r.count ?? r.views ?? 0 }));
 
@@ -264,7 +281,7 @@ export function AdminAnalyticsPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Kpi icon={<TerminalSquare className="size-4" />} label="CLI authenticated" value={data.cli_authenticated_accounts} sub={`${data.cli_active_accounts} active in ${days}d`} />
         <Kpi icon={<Webhook className="size-4" />} label="Hook active" value={data.hook_active_accounts} sub={`${data.hook_cached_targets} cached targets`} />
-        <Kpi icon={<TrendingUp className="size-4" />} label={`Revenue (${days}d)`} value={money(data.revenue_paise_in_window ?? 0)} sub={`${money(data.revenue_paise_total ?? 0)} all time`} />
+        <Kpi icon={<TrendingUp className="size-4" />} label={`Revenue (${days}d)`} value={revenueValue} sub={revenueSub} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-3">

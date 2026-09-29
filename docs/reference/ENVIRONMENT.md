@@ -28,7 +28,6 @@ frontend/CI-only variables.
 | `BYOK_ENCRYPTION_KEY` | no (but required for any encrypted-secret feature) | **yes** | Fernet key encrypting AI provider keys and admin TOTP secrets. Unset disables both at the point of use. Minted automatically on first EC2 deploy if blank - see `backend/deploy/remote-deploy.sh`. |
 | `ADMIN_USER_IDS` | no | no (IDs, not credentials) | Comma-separated Supabase user IDs allowed into the admin panel. |
 | `ADMIN_SESSION_IDLE_MINUTES` | no (default `30`) | no | Admin session idle timeout. |
-| `MARKETPLACE_SCAN_USER_ID` | no | no | Supabase user ID that catalogue (marketplace) scans are attributed to, so they don't land in a real customer's history/quota. Unset disables catalogue scanning. |
 | `SCHEDULER_TOKEN` | no (required for `/scheduler/*` to function) | **yes** | Bearer token protecting the scheduled-job endpoints; those routes fail closed without it. |
 | `GROQ_CATALOG_API_KEY` / `OPENAI_CATALOG_API_KEY` / `ANTHROPIC_CATALOG_API_KEY` / `GEMINI_CATALOG_API_KEY` | no | **yes** | Aevrin's own credentials for refreshing the public AI-model catalogue - never a customer's key. A provider with no key here just isn't refreshed. |
 | `WEB_ORIGIN` | no (default `http://localhost:3000`) | no | The authenticated app's own origin (`frontend/`) - allowed for CORS, and also the base URL for links this API constructs back into that app (device-pairing verification URLs, quota-exceeded upgrade links, the GitHub App post-install redirect). |

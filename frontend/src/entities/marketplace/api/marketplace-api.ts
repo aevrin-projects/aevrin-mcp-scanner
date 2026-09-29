@@ -3,10 +3,7 @@
 import { optionalAuthRequest, publicRequest, request } from "@/shared/api";
 import type {
   Category,
-  GradeDriver,
-  GradeRationale,
   InstallConfigs,
-  InstallPlan,
   InstallTarget,
   ItemContent,
   ItemType,
@@ -14,7 +11,6 @@ import type {
   ListingDetail,
   ListingPage,
   MarketplaceSort,
-  OrgPolicy,
   Submission,
   TypeCount,
 } from "../model/types";
@@ -23,8 +19,7 @@ import type {
  * Marketplace transport.
  *
  * Browse and detail go through `optionalAuthRequest`: the catalogue is public,
- * and a signed-out visitor must be able to read a security grade before
- * deciding whether Aevrin is worth signing up for - but both responses carry
+ * and a signed-out visitor must be able to browse it - but both responses carry
  * `is_favorited`, which is the caller's own relationship to a listing rather
  * than a property of it. They used `publicRequest`, which never sends
  * credentials, so that field came back false for everyone: saving a listing
@@ -35,21 +30,8 @@ import type {
  * The mapping functions exist because the API speaks snake_case and the app
  * speaks camelCase. They are explicit rather than a generic converter so that
  * a field the API stops sending becomes a visible `undefined` here rather
- * than silently vanishing from a security panel.
+ * than silently vanishing from a panel.
  */
-
-interface RawSecurity {
-  grade: string | null;
-  risk_score: number | null;
-  scanned_version: string | null;
-  latest_version: string | null;
-  coverage_complete: boolean | null;
-  scanned_at: string | null;
-  state: string;
-  applies_to_latest: boolean;
-  label: string;
-  badges: string[];
-}
 
 interface RawPopularity {
   github_stars: number | null;
@@ -60,12 +42,10 @@ interface RawPopularity {
 }
 
 type RawListing = Record<string, unknown> & {
-  security: RawSecurity;
   popularity: RawPopularity;
 };
 
 function toListing(raw: RawListing): Listing {
-  const security = raw.security;
   const popularity = raw.popularity;
   return {
     id: String(raw.id),
@@ -102,18 +82,6 @@ function toListing(raw: RawListing): Listing {
     createdAt: (raw.created_at as string) ?? null,
     updatedAt: (raw.updated_at as string) ?? null,
     favorited: Boolean(raw.is_favorited),
-    security: {
-      grade: (security?.grade as Listing["security"]["grade"]) ?? null,
-      risk_score: security?.risk_score ?? null,
-      scannedVersion: security?.scanned_version ?? null,
-      latestVersion: security?.latest_version ?? null,
-      coverageComplete: security?.coverage_complete ?? null,
-      scannedAt: security?.scanned_at ?? null,
-      state: (security?.state as Listing["security"]["state"]) ?? "unscanned",
-      appliesToLatest: Boolean(security?.applies_to_latest),
-      label: security?.label ?? "Not yet scanned",
-      badges: security?.badges ?? [],
-    },
     popularity: {
       // `?? null` rather than `?? 0` throughout, deliberately. An absent
       // metric must stay absent all the way to the component that decides
@@ -135,7 +103,6 @@ export interface BrowseParams {
   tag?: string;
   priceType?: string;
   installTarget?: string;
-  minGrade?: string;
   sort?: MarketplaceSort;
   page?: number;
   pageSize?: number;
@@ -151,7 +118,6 @@ function toQuery(params: BrowseParams): string {
   if (params.tag) search.set("tag", params.tag);
   if (params.priceType) search.set("price_type", params.priceType);
   if (params.installTarget) search.set("install_target", params.installTarget);
-  if (params.minGrade) search.set("min_grade", params.minGrade);
   if (params.sort) search.set("sort", params.sort);
   if (params.page && params.page > 1) search.set("page", String(params.page));
   if (params.pageSize) search.set("page_size", String(params.pageSize));
@@ -207,7 +173,6 @@ export function toListingDetail(raw: Record<string, unknown>): ListingDetail {
       title: String(r.title ?? r.slug),
       description: String(r.description ?? ""),
       itemType: (r.item_type as ItemType) ?? "mcp_server",
-      grade: (r.grade as ListingDetail["security"]["grade"]) ?? null,
       relation: r.relation === "uses" ? "uses" : "related",
     })),
     installation: (raw.installation as ListingDetail["installation"]) ?? {},
@@ -215,14 +180,8 @@ export function toListingDetail(raw: Record<string, unknown>): ListingDetail {
     versions: ((raw.versions as Record<string, unknown>[]) ?? []).map((v) => ({
       id: String(v.id),
       version: String(v.version),
-      trustGrade: (v.trust_grade as ListingDetail["security"]["grade"]) ?? null,
-      riskScore: (v.risk_score as number) ?? null,
-      coverageComplete: (v.coverage_complete as boolean) ?? null,
-      scanId: (v.scan_id as string) ?? null,
-      scannedAt: (v.scanned_at as string) ?? null,
       firstSeenAt: String(v.first_seen_at ?? ""),
     })),
-    gradeRationale: toGradeRationale(raw.grade_rationale as Record<string, unknown> | null),
     events: ((raw.events as Record<string, unknown>[]) ?? []).map((e) => ({
       id: String(e.id),
       eventType: String(e.event_type),
@@ -235,27 +194,6 @@ export function toListingDetail(raw: Record<string, unknown>): ListingDetail {
   };
 }
 
-function toGradeRationale(raw: Record<string, unknown> | null): GradeRationale | null {
-  if (!raw) return null;
-  return {
-    scanId: String(raw.scan_id),
-    version: (raw.version as string) ?? null,
-    severityCounts: (raw.severity_counts as GradeRationale["severityCounts"]) ?? {
-      critical: 0,
-      high: 0,
-      medium: 0,
-      low: 0,
-      info: 0,
-    },
-    drivers: ((raw.drivers as Record<string, unknown>[]) ?? []).map((d) => ({
-      ruleId: String(d.rule_id),
-      label: String(d.label),
-      severity: d.severity as GradeDriver["severity"],
-      occurrences: Number(d.occurrences ?? 0),
-    })),
-  };
-}
-
 export async function listCategories(): Promise<Category[]> {
   return publicRequest<Category[]>("/marketplace/categories");
 }
@@ -263,27 +201,6 @@ export async function listCategories(): Promise<Category[]> {
 /** Published items per type. Types with none are omitted by the API. */
 export async function listTypes(): Promise<TypeCount[]> {
   return publicRequest<TypeCount[]>("/marketplace/types");
-}
-
-export async function getInstallPlan(
-  slug: string,
-  agent: InstallTarget,
-  scope: "global" | "project",
-): Promise<InstallPlan> {
-  const raw = await request<Record<string, unknown>>(
-    `/marketplace/mcp/${encodeURIComponent(slug)}/install-plan`,
-    { method: "POST", body: JSON.stringify({ agent, scope }) },
-  );
-  return {
-    listing: toListing(raw.listing as RawListing),
-    agent: raw.agent as InstallTarget,
-    scope: raw.scope as "global" | "project",
-    config: (raw.config as Record<string, unknown>) ?? {},
-    capabilities: (raw.capabilities as string[]) ?? [],
-    warnings: (raw.warnings as string[]) ?? [],
-    policyAction: (raw.policy_action as InstallPlan["policyAction"]) ?? "allow",
-    policyReason: (raw.policy_reason as string) ?? null,
-  };
 }
 
 export async function submitServer(sourceUrl: string, note?: string) {
@@ -339,34 +256,4 @@ export async function setFavorite(listingId: string, favorite: boolean) {
 export async function listFavorites(): Promise<Listing[]> {
   const raw = await request<RawListing[]>("/marketplace/favorites");
   return raw.map(toListing);
-}
-
-export async function getPolicy(): Promise<OrgPolicy> {
-  const raw = await request<Record<string, unknown>>("/marketplace/policy");
-  return {
-    gradeActions: (raw.grade_actions as OrgPolicy["gradeActions"]) ?? {
-      A: "allow",
-      B: "allow",
-      C: "require_approval",
-      D: "block",
-      // Missing here while the type required it, so a fresh workspace's
-      // policy had no answer for the worst grade at all.
-      F: "block",
-    },
-    unscannedAction: (raw.unscanned_action as OrgPolicy["unscannedAction"]) ?? "require_approval",
-  };
-}
-
-export async function setPolicy(policy: OrgPolicy): Promise<OrgPolicy> {
-  const raw = await request<Record<string, unknown>>("/marketplace/policy", {
-    method: "PUT",
-    body: JSON.stringify({
-      grade_actions: policy.gradeActions,
-      unscanned_action: policy.unscannedAction,
-    }),
-  });
-  return {
-    gradeActions: raw.grade_actions as OrgPolicy["gradeActions"],
-    unscannedAction: raw.unscanned_action as OrgPolicy["unscannedAction"],
-  };
 }

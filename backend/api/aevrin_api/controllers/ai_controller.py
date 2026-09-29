@@ -183,8 +183,6 @@ async def _gather_evidence(
     """
     if subject_type == "finding":
         return await _finding_evidence(db, user_id=user_id, finding_id=subject_id)
-    if subject_type in ("trust_grade", "listing"):
-        return await _listing_evidence(db, listing_id=subject_id, subject_type=subject_type)
     if subject_type == "scan":
         return await _scan_evidence(db, user_id=user_id, scan_id=subject_id)
     return None
@@ -261,59 +259,5 @@ async def _scan_evidence(
             "risk_score": scan.get("risk_score"),
             "grade": scan.get("grade"),
             "mcp_detected": scan.get("mcp_detected"),
-        },
-    )
-
-
-async def _listing_evidence(
-    db: SupabaseRest, *, listing_id: str, subject_type: str
-) -> dict[str, Any] | None:
-    """Evidence for a public marketplace listing.
-
-    No ownership check, because a published listing is public and its grade is
-    already visible to anyone. Private listings are excluded by the filter
-    below rather than by a permission error, for the same reason the detail
-    endpoint 404s: confirming existence is itself a disclosure.
-    """
-    rows = await db.select(
-        "mcp_listings",
-        {"id": listing_id, "visibility": "eq.public", "status": "eq.published"},
-        columns="id,slug,title,current_version,latest_version,current_trust_grade,"
-        "current_risk_score,current_coverage_complete,install_targets,installation,license",
-        limit=1,
-    )
-    if not rows:
-        return None
-    listing = rows[0]
-
-    version_rows = await db.select(
-        "mcp_listing_versions",
-        {"listing_id": listing_id, "version": f"eq.{listing.get('current_version')}"},
-        columns="scan_id,trust_grade,risk_score",
-        limit=1,
-    )
-    findings: list[dict[str, Any]] = []
-    if version_rows and version_rows[0].get("scan_id"):
-        findings = await db.select(
-            "findings", {"scan_id": str(version_rows[0]["scan_id"])}, limit=100
-        )
-
-    return evidence.build_evidence(
-        subject_type=subject_type,
-        subject_id=listing_id,
-        findings=findings,
-        trust_grade={
-            "grade": listing.get("current_trust_grade"),
-            "risk_score": listing.get("current_risk_score"),
-        },
-        coverage={
-            "complete": listing.get("current_coverage_complete"),
-            "unreliable_stages": [],
-        },
-        context={
-            "server": listing.get("title"),
-            "scanned_version": listing.get("current_version"),
-            "latest_version": listing.get("latest_version"),
-            "license": listing.get("license"),
         },
     )

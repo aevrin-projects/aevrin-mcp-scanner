@@ -42,11 +42,43 @@ class AdminUserPage(BaseModel):
     page: int
     page_size: int
 
+class AdminPaymentRow(BaseModel):
+    """One checkout, for support. The Razorpay ids are what a customer quotes
+    and what the Razorpay dashboard searches by; the signature is never
+    returned."""
+
+    id: str
+    tier: str
+    cycle: str
+    seats: int = 1
+    amount_paise: int
+    currency: str
+    status: str
+    razorpay_order_id: str | None = None
+    razorpay_payment_id: str | None = None
+    created_at: str | None = None
+    verified_at: str | None = None
+
+
+class AdminWorkspace(BaseModel):
+    org_id: str
+    name: str
+    role: str | None = None
+    is_owner: bool
+    # Owner only: the limit in force (1 unless the owner's Team is active) and
+    # members plus open invitations.
+    seat_limit: int | None = None
+    seats_used: int | None = None
+
+
 class AdminUserDetail(BaseModel):
     user_id: str
     email: str | None
     tier: str
     effective_tier: str
+    # What is enforced: "team" for a member of an active Team workspace even
+    # when their own plan is Free.
+    entitled_tier: str
     status: str
     status_reason: str | None = None
     flagged: bool = False
@@ -59,8 +91,11 @@ class AdminUserDetail(BaseModel):
     recent_scans: list[dict[str, Any]] = []
     api_key_count: int = 0
     github_connected: bool = False
-    # How many people this account's workspace may hold, owner included.
+    # accounts.seats as bought or granted. Only in force while the account's
+    # own plan is an active Team; workspace.seat_limit is the number enforced.
     seats: int = 1
+    workspace: AdminWorkspace | None = None
+    payments: list[AdminPaymentRow] = []
 
 class StatusChangeIn(BaseModel):
     status: Literal["active", "disabled", "blocked"]
@@ -86,6 +121,7 @@ class SeatsIn(BaseModel):
 
     seats: int = Field(ge=1, le=500)
     reason: str = Field(min_length=3, max_length=500)
+    totp_code: str | None = None
 
 
 class OverrideIn(BaseModel):

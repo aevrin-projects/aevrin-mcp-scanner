@@ -59,7 +59,9 @@ Top level: `admin_auth`, `permissions`, `quota`, `scan`, `source_upload`,
 
 - **`services/marketplace/`** - the Aevrin Registry: `items` (item
   types, content schemas, the publish gate), `normalize`, `ranking`,
-  `grading`, `catalog`, `sync`, `scanning`, `submissions`, `admin`. See
+  `catalog`, `sync`, `submissions`, `admin`. Discovery only: nothing in it
+  scans or grades (the `grading` and `scanning` modules were deleted,
+  `DECISIONS.md` ADR-049). See
   [`../features/MCP_MARKETPLACE.md`](../features/MCP_MARKETPLACE.md).
 - **`services/ai/`** - `evidence`, `credentials`, `explain`,
   `provider_sync`. See

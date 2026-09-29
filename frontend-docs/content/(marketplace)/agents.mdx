@@ -4,7 +4,7 @@ description: Connect Claude Code, Cursor or any MCP client to the Aevrin Registr
 ---
 
 An agent can search the Aevrin Registry and read an item's full content (a prompt's text, a
-skill's instructions, an MCP server's install configuration and security grade) over MCP. It sees
+skill's instructions, an MCP server's install configuration) over MCP. It sees
 exactly what an anonymous visitor to the registry sees: published, public items, and nothing else.
 
 ## Connect
@@ -34,21 +34,20 @@ All three are read-only. None of them needs a login, stores anything, or changes
 
 | Tool | What it returns |
 | --- | --- |
-| `search_registry` | Up to 25 matching items: slug, name, type, summary, categories, technologies, security state and grade, and a link. Filter by `type`, `category` or `technology`. |
-| `get_registry_item` | One item by slug: its full description, content (prompt, instructions, usage, examples, inputs and outputs), install configuration per client, repository and ref, related items, and security summary. |
+| `search_registry` | Up to 25 matching items: slug, name, type, summary, categories, technologies, capabilities, use cases, and a link. Filter by `type`, `category` or `technology`. |
+| `get_registry_item` | One item by slug: its full description, content (prompt, instructions, usage, examples, inputs and outputs), install configuration per client with its warnings, repository and ref, and related items. |
 | `list_registry_categories` | Every category with its item count. |
 
 A good instruction to give an agent names what it needs, not a slug:
 
-> Search the Aevrin Registry for an MCP server that gives you library documentation, check its
-> grade, and show me the install configuration for Claude Code.
+> Search the Aevrin Registry for an MCP server that gives you library documentation, and show me
+> the install configuration for Claude Code.
 
 ## What the agent is told about safety
 
-- **Security state comes with every server.** A server that was scanned but could not be graded
-  says so in words. It is never presented as safe.
-- **Other types say they were not scanned.** A prompt or a skill carries "Not security-scanned by
-  Aevrin".
+- **Listing is not a security assessment.** Every search result carries a note saying so, and no
+  tool returns a grade or a scan result: the registry does not scan what it lists. To check a
+  server, scan it (locally, `scan_mcp_server` below; or `aevrin scan mcp`).
 - **A README is labelled as third-party text.** It is written by the server's publisher, not by
   Aevrin, so it is truncated and marked as data to read, not instructions to follow.
 

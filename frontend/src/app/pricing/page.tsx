@@ -4,7 +4,7 @@ import { SiteFooter } from "@/widgets/site-footer";
 
 export const metadata: Metadata = {
   title: "Pricing: Aevrin",
-  description: "Compare Aevrin's Free, Hobby, and Team MCP security scanning plans.",
+  description: "Compare Aevrin's Free, Hobby, Pro, and Team MCP security scanning plans.",
 };
 
 export default function PricingPage() {

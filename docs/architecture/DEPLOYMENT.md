@@ -52,13 +52,19 @@ Sequence:
    clean deploy.
 5. `backend/deploy/Caddyfile` routes `api.mcp.aevrin.net`: `/mcp` and
    `/mcp/*` to `registry-mcp:8080`, everything else to `api:8000`. The
-   script **installs** it into the running `caddy` container (before this,
-   a deploy only reloaded whatever Caddy already had, so a routing change in
-   the repository never reached production). Installing is guarded: the
-   file must pass `caddy validate`; it must not drop any site the live
-   config serves (a site defined only on the host would otherwise vanish);
-   the live file is kept as `Caddyfile.prev` and restored if the reload
-   fails. Any refusal leaves the running config as it was, reloads it so
+   script **installs** it (before this, a deploy only reloaded whatever
+   Caddy already had, so a routing change in the repository never reached
+   production). `/etc/caddy/Caddyfile` is a read-only bind mount in this
+   deployment, so the script finds the host file behind it with
+   `docker inspect` and writes that in place (a rename would break a
+   single-file mount). Installing is guarded: the file must pass
+   `caddy validate`; it must not drop any site the live config serves (a
+   site defined only on the host would otherwise vanish); the container
+   must be seen to read the new content before the reload; the host file is
+   kept as `Caddyfile.prev` and restored on any failure. Every step checks
+   its own status, because bash suspends `set -e` inside a function called
+   as an `if` condition - which is how a failed write once reported
+   success. Any refusal leaves the running config as it was, reloads it so
    the recreated containers' addresses are re-resolved, and fails the run.
 6. The workflow polls `https://api.mcp.aevrin.net/health` through
    Cloudflare for up to two minutes, then sends `tools/list` to
@@ -266,8 +272,9 @@ from application code, and the first is load-bearing for tenant isolation:
    of apparently-running scans came from exactly this gap.
 
    Order: deploy healthy → apply 0047 immediately → `POST
-   /scheduler/reap-stuck-scans` to close anything caught in the window →
-   `POST /admin/marketplace/mcp/regrade-ungraded`.
+   /scheduler/reap-stuck-scans` to close anything caught in the window. (The
+   original sequence ended with a catalogue regrade; that route went with
+   the registry's scanning, `DECISIONS.md` ADR-049.)
 
    A change of this size should next time be split expand/contract - add
    columns and widen the constraint before the deploy, drop and narrow after -
@@ -289,9 +296,28 @@ from application code, and the first is load-bearing for tenant isolation:
    and the deploy, re-run 0048 once straight after the deploy - every
    statement is guarded, so a re-run changes only rows the old image wrote
    - and do it **before** any admin publishes an ungraded server, which a
-   re-run would otherwise return to draft.
+   re-run would otherwise return to draft. Once 0049 is applied, 0048 must
+   not be re-run: its data statements read columns 0049 drops.
 
-5. **Disk headroom for npm caches.** Each scan pulls a package tree into
+5. **Migration 0049 applied *after* the deploy, never before.** It is a
+   contract migration: it drops the registry's scan state
+   (`mcp_listings.current_*`, the scan columns of `mcp_listing_versions`,
+   `org_mcp_policies`, `tier_limits.marketplace_policies`, cached
+   `trust_grade`/`listing` explanations). The previous image selects those
+   columns on every registry browse, detail and admin read, so applying it
+   first takes the registry and the admin registry page down until the new
+   image ships. The new image reads none of them, so the window between the
+   deploy and the migration is safe. Order: push → both deploys (API and
+   frontend) succeed and `/health` is green on the new image → apply:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\backend\infra\apply-migration.ps1 .\backend\infra\migrations\0049_marketplace_scanning_contract.sql
+   ```
+
+   Every drop is `if exists`, so a re-run is a no-op. `schema_check`
+   requires none of the dropped columns.
+
+6. **Disk headroom for npm caches.** Each scan pulls a package tree into
    tmpfs; the ceilings are set in `mcp/tooltrust.py`.
 
 ## CI (`.github/workflows/ci.yml`)
@@ -354,8 +380,10 @@ everything else - which already happened once: the domain cutover reduced it
 to the two origin keys, dropping `SCHEDULER_TOKEN` and
 `MARKETPLACE_SCAN_USER_ID` from the only off-instance record of them. It
 currently carries `WEB_ORIGIN`, `PUBLIC_WEB_ORIGIN`,
-`MARKETPLACE_SCAN_USER_ID`, and `SCHEDULER_TOKEN`. See `DECISIONS.md`
-ADR-013.
+`MARKETPLACE_SCAN_USER_ID`, and `SCHEDULER_TOKEN`. `MARKETPLACE_SCAN_USER_ID`
+is no longer read by the API (ADR-049; `Settings` ignores unknown keys), so
+it can be dropped the next time the blob is rewritten in full. See
+`DECISIONS.md` ADR-013.
 
 The extracted value is passed to `::add-mask::` before use. That is
 required rather than defensive: GitHub masks a secret's whole value, and

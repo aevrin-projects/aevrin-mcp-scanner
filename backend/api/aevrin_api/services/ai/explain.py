@@ -4,7 +4,7 @@ The contract with the rest of the product is narrow and one-directional:
 
 * An explanation reads evidence. It never produces evidence, never edits a
   finding, never moves a score, and never changes a grade. Nothing in this
-  module writes to `scans`, `findings`, or `mcp_listing_versions`.
+  module writes to `scans` or `findings`.
 
 * If it fails, the security result is unaffected. Every caller treats a
   failure here as "explanation unavailable", displayed next to a finding that
@@ -82,13 +82,11 @@ def _build_user_prompt(document: dict[str, Any], question: str | None) -> str:
 def _default_question(subject_type: str) -> str:
     return {
         "finding": "Explain this security finding.",
-        "trust_grade": "Explain why this MCP server received this trust grade.",
         "agent_posture": "Explain the security risk in this agent's current posture.",
         "permission": "Explain what this permission actually allows.",
         "skill": "Explain what capability this skill grants.",
         "attack_path": "Explain this attack path and what makes it reachable.",
-        "scan": "Explain the overall result of this scan.",
-        "listing": "Explain the security position of this MCP server.",
+        "scan": "Explain the overall result of this scan, including why it received its grade.",
     }.get(subject_type, "Explain this security evidence.")
 
 
@@ -98,7 +96,7 @@ async def get_cached(
     """A previous explanation of byte-identical evidence, if one exists.
 
     Shared across users deliberately. The evidence hash contains no identity,
-    so two people looking at the same public listing genuinely are asking the
+    so two members of a workspace looking at the same scan genuinely are asking the
     same question, and charging both for it would be waste rather than
     isolation. Evidence built from a private scan hashes differently because
     the scan differs, so nothing crosses a tenant boundary by doing this.
@@ -252,17 +250,3 @@ async def _store(
         # answer; the next reader pays for it again.
         logger.warning("could not cache explanation", exc_info=True)
     return row
-
-
-async def invalidate_for_subject(db: SupabaseRest, *, subject_type: str, subject_id: str) -> None:
-    """Drop cached explanations for a subject whose evidence has been replaced.
-
-    Called after a forced rescan. Strictly speaking the hash would already
-    differ and the stale rows would simply never be read again, but leaving
-    them means a detail page that looks up by subject rather than by hash
-    could still surface an explanation of superseded evidence.
-    """
-    try:
-        await db.delete("ai_explanations", {"subject_type": subject_type, "subject_id": subject_id})
-    except Exception:
-        logger.warning("could not invalidate explanations for %s", subject_id, exc_info=True)

@@ -9,7 +9,7 @@ from fastapi import HTTPException, status
 from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest
 from aevrin_api.integrations.r2_client import presigned_report_url, upload_report
-from aevrin_api.services.quota import effective_tier, get_or_create_account
+from aevrin_api.services.quota import entitled_tier, get_or_create_account
 from aevrin_api.services.reports import render_report_html
 
 
@@ -17,7 +17,7 @@ async def export_report(
     scan_id: UUID, user_id: str, db: SupabaseRest, settings: Settings
 ) -> dict[str, str]:
     account = await get_or_create_account(db, user_id)
-    tier = effective_tier(account)
+    tier = await entitled_tier(db, account)
     tier_rows = await db.select("tier_limits", {"tier": tier}, columns="pdf_export")
     if not tier_rows or not tier_rows[0]["pdf_export"]:
         raise HTTPException(

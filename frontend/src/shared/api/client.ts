@@ -25,6 +25,30 @@ async function authHeaders(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${session.access_token}` };
 }
 
+/**
+ * FastAPI sends `detail` as a string for an HTTPException but as an array of
+ * `{loc, msg}` objects for a request that failed validation (422). Stored
+ * as-is, the array reached toasts as "[object Object]", so a Team checkout
+ * with too few seats said nothing about seats.
+ */
+function formatDetail(detail: unknown): string | undefined {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && "msg" in item && typeof item.msg === "string") {
+          // Pydantic prefixes a model validator's message with "Value error, ".
+          return item.msg.replace(/^Value error, /, "");
+        }
+        return null;
+      })
+      .filter((message): message is string => Boolean(message));
+    return messages.length > 0 ? messages.join(" ") : undefined;
+  }
+  return undefined;
+}
+
 async function send<T>(path: string, init: RequestInit | undefined, headers: Record<string, string>): Promise<T> {
   let res: Response;
   try {
@@ -39,7 +63,7 @@ async function send<T>(path: string, init: RequestInit | undefined, headers: Rec
     let detail = res.statusText;
     try {
       const body = await res.json();
-      detail = body.detail ?? detail;
+      detail = formatDetail(body.detail) ?? detail;
     } catch {
       // non-JSON error body, fall back to statusText
     }

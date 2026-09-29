@@ -33,8 +33,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover - import-guard
 _INSTRUCTIONS = (
     "The Aevrin Registry: MCP servers, skills, prompts, templates, repositories and more, "
     "curated by Aevrin administrators. Search with search_registry using the user's goal, "
-    "then read an item with get_registry_item before using it. A missing security grade "
-    "never means safe."
+    "then read an item with get_registry_item before using it. Listing is curation, not a "
+    "security assessment."
 )
 
 

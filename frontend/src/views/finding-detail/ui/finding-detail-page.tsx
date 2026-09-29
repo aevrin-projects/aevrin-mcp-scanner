@@ -16,6 +16,7 @@ import { Skeleton } from "@/shared/ui/skeleton";
 import { Textarea } from "@/shared/ui/textarea";
 import { riskImpactForSeverity } from "@/entities/finding";
 import { formatDateTime } from "@/shared/lib/format";
+import { ExplainButton } from "@/features/ai-explain";
 
 export function FindingDetailClient({
   scanId,
@@ -154,6 +155,7 @@ export function FindingDetailClient({
             <SectionBody title="Why it matters" body={finding.description} />
             <SectionBody title="Remediation" body={finding.remediation} />
             <AiReview finding={finding} />
+            <ExplainButton subjectType="finding" subjectId={findingId} />
           </div>
         </SectionCard>
 

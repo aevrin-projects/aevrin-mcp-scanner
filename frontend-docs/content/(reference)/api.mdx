@@ -78,10 +78,12 @@ dashboard and `aevrin findings triage` need to call them.
 
 | Method & path | Auth | Description |
 |---|---|---|
-| `GET /billing/subscription` | JWT | Stored and effective tier plus paid-through time. |
-| `POST /billing/checkout` | JWT | Create a USD Razorpay order for one monthly or annual cycle. |
+| `GET /billing/pricing` | None | Prices in the caller's currency (USD, or INR from India), in cents or paise. |
+| `GET /billing/subscription` | JWT | Stored tier, the account's own paid tier, the tier actually enforced (Team for a member of an active Team workspace), paid-through time, and seats. |
+| `POST /billing/checkout` | JWT | Create a Razorpay order, in USD or INR by the caller's location, for one monthly or annual cycle. Team takes `seats` (3 to 500), is charged per seat, and only a workspace's owner can buy it. |
 | `POST /billing/verify` | JWT | Verify checkout signature and activate the paid period. |
 | `POST /billing/webhook` | Razorpay signature | Recover a captured payment when the browser verification callback did not complete. |
+| `GET /billing/payments` | JWT | Your checkouts, most recent first, including ones that did not complete. |
 
 ## Device authorization
 
@@ -100,9 +102,10 @@ and `aevrin hook setup`; applications should prefer manually created API keys fo
 
 ## Errors
 
-Standard HTTP status codes. `402 Payment Required` specifically means a scan quota is used up
-for the current billing period. The response body always includes `bucket`, `resets_at`, and
-`upgrade_url` so a caller can build a real message instead of a bare refusal.
+Standard HTTP status codes. `402 Payment Required` means a plan limit was reached: a scan quota
+for the current billing period, the plan's monitored-device count, or a workspace's seats. For a
+scan quota the response body always includes `bucket`, `resets_at`, and `upgrade_url` so a
+caller can build a real message instead of a bare refusal.
 
 ```json title="402 response shape"
 {

@@ -8,6 +8,8 @@ routes/billing.py, which owns the contract.
 
 from __future__ import annotations
 
+import calendar
+import json
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -33,7 +35,13 @@ from aevrin_api.schemas import (
     VerifyPaymentRequest,
     VerifyPaymentResponse,
 )
-from aevrin_api.services.quota import effective_tier, get_or_create_account
+from aevrin_api.services.quota import (
+    effective_tier,
+    entitled_tier,
+    get_or_create_account,
+    seats_used,
+    workspace_of,
+)
 
 logger = logging.getLogger("aevrin.billing")
 
@@ -92,7 +100,7 @@ def resolve_currency(country: str | None, requested: str | None = None) -> str:
 
     Derived from the caller's country, never taken from the client. A currency sent
     up from the browser would let anyone pay Indian prices for a US
-    subscription -- Pro is Rs 1,499 against $34, so the toggle would be worth
+    subscription -- Pro is Rs 1,099 against $28, so the toggle would be worth
     roughly half the subscription. The toggle on the pricing page changes
     what is *displayed*; this decides what is *charged*, and the two agree
     because the page reads its numbers from the same endpoint.
@@ -133,10 +141,20 @@ def _paid_until(existing: str | None, cycle: str) -> datetime:
         existing_dt = datetime.fromisoformat(existing) if isinstance(existing, str) else existing
         base = max(base, existing_dt)
     if cycle == "annual":
-        return base.replace(year=base.year + 1)
-    if base.month == 12:
-        return base.replace(year=base.year + 1, month=1)
-    return base.replace(month=base.month + 1)
+        return _add_months(base, 12)
+    return _add_months(base, 1)
+
+
+def _add_months(base: datetime, months: int) -> datetime:
+    """Same day next month, or the last day of that month when it is shorter.
+
+    `replace(month=...)` raises on Jan 31 -> Feb, on the 31st before any
+    30-day month, and on Feb 29 plus a year. The webhook used to hit that
+    after it had already claimed the payment, so the grant was lost for good.
+    """
+    total = base.month - 1 + months
+    year, month = base.year + total // 12, total % 12 + 1
+    return base.replace(year=year, month=month, day=min(base.day, calendar.monthrange(year, month)[1]))
 
 
 async def _create_order_or_503(client: RazorpayClient, **kwargs: Any) -> dict[str, Any]:
@@ -176,6 +194,37 @@ def get_pricing(country: str | None, currency: str | None = None) -> PricingResp
     )
 
 
+async def _assert_may_buy_team(seats: int, user_id: str, db: SupabaseRest) -> None:
+    """Team seats are the workspace owner's to buy.
+
+    Seats are read from the owner's account, so a member paying would buy
+    seats for a workspace of their own that does not exist while leaving the
+    one they are in unchanged: money taken, nothing granted. Buying fewer
+    seats than the workspace already fills is refused for the same reason
+    from the other side: it would pay for three people and serve five.
+    """
+    org = await workspace_of(db, user_id)
+    if org is None:
+        return
+    if org["owner_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Only the workspace owner can buy Team seats. Your workspace's owner buys "
+                "Team, and everyone in the workspace gets Team limits while it is active."
+            ),
+        )
+    used = await seats_used(db, org["id"])
+    if seats < used:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Your workspace already holds {used} people, counting invitations nobody has "
+                f"accepted. Buy at least {used} seats, or remove people or revoke invitations first."
+            ),
+        )
+
+
 async def create_checkout(
     body: CheckoutRequest,
     country: str | None,
@@ -184,6 +233,8 @@ async def create_checkout(
     settings: Settings,
     currency_preference: str | None = None,
 ) -> CheckoutResponse:
+    if body.tier == "team":
+        await _assert_may_buy_team(body.seats, user_id, db)
     currency = resolve_currency(country, currency_preference)
     amount_paise = _tier_amount(body.tier, body.cycle, currency) * body.seats
     try:
@@ -243,11 +294,11 @@ async def verify_payment(
         order_id=body.razorpay_order_id, payment_id=body.razorpay_payment_id, signature=body.razorpay_signature
     )
     if not valid:
-        await db.update(
-            "payments",
-            {"razorpay_order_id": body.razorpay_order_id},
-            {"status": "failed", "razorpay_payment_id": body.razorpay_payment_id},
-        )
+        # The row is left as it is. A mismatched signature says nothing about
+        # the payment itself, and marking it `failed` - which this did, with no
+        # status filter - locked out the webhook that could still settle a real
+        # capture, and could even un-pay a settled one.
+        logger.warning("razorpay verify: signature mismatch for order=%s", body.razorpay_order_id)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payment signature mismatch")
 
     account = await get_or_create_account(db, user_id)
@@ -287,15 +338,26 @@ async def verify_payment(
         else:
             await db.update("accounts", {"user_id": user_id}, _account_update_for_payment(payment, new_paid_until))
 
-    # A second verify of an already-paid order is not an error: the browser
-    # legitimately retries, and the webhook may have claimed it first. It
-    # just must not grant anything a second time.
+    else:
+        # A second verify of an already-paid order is not an error: the browser
+        # legitimately retries, and the webhook may have claimed it first. It
+        # just must not grant anything a second time. Anything other than
+        # `paid` means nothing was granted, and saying "ok" would tell the
+        # customer their plan is active when it is not.
+        current = await db.select("payments", {"razorpay_order_id": body.razorpay_order_id}, columns="status", limit=1)
+        if not current or current[0].get("status") != "paid":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This payment could not be activated. Contact support@aevrin.net with your order id.",
+            )
+        account = await get_or_create_account(db, user_id)
+        stored = account.get("paid_until")
+        new_paid_until = datetime.fromisoformat(stored) if isinstance(stored, str) else new_paid_until
     return VerifyPaymentResponse(status="ok", tier=payment["tier"], paid_until=new_paid_until)
 
 
 async def razorpay_webhook(
     raw_body: bytes,
-    payload: dict[str, Any],
     db: SupabaseRest,
     settings: Settings,
     x_razorpay_signature: str | None = None,
@@ -307,8 +369,18 @@ async def razorpay_webhook(
     ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
 
+    # Parsed only after the signature holds: an unsigned body is never
+    # interpreted, and a malformed one is a 400 rather than a crash.
+    try:
+        payload = json.loads(raw_body)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Malformed webhook body") from exc
+
+    # Either event settles an order; which ones fire depends on the dashboard's
+    # webhook subscription. Handling both is safe because the claim below is a
+    # compare-and-set: the second to arrive grants nothing.
     event = payload.get("event", "")
-    if event != "payment.captured":
+    if event not in ("payment.captured", "order.paid"):
         return {"status": "ignored"}
 
     entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
@@ -319,8 +391,16 @@ async def razorpay_webhook(
 
     rows = await db.select("payments", {"razorpay_order_id": order_id})
     if not rows:
+        logger.warning("razorpay webhook: %s for an order with no payment row: order=%s", event, order_id)
         return {"status": "ok"}
     payment = rows[0]
+
+    # Everything the grant needs is computed before the claim. Once the row
+    # says `paid`, Razorpay's retry finds it claimed and grants nothing, so a
+    # failure between the claim and the grant used to lose it permanently.
+    account = await get_or_create_account(db, payment["user_id"])
+    is_addon = payment["tier"] in ("autofix_addon", "byok_addon")
+    new_paid_until = None if is_addon else _paid_until(account.get("paid_until"), payment["cycle"])
 
     # Same compare-and-set as /verify, and for a sharper reason: this path
     # and /verify race each other by design. Razorpay fires the webhook while
@@ -335,14 +415,9 @@ async def razorpay_webhook(
     if not claimed:
         return {"status": "ok"}
 
-    account = await get_or_create_account(db, payment["user_id"])
-
     # A historical add-on leaves tier and paid_until alone. Collapsing this
     # into the general case would let such a row extend a subscription.
-    if payment["tier"] in ("autofix_addon", "byok_addon"):
-        pass  # No longer sold and nothing left to credit; see /verify above.
-    else:
-        new_paid_until = _paid_until(account.get("paid_until"), payment["cycle"])
+    if new_paid_until is not None:
         await db.update("accounts", {"user_id": payment["user_id"]}, _account_update_for_payment(payment, new_paid_until))
     logger.info("razorpay webhook activated payment: order=%s user=%s tier=%s", order_id, payment["user_id"], payment["tier"])
     return {"status": "ok"}
@@ -354,15 +429,27 @@ def _account_update_for_payment(payment: dict[str, object], new_paid_until: date
     update: dict[str, object] = {
         "tier": payment["tier"],
         "paid_until": new_paid_until.isoformat(),
-        "seats": payment.get("seats", 1),
     }
+    # Seats are a Team quantity. Writing them on every payment reset a Team
+    # owner's seats to 1 the moment they bought a cycle of Pro, so going back
+    # to Team later started from nothing, and an admin grant was undone by any
+    # purchase.
+    if payment["tier"] == "team":
+        update["seats"] = payment.get("seats", 1)
     return update
 
 
 async def get_subscription(user_id: str, db: SupabaseRest) -> SubscriptionResponse:
     account = await get_or_create_account(db, user_id)
+    org = await workspace_of(db, user_id)
+    owns_workspace = org is not None and org["owner_id"] == user_id
     return SubscriptionResponse(
-        tier=account["tier"], effective_tier=effective_tier(account), paid_until=account.get("paid_until")
+        tier=account["tier"],
+        effective_tier=await entitled_tier(db, account),
+        own_effective_tier=effective_tier(account),
+        paid_until=account.get("paid_until"),
+        seats=int(account.get("seats") or 1),
+        seats_used=await seats_used(db, org["id"]) if owns_workspace and org is not None else None,
     )
 
 

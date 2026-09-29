@@ -9,8 +9,12 @@ skills, prompts, agents, templates, repositories, tools and more. People browse 
 MCP (see [Using the registry from an agent](/agents)).
 
 An administrator decides what is published. Nothing reaches the public registry automatically:
-not a server synced from the official MCP Registry, not a user's suggestion, and not a finished
-scan.
+not a server synced from the official MCP Registry, and not a user's suggestion.
+
+**The registry is for discovery.** Publishing an item is curation, not a security verdict: Aevrin
+does not scan, grade or security-check anything it lists, and no item shows a grade or a scan
+result. To check an MCP server you found here, scan it yourself (see
+[Scanning a server you found](#scanning-a-server-you-found)).
 
 ## What an item is
 
@@ -19,7 +23,7 @@ can be published.
 
 | Type | Needs, before publishing |
 | --- | --- |
-| MCP server | A package, a hosted endpoint or a repository, **and an Aevrin security scan** |
+| MCP server | A package, a hosted endpoint or a repository |
 | Prompt | The prompt text |
 | Skill | Its instructions |
 | Repository, template | The repository URL |
@@ -28,22 +32,34 @@ can be published.
 Every item also needs a title and a description, because those are what search matches and what an
 agent reads to decide whether the item is relevant.
 
-## Only MCP servers are security-scanned
+## Scanning a server you found
 
-Aevrin has a security scanner for MCP servers. It has none for a prompt or a skill, so those items
-are shown as **Not security-scanned by Aevrin. Curated by an administrator.** They never show a
-grade, and never show a "clean" result: no scanner looked at them, so either claim would be made
-up. See [Security grades](/security-grades) for what an MCP server's grade means.
+An MCP server's page has a **Scan with Aevrin** action. It opens Aevrin's own scan page with the
+server already filled in: its GitHub repository if it has one, otherwise its hosted endpoint. If the
+server is published only as an npm or PyPI package, the page shows the CLI command instead, for
+example:
+
+```bash
+aevrin scan mcp "npx -y @scope/server"
+```
+
+The scan that runs is the same one as any other Aevrin scan, in your account and against your plan's
+quota, and its result is yours, on your scans page. Nothing about it is written back to the
+registry. If you are signed out, you are asked to sign in first and then returned to the prefilled
+scan page. See [Scan targets](/targets) and [the CLI](/cli).
+
+Other item types (prompts, skills, templates and the rest) have no scan action: there is no scanner
+for them.
 
 ## Where MCP servers come from
 
 Aevrin reads the [official MCP Registry](https://registry.modelcontextprotocol.io), a public list
 of server metadata (name, description, version, repository, packaging). It does not fork the
 registry, mirror it as authoritative, or replace it. It adds three things the registry
-deliberately leaves out: a security scan, curation, and ranking.
+deliberately leaves out: curation, ranking, and ready-to-copy client configuration.
 
-Servers read from the registry arrive as **drafts**. An administrator chooses which ones to scan
-and publish.
+Servers read from the registry arrive as **drafts**. An administrator chooses which ones to
+publish.
 
 Every item shows its provenance:
 
@@ -53,25 +69,24 @@ Every item shows its provenance:
 | Suggested by a user | Proposed by an Aevrin user and published by an administrator |
 | Added by Aevrin | Added by an administrator |
 
-A listing is not an endorsement. It means an administrator chose to publish the item, and, for an
-MCP server, that Aevrin scanned it and shows what it found.
+A listing is not an endorsement and not a security assessment. It means an administrator chose to
+publish the item.
 
 ## What the registry adds
-
-**A security grade for MCP servers.** From a real Aevrin scan, or a plain statement that no grade
-could be established. See [Security grades](/security-grades).
-
-**Separated signals.** Security and popularity are shown apart, always. A server with 25,000 stars
-can be graded D. Stars measure attention; the grade measures evidence.
 
 **Transparent ranking.** "Recommended" is a fixed formula over signals you can see, not a model.
 See [Searching](/search).
 
+**Honest popularity.** Stars, forks and downloads are named for what they measure. None of them is
+a count of users, and none of them is a security signal.
+
 **Curation.** Titles, descriptions, categories, technologies and use cases are maintained by an
-administrator, who can also relate items to each other. An administrator cannot change a grade.
+administrator, who can also relate items to each other.
 
 ## What it does not do
 
+- It does not scan, grade or security-check anything it lists. Scan a server yourself before you
+  rely on it.
 - It does not process payments for third-party servers. A paid server links to its publisher's own
   pricing page and nothing more.
 - It does not claim compatibility a server has not declared. If a server declares no transport
@@ -87,13 +102,10 @@ A scheduled job runs roughly weekly and:
 
 1. Pulls servers changed since the last successful run from the official MCP Registry. New ones
    are stored as drafts.
-2. Records any new versions, which start unscanned.
+2. Records any new versions in each item's version list.
 3. Refreshes GitHub and npm metadata for the items whose data is oldest.
 4. Recomputes ranking scores.
 
 It never overwrites what an administrator curated. If the official registry is unreachable, the
 Aevrin Registry stays online with what it has. If GitHub is unreachable, the previously stored star
 count is kept rather than overwritten with zero.
-
-Servers are not rescanned on a timer. A rescan is triggered by evidence: a new version, a changed
-source, or an administrator asking for one.

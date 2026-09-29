@@ -12,7 +12,7 @@ detection.
 the score and the grade. The model explains them, and nothing more.
 
 **The AI cannot produce a finding.** It cannot create, alter, or remove one; it cannot move a score;
-it cannot change a grade. Nothing in the AI layer writes to the scans, findings, or version tables.
+it cannot change a grade. Nothing in the AI layer writes to the scans or findings tables.
 
 **A failure changes nothing.** If no provider is configured, or a vendor is down, the interface
 shows a quiet line of text next to a finding that remains entirely valid. The API returns a normal
@@ -25,21 +25,23 @@ different kinds of claim and are never presentable as the same thing.
 
 ## Where explanations appear
 
-- On an MCP trust grade, as "Why is this grade C?"
+- On a scan result, next to its grade, as "Why is this grade C?" (or "Explain this result" when the
+  scan could not be graded)
 - On an individual finding
-- On a scan result
-- On a marketplace listing's security position
 
-There is no AI button on decorative elements.
+Both are your own scans, or scans shared with your workspace. Anyone else asking about the same scan
+gets a "not found", which does not even confirm the scan exists.
+
+The registry has no explanation button. It carries no grade to explain: to understand an MCP server
+you found there, scan it, then explain the scan. There is no AI button on decorative elements.
 
 ## What the model receives
 
 A structured evidence document, and nothing else. It is not given the repository, the environment,
 your configuration, or your conversation.
 
-Included: findings (title, severity, OWASP category, file path, line, remediation), the trust grade
-and its factors, declared MCP tools and capabilities, permission types, credential *metadata*,
-attack paths, and coverage.
+Included: findings (title, severity, OWASP category, file path, line, remediation), the scan's
+grade and risk score, the target type, and coverage.
 
 Excluded, by construction:
 

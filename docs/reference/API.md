@@ -13,7 +13,7 @@ JWT) unless noted.
 |---|---|---|
 | `/account` | `account.py` | `GET /usage` |
 | `/admin` | `admin.py` | `GET /session`, `POST /totp/enrol`, `POST /totp/verify`, `GET /users`, `GET /users/{id}`, `POST /users/{id}/status`, `POST /users/{id}/plan`, `POST /users/{id}/seats`, `POST /users/{id}/overrides`, `DELETE /users/{id}/overrides/{bucket}`, `DELETE /users/{id}`, `POST /users/{id}/reset-usage`, `POST /users/{id}/password-reset`, `GET /analytics`, `GET /account-usage`, `GET /audit`, `GET /login-attempts` |
-| `/admin/marketplace` | `admin_marketplace.py` | `GET /summary`, `GET /mcp`, `POST /mcp`, `GET /mcp/{listing_id}`, `PATCH /mcp/{listing_id}`, `POST /mcp/{listing_id}/status`, `DELETE /mcp/{listing_id}`, `PUT /mcp/{listing_id}/links`, `POST /mcp/{listing_id}/refresh-metadata`, `POST /mcp/{listing_id}/scan`, `POST /mcp/regrade-ungraded`, `GET /submissions`, `POST /submissions/{id}/decision`, `GET /reports`, `POST /reports/{id}/decision`, `GET /categories`, `PUT /categories`, `DELETE /categories/{slug}` |
+| `/admin/marketplace` | `admin_marketplace.py` | `GET /summary`, `GET /mcp`, `POST /mcp`, `GET /mcp/{listing_id}`, `PATCH /mcp/{listing_id}`, `POST /mcp/{listing_id}/status`, `DELETE /mcp/{listing_id}`, `PUT /mcp/{listing_id}/links`, `POST /mcp/{listing_id}/refresh-metadata`, `GET /submissions`, `POST /submissions/{id}/decision`, `GET /reports`, `POST /reports/{id}/decision`, `GET /categories`, `PUT /categories`, `DELETE /categories/{slug}` |
 | `/agents` | `agents.py` | `POST /snapshots`, `GET ""`, `GET /mcp-servers`, `GET /skills`, `GET /permissions`, `GET /attack-paths`, `GET /{id}`, `DELETE /{id}` |
 | `/ai` | `ai.py` | `GET /providers`, `PUT /providers`, `PATCH /providers/{provider}`, `DELETE /providers/{provider}`, `GET /models`, `POST /explain` |
 | `/api-keys` | `api_keys.py` | `POST ""`, `GET ""`, `DELETE /revoked`, `DELETE /{key_id}` |
@@ -26,10 +26,10 @@ JWT) unless noted.
 | `/findings` | `findings.py` | `GET /{id}`, `PATCH /{id}` (`X-API-Key` accepted, for CLI triage) |
 | `/github` | `github.py` | `GET /status`, `GET /repos`, `GET /install-url`, `GET /callback` |
 | `/hook` | `hook.py` | `POST /override` (`X-API-Key`), `GET /cache`, `POST /cache` |
-| `/marketplace` | `marketplace.py` | `GET /mcp`, `GET /types`, `GET /categories`, `GET /mcp/{slug}`, `POST /mcp/{slug}/install-plan`, `POST /submissions`, `GET /submissions`, `POST /mcp/{id}/report`, `PUT /mcp/{id}/favorite`, `GET /favorites`, `GET /policy`, `PUT /policy` |
+| `/marketplace` | `marketplace.py` | `GET /mcp`, `GET /types`, `GET /categories`, `GET /mcp/{slug}`, `POST /submissions`, `GET /submissions`, `POST /mcp/{id}/report`, `PUT /mcp/{id}/favorite`, `GET /favorites` |
 | `/orgs` | `orgs.py` | `GET /permissions`, `GET /me`, `POST ""`, `PATCH ""`, `POST /leave`, `GET /members`, `PATCH /members/{id}`, `DELETE /members/{id}`, `GET /invites`, `POST /invites`, `DELETE /invites/{id}`, `POST /invites/{id}/accept`, `GET /roles`, `POST /roles`, `PATCH /roles/{id}`, `DELETE /roles/{id}` |
 | `/scans` | `scans.py` | `POST ""`, `POST /upload` (`X-API-Key`), `GET /{id}/diff`, `GET ""`, `DELETE ""`, `GET /{id}`, `POST /{id}/cancel`, `DELETE /{id}`, `GET /{id}/stages`, `GET /{id}/findings` |
-| `/scheduler` | `scheduler.py` | `POST /reap-stuck-scans`, `POST /registry-sync`, `POST /provider-sync`, `POST /uptime-check`, `GET /scan-queue` - all gated by `require_scheduler_token` (HMAC comparison against `SCHEDULER_TOKEN`, fails closed if unconfigured), not a user session |
+| `/scheduler` | `scheduler.py` | `POST /reap-stuck-scans`, `POST /registry-sync`, `POST /provider-sync`, `POST /uptime-check` - all gated by `require_scheduler_token` (HMAC comparison against `SCHEDULER_TOKEN`, fails closed if unconfigured), not a user session |
 | `/status` | `status.py` | `GET /history` - **unauthenticated by design**: it is the data behind the public status page, which has to stay readable when nobody can sign in. Carries no user, org, or scan data. |
 
 `GET /health` is registered directly in `main.py`, outside `ROUTERS`.
@@ -54,28 +54,46 @@ JWT) unless noted.
   external scheduler (EventBridge, a cron container), not a human.
 - **`GET /marketplace/mcp/{slug}`** returns `404`, not `403`, for a private
   listing the caller isn't authorized to see - existence itself isn't
-  leaked to an unauthorized caller. Its `grade_rationale` is derived on read
-  from the graded version's own scan, and the scan id comes from that version
-  row rather than from the caller: it is the one findings read in this
-  codebase without a tenancy filter, so nothing client-supplied may choose
-  which scan it reads. It publishes no more than the letter and risk score
-  already did.
+  leaked to an unauthorized caller. It carries `install_configs` (one
+  client config per supported agent, each with its `warnings`), which is
+  what the install dialog shows; there is no separate install-plan route.
 - **`/marketplace/mcp` serves every registry item type, not only MCP
   servers.** The path predates the registry and is kept because clients
   (the frontend, the registry MCP tools, the CLI) already call it; the
   `mcp` segment is naming debt, not a filter. Filter by type with
-  `?type=` (also `technology`, `capability`, `category`, `min_grade`,
-  `sort=trending`). Anonymous callers see only published public items.
+  `?type=` (also `technology`, `capability`, `category`, `price_type`,
+  `install_target`, `sort=trending`). Anonymous callers see only published
+  public items. **The registry is discovery only**: no registry response
+  carries a scan result, a grade or a scan state, and there is no grade
+  filter or security sort (`DECISIONS.md` ADR-049). Scanning is `POST
+  /scans`.
 - **`admin_marketplace.py`**'s edit route (`PATCH /mcp/{listing_id}`)
   writes only from `services/marketplace/admin.py`'s `EDITABLE_FIELDS`
-  allow-list, which contains no security-bearing column and no `status` -
-  an admin can correct curation metadata, never a grade, and publishing
-  goes only through `POST /mcp/{listing_id}/status`, which runs the
-  publish gate and returns `400` with the reasons when it refuses.
+  allow-list, which contains no `status` - publishing goes only through
+  `POST /mcp/{listing_id}/status`, which runs the publish gate
+  (`items.validate_item`, no scan requirement) and returns `400` with the
+  reasons when it refuses.
 - **`DELETE /admin/marketplace/mcp/{listing_id}`** takes a body
   `{"confirm_slug": "<the item's slug>"}` and refuses without an exact
   match. **`DELETE /admin/marketplace/categories/{slug}`** is refused while
   any item is filed under the category.
+
+- **`POST /billing/checkout`** takes `{tier, cycle, seats}`. For Team,
+  `seats` is 3-500 and the amount is the per-seat price times `seats`; it
+  returns `409` when the caller is in a workspace they do not own, or when
+  `seats` is below the workspace's members plus live invites. **`POST
+  /billing/verify`** returns `409` when nothing was granted, rather than
+  "ok". **`POST /billing/webhook`** checks the signature before parsing the
+  body and settles on `payment.captured` or `order.paid`.
+- **`GET /billing/subscription`** returns `effective_tier` as the tier
+  enforced (including Team inherited from a workspace), plus
+  `own_effective_tier`, `seats` and `seats_used` (owners only).
+  **`GET /account/usage`** reports the enforced tier too.
+- **`POST /admin/users/{id}/seats`** takes `{seats 1-500, reason,
+  totp_code}` and returns `404` when the account has no row.
+  **`GET /admin/users/{id}`** adds `entitled_tier`, `workspace` and
+  `payments`; **`GET /admin/analytics`** adds `revenue_by_currency`, in
+  minor units per currency, never summed across currencies.
 
 ## Error responses and the CDN
 

@@ -108,8 +108,11 @@ The other three read the Aevrin Registry
 `search_registry(query, type, category, technology, limit)`,
 `get_registry_item(slug)` and `list_registry_categories()`. They call the
 API's public registry routes at `AEVRIN_API_URL`, need no login, and
-return only published public items. A README in a result is truncated and
-labelled as untrusted third-party text.
+return only published public items, with no security field: the registry
+is discovery only, and listing is curation, not a security assessment. To
+check a server found there, scan it with `scan_mcp_server` or
+`aevrin scan mcp`. A README in a result is truncated and labelled as
+untrusted third-party text.
 
 The registry tools alone are also served at a hosted endpoint, which needs
 no install:

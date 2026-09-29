@@ -27,7 +27,9 @@ from aevrin_scanner_core import (
 from aevrin_scanner_core.pipeline import PipelineConfig, run_pipeline
 
 from aevrin_api.config import Settings
+from aevrin_api.db import SupabaseRest
 from aevrin_api.integrations.defectdojo_client import DefectDojoClient, DefectDojoUnavailable
+from aevrin_api.services.quota import entitled_tier
 from aevrin_api.services.triage import triage_findings
 
 logger = logging.getLogger("aevrin.scan_service")
@@ -277,8 +279,6 @@ def _run_and_persist(
     target: str,
     settings: Settings,
     stored_target: str | None = None,
-    channel: InvocationChannel = InvocationChannel.DASHBOARD,
-    server_command: str | None = None,
 ) -> None:
     durable_target = stored_target or target
     rest = _SyncRest(settings)
@@ -295,15 +295,13 @@ def _run_and_persist(
         rest.upsert("findings", [_finding_row(f, user_id) for f in findings], on_conflict="id")
 
     try:
-        # The channel is passed through rather than defaulted here: every
-        # scan used to record "dashboard" whatever started it, which made the
-        # column worse than absent - a marketplace or CLI-triggered scan was
-        # labelled as something a user did in the browser. It never changes
-        # the result; it only says who asked.
+        # The channel never changes the result; it only records who asked.
+        # Every caller of this service is an API request: the dashboard, and
+        # a hook cache miss, which is recorded under the same channel. CLI
+        # uploads carry their own channel and do not come through here.
         config = PipelineConfig(
             github_token=settings.github_token,
-            invocation_channel=channel,
-            server_command=server_command,
+            invocation_channel=InvocationChannel.DASHBOARD,
         )
 
         scan = run_pipeline(
@@ -355,7 +353,11 @@ def _run_triage_best_effort(
 
     async def _triage() -> None:
         try:
-            results, note = await triage_findings(settings, account, findings)
+            # SupabaseRest opens a client per call, so it is safe inside this
+            # thread's own event loop; the entitlement lookup is the same one
+            # every other gate uses rather than a sync copy of it.
+            tier = await entitled_tier(SupabaseRest(settings), account)
+            results, note = await triage_findings(settings, tier, findings)
         except Exception:
             logger.exception("scan_service: triage failed for user %s", user_id)
             return
@@ -409,17 +411,10 @@ async def start_scan(
     target: str,
     settings: Settings,
     stored_target: str | None = None,
-    channel: InvocationChannel = InvocationChannel.DASHBOARD,
-    server_command: str | None = None,
 ) -> None:
     """Entry point called from the request handler via BackgroundTasks;
     waits for bounded worker capacity, then runs the blocking pipeline off the
     event loop. The database row deliberately remains `queued` while waiting.
-
-    `channel` records which surface asked - dashboard, marketplace, CLI - and
-    `server_command` lets a caller that already knows how to start the server
-    skip resolution. Neither affects the security result: the same server
-    scanned from two surfaces produces the same findings and the same grade.
     """
     async with _SCAN_SLOT:
         await asyncio.to_thread(
@@ -430,6 +425,4 @@ async def start_scan(
             target,
             settings,
             stored_target,
-            channel,
-            server_command,
         )

@@ -85,13 +85,11 @@ export type ExplanationResult = Explanation | ExplanationUnavailable;
 
 export type ExplainSubject =
   | "finding"
-  | "trust_grade"
   | "agent_posture"
   | "permission"
   | "skill"
   | "attack_path"
-  | "scan"
-  | "listing";
+  | "scan";
 
 export const PROVIDER_LABELS: Record<ProviderKey, string> = {
   groq: "Groq",

@@ -199,12 +199,19 @@ Quota resets on a **rolling monthly window from your signup date**, not the cale
 is tracked independently across three buckets. CLI, hook, and dashboard scans each have their
 own limit:
 
-| Tier | CLI scans/mo | Hook scans/mo | Dashboard scans/mo | History retention | PDF export | AI review per scan |
-|---|---|---|---|---|---|---|
-| Free | 5 | 2 | 5 | 7 days | No | 40 findings |
-| Hobby | 50 | 20 | 50 | 90 days | Yes | 200 findings |
-| Pro | 200 | 100 | 200 | 1 year | Yes | 200 findings |
-| Team | Usage-based | Usage-based | Usage-based | Unlimited | Yes | 200 findings |
+| Tier | CLI scans/mo | Hook scans/mo | Dashboard scans/mo | Report export | AI review per scan |
+|---|---|---|---|---|---|
+| Free | 5 | 2 | 5 | No | 40 findings |
+| Hobby | 50 | 20 | 50 | Yes | 200 findings |
+| Pro | 200 | 100 | 200 | Yes | 200 findings |
+| Team | No monthly cap | No monthly cap | No monthly cap | Yes | 200 findings |
+
+Team is bought by a workspace owner and billed per seat (3 to 500 seats). While the owner's
+Team plan is active, everyone in that workspace gets Team limits, whatever their own plan is.
+Each person's usage is still counted separately. When the owner's Team plan lapses, members
+fall back to their own plan and the workspace holds only its owner until Team is bought again.
+To change the seat count, buy Team again with the new number: it applies once the payment is
+confirmed and adds one cycle after the current paid-until date, with no proration.
 
 AI review runs on every plan, capped per scan so one very large repository cannot consume an
 unbounded budget. Paid plans use a stronger model. A scan that hits the cap says so, and reviews

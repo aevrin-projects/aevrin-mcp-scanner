@@ -1,4 +1,4 @@
-"""User-submitted MCP servers: fetch, validate, scan, review, publish.
+"""User suggestions for the registry: fetch, validate, review, publish.
 
 A submission is an untrusted URL from a signed-in stranger, and every line
 here is written on that assumption.
@@ -16,9 +16,9 @@ The safety rules are absolute and are enforced before anything is fetched:
   ranges, loopback, link-local, `.internal`, and cloud metadata endpoints are
   unreachable by construction.
 * Nothing is executed. No install script, no postinstall hook, no MCP command.
-  Aevrin clones and reads; it never runs what it is given.
-* Nothing is published unscanned. A listing with no security evidence would
-  be a directory entry wearing a marketplace's implied endorsement.
+  Aevrin reads; it never runs what it is given.
+* Nothing is published without an administrator's decision. Publication is
+  curation, not a security verdict: the registry does not scan what it lists.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest
 from aevrin_api.integrations.github_app import parse_github_repo
 from aevrin_api.integrations.github_public import fetch_readme, fetch_repo_metadata
-from aevrin_api.services.marketplace.items import PUBLISH_CHECK_COLUMNS, publish_blockers
+from aevrin_api.services.marketplace.items import PUBLISH_CHECK_COLUMNS, validate_item
 from aevrin_api.services.marketplace.normalize import (
     infer_categories,
     infer_price_type,
@@ -45,9 +45,10 @@ from aevrin_api.services.marketplace.normalize import (
 logger = logging.getLogger("aevrin.marketplace.submissions")
 
 # The states a submission moves through. Flat and explicit rather than a
-# workflow engine: there are seven of them, the transitions fit on one line
-# each, and nothing about this problem justifies more machinery.
-STATUSES = ("draft", "submitted", "scanning", "review", "approved", "rejected", "published")
+# workflow engine: the transitions fit on one line each, and nothing about
+# this problem justifies more machinery. The database check still allows a
+# legacy 'scanning', which nothing writes any more.
+STATUSES = ("draft", "submitted", "review", "approved", "rejected", "published")
 
 
 class SubmissionRejected(Exception):
@@ -62,9 +63,8 @@ def validate_source_url(raw: str) -> tuple[str, str]:
     Returns (kind, normalised_url) where kind is 'github' or 'remote'.
 
     This runs before any network call. The SSRF guard is the same function the
-    live-MCP scanner uses, so a URL that could not be scanned safely also
-    cannot be submitted -- there is one definition of "safe to fetch" in this
-    codebase and this is it.
+    live-MCP scanner uses -- there is one definition of "safe to fetch" in
+    this codebase and this is it.
     """
     url = (raw or "").strip()
     if not url:
@@ -103,7 +103,7 @@ async def create_submission(
     """Accept a submission, derive its metadata, and park it for review.
 
     The listing is created in `review`, never `published`. Publication is a
-    separate, deliberate act by an admin after a scan has produced evidence.
+    separate, deliberate act by an admin.
     """
     kind, url = validate_source_url(source_url)
 
@@ -225,7 +225,7 @@ async def derive_listing(
         "install_targets": ["generic"] if serves_mcp else [],
         "installation": installation,
         # Never published from here. Nothing reaches the catalogue without a
-        # human decision, and an MCP server additionally needs a scan.
+        # human decision.
         "status": status,
         "visibility": visibility,
         "org_id": org_id,
@@ -251,10 +251,10 @@ async def derive_listing(
         raise SubmissionRejected("The listing could not be created.")
     listing = inserted[0]
 
-    # A version row so there is something to scan against - for an MCP
-    # server, the only type with a scanner. Falls back to the tagged release,
-    # then to "unversioned", because a submitted repository often has no
-    # version at all and "unknown" is more honest than inventing 1.0.0.
+    # The MCP server's first entry in its version list. Falls back to the
+    # tagged release, then to "unversioned", because a submitted repository
+    # often has no version at all and "unknown" is more honest than inventing
+    # 1.0.0.
     if item_type == "mcp_server":
         version = (metadata.latest_release if metadata else None) or "unversioned"
         await db.insert(
@@ -262,8 +262,6 @@ async def derive_listing(
             {"listing_id": listing["id"], "version": version},
             upsert_on="listing_id,version",
         )
-        # Recorded on the listing too, so the publish gate and the freshness
-        # state name the version the scan has to cover.
         await db.update("mcp_listings", {"id": listing["id"]}, {"latest_version": version})
         listing["latest_version"] = version
     await db.insert(
@@ -314,8 +312,7 @@ async def list_submissions(
         rows = await db.select(
             "mcp_listings",
             {"id": f"in.({','.join(listing_ids)})"},
-            columns="id,slug,title,status,current_trust_grade,current_risk_score,"
-            "current_coverage_complete,current_version,latest_version,repository_url",
+            columns="id,slug,title,status,latest_version,repository_url",
         )
         listings = {row["id"]: row for row in rows}
 
@@ -332,10 +329,8 @@ async def decide(
 ) -> dict[str, Any]:
     """Approve or reject a submission.
 
-    Approval publishes the listing, and refuses to do so without a scan. That
-    refusal is the whole reason this function exists rather than a plain status
-    update: publishing an unscanned server would put Aevrin's name beside
-    something it has never looked at.
+    Approval publishes the listing through the same gate an admin's Publish
+    button uses, so an incomplete item cannot be approved into the registry.
     """
     if decision not in ("approved", "rejected"):
         raise SubmissionRejected("A decision must be either approved or rejected.")
@@ -357,9 +352,8 @@ async def decide(
         if not listing_rows:
             raise SubmissionRejected("That submission's listing no longer exists.")
         # The same gate an admin's Publish button uses. Approval used to carry
-        # its own copy - "has a grade" - which diverged from the registry's
-        # rule the moment the registry accepted scanned-but-ungraded servers.
-        blockers = await publish_blockers(db, listing_rows[0])
+        # its own copy, which diverged from the registry's rule.
+        blockers = validate_item(listing_rows[0])
         if blockers:
             raise SubmissionRejected(" ".join(blockers))
         await db.update(

@@ -7,6 +7,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, field_validator, model_validator
 
+TEAM_MIN_SEATS = 3
+TEAM_MAX_SEATS = 500
+
 
 class CheckoutRequest(BaseModel):
     tier: str
@@ -34,8 +37,12 @@ class CheckoutRequest(BaseModel):
         # single-seat; seats is a Team-only billing quantity, not a
         # multi-user access model these tiers otherwise share.
         if self.tier == "team":
-            if self.seats < 3:
-                raise ValueError("Team requires a minimum of 3 seats")
+            if self.seats < TEAM_MIN_SEATS:
+                raise ValueError(f"Team requires a minimum of {TEAM_MIN_SEATS} seats")
+            # The same ceiling an admin grant has (SeatsIn), so a purchase can
+            # never write a number the admin panel could not.
+            if self.seats > TEAM_MAX_SEATS:
+                raise ValueError(f"Team is sold up to {TEAM_MAX_SEATS} seats; contact support@aevrin.net for more")
         elif self.seats != 1:
             raise ValueError(f"{self.tier} does not support multiple seats")
         return self
@@ -69,9 +76,19 @@ class VerifyPaymentResponse(BaseModel):
 
 
 class SubscriptionResponse(BaseModel):
+    """`tier`, `own_effective_tier`, `paid_until` and `seats` describe what this
+    account bought. `effective_tier` is what the server actually enforces for
+    it, which is "team" for a member of a workspace whose owner's Team plan is
+    active even when the member bought nothing."""
+
     tier: str
     effective_tier: str
+    own_effective_tier: str
     paid_until: datetime | None = None
+    # accounts.seats: only meaningful while own_effective_tier is "team".
+    seats: int = 1
+    # Members plus open invitations, when this account owns a workspace.
+    seats_used: int | None = None
 
 
 class PaymentOut(BaseModel):

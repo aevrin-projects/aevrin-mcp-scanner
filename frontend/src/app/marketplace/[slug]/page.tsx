@@ -5,7 +5,7 @@ import { ListingDetailPage } from "@/views/marketplace-detail";
 export const metadata: Metadata = {
   title: "Aevrin Registry",
   description:
-    "What this item is, how to use it with your agent, and, for an MCP server, its Aevrin security grade.",
+    "What this item is, where it came from, and how to use it with your agent.",
 };
 
 export default async function Page({ params }: { params: Promise<{ slug: string }> }) {

@@ -57,6 +57,23 @@ Two layers:
 `backend/api/tests/controllers/test_organizations.py` are the tests that
 must keep passing for this boundary to mean anything.
 
+**What is actually enforced.** Only `org.manage`, `members.manage` and
+`roles.manage` are checked today (`org_controller`). The rest of the
+catalogue - `scans.run`, `scans.delete`, `findings.triage`, `agents.delete`,
+`marketplace.submit`, `marketplace.publish`, `mcp.manage`,
+`ai_providers.manage`, `policy.manage`, `billing.manage` - is stored and
+returned to the UI, but no route checks it (`ROADMAP.md`). Buying Team is
+restricted to the workspace owner by ownership
+(`billing_controller._assert_may_buy_team`), not by `billing.manage`.
+
+**Plan entitlement crosses users in exactly one place.**
+`quota.entitled_tier` serves a workspace member at Team limits while the
+workspace owner's Team plan is active (ADR-050). It resolves the workspace
+from the membership row keyed by the caller's own authenticated user id,
+never from a client-supplied org id. Admin seat changes
+(`POST /admin/users/{id}/seats`) require the TOTP code with the request,
+like plan changes.
+
 ## Secret handling
 
 - **Provider API keys and admin TOTP secrets**: Fernet envelope encryption
@@ -195,34 +212,44 @@ safe:
 
 - **Only an admin publishes.** Every `/admin/marketplace/*` route depends
   on `admin_identity` (a route-table test fails if one does not). No
-  automated path publishes: the registry sync inserts `draft`, suggestions
-  land in `review`, and a finished scan never changes status. `status` is
-  outside the edit allow-list, so it changes only through the status route
-  and its publish gate.
-- **The publish gate for MCP servers requires a scan, not a grade**
-  (ADR-046). This is a deliberate relaxation from "has a grade": a server
-  that needs credentials to start cannot be graded in a sandbox with none,
-  and is published as "Scanned, not graded" with no letter and a
-  `REQUIRE_APPROVAL` suggestion, never as clean. It must still have a
-  `completed` or `incomplete` scan by the current engine.
-- **Other item types are never presented as scanned.** They carry the
-  state `not_applicable` and the text "Not security-scanned by Aevrin".
+  automated path publishes: the registry sync inserts `draft` and
+  suggestions land in `review`. `status` is outside the edit allow-list, so
+  it changes only through the status route and its publish gate
+  (`items.validate_item`: the item is complete for its type).
+- **Publishing is not a security claim.** The registry is discovery only
+  (ADR-049): it stores no scan result, grade or scan state for any item,
+  and no registry response or registry MCP tool returns one. The previous
+  publish gate's scan requirement (ADR-046) and the per-grade install
+  policy went with it; the browse page says in a permanent banner that
+  listing is not a security verdict.
+- **Scanning stays on the scan page.** "Scan with Aevrin" on an MCP
+  server's page is a link to `/scans/new` with the scan page's existing
+  `mode`/`target` prefill (or the `aevrin scan mcp` command for a
+  package-only server). The scan runs as the signed-in user's own scan
+  through `POST /scans`, with that route's validation, SSRF guard and quota;
+  the registry grants nothing extra. A signed-out visitor is redirected to
+  `/login?next=<path and query>`; every consumer of `next` (the auth proxy,
+  the login actions, `/auth/callback`) accepts only a path that starts with
+  a single `/`, contains no backslash or control character, and still
+  resolves to the app's own origin (`frontend/src/shared/lib/safe-next.ts`),
+  so it cannot become an open redirect.
 - **Audit.** Every admin registry mutation writes `admin_audit_log` through
   `write_audit` (`registry.create`, `registry.update`,
   `registry.status.<status>`, `registry.delete`, `registry.links`,
-  `registry.refresh_metadata`, `registry.scan`, `registry.category.save`,
+  `registry.refresh_metadata`, `registry.category.save`,
   `registry.category.delete`, `registry.suggestion.<decision>`,
-  `registry.report.<status>`; a bulk regrade audits each scan it queues).
-  Delete audits **before** removing the row, with a snapshot, because the
-  item's own event timeline cascades away with it.
+  `registry.report.<status>`). Delete audits **before** removing the row,
+  with a snapshot, because the item's own event timeline cascades away
+  with it.
 - **Links cannot leak.** `mcp_listing_links` is readable (RLS) where its
   source item is; the API also filters the *target* to published, public
   or unlisted items, so a public page never names a draft or a private
   org item through a link.
 - **Admin-supplied values are validated like public ones.** Repository URLs
   go through the same `validate_source_url` SSRF check as suggestions;
-  remote endpoints through `public_https_url_error`; package identifiers
-  that look like a shell command are refused; `repository_ref` is limited
+  remote endpoints through `public_https_url_error` (a remote is copied
+  into client configs and offered to the scan page as a target); package
+  identifiers that look like a shell command are refused; `repository_ref` is limited
   to `[A-Za-z0-9._/-]` with no leading `-`, because it is rendered inside
   a copyable `git checkout` command.
 - **The hosted MCP endpoint** (`https://api.mcp.aevrin.net/mcp`, ADR-047)

@@ -154,49 +154,8 @@ async def test_a_successful_order_still_returns_the_raw_object():
     assert order["id"] == "order_abc"
 
 
-# --- double-grant protection ------------------------------------------------
-#
-# /verify and the webhook race each other by design: Razorpay fires the
-# webhook while the browser is still calling /verify for the same payment.
-# Both paths therefore claim the payment row with a compare-and-set on
-# status, so exactly one can grant the subscription.
-
-
-class _RecordingDb:
-    """Models the compare-and-set: an update filtered on status='created'
-    matches only while the row is still unclaimed, exactly as Postgres
-    behaves."""
-
-    def __init__(self):
-        self.status = "created"
-        self.account_updates: list[dict] = []
-
-    async def update(self, table: str, filters: dict, values: dict):
-        if table == "payments":
-            if filters.get("status") == "created" and self.status != "created":
-                return []  # another caller already claimed it
-            self.status = values.get("status", self.status)
-            return [{"razorpay_order_id": filters.get("razorpay_order_id")}]
-        self.account_updates.append(values)
-        return [{}]
-
-
-@pytest.mark.asyncio
-async def test_only_the_first_claim_of_a_payment_grants_anything():
-    db = _RecordingDb()
-
-    first = await db.update("payments", {"razorpay_order_id": "o1", "status": "created"}, {"status": "paid"})
-    assert first, "the first caller must claim the payment"
-    if first:
-        await db.update("accounts", {"user_id": "u"}, {"tier": "pro"})
-
-    second = await db.update("payments", {"razorpay_order_id": "o1", "status": "created"}, {"status": "paid"})
-    assert second == [], "a second claim of the same payment must match no row"
-    if second:
-        await db.update("accounts", {"user_id": "u"}, {"tier": "pro"})
-
-    # One payment, one grant -- not two months of Pro for one charge.
-    assert len(db.account_updates) == 1
+# Double-grant protection is exercised through the real controllers in
+# test_billing_activation.py.
 
 
 def test_a_legacy_addon_row_can_never_extend_a_subscription():

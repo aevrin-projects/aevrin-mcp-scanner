@@ -4,12 +4,9 @@ Deterministic arithmetic over signals we already hold. No model, no learned
 weights, nothing that cannot be explained to the publisher whose listing
 ranked third.
 
-The one rule this exists to enforce: popularity is not security. Stars are a
-measure of how many people liked a README, and a server with twenty-five
-thousand of them can still ship a command-injection hole. Security is
-therefore the single heaviest component, and -- more importantly -- the two
-are reported separately everywhere they are shown, so a reader never has to
-reverse-engineer which one moved the number.
+The registry is discovery only, so nothing here is a security signal: the
+score ranks how used, maintained and documented an item is. It is never
+presented as a verdict on whether something is safe to install.
 
 Weights live here as named constants, in one dictionary, because the brief
 they answer to is "the exact weights should be easy to change".
@@ -22,22 +19,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-# Component weights, summing to 100. Changing the marketplace's priorities
-# means editing this dictionary and nothing else.
+# Component weights, summing to 100. Changing the registry's priorities
+# means editing this dictionary and nothing else. These are the old 20/15/10/10
+# rescaled proportionally when the security component was removed.
 WEIGHTS: dict[str, int] = {
-    "security": 45,
-    "popularity": 20,
-    "maintenance": 15,
-    "community": 10,
-    "documentation": 10,
+    "popularity": 36,
+    "maintenance": 28,
+    "community": 18,
+    "documentation": 18,
 }
-
-# A grade's contribution to the security component, 0-100.
-#
-# Unscanned scores 0, not "average". The alternative -- treating no evidence
-# as a middling result -- would let a server rank above a scanned C simply by
-# never having been examined, which is an incentive pointing the wrong way.
-_GRADE_POINTS: dict[str, float] = {"A": 100.0, "B": 78.0, "C": 45.0, "D": 8.0}
 
 # Stars at which the popularity component saturates. Logarithmic below it, so
 # the gap between 10 and 100 stars counts for more than the gap between 10,000
@@ -63,17 +53,6 @@ class RankingBreakdown:
             "weights": dict(WEIGHTS),
             "components": {k: round(v, 1) for k, v in self.components.items()},
         }
-
-
-def _security_points(grade: str | None, coverage_complete: bool | None) -> float:
-    if grade not in _GRADE_POINTS:
-        return 0.0
-    points = _GRADE_POINTS[grade]
-    # A grade earned under partial coverage is a weaker claim than the same
-    # grade earned under full coverage, and ranking should say so.
-    if coverage_complete is False:
-        points *= 0.6
-    return points
 
 
 def _popularity_points(stars: int | None, downloads: int | None) -> float:
@@ -166,21 +145,9 @@ def _parse_timestamp(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def compute_ranking(
-    listing: dict[str, Any],
-    *,
-    trust_grade: str | None = None,
-    coverage_complete: bool | None = None,
-) -> RankingBreakdown:
-    """The 0-100 "Recommended" score for one listing.
-
-    Takes the grade as an argument rather than reading it off the listing,
-    because a grade belongs to a *version* and the caller is the one that
-    knows which version is current. Passing it in makes it impossible to rank
-    a listing against a grade that has since been superseded.
-    """
+def compute_ranking(listing: dict[str, Any]) -> RankingBreakdown:
+    """The 0-100 "Recommended" score for one listing."""
     components = {
-        "security": _security_points(trust_grade, coverage_complete),
         "popularity": _popularity_points(
             listing.get("github_stars"),
             listing.get("npm_downloads_last_month") or listing.get("pypi_downloads_last_month"),
@@ -202,11 +169,6 @@ def compute_ranking(
 # beside the ranking so "Recommended" and its ordering cannot drift apart.
 SORT_ORDERS: dict[str, str] = {
     "recommended": "ranking_score.desc,github_stars.desc.nullslast",
-    # By the letter, then by the number behind it. `nullsfirst` on an
-    # ascending grade puts A first and unscanned last: sorting on the letter
-    # alone would rank D above A, since 'D' < 'A' is false but 'A' < 'D' is
-    # true only in the direction nobody wants for "most secure first".
-    "security": "current_trust_grade.asc.nullslast,current_risk_score.asc.nullslast",
     "popular": "github_stars.desc.nullslast",
     "recently_updated": "registry_updated_at.desc.nullslast",
     "recently_added": "created_at.desc",

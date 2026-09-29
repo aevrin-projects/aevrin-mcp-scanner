@@ -6,18 +6,9 @@ migration 0048). This module is the single definition of the rules that
 differ by kind, so the admin editor, the publish gate and submission approval
 cannot each grow their own idea of what "complete" means.
 
-Two properties this module exists to hold:
-
-* **Only an MCP server has a security scanner.** Every other type is published
-  without a grade, and is reported as "not applicable" rather than as
-  unscanned-and-therefore-suspicious or as clean. A prompt has no tools to
-  enumerate; pretending otherwise would put a security claim on something no
-  scanner looked at.
-
-* **An MCP server is never published without a scan by the current engine.**
-  It need not have a *grade*: a server that needs a credential to start cannot
-  be enumerated in a sandbox that holds none, and its honest result is
-  "scanned, not graded". What it may not be is unlooked-at. See DECISIONS.md.
+The registry is discovery only (DECISIONS.md): publishing an item is curation,
+not a security verdict, and nothing here scans or grades anything. A user who
+wants to check an MCP server scans it on the scan page.
 """
 
 from __future__ import annotations
@@ -28,28 +19,18 @@ from typing import Any, Literal
 from aevrin_scanner_core.execution.network_safety import public_https_url_error
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from aevrin_api.db import SupabaseRest
-
 ITEM_TYPES: tuple[str, ...] = (
     "mcp_server", "skill", "prompt", "tool", "agent", "component", "template",
     "workflow", "library", "cli", "backend", "frontend", "infrastructure",
     "product", "repository", "integration", "dataset", "documentation", "other",
 )
 
-# Types with a security scanner. One today, stated as a set so a second is a
-# one-word change rather than a search for every `== "mcp_server"`.
-SCANNABLE_TYPES = frozenset({"mcp_server"})
-
-# Scans that count as "Aevrin looked at this". A failed run is not an
-# assessment - the worker broke - so it does not satisfy the publish gate.
-_ASSESSED_SCAN_STATUSES = frozenset({"completed", "incomplete"})
-
-# Package managers whose launcher is unambiguous, matching the runners
-# `catalog.build_install_config` and `scanning._server_command_for` know.
+# Launchers a generated client config may name, matching the runners
+# `catalog.build_install_config` knows.
 _RUNTIMES = frozenset({"npx", "uvx", "docker", "dnx", "node", "python", "pipx"})
 
 # A published package name never contains whitespace or shell punctuation.
-# The same rule `scanning._server_command_for` applies before a launch.
+# It is pasted into every client config Aevrin generates for the server.
 _SHELL_SHAPED = re.compile(r"""[\s;|&$`<>()'"\\]""")
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
@@ -148,8 +129,8 @@ class InstallRemote(BaseModel):
     @field_validator("url")
     @classmethod
     def _public_https(cls, value: str) -> str:
-        # The same guard submissions and live scans use. This URL is later
-        # fetched from inside the scan container, which has network access.
+        # The same guard submissions and live scans use. This URL is copied
+        # into client configs and offered to the scan page as a target.
         error = public_https_url_error(value.strip())
         if error:
             raise ValueError(f"remote URL cannot be used: {error}")
@@ -196,15 +177,11 @@ def clean_installation(raw: Any) -> dict[str, Any]:
         raise InvalidItem(_format_errors("installation", exc)) from exc
 
 
-def is_scannable(item_type: str | None) -> bool:
-    return (item_type or "mcp_server") in SCANNABLE_TYPES
-
-
 def validate_item(row: dict[str, Any]) -> list[str]:
     """Everything that stops this item being published, as sentences.
 
-    Pure: reads only the row. The one check that needs the database - whether
-    an MCP server has been scanned - is in `publish_blockers`.
+    The one definition of "may be published", shared by the admin publish
+    action and suggestion approval. Pure: reads only the row.
     """
     problems: list[str] = []
     item_type = row.get("item_type") or "mcp_server"
@@ -239,8 +216,8 @@ def validate_item(row: dict[str, Any]) -> list[str]:
         problems.append("A skill needs its instructions.")
     elif item_type == "mcp_server" and not (spec.packages or spec.remotes or repository):
         problems.append(
-            "An MCP server needs a package, a remote endpoint, or a repository to be scanned "
-            "and installed from."
+            "An MCP server needs a package, a remote endpoint, or a repository to be installed "
+            "from."
         )
     elif item_type in ("repository", "template") and not repository:
         problems.append(f"A {item_type} needs its repository URL.")
@@ -258,51 +235,9 @@ def validate_item(row: dict[str, Any]) -> list[str]:
     return problems
 
 
-# Everything `publish_blockers` reads off the listing row. Named so every
+# Everything `validate_item` reads off the listing row. Named so every
 # caller selects the same set - a caller that forgot `content` would pass a
 # prompt with no prompt text.
 PUBLISH_CHECK_COLUMNS = (
-    "id,item_type,title,description,content,installation,repository_url,homepage_url,"
-    "latest_version,current_version"
+    "id,item_type,title,description,content,installation,repository_url,homepage_url"
 )
-
-
-async def publish_blockers(db: SupabaseRest, row: dict[str, Any]) -> list[str]:
-    """`validate_item`, plus the scan requirement for MCP servers.
-
-    The scan must be by the current engine and must have assessed something:
-    `scans.scanner_name` exists only since the ToolTrust replacement (0047), so
-    a scan from the previous engine - whose grades 0047 withdrew - does not
-    count, and a `failed` run is a broken worker rather than an assessment.
-
-    A grade is not required. See the module docstring for why.
-    """
-    problems = validate_item(row)
-    if not is_scannable(row.get("item_type")):
-        return problems
-
-    version = row.get("latest_version") or row.get("current_version")
-    scan_status = None
-    if version:
-        versions = await db.select(
-            "mcp_listing_versions",
-            {"listing_id": row["id"], "version": f"eq.{version}"},
-            columns="scan_id",
-            limit=1,
-        )
-        scan_id = versions[0].get("scan_id") if versions else None
-        if scan_id:
-            scans = await db.select(
-                "scans", {"id": str(scan_id)}, columns="status,scanner_name", limit=1
-            )
-            if scans and scans[0].get("scanner_name"):
-                scan_status = scans[0].get("status")
-
-    if scan_status not in _ASSESSED_SCAN_STATUSES:
-        problems.append(
-            "This MCP server's current version has not been scanned by the current engine. "
-            "Scan it before publishing: a published server implies Aevrin has looked at it. "
-            "It does not need a grade - a scan that could not establish one is published "
-            "with that result shown."
-        )
-    return problems

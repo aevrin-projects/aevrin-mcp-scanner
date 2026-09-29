@@ -2,23 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  AlertTriangle,
-  ExternalLink,
-  Heart,
-  Loader2,
-  Scale,
-  ShieldAlert,
-} from "lucide-react";
+import { ExternalLink, Heart, Loader2, Scale } from "lucide-react";
 
 import {
-  GRADE_LABELS,
-  GradeBadge,
   INSTALL_TARGET_LABELS,
   PRICE_LABELS,
   ListingLogo,
   PopularitySignals,
-  ScanStatePill,
+  ScanWithAevrin,
   TypeBadge,
   ItemContentSections,
   RelatedSection,
@@ -28,8 +19,8 @@ import {
   type InstallTarget,
   type ListingDetail,
 } from "@/entities/marketplace";
-import { ExplainButton } from "@/features/ai-explain";
 import { ApiError } from "@/shared/api";
+import { formatDate } from "@/shared/lib/format";
 import { Badge } from "@/shared/ui/badge";
 import { BrandIcon } from "@/shared/ui/brand-icon";
 import { Button, buttonVariants } from "@/shared/ui/button";
@@ -37,19 +28,14 @@ import { EmptyState, Panel, PanelBody, PanelHeader, PanelTitle } from "@/shared/
 
 import { InstallDialog } from "./install-dialog";
 import { ReportDialog } from "./report-dialog";
-import { WhyThisGrade } from "./why-this-grade";
 
 /**
- * One registry item, in full.
+ * One registry item, in full: what it is, how to use it, what it contains,
+ * where it came from.
  *
- * The page is ordered by what someone deciding whether to use it needs, in
- * the order they need it: what it is, how safe it is and why (for an MCP
- * server, the one type Aevrin scans), how to use it, what it contains, where
- * it came from.
- *
- * Popularity appears well below the grade and in muted type. That is not
- * aesthetic preference: putting a star count next to a letter invites the
- * reader to average them, and they do not average.
+ * The registry is discovery only and states nothing about an item's
+ * security. For an MCP server, "Scan with Aevrin" hands off to the scan page,
+ * which runs the canonical scanner as the signed-in user's own scan.
  */
 
 export function ListingDetailPage({ slug }: { slug: string }) {
@@ -104,8 +90,8 @@ export function ListingDetailPage({ slug }: { slug: string }) {
     );
   }
 
-  const { security, popularity } = listing;
-  const scannedVersion = listing.versions.find((v) => v.version === security.scannedVersion);
+  const { popularity } = listing;
+  const events = listing.events.filter((event) => !RETIRED_EVENTS.has(event.eventType));
   const isServer = listing.itemType === "mcp_server";
   const byline = [listing.author, listing.publisher].filter(Boolean).join(" · ");
 
@@ -158,97 +144,17 @@ export function ListingDetailPage({ slug }: { slug: string }) {
             {favorited ? "Saved" : "Save"}
           </Button>
           {isServer ? (
-            <Button onClick={() => setInstallOpen(true)} disabled={listing.installTargets.length === 0}>
+            <Button
+              onClick={() => setInstallOpen(true)}
+              disabled={Object.keys(listing.installConfigs).length === 0}
+            >
               Install
             </Button>
           ) : null}
         </div>
       </div>
 
-      {/* Security first, and on its own, before anything that could dilute it.
-          Only an MCP server has a scanner; every other type says so plainly
-          rather than showing an empty security panel that reads as a pass. */}
-      {!isServer ? (
-        <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-4">
-          <ShieldAlert className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <p className="text-sm text-muted-foreground">
-            Not security-scanned by Aevrin. Aevrin scans MCP servers; this is a{" "}
-            {listing.itemType.replace(/_/g, " ")}, reviewed and published by an Aevrin
-            administrator. Read what it asks your agent to do before using it.
-          </p>
-        </div>
-      ) : (
-      <Panel>
-        <PanelHeader>
-          <PanelTitle>Aevrin security scan</PanelTitle>
-        </PanelHeader>
-        <PanelBody className="space-y-5">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <GradeBadge
-              grade={security.grade}
-              riskScore={security.risk_score}
-              state={security.state}
-              size="lg"
-            />
-            <ScanStatePill security={security} />
-          </div>
-
-          {security.state === "unscanned" ? (
-            <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-4">
-              <ShieldAlert
-                className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <p className="text-sm text-muted-foreground">
-                This server has not been scanned. That is not a statement that it
-                is safe: it means Aevrin has no evidence about it either way.
-              </p>
-            </div>
-          ) : null}
-
-          {security.state === "ungraded" ? (
-            <div className="flex items-start gap-3 rounded-lg border border-severity-medium/25 bg-severity-medium/10 p-4">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-severity-medium" aria-hidden="true" />
-              <p className="text-sm">
-                Aevrin scanned this server but could not establish enough to grade it, most
-                often because it needs a credential before it will start. The timeline below
-                says what the scan could not see. Treat it as unknown, not as safe.
-              </p>
-            </div>
-          ) : null}
-
-          {security.state === "outdated" ? (
-            <div className="flex items-start gap-3 rounded-lg border border-severity-medium/25 bg-severity-medium/10 p-4">
-              <AlertTriangle
-                className="mt-0.5 size-4 shrink-0 text-severity-medium"
-                aria-hidden="true"
-              />
-              <p className="text-sm">
-                The grade above was earned by{" "}
-                <span className="font-medium">v{security.scannedVersion}</span>. The
-                current release is{" "}
-                <span className="font-medium">v{security.latestVersion}</span>, which has
-                not been scanned. Do not read the grade as applying to it.
-              </p>
-            </div>
-          ) : null}
-
-          {security.grade ? (
-            <WhyThisGrade listing={listing} version={scannedVersion ?? null} />
-          ) : null}
-
-          <ExplainButton
-            subjectType="trust_grade"
-            subjectId={listing.id}
-            label={
-              security.grade
-                ? `Why is this grade ${security.grade}?`
-                : "Explain this server's security position"
-            }
-          />
-        </PanelBody>
-      </Panel>
-      )}
+      {isServer ? <ScanWithAevrin listing={listing} /> : null}
 
       <UseSection listing={listing} />
       <ItemContentSections listing={listing} />
@@ -350,14 +256,9 @@ export function ListingDetailPage({ slug }: { slug: string }) {
                   className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm"
                 >
                   <span className="font-mono text-xs">v{version.version}</span>
-                  {version.trustGrade ? (
-                    <span className="text-xs text-muted-foreground">
-                      {version.trustGrade} · {GRADE_LABELS[version.trustGrade]}
-                      {version.riskScore !== null ? ` · risk ${version.riskScore}/100` : ""}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">Not scanned</span>
-                  )}
+                  <span className="text-xs text-muted-foreground">
+                    {formatDate(version.firstSeenAt)}
+                  </span>
                 </div>
               ))
             )}
@@ -366,13 +267,13 @@ export function ListingDetailPage({ slug }: { slug: string }) {
       </div>
       ) : null}
 
-      {listing.events.length > 0 ? (
+      {events.length > 0 ? (
         <Panel>
           <PanelHeader>
             <PanelTitle>Timeline</PanelTitle>
           </PanelHeader>
           <PanelBody className="space-y-2">
-            {listing.events.slice(0, 10).map((event) => (
+            {events.slice(0, 10).map((event) => (
               <div key={event.id} className="flex items-start gap-3 text-sm">
                 <span
                   className={`mt-1.5 size-1.5 shrink-0 rounded-full ${
@@ -455,6 +356,11 @@ function SourceRow({
   );
 }
 
+// Timeline entries written when the registry still scanned. Historic rows may
+// exist; they are hidden rather than rendered as a claim about a scan the
+// registry no longer stands behind.
+const RETIRED_EVENTS = new Set(["scan_completed", "grade_changed"]);
+
 function formatEvent(type: string): string {
   return (
     {
@@ -462,8 +368,6 @@ function formatEvent(type: string): string {
       listing_updated: "Metadata updated",
       version_added: "New version published",
       source_changed: "Source changed",
-      scan_completed: "Security scan completed",
-      grade_changed: "Trust grade changed",
       popularity_changed: "Popularity updated",
       admin_override: "Edited by an administrator",
       status_changed: "Status changed",

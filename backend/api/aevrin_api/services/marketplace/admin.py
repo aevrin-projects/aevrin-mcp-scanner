@@ -1,18 +1,10 @@
-"""Administrative control of the registry, and organisation policy.
+"""Administrative control of the registry.
 
 `/admin` is the only authority over what the registry publishes (DECISIONS.md,
 the registry ADR). Everything that creates, edits, publishes, archives or
 deletes an item is here, so there is one place that decides what an
-administrator may do.
-
-What an admin cannot do is make something look safer than it is. Nothing in
-this file writes `current_trust_grade`, `current_risk_score`,
-`current_coverage_complete`, or a grade, score, coverage flag or scan reference
-on `mcp_listing_versions`. Those are written only by `grading.py`, from a scan.
-The one thing this file adds to `mcp_listing_versions` is a new *unscanned*
-version row when an MCP server's source changes - which is exactly what makes
-the grade earned by the old source show as outdated rather than carrying over.
-An admin who disagrees with a grade forces a rescan; they cannot type a letter.
+administrator may do. The registry is discovery only: publishing is curation,
+not a security verdict, and nothing here scans or grades.
 
 Status changes only through `set_status`. It used to be in the edit
 allow-list too, where `update_listing` checked only that the value was a legal
@@ -38,20 +30,15 @@ from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest
 from aevrin_api.services.admin_auth import AdminIdentity, write_audit
 from aevrin_api.services.marketplace import items, submissions
-from aevrin_api.services.marketplace.catalog import (
-    DETAIL_COLUMNS,
-    decorate,
-    grade_rationale,
-)
+from aevrin_api.services.marketplace.catalog import DETAIL_COLUMNS, VERSION_COLUMNS, decorate
 from aevrin_api.services.marketplace.normalize import slugify
 from aevrin_api.services.marketplace.sync import refresh_listing_metadata
 
 logger = logging.getLogger("aevrin.marketplace.admin")
 
 # What an admin may change through an edit. An allowlist, so a PATCH body
-# cannot reach a security column by naming it - this tuple is the security
-# boundary of the admin surface. `status` is deliberately absent: see the
-# module docstring.
+# cannot reach a column by naming it: `status`, `ranking_score` and the
+# upstream-owned counters are deliberately absent. See the module docstring.
 EDITABLE_FIELDS = (
     "title",
     "description",
@@ -88,10 +75,6 @@ _OVERRIDE_FIELDS = frozenset({
     "categories", "item_type",
 })
 
-# Fields whose change means an MCP server is no longer the software its grade
-# describes. Changing any of them opens a new, unscanned version.
-_SOURCE_FIELDS = frozenset({"repository_url", "repository_ref", "installation", "latest_version"})
-
 # Statuses an admin may set. 'scanning' is excluded: nothing enters or leaves
 # it any more (migration 0048). Restoring an archived item is a move to draft.
 SETTABLE_STATUSES = ("draft", "review", "approved", "rejected", "published", "suspended", "archived")
@@ -116,8 +99,6 @@ async def admin_list(
     db: SupabaseRest,
     *,
     status: str | None = None,
-    grade: str | None = None,
-    unscanned: bool = False,
     query: str | None = None,
     item_type: str | None = None,
     limit: int = 50,
@@ -127,10 +108,6 @@ async def admin_list(
     filters: dict[str, str] = {}
     if status:
         filters["status"] = f"eq.{status}"
-    if grade in ("A", "B", "C", "D", "F"):
-        filters["current_trust_grade"] = f"eq.{grade}"
-    if unscanned:
-        filters["current_trust_grade"] = "is.null"
     if item_type in items.ITEM_TYPES:
         filters["item_type"] = f"eq.{item_type}"
     if query:
@@ -160,7 +137,11 @@ async def get_item(db: SupabaseRest, *, listing_id: str) -> dict[str, Any]:
     row = rows[0]
     listing = decorate(row)
     versions = await db.select(
-        "mcp_listing_versions", {"listing_id": listing_id}, order="first_seen_at.desc", limit=20
+        "mcp_listing_versions",
+        {"listing_id": listing_id},
+        columns=VERSION_COLUMNS,
+        order="first_seen_at.desc",
+        limit=20,
     )
     events = await db.select(
         "mcp_events", {"listing_id": listing_id}, order="created_at.desc", limit=50
@@ -184,8 +165,7 @@ async def get_item(db: SupabaseRest, *, listing_id: str) -> dict[str, Any]:
         "versions": versions,
         "events": events,
         "related": related,
-        "grade_rationale": await grade_rationale(db, versions, listing["security"]),
-        "validation_issues": await items.publish_blockers(db, row),
+        "validation_issues": items.validate_item(row),
     })
     return listing
 
@@ -405,36 +385,17 @@ async def _validated(
     return clean
 
 
-async def _open_new_version(
-    db: SupabaseRest, *, listing_id: str, before: dict[str, Any], clean: dict[str, Any]
-) -> None:
-    """A changed source is a new, unscanned version - never a silent overwrite.
+async def _record_version(db: SupabaseRest, *, listing_id: str, version: str) -> None:
+    """Add `version` to the item's version list, if it is not there already.
 
-    The grade stays attached to the version it was earned by, and
-    `scan_freshness` shows it as "Scan covers X, current release is Y" until
-    the new version is scanned. Uses the version the admin typed when there is
-    one, otherwise marks the edit so the version string itself says what
-    happened.
+    A bare record of which versions the registry has seen, shown on the item
+    page. It carries no scan state.
     """
-    version = str(clean.get("latest_version") or "").strip()
-    if not version or version == before.get("latest_version"):
-        base = before.get("latest_version") or "unversioned"
-        version = f"{base}+edit.{datetime.now(UTC):%Y%m%dT%H%M%S}"
-    installation = clean.get("installation", before.get("installation")) or {}
-    package = (installation.get("packages") or [{}])[0]
     await db.insert(
         "mcp_listing_versions",
-        {
-            "listing_id": listing_id,
-            "version": version[:100],
-            # So the scan launches the package the admin declared, not one
-            # re-derived from the repository.
-            "package_registry": package.get("registry_type"),
-            "package_identifier": package.get("identifier"),
-        },
+        {"listing_id": listing_id, "version": version[:100]},
         upsert_on="listing_id,version",
     )
-    clean["latest_version"] = version[:100]
 
 
 async def _write(
@@ -489,7 +450,7 @@ async def update_listing(
     admin: AdminIdentity,
     reason: str | None = None,
 ) -> dict[str, Any]:
-    """Apply an admin edit. Never changes status, never touches security."""
+    """Apply an admin edit. Never changes status."""
     clean = {k: v for k, v in patch.items() if k in EDITABLE_FIELDS}
     if not clean:
         raise AdminActionRefused("Nothing in that request can be edited.")
@@ -498,11 +459,9 @@ async def update_listing(
     clean = await _validated(db, clean, before)
 
     item_type = clean.get("item_type", before.get("item_type") or "mcp_server")
-    source_changed = any(
-        field in clean and clean[field] != before.get(field) for field in _SOURCE_FIELDS
-    )
-    if items.is_scannable(item_type) and source_changed:
-        await _open_new_version(db, listing_id=listing_id, before=before, clean=clean)
+    version = str(clean.get("latest_version") or "").strip()
+    if item_type == "mcp_server" and version and version != before.get("latest_version"):
+        await _record_version(db, listing_id=listing_id, version=version)
 
     return await _write(db, before=before, clean=clean, admin=admin, action="registry.update", reason=reason)
 
@@ -525,16 +484,15 @@ async def set_status(
 ) -> dict[str, Any]:
     """Publish, unpublish, archive, restore, suspend.
 
-    Publishing runs the one publish gate (`items.publish_blockers`): the item
-    must be complete for its type, and an MCP server must have been scanned by
-    the current engine. Every reason is returned at once.
+    Publishing runs the one publish gate (`items.validate_item`): the item
+    must be complete for its type. Every reason is returned at once.
     """
     if status not in SETTABLE_STATUSES:
         raise AdminActionRefused(f"{status!r} is not a status an admin can set.")
 
     before = await _load(db, listing_id)
     if status == "published":
-        blockers = await items.publish_blockers(db, before)
+        blockers = items.validate_item(before)
         if blockers:
             raise AdminActionRefused(" ".join(blockers))
 
@@ -553,9 +511,8 @@ async def delete_item(
 ) -> dict[str, Any]:
     """Remove the registry entry. Nothing else.
 
-    The upstream repository, the package and any scan are untouched: a scan
-    row is evidence that belongs to the account that ran it, and the
-    repository was never Aevrin's. The slug must be typed back, so a stray
+    The upstream repository and the package are untouched: they were never
+    Aevrin's. The slug must be typed back, so a stray
     click in a list cannot delete an item.
 
     The audit entry is written *before* the delete, with a snapshot, because
@@ -708,39 +665,14 @@ async def admin_summary(db: SupabaseRest) -> dict[str, Any]:
     queries. The catalogue is thousands of rows, not millions, and one
     round trip beats twelve.
     """
-    listings = await db.select(
-        "mcp_listings",
-        columns=(
-            "id,status,item_type,current_trust_grade,current_version,latest_version,"
-            "current_coverage_complete"
-        ),
-        limit=10000,
-    )
+    listings = await db.select("mcp_listings", columns="id,status,item_type", limit=10000)
 
-    # 'F' is a grade, not the absence of one. Leaving it out of this map sent
-    # every "do not use" listing into the `unscanned` bucket below -- the one
-    # place an admin looks to find servers that need attention.
-    grades: dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0, "F": 0}
     statuses: dict[str, int] = {}
     types: dict[str, int] = {}
-    scanned = unscanned = stale = partial = 0
-
     for row in listings:
         statuses[row.get("status", "unknown")] = statuses.get(row.get("status", "unknown"), 0) + 1
         kind = row.get("item_type") or "mcp_server"
         types[kind] = types.get(kind, 0) + 1
-        if not items.is_scannable(kind):
-            continue
-        grade = row.get("current_trust_grade")
-        if grade in grades:
-            grades[grade] += 1
-            scanned += 1
-            if row.get("latest_version") and row.get("current_version") != row.get("latest_version"):
-                stale += 1
-            if row.get("current_coverage_complete") is False:
-                partial += 1
-        else:
-            unscanned += 1
 
     open_reports = await db.select(
         "mcp_reports", {"status": "eq.open"}, columns="id", limit=1000
@@ -751,11 +683,6 @@ async def admin_summary(db: SupabaseRest) -> dict[str, Any]:
 
     return {
         "total": len(listings),
-        "scanned": scanned,
-        "unscanned": unscanned,
-        "stale_scans": stale,
-        "partial_coverage": partial,
-        "grades": grades,
         "statuses": statuses,
         "types": types,
         "open_reports": len(open_reports),
@@ -778,7 +705,7 @@ async def list_reports(
         for row in await db.select(
             "mcp_listings",
             {"id": f"in.({','.join(listing_ids)})"},
-            columns="id,slug,title,status,current_trust_grade",
+            columns="id,slug,title,status",
         )
     }
     return [{**r, "listing": listings.get(r["listing_id"])} for r in reports]
@@ -818,97 +745,3 @@ async def resolve_report(
             },
         )
     return updated[0] if updated else {}
-
-
-# --------------------------------------------------------------------------
-# Organisation policy
-#
-# Structured rules, not a policy language: for each grade, one of three
-# actions. That is enough to express every policy anyone has actually asked
-# for, and it is small enough that its behaviour is obvious from the table.
-
-_ACTIONS = ("allow", "require_approval", "block")
-_POLICY_GRADES = ("A", "B", "C", "D", "F")
-# F blocks. Policies were written when the letters stopped at D, so an F
-# server looked up a key that did not exist and fell through to
-# `require_approval` - the worst grade got a milder action than the second
-# worst. Migration 0048 adds the key to every stored policy.
-_DEFAULT_GRADE_ACTIONS = {
-    "A": "allow", "B": "allow", "C": "require_approval", "D": "block", "F": "block",
-}
-
-
-async def get_policy(db: SupabaseRest, *, org_id: str) -> dict[str, Any]:
-    rows = await db.select("org_mcp_policies", {"org_id": org_id}, limit=1)
-    if rows:
-        return rows[0]
-    return {
-        "org_id": org_id,
-        "grade_actions": dict(_DEFAULT_GRADE_ACTIONS),
-        "unscanned_action": "require_approval",
-    }
-
-
-async def set_policy(
-    db: SupabaseRest,
-    *,
-    org_id: str,
-    grade_actions: dict[str, str],
-    unscanned_action: str,
-    actor_id: str,
-) -> dict[str, Any]:
-    """Replace an organisation's policy.
-
-    Every grade must be present, except F, which defaults to block when a
-    client written before F existed leaves it out. A partial policy would leave
-    some grade undefined, and an undefined grade would have to default to
-    something -- a decision the organisation should make explicitly for every
-    grade it can see, and one that must never default *down* for the worst.
-    """
-    cleaned: dict[str, str] = {}
-    for grade in _POLICY_GRADES:
-        action = grade_actions.get(grade, "block" if grade == "F" else None)
-        if action not in _ACTIONS:
-            raise AdminActionRefused(
-                f"Grade {grade} needs an action: allow, require_approval, or block."
-            )
-        cleaned[grade] = action
-    if unscanned_action not in _ACTIONS:
-        raise AdminActionRefused("The unscanned action must be allow, require_approval, or block.")
-
-    saved = await db.insert(
-        "org_mcp_policies",
-        {
-            "org_id": org_id,
-            "grade_actions": cleaned,
-            "unscanned_action": unscanned_action,
-            "updated_by": actor_id,
-            "updated_at": datetime.now(UTC).isoformat(),
-        },
-        upsert_on="org_id",
-    )
-    return saved[0] if saved else {}
-
-
-def evaluate_policy(policy: dict[str, Any], *, grade: str | None, coverage_complete: bool | None) -> dict[str, Any]:
-    """What this organisation's policy says about installing this server.
-
-    A grade earned under incomplete coverage is escalated one step. The letter
-    was computed from a scan that did not finish, so treating it as equivalent
-    to a fully-covered grade of the same letter would be reading a weaker
-    claim as a stronger one.
-    """
-    actions = policy.get("grade_actions") or _DEFAULT_GRADE_ACTIONS
-    if not grade:
-        action = policy.get("unscanned_action", "require_approval")
-        return {"action": action, "reason": "This server has not been graded."}
-
-    # A grade the stored policy has no entry for takes the default for that
-    # grade rather than a flat `require_approval` - the flat fallback is what
-    # let F through more leniently than D.
-    action = actions.get(grade) or _DEFAULT_GRADE_ACTIONS.get(grade, "require_approval")
-    reason = f"Policy for grade {grade}."
-    if coverage_complete is False and action == "allow":
-        action = "require_approval"
-        reason = f"Grade {grade}, but scan coverage was incomplete, so the result is weaker than it looks."
-    return {"action": action, "reason": reason}

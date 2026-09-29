@@ -10,15 +10,18 @@ from aevrin_api.schemas import (
     MonitoredDevicesOut,
     UsageActivityOut,
 )
-from aevrin_api.services.quota import effective_tier, get_or_create_account, get_usage
+from aevrin_api.services.quota import entitled_tier, get_or_create_account, get_usage
 
 
 async def account_usage(user_id: str, db: SupabaseRest, settings: Settings) -> AccountUsageResponse:
     account = await get_or_create_account(db, user_id)
+    # The tier actually enforced, workspace Team included, so the meters and
+    # the plan label say the same thing the quota gate does.
+    tier = await entitled_tier(db, account)
     usage = await get_usage(settings, db, user_id)
     device_rows = await db.select("agent_snapshots", {"user_id": user_id}, columns="device_id")
     limit_rows = await db.select(
-        "tier_limits", {"tier": effective_tier(account)}, columns="monitored_devices"
+        "tier_limits", {"tier": tier}, columns="monitored_devices"
     )
     activity_rows = await db.select(
         "scans",
@@ -28,7 +31,7 @@ async def account_usage(user_id: str, db: SupabaseRest, settings: Settings) -> A
         limit=50,
     )
     return AccountUsageResponse(
-        tier=effective_tier(account),
+        tier=tier,
         paid_until=account.get("paid_until"),
         buckets=[
             BucketUsageOut(bucket=u.bucket, used=u.used, limit=u.limit, resets_at=u.resets_at)

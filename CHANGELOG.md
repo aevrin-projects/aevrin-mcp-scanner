@@ -29,8 +29,8 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   content (prompt text, instructions, usage, examples, inputs and outputs),
   technologies, capabilities, use cases, and links to related items. Browse
   gains type chips, Featured / Most viewed this month / Recently added rails,
-  and a type-aware detail page; only MCP servers show a grade, and every other
-  type says "Not security-scanned by Aevrin".
+  and a type-aware detail page. The registry is discovery only: it scans and
+  grades nothing (ADR-049).
 - **Registry administration.** `/admin/marketplace/new` and
   `/admin/marketplace/[id]`: create an item by hand or from a GitHub URL, edit
   it, preview it, relate it, publish, unpublish, archive, restore, delete
@@ -48,29 +48,93 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   `https://api.mcp.aevrin.net/mcp` (a new `registry-mcp` container, ADR-047)
   and by `aevrin mcp-server` next to `scan_mcp_server`. The hosted endpoint
   never offers the scan tool; the deploy fails if it does.
+- **"Scan with Aevrin"** on MCP server pages and in the admin item editor. It
+  opens the existing scan page prefilled (GitHub repository, else remote
+  endpoint), or shows `aevrin scan mcp "npx -y <pkg>"` / `uvx` for a
+  package-only server. The scan is the user's own, through the canonical
+  scanner; nothing is written back to the registry.
+- **"Explain with AI"** on the scan detail page (the scan's grade) and the
+  finding detail page, behind the existing scan-ownership check.
+- **Team is self-serve** (ADR-050): bought from the pricing page at the
+  per-seat price times the seat count (3 to 500), in USD or INR. Only the
+  workspace owner can buy it, and not with fewer seats than the workspace
+  already holds.
+- **Everyone in a Team workspace gets Team limits** (scan buckets, agent
+  scans, monitored devices, report export, AI triage model and cap) while the
+  owner's Team plan is active, resolved by one function,
+  `quota.entitled_tier`.
+- **Billing page** shows a Team owner's seats and seats in use, with a link to
+  buy Team at a different seat count. Members see that their Team limits come
+  from the workspace.
+- **Admin user detail** shows the account's payments (with Razorpay order
+  ids), workspace, role, and for owners the seats in force and used. Admin
+  analytics reports revenue per currency.
+- **Migration `0049_marketplace_scanning_contract.sql`**, a contract migration
+  applied after deploy: drops `mcp_listings.current_*` and the grade index,
+  every scan column of `mcp_listing_versions`, `org_mcp_policies` and
+  `tier_limits.marketplace_policies`, and deletes cached `trust_grade` /
+  `listing` explanations.
 
 ### Changed
 
 - **Only an administrator publishes** (ADR-048). The weekly registry sync now
-  inserts new servers as drafts, and a finished scan no longer changes an
-  item's status. Migration 0048 returns published, ungraded registry-synced
-  listings to draft. Edits can no longer change `status`; it changes only
-  through the status route and its publish gate.
-- **An MCP server can be published once scanned, without a grade** (ADR-046).
-  A server that needs credentials to start is shown as "Scanned, not graded",
-  never as clean. The scan must be by the current engine and must have
-  completed or come back incomplete; a failed run does not count.
-- A server with a hosted endpoint and no repository is now scanned as a live
-  MCP server instead of being refused.
+  inserts new servers as drafts. Migration 0048 returns published, ungraded
+  registry-synced listings to draft. Edits can no longer change `status`; it
+  changes only through the status route, whose gate requires a complete item
+  (`items.validate_item`), not a scan (ADR-049).
 - The backend deploy installs the repository's Caddyfile into the running
   Caddy (validated, never dropping a live site, restored on a failed reload)
   instead of only reloading whatever Caddy had.
+- **"Recommended" ranking** weights are now popularity 36, maintenance 28,
+  community 18, documentation 18: the previous non-security weights
+  rescaled.
+- **Registry MCP tools** return no security field; the search note says a
+  listing is curation, not a security assessment.
+- **Sign-in returns you where you were going.** The auth proxy passes the
+  original path and query as a relative `next`, and every reader of `next`
+  validates it through one function (`shared/lib/safe-next.ts`) that also
+  rejects backslashes, control characters and dot-segment forms that
+  normalise to `//host`.
+- `GET /billing/subscription` returns `effective_tier` as the tier enforced,
+  plus `own_effective_tier`, `seats`, `seats_used`; `GET /account/usage`
+  reports the enforced tier.
+- Seats count only while the owner's own Team plan is active; a Pro or Hobby
+  payment no longer resets `accounts.seats` to 1. An expired, unaccepted
+  invite no longer holds a seat.
+- Admin: granting Team sets at least 3 seats; setting seats requires the
+  authentication code and returns 404 for an account with no row.
+- AI triage uses the enforced tier; it read the stored tier, so an expired
+  Pro kept the paid model.
+- Pricing and docs no longer advertise scan-history retention, a Pro-only
+  "plain-language summary" or "upgraded tool-poisoning detection"; Team scan
+  limits read "No monthly cap". None of these was enforced.
 - `backend/infra/apply-migration.ps1 <path-to-migration>` applies one
   migration file through the Supabase management API, refusing any path
   outside `backend/infra/migrations/`.
 
 ### Fixed
 
+- **The deploy reported the Caddyfile installed when it was not.** The live
+  `/etc/caddy/Caddyfile` is a read-only bind mount, so writing it from inside
+  the container failed; bash suspends `set -e` inside a function used as an
+  `if` condition, so the failure was ignored and Caddy reloaded the old file.
+  `/mcp` kept reaching the API (404). The deploy now writes the host file
+  behind the mount, checks the container sees it, and checks every step.
+- **Paying on the 31st (and on Feb 29 for an annual plan) failed to activate
+  the plan**, because the next billing date was computed with
+  `replace(month=...)`, which raises for a shorter month. In the webhook the
+  payment had already been claimed, so the grant was lost for good. The date
+  now clamps to the month's last day, and the webhook computes everything
+  before it claims.
+- **A mismatched signature on `/billing/verify` locked the payment**: it
+  marked the row `failed` with no status filter, so the webhook could never
+  settle a real capture and a settled row could be un-paid. The row is now
+  left alone, and `/verify` no longer answers "ok" when nothing was granted.
+- **The Razorpay webhook** parsed the body before checking its signature
+  (an unsigned malformed body was a 500), ignored `order.paid`, and answered
+  an unknown order silently. It now verifies first, accepts either settling
+  event (the claim is a compare-and-set, so one grant), and logs the unknown
+  order.
 - **The registry deploy failed on the Caddyfile.** `handle /mcp /mcp/*`
   is not valid Caddy syntax: `handle` takes one matcher token. It is now a
   named matcher, `@registry_mcp path /mcp /mcp/*`. The deploy's own guard
@@ -83,14 +147,8 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   `python -m aevrin_api.services.schema_check` in a throwaway container of the
   new image first, and stops with the live API untouched if a column is
   missing.
-- **An F-graded server fell through to "require approval" in org install
-  policies**, because `grade_actions` had no F entry. F now defaults to
-  `block`, in the column default and in every existing policy.
-- **An F-graded server carried the mildest badges of any grade** ("Aevrin
-  scanned" and nothing else). It now carries "Do not use".
-- **A scan from the previous engine made a listing read "scanned".** 0047
-  withdrew those grades but left `current_version` in place; 0048 clears it
-  where no current-engine scan backs it.
+- API validation errors showed as "[object Object]"; historic BYOK add-on
+  payments rendered with a blank plan label.
 - **Every scan that stopped early was reported as a server with no tools.** The
   incomplete summary picked its reason from `tools_discovered == 0`, which is
   true of every early stop: a scan that never identified a server obviously
@@ -144,6 +202,18 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Removed
 
+- **The registry no longer scans or grades anything** (ADR-049). No item
+  carries a grade, risk score, scan state, "Not scanned" or "Not
+  security-scanned" label, grade rationale or security badge, on the web, in
+  the admin panel, or through the registry MCP tools. Removed routes:
+  `POST /admin/marketplace/mcp/{id}/scan`,
+  `POST /admin/marketplace/mcp/regrade-ungraded`, `GET`/`PUT /marketplace/policy`,
+  `POST /marketplace/mcp/{slug}/install-plan`, `GET /scheduler/scan-queue`;
+  query parameters `min_grade`, `grade`, `unscanned`; the Security sort, org
+  install policy, the admin "Rescan" actions and the editor's Security tab;
+  `services/marketplace/scanning.py` and `grading.py`; the
+  `MARKETPLACE_SCAN_USER_ID` setting; AI explanations of a registry listing.
+- The pricing page's `mailto:team@aevrin.net` "Contact us" for Team.
 - **The AV-001..AV-005 entries in the rule catalogue** (`mcp/catalog.py`).
   Their emitters were deleted with the switch to the ToolTrust engine
   (ADR-033), and nothing has produced one since. A stored finding that still

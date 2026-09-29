@@ -1,43 +1,16 @@
-import type { Severity } from "@/entities/finding";
-
 /**
- * Marketplace domain types.
+ * Registry domain types.
  *
- * `security` and `popularity` are separate objects rather than flattened
- * fields, mirroring the API. That shape is deliberate and worth preserving:
- * it makes it awkward to write a component that treats a star count as a
- * safety signal, because the two never sit in the same object.
+ * The registry is discovery only: nothing here carries a scan result or a
+ * grade. `popularity` is its own object, named for what each metric measures.
+ * To security-check an MCP server, a user scans it on the scan page, which
+ * runs the canonical scanner (`entities/scan`).
  */
-
-export type TrustGrade = "A" | "B" | "C" | "D" | "F";
-
-/**
- * How much the stored grade can be trusted to describe what someone is about
- * to install.
- *
- * - `complete`:       scanned, fully covered, and the scanned version is current.
- * - `partial`:        scanned, but a scanner stage did not run. Absence of
- *                      findings in those categories proves nothing.
- * - `outdated`:       the scan covers an older version than the current release.
- * - `ungraded`:       scanned, but the scan could not establish enough to
- *                      grade (a server that needs a credential to start, say).
- *                      Unknown, never safe.
- * - `unscanned`:      no evidence at all. Never render this as safe.
- * - `not_applicable`: not an MCP server: a prompt, a skill, a template. No
- *                      scanner exists for these; say so plainly.
- */
-export type ScanState =
-  | "complete"
-  | "partial"
-  | "outdated"
-  | "ungraded"
-  | "unscanned"
-  | "not_applicable";
 
 /**
  * What a registry item is. Mirrors ITEM_TYPES in
  * backend/api/aevrin_api/services/marketplace/items.py and the check in
- * migration 0048. Only `mcp_server` has a security scanner.
+ * migration 0048.
  */
 export type ItemType =
   | "mcp_server"
@@ -70,7 +43,6 @@ export type PriceType =
 
 export type MarketplaceSort =
   | "recommended"
-  | "security"
   | "popular"
   | "recently_updated"
   | "recently_added"
@@ -78,24 +50,6 @@ export type MarketplaceSort =
   | "trending";
 
 export type InstallTarget = "claude-code" | "codex" | "cursor" | "generic";
-
-export type PolicyAction = "allow" | "require_approval" | "block";
-
-export interface ListingSecurity {
-  grade: TrustGrade | null;
-  /** 0-100, higher is worse. */
-  risk_score: number | null;
-  /** The version the grade actually belongs to. */
-  scannedVersion: string | null;
-  latestVersion: string | null;
-  coverageComplete: boolean | null;
-  scannedAt: string | null;
-  state: ScanState;
-  /** False whenever the grade does not describe the current release. */
-  appliesToLatest: boolean;
-  label: string;
-  badges: string[];
-}
 
 /**
  * Every field is nullable, and null means "not available", never zero.
@@ -140,7 +94,6 @@ export interface Listing {
   githubLastCommitAt: string | null;
   githubLatestRelease: string | null;
   rankingScore: number;
-  security: ListingSecurity;
   popularity: ListingPopularity;
   status: string;
   visibility: "public" | "private" | "unlisted";
@@ -151,41 +104,11 @@ export interface Listing {
   favorited: boolean;
 }
 
+/** A version the registry has seen. A bare record: no scan state. */
 export interface ListingVersion {
   id: string;
   version: string;
-  trustGrade: TrustGrade | null;
-  /** 0-100, higher is worse. The code/MCP/dependency sub-scores that used to
-   *  sit beside this are gone with the code-security product they described;
-   *  the finding list, where each finding carries a rule id and its own
-   *  evidence, answers "what earned this grade" better than they did. */
-  riskScore: number | null;
-  coverageComplete: boolean | null;
-  scanId: string | null;
-  scannedAt: string | null;
   firstSeenAt: string;
-}
-
-/**
- * The findings behind a published letter, ranked worst first.
- *
- * The grade and the risk score are claims; this is the evidence for them. It
- * is derived on read from the same scan the letter came from, so it can
- * neither disagree with the report nor go stale when a finding is triaged.
- */
-export interface GradeDriver {
-  ruleId: string;
-  label: string;
-  severity: Severity;
-  /** How many tools this rule fired on. */
-  occurrences: number;
-}
-
-export interface GradeRationale {
-  scanId: string;
-  version: string | null;
-  severityCounts: Record<Severity, number>;
-  drivers: GradeDriver[];
 }
 
 export interface ListingEvent {
@@ -221,7 +144,6 @@ export interface RelatedItem {
   title: string;
   description: string;
   itemType: ItemType;
-  grade: TrustGrade | null;
   /** `uses`: this item depends on it. `related`: see also. */
   relation: "uses" | "related";
 }
@@ -242,8 +164,6 @@ export interface ListingDetail extends Listing {
   };
   versions: ListingVersion[];
   events: ListingEvent[];
-  /** Null when the graded version has no scan, or that scan has no findings. */
-  gradeRationale: GradeRationale | null;
   marketplaceViews: number;
 }
 
@@ -282,17 +202,6 @@ export interface TypeCount {
   count: number;
 }
 
-export interface InstallPlan {
-  listing: Listing;
-  agent: InstallTarget;
-  scope: "global" | "project";
-  config: Record<string, unknown>;
-  capabilities: string[];
-  warnings: string[];
-  policyAction: PolicyAction;
-  policyReason: string | null;
-}
-
 export interface Submission {
   id: string;
   sourceUrl: string;
@@ -305,20 +214,6 @@ export interface Submission {
     "id" | "slug" | "title" | "status" | "repositoryUrl"
   > | null;
 }
-
-export interface OrgPolicy {
-  gradeActions: Record<TrustGrade, PolicyAction>;
-  unscannedAction: PolicyAction;
-}
-
-/** Human labels for a grade. Kept beside the type so every surface agrees. */
-export const GRADE_LABELS: Record<TrustGrade, string> = {
-  A: "Trusted",
-  B: "Generally safe",
-  C: "Caution",
-  D: "High risk",
-  F: "Do not use",
-};
 
 export const PRICE_LABELS: Record<PriceType, string> = {
   free: "Free",
@@ -341,7 +236,6 @@ export const INSTALL_TARGET_LABELS: Record<InstallTarget, string> = {
 
 export const SORT_LABELS: Record<MarketplaceSort, string> = {
   recommended: "Recommended",
-  security: "Security",
   popular: "Popular",
   recently_updated: "Recently updated",
   recently_added: "Recently added",

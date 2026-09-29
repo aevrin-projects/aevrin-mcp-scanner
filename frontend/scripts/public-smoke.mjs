@@ -11,26 +11,24 @@ const allViewports = [
   { name: "desktop-small", width: 1280, height: 960 },
   { name: "desktop", width: 1440, height: 1000 },
 ];
+// This app's public routes. The marketing pages (home, /cli, /status, /terms,
+// /privacy) moved to frontend-public (DECISIONS.md ADR-011) and are checked
+// there, not here.
 const allRoutes = [
-  "/",
   "/pricing",
   "/docs",
   "/docs/cli",
-  "/cli",
   "/login",
-  "/status",
   // Readable signed out: the registry must work for someone deciding whether
   // to sign up at all.
   "/marketplace",
-  "/terms",
-  "/privacy",
   "/definitely-not-a-route",
 ];
 const quick = process.env.AEVRIN_SMOKE_QUICK === "1";
 const viewports = quick
   ? allViewports.filter(({ name }) => name === "mobile" || name === "desktop")
   : allViewports;
-const routes = quick ? ["/", "/pricing", "/docs"] : allRoutes;
+const routes = quick ? ["/pricing", "/marketplace", "/docs"] : allRoutes;
 
 for (const viewport of viewports) {
   for (const route of routes) {
@@ -122,10 +120,12 @@ const toggle = page.getByRole("switch", { name: "Toggle annual billing" });
 if (!(await toggle.isVisible())) failures.push("pricing toggle is not visible");
 await toggle.press("Space");
 const monthlyText = await page.locator("section#pricing").innerText();
-if (!annualText.includes("$180 billed today")) {
+// The amounts come from GET /billing/pricing and differ by currency and over
+// time, so the check is that the charge is stated, not what it is.
+if (!/billed today for one year/.test(annualText)) {
   failures.push("annual total is not visible");
 }
-if (!monthlyText.includes("$19 billed today for one month")) {
+if (!/billed today for one month/.test(monthlyText)) {
   failures.push("monthly charge is not visible after toggle");
 }
 const faq = page.getByRole("button", {
@@ -136,7 +136,7 @@ if (!(await page.getByText(/pauses until it resets/).isVisible())) {
   failures.push("pricing FAQ did not open");
 }
 
-const homeResponse = await page.goto(`${baseUrl}/`);
+const homeResponse = await page.goto(`${baseUrl}/pricing`);
 for (const header of [
   "content-security-policy",
   "x-content-type-options",
@@ -161,11 +161,18 @@ for (const href of internalHrefs) {
   }
 }
 
-const protectedResponse = await page.goto(`${baseUrl}/usage`, { waitUntil: "networkidle" });
-if (!page.url().endsWith("/login")) {
-  failures.push(`protected /usage did not redirect to login: ${page.url()}`);
+// A protected path redirects to /login carrying itself, query included, as a
+// relative `next`: the registry's "Scan with Aevrin" link prefills /scans/new
+// through its query string, and dropping it would land a new user on an
+// empty form after signing in.
+for (const path of ["/usage", "/scans/new?mode=github_repo&target=https%3A%2F%2Fgithub.com%2Facme%2Fserver"]) {
+  const protectedResponse = await page.goto(`${baseUrl}${path}`, { waitUntil: "networkidle" });
+  const landed = new URL(page.url());
+  if (landed.pathname !== "/login" || landed.searchParams.get("next") !== path) {
+    failures.push(`protected ${path} did not redirect to login with next=${path}: ${page.url()}`);
+  }
+  process.stdout.write(`protected ${path} -> ${page.url()} (${protectedResponse.status()})\n`);
 }
-process.stdout.write(`protected /usage -> ${page.url()} (${protectedResponse.status()})\n`);
 
 await browser.close();
 if (failures.length) {

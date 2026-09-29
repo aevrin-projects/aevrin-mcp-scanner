@@ -11,7 +11,8 @@ export interface BucketUsage {
 }
 
 export interface AccountUsage {
-  tier: "free" | "hobby" | "team";
+  /** The tier enforced for this account, workspace Team included. */
+  tier: "free" | "hobby" | "pro" | "team";
   paid_until: string | null;
   buckets: BucketUsage[];
   /** Fleet coverage. Not a bucket: a machine is either watched or it is not,

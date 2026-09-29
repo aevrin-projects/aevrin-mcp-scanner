@@ -106,7 +106,6 @@ def build_evidence(
     subject_type: str,
     subject_id: str | None = None,
     findings: list[dict[str, Any]] | None = None,
-    trust_grade: dict[str, Any] | None = None,
     permissions: list[dict[str, Any]] | None = None,
     mcp_tools: list[dict[str, Any]] | None = None,
     skills: list[dict[str, Any]] | None = None,
@@ -139,17 +138,6 @@ def build_evidence(
                 "shown": _MAX_FINDINGS,
                 "total": len(findings),
             }
-
-    if trust_grade:
-        # `grade: null` is meaningful and is sent as-is: it tells the model
-        # the scan could not be graded, which is exactly the case where it
-        # must not speak as if the server had been assessed.
-        document["trust_grade"] = {
-            "grade": trust_grade.get("grade"),
-            "label": trust_grade.get("label"),
-            "risk_score": trust_grade.get("risk_score"),
-            "recommended_action": trust_grade.get("recommended_action"),
-        }
 
     if permissions:
         # Type and scope only. Never the credential, never the resolved path,

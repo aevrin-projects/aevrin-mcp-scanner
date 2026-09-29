@@ -15,13 +15,13 @@ built on one shared scanning engine.
 
 - **What it does**: scans MCP servers and the repositories that implement
   them for security problems (OWASP MCP Top 10), reports what it could
-  verify and what it could not, and now also catalogues public MCP servers
-  with a trust grade so installing one is an informed decision rather than
-  a guess.
+  verify and what it could not, and also runs a discovery-only registry
+  of MCP servers, skills, prompts and more (no scan state on any item; a
+  user scans a server they found with the scan page or the CLI).
 - **Primary users**: developers scanning their own MCP servers or agent
   configurations (via the CLI, the Claude Code hook, or CI); teams using
-  the dashboard to track findings, agent posture, and marketplace policy
-  across a shared workspace; administrators moderating the marketplace and
+  the dashboard to track findings and agent posture across a shared
+  workspace; administrators moderating the marketplace and
   configuring AI providers.
 - **Major components**: `backend/scanner-core` (the scanning engine),
   `backend/api` (FastAPI service - orchestration, billing, marketplace, AI,
@@ -157,9 +157,10 @@ Concretely, on this codebase specifically:
 
 - Do not add a second finding/scan/grading model - everything imports
   `aevrin_scanner_core` so a finding means the same thing everywhere.
-- Do not duplicate the marketplace's trust grade with a second rubric -
-  `grade_mcp_server()` is the only grader; the marketplace, the CLI, and
-  the agent-posture view all read the same function.
+- Do not add a second trust-grade rubric - scanner-core's `grade_scan()`
+  (`mcp/risk.py`) is the only grader; the scan pipeline, the CLI, and the
+  agent-posture view all read it. The registry carries no grade at all
+  (`DECISIONS.md` ADR-049): do not add one back beside it.
 - Do not introduce a new HTTP client library for one more provider - see
   `integrations/ai_providers.py`, which added four vendors with zero new
   dependencies (LiteLLM was evaluated and explicitly rejected; see
@@ -243,7 +244,7 @@ default to touching everything to be safe. Know why nothing needed updating.
 | How does authentication work end-to-end? | `docs/architecture/DATA_FLOWS.md`, `docs/security/SECURITY.md` |
 | How does an MCP scan actually run? | `docs/features/MCP_SCANNING.md`, `docs/architecture/DATA_FLOWS.md` |
 | How does agent posture / attack-path scoring work? | `docs/features/AGENT_POSTURE.md` |
-| How does the marketplace ingest and grade listings? | `docs/features/MCP_MARKETPLACE.md` |
+| How does the registry (marketplace) ingest and curate listings? | `docs/features/MCP_MARKETPLACE.md` |
 | How do AI explanations work, and what can't they do? | `docs/features/AI_REVIEW.md` |
 | How does billing work? | `docs/features/BILLING.md` |
 | What are the coding standards / layering rules? | `docs/engineering/STANDARDS.md` |

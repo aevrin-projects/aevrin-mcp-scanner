@@ -62,12 +62,15 @@ The `/marketplace` routes are the Aevrin Registry
 (`docs/features/MCP_MARKETPLACE.md`); the path is kept, the navigation
 says "Registry". `views/marketplace` is the browse page (type chips,
 rails, and a "Use the registry from your agent" disclosure with the
-Aevrin MCP config); `views/marketplace-detail` renders by item type, and
-shows the security panel and install dialog only for MCP servers.
-`views/admin-marketplace` is the admin list (lifecycle actions,
-suggestions, reports, categories) and `views/admin-marketplace-item` the
-create/edit editor (tabs: Details, Content, Install, Security, Related,
-Preview, History). The editor's Preview renders the public detail
+Aevrin MCP config, and a permanent banner saying the registry is discovery
+only); `views/marketplace-detail` renders by item type, and shows the
+install dialog (built from the detail's `install_configs`) and "Scan with
+Aevrin" only for MCP servers. No registry view shows a grade, a scan state
+or a security panel (`DECISIONS.md` ADR-049). `views/admin-marketplace` is
+the admin list (lifecycle actions, suggestions, reports, categories) and
+`views/admin-marketplace-item` the create/edit editor (tabs: Details,
+Content, Install, Related, Preview, History; the Install tab also carries
+the version list and "Scan with Aevrin"). The editor's Preview renders the public detail
 sections from `entities/marketplace` (`ItemContentSections`,
 `UseSection`, `RelatedSection`), which live there rather than in the
 detail view because a view may not import another view. The admin UI
@@ -95,6 +98,13 @@ the duplicates the CLI writes alongside them.
 API routes (Next.js route handlers, not the FastAPI backend):
 `app/api/integrations/github/callback/route.ts`,
 `app/auth/callback/route.ts`, `app/auth/confirm/route.ts`.
+
+A signed-out request for a protected route is redirected by the auth proxy
+(`shared/lib/supabase/proxy.ts`) to `/login?next=<path and query>`, so a
+prefilled link such as the registry's `/scans/new?mode=...&target=...`
+survives sign-in. Every reader of `next` (the proxy, the login actions,
+`/auth/callback`) goes through `shared/lib/safe-next.ts`, which accepts only
+an in-app relative path.
 
 The chrome that decides sidebar-vs-public-navbar
 (`widgets/app-shell/ui/layout-chrome.tsx`) branches on
@@ -183,26 +193,22 @@ caller fight the base - `max-h-none` does not reliably beat an arbitrary
 `admin`, `agent`, `ai-provider`, `api-key`, `billing`, `device`, `finding`,
 `github`, `marketplace`, `organization`, `scan`, `usage`. Each exposes
 `model/types.ts` (the domain shape), `api/*.ts` (the fetch layer against
-`backend/api`), and often a small `ui/` (badges, pills - e.g.
-`entities/marketplace/ui/grade-badge.tsx`, which *requires* a `state` prop
-so a bare confident letter grade can never be rendered without its scan
-state alongside it). `entities/marketplace` also owns `TypeBadge`, the
-item-type labels (`ITEM_TYPE_LABELS`, mirroring the API's `ITEM_TYPES`),
-and `AevrinMcpSnippet`, the one place the hosted MCP URL and its client
-config are written.
+`backend/api`), and often a small `ui/` (badges, pills). `entities/marketplace` also owns
+`TypeBadge`, the item-type labels (`ITEM_TYPE_LABELS`, mirroring the API's
+`ITEM_TYPES`), `AevrinMcpSnippet`, the one place the hosted MCP URL and its
+client config are written, and `ScanWithAevrin` with its pure helper
+`model/scan-handoff.ts`: for an MCP server, a link to the scan page's
+existing `mode`/`target` prefill (a `github.com` repository first, then an
+HTTPS remote), or the `aevrin scan mcp` command for a package-only server,
+or nothing. It mirrors the scan page's own target validation so a link
+never lands on a form that refuses it. The registry's former `GradeBadge`,
+`ScanStatePill` and "Why this grade" components were deleted with its
+scanning.
 
-`GradeBadge` has two variants, and the split is a layout constraint rather
-than a preference. `full` pairs the tile with its explanation and is used
-where there is room for it (listing detail, install dialog). `tile` is the
-square alone, for a grid card: the full badge's explanation is a
-max-content flex sibling, so on a card it claimed the width it wanted and
-collapsed the `min-w-0` title column to zero - every card rendered with no
-visible title. In `tile` form an unscanned listing renders nothing at all,
-because the card already states its scan status in its footer and a second
-unexplained glyph beside the publisher's logo read as a broken image. The
-`state` guarantee is unchanged either way: the tile is muted whenever the
-scan is not complete, and carries the state in an `aria-label` so it is
-never a colour-only signal.
+The explain button (`features/ai-explain`) is rendered on the scan detail
+page (subject `scan`, labelled with the scan's grade) and on the finding
+detail page (subject `finding`); the API refuses either to anyone who
+cannot read the scan.
 
 ## Eight routes moved to their own app, `frontend-public/`
 

@@ -58,7 +58,8 @@ Use the vocabulary the code itself uses, not a paraphrase:
 
 - **Finding**, not "issue" or "alert" (matches `Finding` the model).
 - **Severity** (`critical`/`high`/`medium`/`low`/`info`), not "priority."
-- **Trust grade** (A/B/C/D) for the marketplace/agent-posture letter,
+- **Trust grade** (A-F) for a scan's and agent posture's letter (the
+  registry carries none),
   **security score** for the 0-100 number underneath it - the two are
   always shown together, never one standing in for the other.
 - **OWASP MCP Top 10** category codes (`MCP01`-`MCP10`) with their full

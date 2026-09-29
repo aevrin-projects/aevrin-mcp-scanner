@@ -1,17 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Loader2, ShieldAlert } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 
 import {
-  GradeBadge,
   INSTALL_TARGET_LABELS,
-  getInstallPlan,
-  type InstallPlan,
   type InstallTarget,
   type ListingDetail,
 } from "@/entities/marketplace";
-import { ApiError } from "@/shared/api";
 import { Button } from "@/shared/ui/button";
 import { CopyButton } from "@/shared/ui/copy-button";
 import {
@@ -28,14 +24,10 @@ import { Select } from "@/shared/ui";
  * The install step, which deliberately does not install anything.
  *
  * Aevrin does not reach into a developer's machine and write configuration,
- * and it never runs a server's install command to find out what it does.
- * What this produces is the exact config to apply, shown alongside the grade,
- * the declared capabilities, and every warning the plan carries, so the
+ * and it never runs a server's install command. The config shown is the one
+ * the detail response already carries (`install_configs`, one per supported
+ * agent, secrets left blank), with every warning the builder attached, so the
  * person clicking "copy" has already seen what they are agreeing to.
- *
- * A workspace policy that blocks this grade stops the flow here with the
- * reason, rather than letting someone copy a config their organisation has
- * decided against.
  */
 
 export function InstallDialog({
@@ -47,34 +39,14 @@ export function InstallDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const targets = listing.installTargets as InstallTarget[];
-  const [agent, setAgent] = useState<InstallTarget>(targets[0] ?? "generic");
-  const [scope, setScope] = useState<"global" | "project">("global");
-  const [plan, setPlan] = useState<InstallPlan | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function buildPlan() {
-    setLoading(true);
-    setError(null);
-    setPlan(null);
-    try {
-      setPlan(await getInstallPlan(listing.slug, agent, scope));
-    } catch (caught) {
-      setError(
-        caught instanceof ApiError
-          ? caught.message
-          : "The install plan could not be prepared.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
+  const agents = Object.keys(listing.installConfigs) as InstallTarget[];
+  const [agent, setAgent] = useState<InstallTarget | undefined>(agents[0]);
+  const selected = agent ? listing.installConfigs[agent] : undefined;
+  const text = selected ? JSON.stringify(selected.config, null, 2) : "";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* This dialog is the tall one: a plan carries capabilities, warnings,
-          and a config block of whatever length the server declares. Centred by
+      {/* A config block can be as long as the server declares. Centred by
           transform, so anything past the viewport is unreachable rather than
           merely below the fold - hence its own height cap and scroller. */}
       <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-2xl overflow-y-auto">
@@ -86,23 +58,20 @@ export function InstallDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="rounded-lg border border-border p-4">
-            <GradeBadge
-              grade={listing.security.grade}
-              riskScore={listing.security.risk_score}
-              state={listing.security.state}
-            />
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="space-y-1.5 text-sm">
+        {agents.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            This server declares no installable package or endpoint, so there is no
+            configuration to offer.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <label className="block space-y-1.5 text-sm">
               <span className="font-medium">Agent</span>
               <Select
                 value={agent}
                 onChange={(event) => setAgent(event.target.value as InstallTarget)}
               >
-                {targets.map((target) => (
+                {agents.map((target) => (
                   <option key={target} value={target}>
                     {INSTALL_TARGET_LABELS[target] ?? target}
                   </option>
@@ -110,109 +79,42 @@ export function InstallDialog({
               </Select>
             </label>
 
-            <label className="space-y-1.5 text-sm">
-              <span className="font-medium">Scope</span>
-              <Select
-                value={scope}
-                onChange={(event) => setScope(event.target.value as "global" | "project")}
-              >
-                <option value="global">Global</option>
-                <option value="project">This project</option>
-              </Select>
-            </label>
-          </div>
+            {selected?.warnings.length ? (
+              <ul className="space-y-2">
+                {selected.warnings.map((warning) => (
+                  <li
+                    key={warning}
+                    className="flex items-start gap-2.5 rounded-md border border-border bg-muted/40 p-3 text-sm"
+                  >
+                    <AlertTriangle
+                      className="mt-0.5 size-3.5 shrink-0 text-severity-medium"
+                      aria-hidden="true"
+                    />
+                    <span>{warning}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
 
-          {error ? (
-            <div className="flex items-start gap-3 rounded-lg border border-severity-critical/25 bg-severity-critical/10 p-3 text-sm">
-              <ShieldAlert
-                className="mt-0.5 size-4 shrink-0 text-severity-critical"
-                aria-hidden="true"
-              />
-              <p>{error}</p>
-            </div>
-          ) : null}
-
-          {plan ? (
-            <>
-              {plan.policyAction === "require_approval" ? (
-                <div className="flex items-start gap-3 rounded-lg border border-severity-medium/25 bg-severity-medium/10 p-3 text-sm">
-                  <AlertTriangle
-                    className="mt-0.5 size-4 shrink-0 text-severity-medium"
-                    aria-hidden="true"
-                  />
-                  <p>
-                    Your workspace policy requires approval for this server.{" "}
-                    {plan.policyReason}
-                  </p>
-                </div>
-              ) : null}
-
-              {plan.capabilities.length > 0 ? (
-                <div>
-                  <p className="text-sm font-medium">Declared capabilities</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    From this server&apos;s own metadata. What it asks for, not what
-                    it has been observed doing.
-                  </p>
-                  <ul className="mt-2 space-y-1 text-sm">
-                    {plan.capabilities.map((capability) => (
-                      <li key={capability} className="text-muted-foreground">
-                        · {capability}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              {plan.warnings.length > 0 ? (
-                <ul className="space-y-2">
-                  {plan.warnings.map((warning) => (
-                    <li
-                      key={warning}
-                      className="flex items-start gap-2.5 rounded-md border border-border bg-muted/40 p-3 text-sm"
-                    >
-                      <AlertTriangle
-                        className="mt-0.5 size-3.5 shrink-0 text-severity-medium"
-                        aria-hidden="true"
-                      />
-                      <span>{warning}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-
-              <div>
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium">Configuration</p>
-                  <CopyButton value={JSON.stringify(plan.config, null, 2)} />
-                </div>
-                <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-border bg-muted/40 p-3 text-xs">
-                  <code>{JSON.stringify(plan.config, null, 2)}</code>
-                </pre>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Secret values are left blank on purpose. Set them in your own
-                  environment; never commit them.
-                </p>
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">Configuration</p>
+                <CopyButton value={text} ariaLabel="configuration" />
               </div>
-            </>
-          ) : null}
-        </div>
+              <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-border bg-muted/40 p-3 text-xs">
+                <code>{text}</code>
+              </pre>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Secret values are left blank on purpose. Set them in your own
+                environment; never commit them.
+              </p>
+            </div>
+          </div>
+        )}
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={() => void buildPlan()} disabled={loading}>
-            {loading ? (
-              <>
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                Preparing
-              </>
-            ) : plan ? (
-              "Rebuild plan"
-            ) : (
-              "Prepare install"
-            )}
+            Close
           </Button>
         </DialogFooter>
       </DialogContent>

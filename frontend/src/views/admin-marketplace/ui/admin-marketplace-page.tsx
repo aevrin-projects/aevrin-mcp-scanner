@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Loader2, Plus, Search } from "lucide-react";
 
 import { marketplaceAdminApi } from "@/entities/admin";
 import { ITEM_TYPE_LABELS, ITEM_TYPES, TypeBadge, type ItemType } from "@/entities/marketplace";
@@ -31,32 +31,14 @@ import { CategoryManager } from "./category-manager";
  *
  * The registry in every state, the suggestion queue, reports and categories.
  * Creating and editing an item happens in the item editor; this page is for
- * finding items and moving them through their lifecycle. Curation actions are
- * editorial; the only security action is "Rescan", which starts a real scan
- * and returns a real result.
- *
- * The scan button reports whether a scan actually ran or an existing result was
- * reused. An admin who pressed rescan and silently got a cached answer would
- * have no way to tell, and would draw the wrong conclusion from an unchanged
- * grade.
+ * finding items and moving them through their lifecycle. Every action here is
+ * editorial: the registry is discovery only and holds no scan result.
  */
 
 const PAGE_SIZE = 30;
 
-// The bulk regrade is not tied to a listing row, but `act` keys its busy state
-// by id, so it gets a sentinel of its own rather than a second busy flag.
-const REGRADE_ID = "__regrade_ungraded__";
-// Mirrors REGRADE_BATCH_LIMIT in the marketplace controller. Shown in a
-// tooltip only - the server enforces it, and the response says what remains.
-const REGRADE_BATCH = 25;
-
 interface Summary {
   total: number;
-  scanned: number;
-  unscanned: number;
-  stale_scans: number;
-  partial_coverage: number;
-  grades: Record<string, number>;
   statuses: Record<string, number>;
   types: Record<string, number>;
   open_reports: number;
@@ -69,7 +51,6 @@ type Row = Record<string, unknown> & {
   title: string;
   status: string;
   item_type: ItemType;
-  security: { grade: string | null; risk_score: number | null; state: string; label: string };
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -79,14 +60,6 @@ const STATUS_COLORS: Record<string, string> = {
   rejected: "bg-rose-500/12 text-rose-700 dark:text-rose-400 border-rose-500/20",
   draft: "bg-muted text-muted-foreground border-transparent",
   archived: "bg-muted text-muted-foreground border-border",
-};
-
-const GRADE_COLORS: Record<string, string> = {
-  A: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
-  B: "bg-sky-500/12 text-sky-700 dark:text-sky-400 border-sky-500/20",
-  C: "bg-amber-500/12 text-amber-700 dark:text-amber-400 border-amber-500/20",
-  D: "bg-rose-500/12 text-rose-700 dark:text-rose-400 border-rose-500/20",
-  F: "bg-rose-500/20 text-rose-800 dark:text-rose-300 border-rose-500/35",
 };
 
 export function AdminMarketplacePage() {
@@ -99,7 +72,6 @@ export function AdminMarketplacePage() {
   const [message, setMessage] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState("");
-  const [gradeFilter, setGradeFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [search, setSearch] = useState("");
 
@@ -122,7 +94,6 @@ export function AdminMarketplacePage() {
       marketplaceAdminApi
         .list({
           status: statusFilter || undefined,
-          grade: gradeFilter || undefined,
           type: typeFilter || undefined,
           q: debouncedSearch || undefined,
           limit: PAGE_SIZE,
@@ -133,7 +104,7 @@ export function AdminMarketplacePage() {
       marketplaceAdminApi.reports().catch(() => []),
     ]);
     return { s, list, subs, reps };
-  }, [statusFilter, gradeFilter, typeFilter, debouncedSearch, page]);
+  }, [statusFilter, typeFilter, debouncedSearch, page]);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,37 +121,6 @@ export function AdminMarketplacePage() {
       cancelled = true;
     };
   }, [fetchAll, reloadToken]);
-
-  /** Queue scans for the listings that carry no grade.
-   *
-   *  Bounded server-side, so this reports what is left rather than pretending
-   *  one press fixed the whole catalogue. Skipped listings are named: a
-   *  remote-only server with nothing to launch stays ungraded, and that is a
-   *  result rather than a failure to retry.
-   */
-  async function regradeUngraded() {
-    await act(
-      REGRADE_ID,
-      () => marketplaceAdminApi.regradeUngraded(),
-      (r) => {
-        const res = r as {
-          queued: number;
-          skipped: Array<{ listing: string; reason: string }>;
-          remaining_ungraded: number;
-        };
-        const parts = [`Queued ${res.queued} scan${res.queued === 1 ? "" : "s"}.`];
-        if (res.skipped.length) {
-          parts.push(
-            `${res.skipped.length} could not be scanned (${res.skipped[0].listing}: ${res.skipped[0].reason})`,
-          );
-        }
-        if (res.remaining_ungraded > 0) {
-          parts.push(`${res.remaining_ungraded} still ungraded. Run it again for the next batch.`);
-        }
-        return parts.join(" ");
-      },
-    );
-  }
 
   async function act(id: string, fn: () => Promise<unknown>, describe: (r: unknown) => string) {
     setBusyId(id);
@@ -223,33 +163,10 @@ export function AdminMarketplacePage() {
           title="Registry"
           description="Every item in every state, suggestions, reports, and categories."
           actions={
-            <div className="flex flex-wrap items-center gap-2">
             <Link href="/admin/marketplace/new" className={buttonVariants({ size: "sm" })}>
               <Plus className="size-4" aria-hidden="true" />
               New item
             </Link>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busyId === REGRADE_ID || !summary?.unscanned}
-              onClick={regradeUngraded}
-              // Disabled with nothing ungraded rather than hidden: an admin
-              // looking for this after an engine change needs to find it and
-              // see that there is nothing to do, not wonder where it went.
-              title={
-                summary?.unscanned
-                  ? `Queue scans for up to ${REGRADE_BATCH} ungraded listings`
-                  : "Every listing already carries a grade"
-              }
-            >
-              {busyId === REGRADE_ID ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <ShieldCheck className="size-4" aria-hidden="true" />
-              )}
-              Rescan ungraded
-            </Button>
-            </div>
           }
         />
 
@@ -262,20 +179,9 @@ export function AdminMarketplacePage() {
             transition={spring.moderate}
           >
             <MetricCard label="Items" value={String(summary.total)} detail={`${summary.statuses.published ?? 0} published`} />
-            <MetricCard
-              label="Ungraded servers"
-              value={String(summary.unscanned)}
-              detail="MCP servers with no grade"
-            />
-            <MetricCard
-              label="Stale scans"
-              value={String(summary.stale_scans)}
-              detail="Grade covers an older version"
-            />
-            <MetricCard
-              label="Grade C or worse"
-              value={String((summary.grades.C ?? 0) + (summary.grades.D ?? 0) + (summary.grades.F ?? 0))}
-            />
+            <MetricCard label="Drafts" value={String(summary.statuses.draft ?? 0)} detail="Not yet published" />
+            <MetricCard label="MCP servers" value={String(summary.types.mcp_server ?? 0)} />
+            <MetricCard label="Other types" value={String(summary.total - (summary.types.mcp_server ?? 0))} />
           </motion.div>
         ) : null}
 
@@ -364,19 +270,6 @@ export function AdminMarketplacePage() {
                   </option>
                 ))}
               </Select>
-              <Select
-                value={gradeFilter}
-                onChange={(e) => { setGradeFilter(e.target.value); setPage(0); }}
-                aria-label="Filter by grade"
-                className="w-[120px]"
-              >
-                <option value="">Any grade</option>
-                {["A", "B", "C", "D", "F"].map((g) => (
-                  <option key={g} value={g}>
-                    Grade {g}
-                  </option>
-                ))}
-              </Select>
             </div>
           </PanelHeader>
 
@@ -391,7 +284,6 @@ export function AdminMarketplacePage() {
                   <div className="divide-y divide-border">
                     <AnimatePresence initial={false}>
                       {rows.map((row) => {
-                        const gradeClass = row.security.grade ? GRADE_COLORS[row.security.grade] : "";
                         const statusClass = STATUS_COLORS[row.status] ?? "bg-muted text-muted-foreground border-transparent";
                         return (
                           <motion.div
@@ -419,54 +311,11 @@ export function AdminMarketplacePage() {
                                   {row.status}
                                 </span>
                               </div>
-                              <p className="mt-0.5 text-xs text-muted-foreground">
-                                {row.security.label}
-                              </p>
+                              <p className="mt-0.5 truncate text-xs text-muted-foreground">{row.slug}</p>
                             </div>
 
-                            {/* Grade chip + actions */}
+                            {/* Lifecycle actions */}
                             <div className="flex shrink-0 items-center gap-2">
-                              {row.security.grade ? (
-                                <span
-                                  className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold tabular-nums ${gradeClass}`}
-                                >
-                                  Grade {row.security.grade}
-                                  {row.security.risk_score !== null ? ` · risk ${row.security.risk_score}` : ""}
-                                </span>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">
-                                  {row.security.state === "not_applicable" ? "not scanned" : "no grade"}
-                                </span>
-                              )}
-
-                              {(row.item_type ?? "mcp_server") === "mcp_server" ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={busyId === row.id}
-                                aria-label={`Rescan ${row.title}`}
-                                onClick={() =>
-                                  void act(
-                                    row.id,
-                                    () => marketplaceAdminApi.scan(row.id, true),
-                                    (r) => {
-                                      const result = r as { reused: boolean; reason: string };
-                                      return result.reused
-                                        ? `No new scan: ${result.reason}`
-                                        : `Scan started: ${result.reason}`;
-                                    },
-                                  )
-                                }
-                              >
-                                {busyId === row.id ? (
-                                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                                ) : (
-                                  <RefreshCw className="size-3.5" aria-hidden="true" />
-                                )}
-                                Rescan
-                              </Button>
-                              ) : null}
-
                               {row.status === "archived" ? (
                                 <Button
                                   size="sm"
@@ -601,7 +450,6 @@ export function AdminMarketplacePage() {
                     {submissions.map((submission) => {
                       const id = String(submission.id);
                       const listing = submission.listing as Record<string, unknown> | null;
-                      const hasGrade = Boolean(listing?.current_trust_grade);
                       return (
                         <div
                           key={id}
@@ -612,15 +460,13 @@ export function AdminMarketplacePage() {
                               {(listing?.title as string) ?? String(submission.source_url)}
                             </p>
                             <p className="truncate text-xs text-muted-foreground">
-                              {String(submission.source_url)}{" "}
-                              {hasGrade ? `· Grade ${String(listing!.current_trust_grade)}` : "· no grade yet"}
+                              {String(submission.source_url)}
                             </p>
                           </div>
                           <div className="flex shrink-0 gap-2">
                             {/* Not pre-checked here: the publish gate on the server is
                                 the one definition of "may be published", and it says
-                                why when it refuses. An MCP server must be scanned; it
-                                need not be graded. */}
+                                why when it refuses. */}
                             <Button
                               size="sm"
                               disabled={busyId === id}
@@ -635,7 +481,7 @@ export function AdminMarketplacePage() {
                               {busyId === id ? (
                                 <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
                               ) : (
-                                <ShieldCheck className="size-3.5" aria-hidden="true" />
+                                <Check className="size-3.5" aria-hidden="true" />
                               )}
                               Approve
                             </Button>

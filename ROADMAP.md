@@ -21,6 +21,8 @@ marketplace/AI/admin/providers work is fully live)
       `ai_explanations` are all present and correct.
 - [x] Set `MARKETPLACE_SCAN_USER_ID` - set 2026-08-27, via a dedicated
       Supabase Auth user (`marketplace-scan@aevrin.internal`, no password).
+      Obsolete since ADR-049: the API no longer reads it, and the variable can
+      be removed from `/opt/aevrin/api.env`.
 - [x] Set `SCHEDULER_TOKEN` - set 2026-08-27 via the `AEVRIN_ENV_OVERRIDES`
       GitHub secret, applied to production on the next deploy.
 - [ ] Confirm `BYOK_ENCRYPTION_KEY` is set in production (auto-minted by
@@ -61,16 +63,33 @@ marketplace/AI/admin/providers work is fully live)
 - **Agent discovery covers Claude Code and Codex only.** Other AI coding
   agents/IDE extensions with their own configuration format aren't
   recognized. See `docs/features/AGENT_POSTURE.md#limitations`.
-- **A catalogue scan is lost if the API restarts while it is running.** The
-  scan is a `BackgroundTasks` job, so a restart mid-run drops it.
-  `/scheduler/reap-stuck-scans` marks the scan itself `failed`, and the
-  item's status is untouched (a scan no longer changes it, ADR-048), but the
-  version row keeps `scan_status = running` until the item is scanned again.
-  The publish gate reads the scan, not that column, so this misreports
-  progress rather than letting anything through. Having the reaper also
-  close the version row would fix it.
-- **No finer split on `billing.manage`** than "can change plan and seats" -
-  see `docs/features/BILLING.md#limitations`.
+- **Most organization permissions are not enforced.** Only `org.manage`,
+  `members.manage` and `roles.manage` are checked (in `org_controller`).
+  `scans.run`, `scans.delete`, `findings.triage`, `agents.delete`,
+  `marketplace.submit`, `marketplace.publish`, `mcp.manage`,
+  `ai_providers.manage`, `policy.manage` and `billing.manage` are stored and
+  shown in the UI but no route checks them. Buying Team is gated by
+  workspace ownership instead (ADR-050). Enforce each or remove it from the
+  catalogue.
+- **Billing has no proration or scheduled downgrade.** Buying another plan or
+  seat count replaces the current one immediately and extends by one cycle
+  (ADR-050). Consider proration or credit if customers ask.
+- **Unenforced `tier_limits` columns.** `history_retention_days`,
+  `seats_included`, `ai_explanations_per_month`, `private_mcp_listings` and
+  `auto_fix_prs_per_month` exist but nothing enforces them, and they are no
+  longer advertised. Enforce or drop them in a migration that also redefines
+  `admin_account_usage()` (which still reads `auto_fix_prs_per_month` and
+  `accounts.auto_fix_bonus_prs`), once `admin_analytics()`'s body - absent
+  from the repository, whose migration 0022 is a stub - is recovered.
+- **Admin user lists show each account's own tier**, not Team inherited
+  through a workspace: `admin_account_usage()` and `admin_list_users()` need
+  redefining with `quota.entitled_tier`'s rule.
+- **The legal terms page is stale** (`frontend-public/src/views/legal/ui/terms-page.tsx`):
+  it promises a monthly allowance of automated-fix pull requests (the feature
+  no longer exists), describes three scan categories (there are four, and
+  Team has no monthly cap), and does not describe per-seat Team, inherited
+  Team limits, or the no-proration rule. Needs an owner's legal review, not a
+  code change.
 - **Runtime/dynamic MCP tool behavior is not exercised** - scanning is
   static (source, manifest, declared description); what a tool actually
   does when invoked is out of scope for the current pipeline. See
@@ -84,12 +103,9 @@ marketplace/AI/admin/providers work is fully live)
   caller-supplied startup credentials is the highest-value improvement
   available to the scanner today, and is not yet designed - it means
   accepting secrets for the purpose of handing them to untrusted code.
-- **Most synced MCP servers are drafts until an admin scans them.**
-  Migration 0047 withdrew every grade produced by the previous engine, and
-  0048 returned the ungraded registry-synced servers to draft (ADR-048). A
-  server can be published once scanned, graded or not (ADR-046), so the
-  public registry grows as fast as admins curate it, bounded by scan-worker
-  capacity for bulk rescans.
+- **Synced MCP servers are drafts until an admin publishes them.** The
+  public registry grows as fast as admins curate it; publishing needs a
+  complete item, not a scan (ADR-049).
 - **Registry features deliberately not built for the pilot:** collections
   (featured, categories and tags cover curation for now; a collection needs
   its own table and editor); semantic or vector search (Postgres full-text
@@ -121,10 +137,10 @@ marketplace/AI/admin/providers work is fully live)
   see `docs/features/MCP_MARKETPLACE.md`.
 - An "add to project" action that writes an item into a user's machine or
   agent configuration. The registry produces configuration to copy; Aevrin
-  never writes local config (the same principle as the install plan).
-- A second, parallel trust-grading rubric for the registry, agent
-  posture, or anything else - `mcp/risk.py::grade_scan()` is the only
-  grader and stays that way; see `CLAUDE.md`'s
+  never writes local config (the same principle as the install dialog).
+- A trust grade or scan state on registry items, or a second grading rubric
+  anywhere - the registry is discovery only (ADR-049) and
+  `mcp/risk.py::grade_scan()` is the only grader; see `CLAUDE.md`'s
   [anti-overengineering rules](CLAUDE.md#anti-overengineering-rules).
 - **General-purpose code security.** Removed deliberately, not deferred:
   SAST, generic dependency hygiene, repository-practice scoring and

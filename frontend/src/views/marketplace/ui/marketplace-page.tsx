@@ -29,15 +29,13 @@ import { EmptyState, PageHeader, Select } from "@/shared/ui";
  * Humans and agents search the same registry through the same endpoint, so
  * what this page shows for a query is what `search_registry` returns for it.
  *
- * The security filters (grade, price, client) appear only while browsing MCP
- * servers - the one type with a scanner. Offering "Grade B or better" on a
- * page of prompts would filter everything out and read as though prompts had
- * failed a check none of them was given.
+ * The server filters (price, client) appear only while browsing MCP servers,
+ * the one type they describe.
  *
- * The banner beneath the header is permanent rather than dismissible. It is
- * the one sentence that stops someone reading a 25,000-star card as a safety
- * endorsement, and a reader who has not seen it before is exactly the reader
- * who needs it.
+ * The banner beneath the header is permanent rather than dismissible. The
+ * registry is discovery only: it does not scan what it lists, and that
+ * sentence is what stops someone reading a curated, 25,000-star card as a
+ * safety endorsement.
  */
 
 const PRICE_FILTERS = [
@@ -46,13 +44,6 @@ const PRICE_FILTERS = [
   { value: "free", label: "Free" },
   { value: "freemium", label: "Freemium" },
   { value: "paid", label: "Paid" },
-];
-
-const GRADE_FILTERS = [
-  { value: "", label: "Any grade" },
-  { value: "A", label: "Grade A only" },
-  { value: "B", label: "Grade B or better" },
-  { value: "C", label: "Grade C or better" },
 ];
 
 const TARGET_FILTERS = [
@@ -80,12 +71,11 @@ export function MarketplacePage() {
   const [itemType, setItemType] = useState<ItemType | "">("");
   const [category, setCategory] = useState("");
   const [priceType, setPriceType] = useState("");
-  const [minGrade, setMinGrade] = useState("");
   const [installTarget, setInstallTarget] = useState("");
   const [sort, setSort] = useState<MarketplaceSort>("recommended");
 
   const serversOnly = itemType === "mcp_server";
-  const browsing = !query && !itemType && !category && !minGrade && !priceType && !installTarget;
+  const browsing = !query && !itemType && !category && !priceType && !installTarget;
 
   useEffect(() => {
     // Both are degraded filters if they fail, not a broken page: the
@@ -121,7 +111,6 @@ export function MarketplacePage() {
           // Server-only filters are never sent for other types, even if a
           // value is left over from browsing servers a moment ago.
           priceType: (serversOnly && priceType) || undefined,
-          minGrade: (serversOnly && minGrade) || undefined,
           installTarget: (serversOnly && installTarget) || undefined,
           sort,
           page: nextPage,
@@ -130,7 +119,7 @@ export function MarketplacePage() {
         return null;
       }
     },
-    [query, itemType, category, priceType, minGrade, installTarget, sort, serversOnly],
+    [query, itemType, category, priceType, installTarget, sort, serversOnly],
   );
 
   useEffect(() => {
@@ -201,9 +190,9 @@ export function MarketplacePage() {
       <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-4">
         <ShieldAlert className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <p className="text-sm text-muted-foreground">
-          Popularity is not security. A server with thousands of stars can still be graded D. The
-          grade comes from an Aevrin scan of MCP servers; the stars come from GitHub. Other item
-          types are curated by an administrator and are not security-scanned.
+          The registry is for discovery. An administrator curates what is listed, but nothing here
+          is a security verdict, and stars and downloads measure popularity, not safety. To check
+          an MCP server, open it and choose Scan with Aevrin.
         </p>
       </div>
 
@@ -258,13 +247,6 @@ export function MarketplacePage() {
 
         {serversOnly ? (
           <>
-            <Select value={minGrade} onChange={(event) => setMinGrade(event.target.value)} aria-label="Minimum security grade">
-              {GRADE_FILTERS.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </Select>
             <Select value={priceType} onChange={(event) => setPriceType(event.target.value)} aria-label="Pricing">
               {PRICE_FILTERS.map((item) => (
                 <option key={item.value} value={item.value}>
@@ -283,15 +265,11 @@ export function MarketplacePage() {
         ) : null}
 
         <Select value={sort} onChange={(event) => setSort(event.target.value as MarketplaceSort)} aria-label="Sort by">
-          {(Object.keys(SORT_LABELS) as MarketplaceSort[])
-            // Sorting prompts "by security" would order them by a grade none
-            // of them has.
-            .filter((key) => key !== "security" || serversOnly)
-            .map((key) => (
-              <option key={key} value={key}>
-                {SORT_LABELS[key]}
-              </option>
-            ))}
+          {(Object.keys(SORT_LABELS) as MarketplaceSort[]).map((key) => (
+            <option key={key} value={key}>
+              {SORT_LABELS[key]}
+            </option>
+          ))}
         </Select>
 
         <Button type="submit">Search</Button>
@@ -333,11 +311,7 @@ export function MarketplacePage() {
       ) : items.length === 0 && !loading ? (
         <EmptyState
           title="Nothing matches those filters"
-          body={
-            serversOnly
-              ? "Try a broader search, or clear the grade filter to include servers that have not been graded."
-              : "Try a broader search, or a different type or category."
-          }
+          body="Try a broader search, or a different type or category."
         />
       ) : (
         <>

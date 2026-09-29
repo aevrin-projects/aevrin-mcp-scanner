@@ -5,11 +5,12 @@
 Aevrin scans Model Context Protocol (MCP) servers and the repositories that
 implement them for security problems, using established open-source
 scanners where one exists, and reports what it could
-**not** check as clearly as what it did. On top of that engine sits a
-public marketplace of MCP servers, each carrying a real security scan
-rather than a popularity ranking dressed up as one, plus an optional AI
-layer that explains findings in plain language without ever being allowed
-to invent one.
+**not** check as clearly as what it did. Beside that engine sits a
+discovery-only registry of MCP servers, skills, prompts and more (curated,
+never presented as a security verdict; a user scans a server they find
+there with the same engine), plus an optional AI layer that explains a
+scan's findings and grade in plain language without ever being allowed to
+invent one.
 
 Three things run identically across surfaces, by construction rather than
 by convention: `backend/scanner-core` is the one scanning engine imported
@@ -37,7 +38,7 @@ are the one finding vocabulary used everywhere a finding is shown.
 `docs/` (this tree) documents Aevrin's own engineering: architecture,
 security model, how to build and test the thing. `frontend-docs/content/`
 documents Aevrin **the product**, for the people using it - what a trust
-grade means, how to install a marketplace listing, how AI explanations
+grade means, how to install a registry item, how AI explanations
 work from a user's perspective. It's fumadocs MDX, published live at
 `docs.mcp.aevrin.net`. A feature that changes user-visible behavior needs
 both: this tree for the engineering reality, `frontend-docs/content/` for
@@ -69,11 +70,12 @@ CLI `aevrin agent scan`
 Weekly scheduled job (POST /scheduler/registry-sync)
     -> pulls changed servers from the official MCP Registry since the last
        successful run
-    -> new listing versions recorded as unscanned
+    -> new servers land as drafts; new versions recorded in each item's
+       version list
     -> stale GitHub/npm metadata refreshed (budgeted, best-effort)
     -> rankings recomputed
-    -> a listing is scanned on evidence (new version, forced rescan), never
-       on a timer
+    -> nothing is scanned: the registry is discovery only, and a user
+       scans a server they found through the scan page ("Scan with Aevrin")
 ```
 
 ```

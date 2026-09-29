@@ -116,6 +116,86 @@ async def get_or_create_account(db: SupabaseRest, user_id: str) -> dict[str, Any
     return created[0]
 
 
+# --- Workspace entitlements -------------------------------------------------
+#
+# Team is bought by a workspace owner and priced per seat, so the people in
+# that workspace get Team limits while the owner's Team plan is active. Every
+# server-side gate asks entitled_tier() rather than effective_tier(): a second
+# resolver somewhere else would let one surface (export, triage, devices)
+# disagree with another about what the same person paid for.
+
+
+async def workspace_of(db: SupabaseRest, user_id: str) -> dict[str, Any] | None:
+    """The workspace (organizations row) this user belongs to, if any.
+
+    A user is in at most one workspace; create and accept both refuse a
+    second, so the first membership row is the only one.
+    """
+    rows = await db.select("organization_members", {"user_id": user_id}, columns="org_id", limit=1)
+    if not rows:
+        return None
+    orgs = await db.select("organizations", {"id": rows[0]["org_id"]}, limit=1)
+    return orgs[0] if orgs else None
+
+
+async def _owner_has_active_team(db: SupabaseRest, owner_id: str) -> tuple[bool, dict[str, Any] | None]:
+    rows = await db.select("accounts", {"user_id": owner_id}, limit=1)
+    if not rows:
+        return False, None
+    return effective_tier(rows[0]) == "team", rows[0]
+
+
+async def entitled_tier(db: SupabaseRest, account: dict[str, Any]) -> str:
+    """The tier this account is actually served at: its own effective tier,
+    or "team" while it is a member of a workspace whose owner's Team plan is
+    active.
+
+    Team is the highest tier, so "the higher of the two" reduces to this.
+    Only Team is inherited: an owner on Pro bought Pro for themselves, not
+    seats for anyone else.
+    """
+    own = effective_tier(account)
+    if own == "team":
+        return own
+    org = await workspace_of(db, str(account["user_id"]))
+    if org is None or org["owner_id"] == account["user_id"]:
+        return own
+    active, _ = await _owner_has_active_team(db, str(org["owner_id"]))
+    return "team" if active else own
+
+
+async def seat_limit(db: SupabaseRest, owner_id: str) -> int:
+    """How many people the owner's workspace may hold.
+
+    The owner's purchased seats count only while their Team plan is active.
+    Seats are a Team quantity: an expired Team, or a later Pro or Hobby
+    purchase, leaves accounts.seats as it was but no longer entitles anyone to
+    it, so the workspace is back to its owner alone until Team is bought again.
+    """
+    active, account = await _owner_has_active_team(db, owner_id)
+    if not active or account is None:
+        return 1
+    return int(account.get("seats") or 1)
+
+
+async def seats_used(db: SupabaseRest, org_id: str) -> int:
+    """Members plus invites that are still open.
+
+    An invite counts. Otherwise a three-seat workspace could invite thirty
+    people and discover the limit only as they arrived, which turns a billing
+    limit into a race between colleagues. An expired invite does not: it can
+    no longer be accepted, and counting it would tell an owner their workspace
+    is full and send them to buy seats nobody can use.
+    """
+    members = await db.select("organization_members", {"org_id": org_id}, columns="user_id")
+    invites = await db.select(
+        "organization_invites",
+        {"org_id": org_id, "accepted_at": "is.null", "expires_at": f"gt.{datetime.now(UTC).isoformat()}"},
+        columns="id",
+    )
+    return len(members) + len(invites)
+
+
 async def _override_limit(db: SupabaseRest, user_id: str, bucket: Bucket) -> tuple[bool, int | None]:
     """Admin-set per-account limit, if one is active.
 
@@ -144,7 +224,9 @@ async def _override_limit(db: SupabaseRest, user_id: str, bucket: Bucket) -> tup
     return True, (int(value) if value is not None else None)
 
 
-async def _tier_limit(db: SupabaseRest, account: dict[str, Any], bucket: Bucket) -> int | None:
+async def _tier_limit(db: SupabaseRest, account: dict[str, Any], bucket: Bucket, tier: str) -> int | None:
+    """`tier` is the caller's entitled_tier(), resolved once per request
+    rather than once per bucket."""
     # Consulted before the plan default so an override applies to every
     # caller (dashboard, CLI and hook alike) rather than only the surface
     # an admin happened to be looking at when they set it.
@@ -152,7 +234,6 @@ async def _tier_limit(db: SupabaseRest, account: dict[str, Any], bucket: Bucket)
     if has_override:
         return override_value
 
-    tier = effective_tier(account)
     rows = await db.select("tier_limits", {"tier": tier})
     if not rows:
         msg = f"No tier_limits row for tier={tier!r}: seed migration 0003 must have failed to apply"
@@ -209,7 +290,7 @@ async def _used_from_durable_history(
 
 async def check_and_increment_quota(settings: Settings, db: SupabaseRest, user_id: str, bucket: Bucket) -> None:
     account = await get_or_create_account(db, user_id)
-    limit = await _tier_limit(db, account, bucket)
+    limit = await _tier_limit(db, account, bucket, await entitled_tier(db, account))
 
     now = datetime.now(UTC)
     period_start = _period_start(account["signup_anchor_day"], now)
@@ -261,7 +342,7 @@ async def would_exceed_quota(settings: Settings, db: SupabaseRest, user_id: str,
     increment; `check_and_increment_quota` is still the actual gate at
     upload/create time."""
     account = await get_or_create_account(db, user_id)
-    limit = await _tier_limit(db, account, bucket)
+    limit = await _tier_limit(db, account, bucket, await entitled_tier(db, account))
     if limit is None:
         return None
 
@@ -304,10 +385,11 @@ async def get_usage(settings: Settings, db: SupabaseRest, user_id: str) -> list[
     now = datetime.now(UTC)
     period_start = _period_start(account["signup_anchor_day"], now)
     period_end = _add_month(period_start)
+    tier = await entitled_tier(db, account)
 
     results: list[BucketUsage] = []
     for bucket in ("cli", "hook", "dashboard", "agent"):
-        limit = await _tier_limit(db, account, bucket)
+        limit = await _tier_limit(db, account, bucket, tier)
         used = 0
         reachable = True
         try:

@@ -1,4 +1,4 @@
-"""The weekly job: pull the registry, refresh metadata, queue what changed.
+"""The weekly job: pull the registry, refresh metadata, recompute rankings.
 
 Run on a schedule against the official MCP Registry, GitHub, and npm. It is a
 plain async function invoked by whatever the platform already uses to run
@@ -6,7 +6,7 @@ things on a timer -- EventBridge hitting an endpoint, a container task, cron.
 There is deliberately no scheduler here, no queue, and no worker pool: this is
 one function that reads some HTTP and writes some rows.
 
-Four properties it has to hold.
+Three properties it has to hold.
 
 **It never takes the marketplace down.** Every external call is allowed to
 fail. A registry outage means the catalogue stops growing for a week; it does
@@ -16,11 +16,6 @@ raised.
 **It never overwrites a fact with a blank.** If GitHub does not answer, the
 stored star count stays exactly as it was. Nulling it because a refresh failed
 would publish a false claim about somebody else's project.
-
-**It queues rescans by evidence, not by schedule.** A server whose version and
-source hash are unchanged is not rescanned, however long ago it was last
-looked at. Rescanning unchanged software weekly would spend most of the
-compute budget re-confirming results that could not have moved.
 
 **It is incremental.** `updated_since` is passed from the last successful run,
 so the registry hands back a delta rather than the whole catalogue.
@@ -48,7 +43,6 @@ from aevrin_api.integrations.mcp_registry import (
 )
 from aevrin_api.services.marketplace.normalize import (
     infer_price_type,
-    primary_package,
     registry_server_to_listing,
 )
 from aevrin_api.services.marketplace.ranking import compute_ranking
@@ -79,7 +73,6 @@ class SyncReport:
     listings_updated: int = 0
     versions_added: int = 0
     metadata_refreshed: int = 0
-    rescans_queued: int = 0
     failures: list[str] = field(default_factory=list)
     registry_error: str | None = None
 
@@ -92,7 +85,6 @@ class SyncReport:
             "listings_updated": self.listings_updated,
             "versions_added": self.versions_added,
             "metadata_refreshed": self.metadata_refreshed,
-            "rescans_queued": self.rescans_queued,
             "failures": self.failures[:50],
             "registry_error": self.registry_error,
             "ok": self.registry_error is None,
@@ -138,13 +130,12 @@ async def run_weekly_sync(
     report.finished_at = datetime.now(UTC)
     await _record_sync_state(db, report)
     logger.info(
-        "registry_sync_completed seen=%d added=%d updated=%d versions=%d metadata=%d rescans=%d",
+        "registry_sync_completed seen=%d added=%d updated=%d versions=%d metadata=%d",
         report.registry_servers_seen,
         report.listings_added,
         report.listings_updated,
         report.versions_added,
         report.metadata_refreshed,
-        report.rescans_queued,
     )
     return report
 
@@ -201,7 +192,7 @@ async def _upsert_from_registry(
     A registry-sourced listing lands as a **draft**. The registry is curated
     by administrators (migration 0048, DECISIONS.md): the sync fills a pool of
     candidates, and a server reaches the public catalogue only when an admin
-    scans and publishes it. It used to publish immediately, which put hundreds
+    publishes it. It used to publish immediately, which put hundreds
     of servers nobody at Aevrin had looked at into the public catalogue -
     namespace verification says who published a server, not that anyone here
     has reviewed it.
@@ -213,7 +204,7 @@ async def _upsert_from_registry(
         {"registry_name": f"eq.{server.name}"},
         columns="id,slug,latest_version,status,title,description,repository_url,license,readme,"
         "github_stars,github_forks,github_last_commit_at,github_latest_release,favorite_count,"
-        "homepage_url,current_trust_grade,current_coverage_complete",
+        "homepage_url",
         limit=1,
     )
 
@@ -247,8 +238,7 @@ async def _upsert_from_registry(
             # title, links, publisher and install recipe are theirs: this used
             # to overwrite them every week, silently reverting curation. Only
             # what upstream alone can know still flows in - a new version,
-            # which is what makes a stale scan show as outdated, and the link
-            # back to the registry entry.
+            # and the link back to the registry entry.
             patch = {k: v for k, v in patch.items() if k in _UPSTREAM_ONLY}
         changed = {k: v for k, v in patch.items() if listing.get(k) != v and k != "updated_at"}
         if changed:
@@ -274,13 +264,8 @@ _UPSTREAM_ONLY = frozenset({"latest_version", "registry_updated_at", "registry_u
 async def _ensure_version_row(
     db: SupabaseRest, listing_id: str, server: RegistryServer, report: SyncReport
 ) -> None:
-    """Record that this version exists. It is created *unscanned*.
-
-    This is the row that makes "v1.5.0, not scanned yet" expressible. Without
-    it, a new release would simply inherit the previous release's grade by
-    virtue of the listing's cached letter, which is the exact
-    misrepresentation the version table exists to prevent.
-    """
+    """Record that this version exists: a bare entry in the item's version
+    list, carrying no scan state."""
     existing = await db.select(
         "mcp_listing_versions",
         {"listing_id": f"eq.{listing_id}", "version": f"eq.{server.version}"},
@@ -290,22 +275,12 @@ async def _ensure_version_row(
     if existing:
         return
 
-    package = primary_package(server) or {}
     await db.insert(
         "mcp_listing_versions",
-        {
-            "listing_id": listing_id,
-            "version": server.version,
-            "package_registry": str(package.get("registryType") or "")[:40] or None,
-            "package_identifier": str(package.get("identifier") or "")[:300] or None,
-            "source_hash": str(package.get("fileSha256") or "")[:64] or None,
-        },
+        {"listing_id": listing_id, "version": server.version},
         upsert_on="listing_id,version",
     )
     report.versions_added += 1
-    # A new unscanned version is exactly the condition an operator wants to
-    # act on, so it is counted as a queued rescan rather than left implicit.
-    report.rescans_queued += 1
 
 
 async def _refresh_metadata(
@@ -429,17 +404,12 @@ async def _recompute_rankings(db: SupabaseRest, report: SyncReport) -> None:
         {"status": "eq.published"},
         columns="id,description,readme,homepage_url,repository_url,license,github_stars,"
         "github_forks,github_last_commit_at,github_latest_release,npm_downloads_last_month,"
-        "pypi_downloads_last_month,favorite_count,ranking_score,current_trust_grade,"
-        "current_coverage_complete",
+        "pypi_downloads_last_month,favorite_count,ranking_score",
         limit=5000,
     )
 
     for row in rows:
-        breakdown = compute_ranking(
-            row,
-            trust_grade=row.get("current_trust_grade"),
-            coverage_complete=row.get("current_coverage_complete"),
-        )
+        breakdown = compute_ranking(row)
         new_score = round(breakdown.total, 2)
         # Only write when it actually moved. A no-op UPDATE on every listing
         # every week is wasted write amplification on a table that is read far
@@ -473,35 +443,3 @@ async def _event(
         )
     except Exception:
         logger.debug("event not recorded", exc_info=True)
-
-
-async def listings_needing_scan(db: SupabaseRest, *, limit: int = 50) -> list[dict[str, Any]]:
-    """Versions that have never been scanned, newest listings first.
-
-    This is the queue, and it is a query rather than a queue: the set of
-    unscanned versions is derivable from the data at any moment, so storing it
-    separately would only create something that could disagree with reality.
-    """
-    rows = await db.select(
-        "mcp_listing_versions",
-        {"scan_id": "is.null"},
-        columns="id,listing_id,version,package_registry,package_identifier",
-        order="first_seen_at.desc",
-        limit=limit,
-    )
-    if not rows:
-        return []
-
-    listing_ids = sorted({row["listing_id"] for row in rows})
-    listings = await db.select(
-        "mcp_listings",
-        {"id": f"in.({','.join(listing_ids)})", "status": "eq.published"},
-        columns="id,slug,title,repository_url,registry_name",
-    )
-    by_id = {listing["id"]: listing for listing in listings}
-
-    return [
-        {**row, "listing": by_id[row["listing_id"]]}
-        for row in rows
-        if row["listing_id"] in by_id and by_id[row["listing_id"]].get("repository_url")
-    ]

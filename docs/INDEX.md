@@ -27,7 +27,7 @@ order and the rules; this page is the map it points to.
 - [`architecture/DEPLOYMENT.md`](architecture/DEPLOYMENT.md) - AWS/Docker
   backend, Cloudflare Workers frontend, CI/CD, publishing pipelines.
 - [`architecture/DATA_FLOWS.md`](architecture/DATA_FLOWS.md) -
-  authentication, scanning, marketplace ingestion, agent posture, AI
+  authentication, scanning, registry ingestion, agent posture, AI
   review, and billing, each end to end.
 
 ## Security
@@ -58,9 +58,10 @@ order and the rules; this page is the map it points to.
   pipeline, OWASP MCP Top 10, scanner adapters, trust grading.
 - [`features/AGENT_POSTURE.md`](features/AGENT_POSTURE.md) - AI-agent
   discovery, capability/permission scoring, attack paths.
-- [`features/MCP_MARKETPLACE.md`](features/MCP_MARKETPLACE.md) - the Aevrin Registry:
-  item types, the publish gate, ingestion, ranking, suggestions, admin
-  curation, agent access over MCP.
+- [`features/MCP_MARKETPLACE.md`](features/MCP_MARKETPLACE.md) - the Aevrin Registry
+  (discovery only): item types, the publish gate, ingestion, ranking,
+  suggestions, admin curation, agent access over MCP, and the "Scan with
+  Aevrin" hand-off to the scan page.
 - [`features/AI_REVIEW.md`](features/AI_REVIEW.md) - AI explanations:
   what the model receives, what it's structurally prevented from doing.
 - [`features/BILLING.md`](features/BILLING.md) - plans, quotas, Razorpay

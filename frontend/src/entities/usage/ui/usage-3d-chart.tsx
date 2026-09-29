@@ -98,7 +98,7 @@ export function Usage3DChart({ bars }: { bars: Usage3DBar[] }) {
                 <span className="block truncate text-[12.5px] text-foreground">{meta.label}</span>
                 <span className="block text-[11px] tabular-nums text-muted-foreground">
                   {bar.limit === null
-                    ? `${bar.used} used · usage-based`
+                    ? `${bar.used} used · no monthly cap`
                     : `${bar.used} of ${bar.limit} used`}
                 </span>
               </span>
