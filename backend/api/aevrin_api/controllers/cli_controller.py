@@ -29,6 +29,8 @@ from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest
 from aevrin_api.routes.deps import enforce_rate_limit
 from aevrin_api.schemas import CliUploadFinding, CliUploadRequest, ScanOut
+from aevrin_api.services import membership
+from aevrin_api.services import permissions as perms
 from aevrin_api.services.quota import check_and_increment_quota, entitled_tier, would_exceed_quota
 from aevrin_api.services.triage import triage_findings
 
@@ -90,6 +92,9 @@ def _from_retired_pipeline(body: CliUploadRequest) -> bool:
 
 
 async def precheck(user_id: str, db: SupabaseRest, settings: Settings) -> dict[str, bool]:
+    # Refused here as well as at upload, so a member without the permission is
+    # told before the CLI spends minutes on a local scan it cannot store.
+    await membership.require_for_new_work(user_id, perms.SCANS_RUN, db)
     exceeded = await would_exceed_quota(settings, db, user_id, "cli")
     if exceeded:
         raise exceeded
@@ -237,6 +242,7 @@ async def upload_scan(
     db: SupabaseRest,
     settings: Settings,
 ) -> ScanOut:
+    await membership.require_for_new_work(user_id, perms.SCANS_RUN, db)
     enforce_rate_limit(settings, "cli_upload", user_id, settings.cli_uploads_per_key_per_hour)
     scan_id = body.scan_id or uuid4()
 

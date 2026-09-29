@@ -1,4 +1,6 @@
 export { organizationApi } from "./api/organization-api";
+export { WORKSPACE_PERMISSIONS, useWorkspacePermission } from "./model/permissions";
+export type { WorkspaceGrant, WorkspacePermission } from "./model/permissions";
 export type {
   Invite,
   Member,

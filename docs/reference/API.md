@@ -49,6 +49,23 @@ JWT) unless noted.
 - **`PATCH /findings/{id}`** accepts either a user session or `X-API-Key`
   (the hook and `aevrin findings triage` both use the API key path).
   `false_positive` requires a `reason`.
+- **Workspace permissions return `403`.** For a caller in a workspace whose
+  role lacks the permission, and a row that belongs to that workspace:
+  `POST /scans`, `POST /scans/upload`, `POST /scans/{id}/cancel`, `GET
+  /cli/precheck`, `POST /cli/upload` and `POST /agents/snapshots` need
+  `scans.run`; `DELETE /scans/{id}` and `DELETE /scans` need
+  `scans.delete` (the latter refuses the whole history if any row is a
+  workspace row); `PATCH /findings/{id}` needs `findings.triage`; `DELETE
+  /agents/{id}` needs `agents.delete`. The `detail` names the role, the
+  permission's label and its key. A refused create spends no quota. `POST`
+  and `GET /hook/cache` do not return `403` for this: with nothing cached
+  they answer `decision: "not_permitted"` with the reason in `detail`, and
+  start no scan. A caller in no workspace is never checked. See
+  [`../security/SECURITY.md`](../security/SECURITY.md#authorization).
+- **`GET /orgs/permissions`** is the whole catalogue (seven keys). `GET
+  /orgs/roles` leaves out any stored key the catalogue no longer has, so the
+  role editor never sends one back to `PATCH /orgs/roles/{id}`, which
+  refuses unknown keys with `422`.
 - **`/scheduler/*`** routes authenticate with a static bearer-style token,
   not a user or API-key identity - they're meant to be called by an
   external scheduler (EventBridge, a cron container), not a human.

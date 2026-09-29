@@ -110,9 +110,13 @@ class _UploadDb:
             "scan_stages": [],
             "findings": [],
             "hook_cache": [],
+            # The uploader is in no workspace, so the scans.run guard passes
+            # without a role check; tests/controllers/test_workspace_permissions.py
+            # covers the member case.
+            "organization_members": [],
         }
 
-    async def select(self, table: str, filters: dict[str, str]) -> list[dict[str, Any]]:
+    async def select(self, table: str, filters: dict[str, str], **kwargs: Any) -> list[dict[str, Any]]:
         return [
             row
             for row in self.tables[table]

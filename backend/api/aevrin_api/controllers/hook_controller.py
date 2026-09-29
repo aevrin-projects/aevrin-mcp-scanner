@@ -17,6 +17,8 @@ from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest
 from aevrin_api.routes.deps import enforce_rate_limit
 from aevrin_api.schemas import HookCacheResponse, HookOverrideRequest, HookOverrideResponse
+from aevrin_api.services import permissions as perms
+from aevrin_api.services.membership import membership_for, refusal
 from aevrin_api.services.quota import (
     QuotaExceeded,
     check_and_increment_quota,
@@ -66,6 +68,17 @@ async def _queue_first_scan(
 ) -> HookCacheResponse:
     """Nothing cached for this target yet: spend a hook credit, record a queued
     scan, and let the install proceed while it runs."""
+    # A hook scan joins the caller's workspace like any other scan, so it
+    # needs the same permission. Reported as a decision, not a 403: the hook
+    # fails open and silently on an HTTP error, and a role refusal is a
+    # deliberate answer the person should be told about, as with quota.
+    membership = await membership_for(user_id, db)
+    if membership is not None and not membership.holds(perms.SCANS_RUN):
+        return HookCacheResponse(
+            decision="not_permitted",
+            detail=refusal(membership.role["name"], perms.SCANS_RUN),
+            target_key=durable_target,
+        )
     try:
         await check_and_increment_quota(settings, db, user_id, "hook")
     except QuotaExceeded as exc:

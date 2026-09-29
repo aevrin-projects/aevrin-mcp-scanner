@@ -135,9 +135,11 @@ are unset. Webhook signature verification uses `RAZORPAY_WEBHOOK_SECRET`; a
 webhook that fails verification is rejected, never trusted on the strength
 of arriving over HTTPS alone.
 
-Team purchase is owner-only by workspace ownership, not by the
-`billing.manage` permission: that permission is in the catalogue but no
-code checks it.
+Team purchase is owner-only by workspace ownership. There is no billing
+permission: `billing.manage` was removed from the role catalogue (ADR-051)
+because nothing a member could be granted with it exists. Every purchase
+other than Team is personal, and a member's Team purchase would pay for seats
+on an account the workspace does not read.
 
 ## Limitations (stated, not hidden)
 

@@ -191,9 +191,10 @@ async def _gather_evidence(
 async def _owned_scan(db: SupabaseRest, *, user_id: str, scan_id: str) -> dict[str, Any]:
     """A scan the caller may read, or a refusal.
 
-    Accepts a scan owned by the user directly, or one shared with them through
-    their organisation -- the same rule the scans API applies, restated here
-    because this path has a different consequence for getting it wrong.
+    Accepts a scan owned by the user directly, or one stamped with their
+    workspace. That is wider than the scans API, which reads only the
+    caller's own rows; it matches the RLS select policy on `scans` (migration
+    0035), which is what a member could read directly anyway.
     """
     rows = await db.select(
         "scans",

@@ -32,6 +32,7 @@ from aevrin_api.schemas.orgs import (
     RoleOut,
 )
 from aevrin_api.services import permissions as perms
+from aevrin_api.services.membership import Membership, membership_for
 from aevrin_api.services.quota import seat_limit, seats_used
 
 INVITE_TTL_DAYS = 14
@@ -41,51 +42,6 @@ INVITE_TTL_DAYS = 14
 # to see. api_keys, payments and accounts stay personal on purpose: a shared
 # workspace is shared work, not a shared identity or a shared wallet.
 SHARED_TABLES = ("scans", "findings", "agent_snapshots")
-
-
-class Membership:
-    """The caller's place in a workspace, resolved once per request."""
-
-    def __init__(self, org: dict[str, Any], role: dict[str, Any], user_id: str):
-        self.org = org
-        self.role = role
-        self.user_id = user_id
-        self.org_id: str = org["id"]
-        self.is_owner: bool = org["owner_id"] == user_id
-        self.permissions = perms.held_by(
-            is_owner=self.is_owner, permissions=list(role.get("permissions") or [])
-        )
-
-    def require(self, permission: str) -> None:
-        if permission not in self.permissions:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Your role ({self.role['name']}) cannot do this. "
-                    "Ask a workspace owner to grant it."
-                ),
-            )
-
-
-async def _membership_or_none(user_id: str, db: SupabaseRest) -> Membership | None:
-    rows = await db.select("organization_members", {"user_id": user_id}, limit=1)
-    if not rows:
-        return None
-    orgs = await db.select("organizations", {"id": rows[0]["org_id"]}, limit=1)
-    roles = await db.select("organization_roles", {"id": rows[0]["role_id"]}, limit=1)
-    if not orgs or not roles:
-        return None
-    return Membership(orgs[0], roles[0], user_id)
-
-
-async def require_membership(user_id: str, db: SupabaseRest) -> Membership:
-    membership = await _membership_or_none(user_id, db)
-    if membership is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="You are not in a workspace yet.",
-        )
-    return membership
 
 
 async def _role_names(org_id: str, db: SupabaseRest) -> dict[str, str]:
@@ -125,7 +81,7 @@ async def get_membership(user_id: str, email: str | None, db: SupabaseRest) -> M
     Invites are reported here rather than only behind a link, so somebody who
     deleted the email can still find and accept what they were offered.
     """
-    membership = await _membership_or_none(user_id, db)
+    membership = await membership_for(user_id, db)
     if membership is not None:
         return MembershipOut(organization=await _organization_out(membership, db))
 
@@ -154,7 +110,7 @@ async def create_organization(
     workspace that started empty beside a personal history they could no
     longer reach from it would look like the product had lost their scans.
     """
-    if await _membership_or_none(user_id, db) is not None:
+    if await membership_for(user_id, db) is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="You are already in a workspace. Leave it before creating another.",
@@ -389,7 +345,7 @@ async def accept_invite(
             status_code=status.HTTP_410_GONE,
             detail="That invitation has expired. Ask for a new one.",
         )
-    if await _membership_or_none(user_id, db) is not None:
+    if await membership_for(user_id, db) is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="You are already in a workspace. Leave it before joining another.",
@@ -467,7 +423,10 @@ def _role_out(row: dict[str, Any], counts: dict[str, int]) -> RoleOut:
     return RoleOut(
         id=UUID(row["id"]),
         name=row["name"],
-        permissions=sorted(row.get("permissions") or []),
+        # Filtered to the catalogue so a key removed from it (ADR-051) is never
+        # shown, and never sent back by the role editor to be refused as unknown,
+        # whether or not migration 0050 has run yet.
+        permissions=sorted(set(row.get("permissions") or []) & perms.ALL_KEYS),
         is_owner_role=bool(row["is_owner_role"]),
         member_count=counts.get(row["id"], 0),
     )

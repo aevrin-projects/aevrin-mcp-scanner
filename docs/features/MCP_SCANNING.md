@@ -28,6 +28,16 @@ policy for the same server. They are invocation channels, not separate
 engines; `Scan.invocation_channel` records which was used, and it never
 changes the result.
 
+A scan joins the workspace of whoever started it, so for a workspace member
+every entry point needs the `scans.run` permission: `POST /scans`, `POST
+/scans/upload` (`aevrin scan --remote`), `GET /cli/precheck` and `POST
+/cli/upload` (a local CLI scan is refused at precheck, before it runs), and
+the hook's first scan of a target, which answers `decision: not_permitted`
+so the hook can say the install was not checked. Cancelling needs
+`scans.run`, deleting needs `scans.delete`, triaging needs
+`findings.triage`. Someone in no workspace needs none of them. See
+[`../security/SECURITY.md`](../security/SECURITY.md#authorization).
+
 ## Architecture
 
 ```

@@ -9,6 +9,8 @@ from fastapi import HTTPException, status
 
 from aevrin_api.db import SupabaseRest
 from aevrin_api.schemas import FindingOut, TriageRequest
+from aevrin_api.services import membership
+from aevrin_api.services import permissions as perms
 
 _NOT_FOUND = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found")
 
@@ -26,6 +28,12 @@ async def triage_finding(
     existing = await db.select("findings", {"id": str(finding_id), "user_id": user_id})
     if not existing:
         raise _NOT_FOUND
+    # One check for both callers of this route: the dashboard (JWT) and the
+    # CLI's `aevrin findings triage` (API key), which resolve to the same
+    # user id before they get here.
+    await membership.require_for_row(
+        user_id, existing[0].get("org_id"), perms.FINDINGS_TRIAGE, db
+    )
     # Reopening clears the audit trail rather than leaving a stale reason
     # attached to a finding that is once again open.
     audit_patch: dict[str, str | None]

@@ -19,6 +19,7 @@ import { formatDateTime, formatDuration } from "@/shared/lib/format";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
+import { WORKSPACE_PERMISSIONS, useWorkspacePermission } from "@/entities/organization";
 
 type Summary = { scan: Scan; findings: Finding[]; stages: ScanStage[] };
 
@@ -30,6 +31,8 @@ export function ScanHistoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+  const deleteScans = useWorkspacePermission(WORKSPACE_PERMISSIONS.scansDelete);
+  const runScans = useWorkspacePermission(WORKSPACE_PERMISSIONS.scansRun);
 
   const load = useCallback(() => {
     let cancelled = false;
@@ -170,17 +173,28 @@ export function ScanHistoryPage() {
         description="Search by target, filter by completion state or target type, and review what coverage and severity each scan actually produced."
         actions={
           <>
-            <Button variant="destructive" disabled={clearing || !summaries?.length} onClick={() => void clearHistory()}>
-              <Trash2 className="size-4" />
-              {clearing ? "Clearing…" : "Clear history"}
-            </Button>
-            <Button nativeButton={false} render={<Link href="/scans/new" />}>
-              <Plus className="size-4" />
-              New scan
-            </Button>
+            {deleteScans.allowed ? (
+              <Button variant="destructive" disabled={clearing || !summaries?.length} onClick={() => void clearHistory()}>
+                <Trash2 className="size-4" />
+                {clearing ? "Clearing…" : "Clear history"}
+              </Button>
+            ) : null}
+            {runScans.allowed ? (
+              <Button nativeButton={false} render={<Link href="/scans/new" />}>
+                <Plus className="size-4" />
+                New scan
+              </Button>
+            ) : null}
           </>
         }
       />
+
+      {deleteScans.allowed ? null : (
+        <p className="text-sm text-muted-foreground">
+          Your workspace role ({deleteScans.role}) does not include &ldquo;Delete scans&rdquo;, so
+          scans cannot be deleted from here.
+        </p>
+      )}
 
       {error ? (
         <Alert variant="destructive">
@@ -243,7 +257,7 @@ export function ScanHistoryPage() {
                 open={isOpen(folder.target)}
                 onToggle={() => toggleFolder(folder.target)}
                 deletingId={deletingId}
-                onDelete={(scan) => void deleteScan(scan)}
+                onDelete={deleteScans.allowed ? (scan) => void deleteScan(scan) : undefined}
               />
             ))
           ) : (
@@ -282,7 +296,8 @@ function TargetFolder({
   open: boolean;
   onToggle: () => void;
   deletingId: string | null;
-  onDelete: (scan: Scan) => void;
+  /** Absent when the caller's workspace role cannot delete scans. */
+  onDelete?: (scan: Scan) => void;
   index: number;
 }) {
   const { target, scans, latest, totals } = folder;
@@ -349,7 +364,7 @@ function TargetFolder({
                 <ScanHistoryRow
                   summary={summary}
                   deleting={deletingId === summary.scan.id}
-                  onDelete={() => onDelete(summary.scan)}
+                  onDelete={onDelete ? () => onDelete(summary.scan) : undefined}
                   tabbable={open}
                 />
               </li>
@@ -372,7 +387,7 @@ function ScanHistoryRow({
 }: {
   summary: Summary;
   deleting: boolean;
-  onDelete: () => void;
+  onDelete?: () => void;
   tabbable: boolean;
 }) {
   const counts = summarizeFindings(
@@ -416,16 +431,18 @@ function ScanHistoryRow({
           <span className="w-8 text-right text-[13px] font-medium tabular-nums">{summary.scan.risk_score ?? "-"}</span>
         </span>
       </Link>
-      <Button
-        variant="ghost"
-        size="icon"
-        tabIndex={tabbable ? 0 : -1}
-        aria-label={`Delete the ${formatDateTime(summary.scan.completed_at ?? summary.scan.created_at)} scan for ${summary.scan.target}`}
-        disabled={deleting}
-        onClick={onDelete}
-      >
-        <Trash2 className="size-4 text-destructive" />
-      </Button>
+      {onDelete ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          tabIndex={tabbable ? 0 : -1}
+          aria-label={`Delete the ${formatDateTime(summary.scan.completed_at ?? summary.scan.created_at)} scan for ${summary.scan.target}`}
+          disabled={deleting}
+          onClick={onDelete}
+        >
+          <Trash2 className="size-4 text-destructive" />
+        </Button>
+      ) : null}
     </div>
   );
 }

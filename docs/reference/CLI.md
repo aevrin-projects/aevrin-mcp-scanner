@@ -10,6 +10,10 @@ Typer commands directly, not restated from memory.
 Runs the full scan pipeline against `TARGET` (a GitHub URL, a local path,
 or a live MCP server URL - detected automatically).
 
+A workspace member whose role lacks "Run scans" (`scans.run`) is refused at
+precheck, before the local scan runs: exit code 2, with the server's reason
+printed.
+
 ```
 aevrin scan mcp "npx -y @playwright/mcp"
 ```
@@ -70,6 +74,11 @@ Device-code login (opens a browser, no password entered in the terminal)
 and credential removal, for the CLI's own stored API key.
 
 ## `aevrin hook setup` / `aevrin hook logout` / `aevrin hook allow <target>`
+
+When the caller's workspace role cannot run scans and the target has no
+cached verdict, the hook allows the install and says it was not checked, and
+why (decision `not_permitted`). It does not block: the hook fails open, and a
+role refusal is not evidence against the server.
 
 `hook setup` logs in **separately** from `aevrin login` (its own
 credential store) and prints the exact `settings.json` snippet to merge

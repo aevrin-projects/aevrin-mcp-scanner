@@ -18,6 +18,7 @@ from fastapi import HTTPException
 from aevrin_api.controllers import org_controller
 from aevrin_api.schemas.orgs import InviteIn, OrganizationIn, RoleIn
 from aevrin_api.services import permissions as perms
+from aevrin_api.services.membership import require_membership
 
 OWNER = str(uuid4())
 MEMBER = str(uuid4())
@@ -141,7 +142,7 @@ def run(coro):
 
 
 def membership_for(user_id: str, db: FakeDb):
-    return run(org_controller.require_membership(user_id, db))
+    return run(require_membership(user_id, db))
 
 
 # --- The owner can always administer their own workspace -------------------
@@ -321,7 +322,7 @@ def test_an_invite_can_only_be_accepted_by_the_address_it_names():
     # be indistinguishable from the invite having been revoked.
     joined = run(org_controller.accept_invite(invite.id, OUTSIDER, "Invited@Example.com", db))
     assert str(joined.id) == ORG
-    assert run(org_controller.require_membership(OUTSIDER, db)).org_id == ORG
+    assert run(require_membership(OUTSIDER, db)).org_id == ORG
 
 
 def test_an_expired_invite_is_refused():

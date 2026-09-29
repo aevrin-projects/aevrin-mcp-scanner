@@ -193,7 +193,11 @@ caller fight the base - `max-h-none` does not reliably beat an arbitrary
 `admin`, `agent`, `ai-provider`, `api-key`, `billing`, `device`, `finding`,
 `github`, `marketplace`, `organization`, `scan`, `usage`. Each exposes
 `model/types.ts` (the domain shape), `api/*.ts` (the fetch layer against
-`backend/api`), and often a small `ui/` (badges, pills). `entities/marketplace` also owns
+`backend/api`), and often a small `ui/` (badges, pills). `entities/organization`
+also exports `useWorkspacePermission` and `WORKSPACE_PERMISSIONS`, read from
+the `my_permissions` that `GET /orgs/me` already returns; pages use it only to
+hide a control whose one outcome would be a `403`. It is presentation, not a
+check: the API enforces every permission. `entities/marketplace` also owns
 `TypeBadge`, the item-type labels (`ITEM_TYPE_LABELS`, mirroring the API's
 `ITEM_TYPES`), `AevrinMcpSnippet`, the one place the hosted MCP URL and its
 client config are written, and `ScanWithAevrin` with its pure helper

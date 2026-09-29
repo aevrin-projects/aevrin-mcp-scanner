@@ -324,6 +324,14 @@ def main() -> None:
         )
         return
 
+    if decision == "not_permitted":
+        # The caller's workspace role does not allow running scans, so no scan
+        # was started. Like quota, a deliberate refusal rather than a finding:
+        # an allow that says plainly the install was not checked.
+        detail = result.get("detail") or "Your workspace role does not allow running scans."
+        _allow(f"Aevrin: this install was not checked. {detail}")
+        return
+
     if decision == "allow_unscanned":
         _allow(
             "Aevrin: this target has not been scanned yet. Allowing for now; a background "

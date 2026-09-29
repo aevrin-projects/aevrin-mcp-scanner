@@ -63,14 +63,16 @@ marketplace/AI/admin/providers work is fully live)
 - **Agent discovery covers Claude Code and Codex only.** Other AI coding
   agents/IDE extensions with their own configuration format aren't
   recognized. See `docs/features/AGENT_POSTURE.md#limitations`.
-- **Most organization permissions are not enforced.** Only `org.manage`,
-  `members.manage` and `roles.manage` are checked (in `org_controller`).
-  `scans.run`, `scans.delete`, `findings.triage`, `agents.delete`,
-  `marketplace.submit`, `marketplace.publish`, `mcp.manage`,
-  `ai_providers.manage`, `policy.manage` and `billing.manage` are stored and
-  shown in the UI but no route checks them. Buying Team is gated by
-  workspace ownership instead (ADR-050). Enforce each or remove it from the
-  catalogue.
+- **Workspace members do not see each other's work in the dashboard.**
+  Migration 0035 describes members seeing the same scans, findings and
+  agents, and RLS allows it, but every API list and detail route filters on
+  the caller's own `user_id`; only `POST /ai/explain` reads across members.
+  Either implement workspace reads in the scan, finding and agent services,
+  or reword 0035's intent. (Permissions themselves are enforced, ADR-051.)
+- **Installed hooks and CLIs older than the next release** do not know the
+  `not_permitted` hook decision or the precheck `403`: an old hook allows
+  silently, as on any error, and an old CLI fails only at upload. A CLI
+  release fixes both.
 - **Billing has no proration or scheduled downgrade.** Buying another plan or
   seat count replaces the current one immediately and extends by one cycle
   (ADR-050). Consider proration or credit if customers ask.

@@ -199,6 +199,16 @@ general-purpose SAST pass in the product standing in for it here.
   (ADR-022) covers the same shape for agent posture's own
   `_trust_by_identity`: a `live_mcp_server` scan row's `mcp_capabilities`
   must actually reach that call's `can_execute`/`can_write` arguments.
+  `controllers/test_workspace_permissions.py` covers every enforced
+  workspace permission (`scans.run`, `scans.delete`, `findings.triage`,
+  `agents.delete`) by calling the route function, not the guard: a member
+  without the permission gets `403` naming it and nothing is written or
+  metered; a member holding it, the owner (whose stored role row holds
+  nothing, so only the implicit catalogue can let them through) and someone
+  in no workspace all succeed; an `org_id` in a request body changes
+  nothing; a stored role still carrying a removed key stays editable and
+  grants nothing. Removing any one guard from its controller fails a test
+  here; keep it that way when adding a route that writes shared work.
 - **`backend/cli/tests/`** - target detection, upload, output rendering
   (including exit codes and encoding), remote scan, a dependency-contract
   test (the CLI's declared dependency on `scanner-core` matches what's
@@ -214,6 +224,10 @@ general-purpose SAST pass in the product standing in for it here.
   older API still sends), the untrusted-README wrapping, a foreign `Host`
   refused with `421`, and - the one that matters most - that the hosted
   server registers no `scan_mcp_server`.
+  `test_main.py` also covers the two workspace-role refusals the CLI shows:
+  a `403` from `/cli/precheck` stops `aevrin scan` before the local scan
+  runs, and the hook's `not_permitted` decision allows the install while
+  saying it was not checked and why.
 - **`backend/hook/tests/`** - the hook script's block/allow decision logic.
 
 ## Security testing philosophy

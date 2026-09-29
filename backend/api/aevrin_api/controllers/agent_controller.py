@@ -44,6 +44,8 @@ from aevrin_api.schemas.agents import (
     RiskSummaryOut,
     SkillOut,
 )
+from aevrin_api.services import membership
+from aevrin_api.services import permissions as perms
 from aevrin_api.services.quota import (
     check_and_increment_quota,
     entitled_tier,
@@ -105,6 +107,12 @@ async def store_snapshot(
     # One upload is one posture scan, however many agents it carries: Claude
     # Code and Codex found by the same command are one `aevrin agent scan`,
     # and billing two would be charging for the tool's own thoroughness.
+    #
+    # The role check comes first so a refused member spends no quota. A
+    # snapshot is `aevrin agent scan` uploading its result into the shared
+    # agent_snapshots table, so it is governed by the same permission as
+    # uploading any other CLI scan.
+    await membership.require_for_new_work(user_id, perms.SCANS_RUN, db)
     await check_and_increment_quota(settings, db, user_id, "agent")
     await _assert_device_is_covered(_device_id(upload, upload.agents[0]), user_id, db)
 
@@ -456,4 +464,5 @@ async def delete_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> None:
     rows = await db.select("agent_snapshots", {"id": str(agent_id), "user_id": user_id}, limit=1)
     if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found.")
+    await membership.require_for_row(user_id, rows[0].get("org_id"), perms.AGENTS_DELETE, db)
     await db.delete("agent_snapshots", {"id": str(agent_id), "user_id": user_id})

@@ -34,17 +34,17 @@ cannot.
 Two layers:
 
 - **Organization permissions** (`services/permissions.py`): a fixed
-  catalogue of permission strings (`scans.run`, `scans.delete`,
-  `findings.triage`, `agents.delete`, `marketplace.submit`,
-  `marketplace.publish`, `mcp.manage`, `ai_providers.manage`,
-  `policy.manage`, `members.manage`, `roles.manage`, `billing.manage`,
-  `org.manage`). Four default roles: **Owner** (implicit - holds the whole
-  catalogue regardless of its stored role row, so an owner can never lock
-  themselves out by editing their own role), **Admin**, **Security Admin**
-  (can triage and set policy but not manage members, billing, or roles),
-  **Member**, **Viewer** (holds *nothing* - membership itself is read
-  access, since a shared workspace with a "can view scans" toggle that
-  everyone must hold is a toggle with one correct value).
+  catalogue of seven permission strings, every one of them checked by a
+  route (table below). Four default roles: **Owner** (implicit - holds the
+  whole catalogue regardless of its stored role row, so an owner can never
+  lock themselves out by editing their own role), **Admin** (everything but
+  roles and the workspace name), **Security Admin** (runs, deletes and
+  triages scans and removes agents, but manages no members, roles or
+  workspace settings), **Member** (runs scans and triages), **Viewer**
+  (holds *nothing* - membership itself is read access, since a shared
+  workspace with a "can view scans" toggle that everyone must hold is a
+  toggle with one correct value; a viewer can see and change nothing,
+  which includes adding scans).
 - **Row ownership**, since Supabase's service-role key bypasses RLS for
   everything `backend/api` touches. Every service function that reads or
   writes a user- or org-scoped row must filter by the caller's actual
@@ -53,18 +53,74 @@ Two layers:
   full enforcement point for anything queried directly by a browser client
   (`tier_limits`, public registry reads).
 
-`backend/api/tests/controllers/test_agent_tenant_isolation.py` and
-`backend/api/tests/controllers/test_organizations.py` are the tests that
-must keep passing for this boundary to mean anything.
+`backend/api/tests/controllers/test_agent_tenant_isolation.py`,
+`backend/api/tests/controllers/test_organizations.py` and
+`backend/api/tests/controllers/test_workspace_permissions.py` are the tests
+that must keep passing for this boundary to mean anything.
 
-**What is actually enforced.** Only `org.manage`, `members.manage` and
-`roles.manage` are checked today (`org_controller`). The rest of the
-catalogue - `scans.run`, `scans.delete`, `findings.triage`, `agents.delete`,
-`marketplace.submit`, `marketplace.publish`, `mcp.manage`,
-`ai_providers.manage`, `policy.manage`, `billing.manage` - is stored and
-returned to the UI, but no route checks it (`ROADMAP.md`). Buying Team is
-restricted to the workspace owner by ownership
-(`billing_controller._assert_may_buy_team`), not by `billing.manage`.
+**What a workspace shares.** `scans`, `findings` and `agent_snapshots` carry
+an `org_id`, stamped on insert from the creator's membership by the
+`stamp_org_id` trigger (migration 0035), and moved into the workspace when
+its founder creates it (`org_controller.SHARED_TABLES`). RLS lets a member
+select a colleague's stamped rows directly, and `POST /ai/explain` accepts a
+scan or finding stamped with the caller's workspace. Every other API read and
+write of those tables is filtered by the caller's own `user_id`: no route
+lets one member change, or list, another member's scan, finding or agent.
+AI provider keys, API keys, payments, registry suggestions and favourites
+are personal and stay out of the workspace.
+
+**What is actually enforced.** A permission governs the caller's own rows
+when they are workspace rows. The guards are in `services/membership.py`
+(`require_for_new_work`, `require_for_row`), called by the scan, finding,
+agent, CLI and hook controllers; both resolve the workspace from
+the membership row keyed by the caller's authenticated user id, and no
+request field carries an org id they read. A refusal is `403` naming the
+role, the permission's label and its key.
+
+| Permission | Enforced on |
+|---|---|
+| `scans.run` | `POST /scans`, `POST /scans/upload`, `POST /scans/{id}/cancel`, `GET /cli/precheck`, `POST /cli/upload`, `POST /agents/snapshots`; `POST`/`GET /hook/cache` answers `decision: not_permitted` instead of starting a first scan (the hook fails open on HTTP errors, so a 403 would be silent) |
+| `scans.delete` | `DELETE /scans/{id}`, `DELETE /scans` (all or nothing: refused if any row in the history is a workspace row) |
+| `findings.triage` | `PATCH /findings/{id}`, for both a session and `X-API-Key` (the CLI's `aevrin findings triage`) |
+| `agents.delete` | `DELETE /agents/{id}` |
+| `members.manage` | invite, list and revoke invites, change a member's role, remove a member |
+| `roles.manage` | create, edit and delete roles |
+| `org.manage` | rename the workspace |
+
+The rules, stated so nobody has to infer them:
+
+- **Someone in no workspace is never checked.** Their rows are personal.
+- **Creating** a scan, CLI result or agent snapshot is checked whenever the
+  caller is in a workspace, because the new row joins it.
+- **Changing** an existing row is checked only when the row's `org_id` is the
+  caller's current workspace. A personal row (`org_id` null: work from
+  before joining by invitation, which does not move earlier rows) is
+  governed by ownership alone.
+- **A row stamped with a workspace the caller has left** is also governed
+  by ownership alone: a role is held only in the workspace one is in. So a
+  member without `scans.delete` who leaves (`POST /orgs/leave` needs no
+  permission) can then delete the scans they created there. This is
+  deliberate: the alternative leaves those rows deletable by nobody, since
+  no route lets anyone else delete them either.
+- **A permission never widens row ownership.** Holding `scans.delete` does
+  not let a member delete a colleague's scan; that is still `404`.
+
+Six keys were removed from the catalogue (ADR-051, migration 0050), because
+the action each named is not a workspace action: `marketplace.publish` (only
+an Aevrin admin publishes, ADR-048), `policy.manage` (the install policy was
+removed, ADR-049), `mcp.manage` (no member-facing route creates a private
+registry item), `marketplace.submit` (a suggestion to the public registry is
+personal and open to every signed-in user), `ai_providers.manage` (a
+provider key is used only for its owner's own requests) and `billing.manage`
+(buying Team is restricted to the workspace owner by ownership,
+`billing_controller._assert_may_buy_team`). A stored role still holding one
+grants nothing (`permissions.held_by` intersects with the catalogue) and the
+API leaves it out of every role it returns.
+
+The frontend hides a control whose only outcome would be a `403`
+(`entities/organization`'s `useWorkspacePermission`, reading the same
+`my_permissions` as the workspace page). That is presentation; the server
+refuses on its own.
 
 **Plan entitlement crosses users in exactly one place.**
 `quota.entitled_tier` serves a workspace member at Team limits while the

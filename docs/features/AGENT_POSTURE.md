@@ -100,15 +100,21 @@ missing evidence, never assumed safe or assumed risky by default.
 ## Data
 
 `AgentSnapshot` (Supabase table `agent_snapshots`, migration
-`0029_agent_snapshots.sql`) is the uploaded unit. Deleting an agent
-(`DELETE /agents/{id}`) requires the `agents.delete` permission.
+`0029_agent_snapshots.sql`) is the uploaded unit, and a workspace-shared
+table: a snapshot is stamped with the uploader's workspace. For a workspace
+member, uploading one (`POST /agents/snapshots`, `aevrin agent scan
+--upload`) needs `scans.run`, checked before any quota is spent, and
+deleting one (`DELETE /agents/{id}`) needs `agents.delete`. Someone in no
+workspace needs neither. See
+[`../security/SECURITY.md`](../security/SECURITY.md#authorization).
 
 ## Security
 
 Credential metadata carries kind/source/presence, never a value - see
 [`../security/SECURITY.md`](../security/SECURITY.md). Tenant isolation on
 agent snapshots is covered by
-`backend/api/tests/controllers/test_agent_tenant_isolation.py`.
+`backend/api/tests/controllers/test_agent_tenant_isolation.py`, and the two
+permission checks by `test_workspace_permissions.py` beside it.
 
 ## Limitations (stated, not hidden)
 

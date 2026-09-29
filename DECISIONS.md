@@ -2076,3 +2076,54 @@ Consequences: the admin SQL functions `admin_account_usage()` and
 `admin_list_users()` still compute each account's own tier and do not show
 inherited Team; `billing.manage` stays unenforced, ownership being the gate
 for buying Team.
+
+## ADR-051: Every workspace permission is enforced or removed
+
+**Status:** accepted (2026-09-29). Supersedes the note in ADR-050 that
+`billing.manage` stays unenforced: it is removed.
+
+The catalogue in `services/permissions.py` had thirteen keys and routes
+checked three (`org.manage`, `members.manage`, `roles.manage`). The rest were
+stored, shown in the role editor and ignored, so a Viewer could run, delete
+and triage exactly like an Admin. A permission that looks granted or denied
+and does neither is worse than none.
+
+Decision:
+
+- **Enforce what names a workspace action.** Scans, findings and agent
+  snapshots are shared work: `stamp_org_id` (0035) puts a new row in the
+  creator's workspace. For a member, creating one needs `scans.run`, on every
+  entry point: dashboard, server upload, CLI precheck and upload, agent
+  snapshots, and the hook's first scan. Cancelling also needs `scans.run`.
+  Deleting a scan or clearing history needs `scans.delete`, triage needs
+  `findings.triage`, forgetting an agent needs `agents.delete`. A create is
+  refused before quota is spent.
+- **The guards are a service.** `services/membership.py` holds the
+  membership model and `require_for_new_work` / `require_for_row`; the scan,
+  finding, agent, CLI and hook controllers call it, and `org_controller` uses
+  it too. The workspace always comes from the membership row keyed by the
+  caller's authenticated user id, never from the request.
+- **Change is checked only in the caller's current workspace.** A personal
+  row, or one stamped with a workspace the caller has left, is governed by
+  ownership alone, so a former member can delete their own scans; the
+  alternative leaves them deletable by nobody. A permission never widens row
+  ownership: a colleague's scan is still `404`.
+- **The hook gets a decision, not a `403`** (`not_permitted`), because it
+  fails open silently on HTTP errors and a role refusal should be visible.
+- **Remove what names nothing.** `marketplace.publish` (admin-only,
+  ADR-048), `policy.manage` (policy removed, ADR-049), `mcp.manage` (no
+  member route for private listings), `marketplace.submit` (a registry
+  suggestion is personal and open to everyone), `ai_providers.manage` (keys
+  are per user and used only by their owner), `billing.manage` (Team is
+  owner-only by ownership, ADR-050). Migration `0050_permission_catalogue.sql`
+  strips them from stored roles; the API ignores and hides unknown stored
+  keys, so its order relative to the deploy does not matter.
+- **Security Admin's default** for new workspaces becomes run, delete,
+  triage and remove agents: the Admin set without member management.
+  Existing stored roles are not widened.
+- **The frontend hides controls** using the `my_permissions` it already
+  receives (`useWorkspacePermission`). The server is the gate.
+
+Consequences: a Viewer cannot scan at all, including through the hook. The
+API still never lists a colleague's work (`ROADMAP.md`). Installed hooks and
+CLIs older than the next release do not recognise the new refusals.

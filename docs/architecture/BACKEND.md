@@ -54,8 +54,9 @@ and path inventory: [`../reference/API.md`](../reference/API.md).
 
 ### services/ (business logic)
 
-Top level: `admin_auth`, `permissions`, `quota`, `scan`, `source_upload`,
-`targets`, `triage`. Subpackages:
+Top level: `admin_auth`, `membership` (a caller's workspace membership and
+the permission guards every workspace action calls), `permissions` (the
+catalogue itself), `quota`, `scan`, `source_upload`, `targets`, `triage`. Subpackages:
 
 - **`services/marketplace/`** - the Aevrin Registry: `items` (item
   types, content schemas, the publish gate), `normalize`, `ranking`,

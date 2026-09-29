@@ -130,3 +130,57 @@ def test_a_local_only_agent_scan_says_where_the_result_went(monkeypatch, tmp_pat
     assert machine.exit_code == 0
     assert "--upload" not in plain(machine.stderr)
     json.loads(machine.stdout)
+
+
+def test_a_workspace_role_without_run_scans_is_told_before_the_scan(monkeypatch, capsys):
+    """`/cli/precheck` answers 403 for a member whose role lacks "Run scans".
+    Falling through would run a local scan for minutes and then have the
+    upload refused, so the preflight stops and shows the server's reason."""
+    import httpx
+    import pytest
+    import typer
+
+    from aevrin_cli import main as cli_main
+
+    detail = 'Your workspace role (Viewer) does not include "Run scans" (scans.run).'
+    monkeypatch.setattr(cli_main, "load_api_key", lambda: "aev_test")
+    monkeypatch.setattr(
+        cli_main.httpx,
+        "get",
+        lambda *a, **k: httpx.Response(403, json={"detail": detail}),
+    )
+
+    with pytest.raises(typer.Exit) as exc:
+        cli_main._authenticated_preflight()
+    assert exc.value.exit_code == 2
+    assert "scans.run" in plain(capsys.readouterr().err)
+
+
+def test_the_hook_says_an_install_was_not_checked_when_the_role_cannot_scan(monkeypatch, capsys):
+    """`not_permitted` is a deliberate answer, not an outage: the install is
+    allowed, and the person is told it was not checked and why."""
+    import io
+
+    import pytest
+
+    from aevrin_cli import hook_script
+
+    detail = 'Your workspace role (Viewer) does not include "Run scans" (scans.run).'
+    monkeypatch.setattr(hook_script, "API_KEY", "aev_test")
+    monkeypatch.setattr(
+        hook_script,
+        "check_cache",
+        lambda target_type, target: {"decision": "not_permitted", "detail": detail},
+    )
+    payload = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "claude mcp add demo --transport http https://example.com/mcp"},
+    }
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+
+    with pytest.raises(SystemExit):
+        hook_script.main()
+    out = capsys.readouterr().out
+    assert "was not checked" in out
+    assert "scans.run" in out
+    assert '"deny"' not in out

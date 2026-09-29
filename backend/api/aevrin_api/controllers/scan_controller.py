@@ -19,6 +19,8 @@ from aevrin_api.db import SupabaseRest
 from aevrin_api.routes.deps import enforce_rate_limit
 from aevrin_api.schemas import CreateScanRequest, FindingOut, ScanOut, ScanStageOut
 from aevrin_api.schemas.scans import RiskSummaryOut
+from aevrin_api.services import membership
+from aevrin_api.services import permissions as perms
 from aevrin_api.services.quota import check_and_increment_quota
 from aevrin_api.services.scan import start_scan
 from aevrin_api.services.source_upload import (
@@ -61,6 +63,8 @@ async def create_scan(
     db: SupabaseRest,
     settings: Settings,
 ) -> ScanOut:
+    # Before the rate limit and the quota, so a refused member spends neither.
+    await membership.require_for_new_work(user_id, perms.SCANS_RUN, db)
     enforce_rate_limit(settings, "scan_create", user_id, settings.scans_per_user_per_hour)
     await check_and_increment_quota(settings, db, user_id, "dashboard")
 
@@ -107,6 +111,7 @@ async def create_scan_from_upload(
     on this instance's CPU, exactly like a scan started from the website; the
     CLI bucket is for scans the CLI actually performed itself.
     """
+    await membership.require_for_new_work(user_id, perms.SCANS_RUN, db)
     enforce_rate_limit(settings, "scan_create", user_id, settings.scans_per_user_per_hour)
     await check_and_increment_quota(settings, db, user_id, "dashboard")
 
@@ -217,7 +222,11 @@ async def clear_scan_history(user_id: str, db: SupabaseRest) -> None:
     # Findings, stages, and related scan records are deleted by their existing
     # foreign-key cascades. The user_id filter is mandatory because this client
     # runs with the Supabase service role and therefore bypasses RLS.
-    active = await db.select("scans", {"user_id": user_id}, columns="id,status")
+    active = await db.select("scans", {"user_id": user_id}, columns="id,status,org_id")
+    # All or nothing: deleting only the personal rows of a history the caller
+    # asked to clear would look like it worked and leave the rest behind.
+    for org_id in {row.get("org_id") for row in active if row.get("org_id")}:
+        await membership.require_for_row(user_id, org_id, perms.SCANS_DELETE, db)
     if any(row["status"] in {"queued", "running"} for row in active):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -363,6 +372,7 @@ async def cancel_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> dict[str
     rows = await db.select("scans", {"id": str(scan_id), "user_id": user_id})
     if not rows:
         raise _SCAN_NOT_FOUND
+    await membership.require_for_row(user_id, rows[0].get("org_id"), perms.SCANS_RUN, db)
     if rows[0]["status"] not in _OPEN_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -386,6 +396,7 @@ async def delete_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> None:
     rows = await db.select("scans", {"id": str(scan_id), "user_id": user_id})
     if not rows:
         raise _SCAN_NOT_FOUND
+    await membership.require_for_row(user_id, rows[0].get("org_id"), perms.SCANS_DELETE, db)
     if rows[0]["status"] in _OPEN_STATUSES and not _is_abandoned(rows[0]):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

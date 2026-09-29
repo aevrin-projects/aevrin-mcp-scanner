@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Trash2, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError } from "@/shared/api";
-import { organizationApi } from "@/entities/organization";
+import { WORKSPACE_PERMISSIONS, organizationApi } from "@/entities/organization";
 import type {
   Invite,
   Member,
@@ -38,9 +38,9 @@ import { Skeleton } from "@/shared/ui/skeleton";
 import { Switch } from "@/shared/ui/switch";
 import { formatDateTime } from "@/shared/lib/format";
 
-const MEMBERS_MANAGE = "members.manage";
-const ROLES_MANAGE = "roles.manage";
-const ORG_MANAGE = "org.manage";
+const MEMBERS_MANAGE = WORKSPACE_PERMISSIONS.membersManage;
+const ROLES_MANAGE = WORKSPACE_PERMISSIONS.rolesManage;
+const ORG_MANAGE = WORKSPACE_PERMISSIONS.orgManage;
 
 function message(err: unknown, fallback: string) {
   return err instanceof ApiError ? err.message : fallback;

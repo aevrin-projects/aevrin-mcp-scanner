@@ -107,6 +107,15 @@ def _authenticated_preflight() -> str:
     if precheck.status_code == 401:
         output.print_error("Your login has expired or was revoked. Run `aevrin login` again.")
         raise typer.Exit(code=2)
+    if precheck.status_code == 403:
+        # A workspace role without "Run scans". The server's message names the
+        # role and the permission, so it is shown as it is.
+        try:
+            detail = str(precheck.json().get("detail", precheck.text))
+        except ValueError:
+            detail = precheck.text
+        output.print_error(detail)
+        raise typer.Exit(code=2)
     return api_key
 
 

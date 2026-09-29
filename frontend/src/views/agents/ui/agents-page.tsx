@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { ApiError } from "@/shared/api";
 import { agentApi, AGENT_KIND_LABELS, RiskBadge, RISK_ORDER } from "@/entities/agent";
 import type { AgentSummary } from "@/entities/agent";
+import { WORKSPACE_PERMISSIONS, useWorkspacePermission } from "@/entities/organization";
 import {
   EmptyState,
   PageHeader,
@@ -32,6 +33,7 @@ export function AgentsPage() {
   const [agents, setAgents] = useState<AgentSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [forgetting, setForgetting] = useState<string | null>(null);
+  const removeAgents = useWorkspacePermission(WORKSPACE_PERMISSIONS.agentsDelete);
 
   const load = useCallback(() => {
     let cancelled = false;
@@ -140,7 +142,7 @@ export function AgentsPage() {
                   <TH className="text-right">Skills</TH>
                   <TH className="text-right">Hooks</TH>
                   <TH>Last reported</TH>
-                  <TH className="text-right">Actions</TH>
+                  {removeAgents.allowed ? <TH className="text-right">Actions</TH> : null}
                 </TR>
               </THead>
               <TBody>
@@ -181,17 +183,19 @@ export function AgentsPage() {
                     <TD className="text-right tabular-nums">{agent.skill_count}</TD>
                     <TD className="text-right tabular-nums">{agent.hook_count}</TD>
                     <TD className="text-muted-foreground">{formatDateTime(agent.reported_at)}</TD>
-                    <TD className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Forget ${agent.agent_name} on ${agent.hostname}`}
-                        disabled={forgetting === agent.id}
-                        onClick={() => void forget(agent)}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </TD>
+                    {removeAgents.allowed ? (
+                      <TD className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Forget ${agent.agent_name} on ${agent.hostname}`}
+                          disabled={forgetting === agent.id}
+                          onClick={() => void forget(agent)}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </TD>
+                    ) : null}
                   </TR>
                 ))}
               </TBody>

@@ -22,6 +22,7 @@ import { formatDateTime } from "@/shared/lib/format";
 import { StatusBadge } from "@/entities/scan";
 import { GithubRepoPicker } from "@/features/github-connect";
 import { usageApi } from "@/entities/usage";
+import { WORKSPACE_PERMISSIONS, useWorkspacePermission } from "@/entities/organization";
 
 const MODE_CONTENT: Record<
   DashboardTargetType,
@@ -81,6 +82,7 @@ export function NewScanPage() {
   const [submitting, setSubmitting] = useState(false);
   const [recentScans, setRecentScans] = useState<Scan[] | null>(null);
   const [quotaText, setQuotaText] = useState<string | null>(null);
+  const runScans = useWorkspacePermission(WORKSPACE_PERMISSIONS.scansRun);
 
   useEffect(() => {
     scanApi.listScans().then(setRecentScans).catch(() => setRecentScans([]));
@@ -131,6 +133,18 @@ export function NewScanPage() {
         title="New scan"
         description="Choose the target type, review what coverage that mode can actually provide, and start one scan with clear quota and error handling."
       />
+
+      {runScans.allowed ? null : (
+        <Alert>
+          <ShieldAlert className="size-4" />
+          <AlertTitle>Your workspace role cannot run scans</AlertTitle>
+          <AlertDescription>
+            Your role ({runScans.role}) does not include &ldquo;Run scans&rdquo;. A scan you start
+            joins the workspace, so the server refuses it. Ask a workspace owner to grant the
+            permission.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_360px]">
         <SectionCard
@@ -209,7 +223,7 @@ export function NewScanPage() {
                           </p>
                         </div>
                         <Button
-                          disabled={submitting || Boolean(error)}
+                          disabled={submitting || Boolean(error) || !runScans.allowed}
                           onClick={() => handleSubmit(targetType, values[targetType])}
                         >
                           {submitting && targetType === mode ? "Starting scan…" : config.cta}

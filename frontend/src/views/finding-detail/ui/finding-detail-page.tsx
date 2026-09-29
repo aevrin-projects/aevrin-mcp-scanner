@@ -17,6 +17,7 @@ import { Textarea } from "@/shared/ui/textarea";
 import { riskImpactForSeverity } from "@/entities/finding";
 import { formatDateTime } from "@/shared/lib/format";
 import { ExplainButton } from "@/features/ai-explain";
+import { WORKSPACE_PERMISSIONS, useWorkspacePermission } from "@/entities/organization";
 
 export function FindingDetailClient({
   scanId,
@@ -31,6 +32,7 @@ export function FindingDetailClient({
   const [error, setError] = useState<string | null>(null);
   const [triaging, setTriaging] = useState(false);
   const [triageReason, setTriageReason] = useState("");
+  const triage = useWorkspacePermission(WORKSPACE_PERMISSIONS.findingsTriage);
 
   useEffect(() => {
     findingApi
@@ -104,6 +106,7 @@ export function FindingDetailClient({
         title={finding.title}
         description="Review the recorded severity, category, source, context, remediation, and auditable triage history."
         actions={
+          triage.allowed ? (
           <>
               {finding.triage_status === "open" ? (
                 <Button variant="outline" disabled={triaging} onClick={() => void updateStatus("fixed")}>
@@ -117,6 +120,7 @@ export function FindingDetailClient({
                 </Button>
               )}
           </>
+          ) : undefined
         }
       />
 
@@ -171,6 +175,7 @@ export function FindingDetailClient({
                 </div>
               ) : null}
 
+              {triage.allowed ? (
               <div className="space-y-3 border-t border-border pt-4">
                   <div>
                     <label htmlFor="false-positive-reason" className="font-medium text-foreground">False-positive reason</label>
@@ -196,6 +201,12 @@ export function FindingDetailClient({
                     </Button>
                   </div>
               </div>
+              ) : (
+                <p className="border-t border-border pt-4">
+                  Your workspace role ({triage.role}) does not include &ldquo;Triage findings&rdquo;, so
+                  this finding&apos;s status cannot be changed from here.
+                </p>
+              )}
             </div>
           </SectionCard>
         </div>

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class HookCacheResponse(BaseModel):
-    decision: str  # "allow_clean" | "block" | "block_incomplete" | "allow_override" | "allow_unscanned" | "quota_exceeded"
+    decision: str  # "allow_clean" | "block" | "block_incomplete" | "allow_override" | "allow_unscanned" | "quota_exceeded" | "not_permitted"
     # Both nullable, and for different reasons: `risk_score` is null for a
     # cache row written before the current risk model, `grade` is null when the
     # scan could not enumerate the server's tools. The hook prints "no grade
@@ -24,6 +24,8 @@ class HookCacheResponse(BaseModel):
     quota_resets_at: datetime | None = None
     upgrade_url: str | None = None
     target_key: str | None = None
+    # Set with `not_permitted`: which workspace permission is missing.
+    detail: str | None = None
 
 
 class HookCacheRequest(BaseModel):
