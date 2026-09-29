@@ -333,3 +333,43 @@ async def test_without_any_key_the_catalogue_is_left_alone(settings_with_key):
     assert not report.ok
     assert "CATALOG_API_KEY" in (report.error or "")
     assert db.inserted == []
+
+
+# --------------------------------------------------------------------------
+# Reasoning models: the output budget must reach the answer
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_gpt_oss_on_groq_reasons_briefly_and_keeps_its_reasoning_to_itself():
+    """GPT-OSS reasoning counts against the output budget. At the default
+    effort a 700-token explanation could be spent before any answer."""
+    route = respx.post(f"{SPECS['groq'].base_url}/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "answer"}}], "usage": {}})
+    )
+    await complete("groq", "k", model="openai/gpt-oss-120b", system="s", user="u")
+    body = json.loads(route.calls.last.request.content)
+    assert body["reasoning_effort"] == "low"
+    assert body["include_reasoning"] is False
+
+    await complete("groq", "k", model="llama-3.3-70b-versatile", system="s", user="u")
+    other = json.loads(route.calls.last.request.content)
+    assert "reasoning_effort" not in other and "include_reasoning" not in other
+
+
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize(
+    ("provider", "path", "payload"),
+    [
+        ("groq", "/chat/completions", {"choices": [{"message": {"content": ""}, "finish_reason": "length"}]}),
+        ("anthropic", None, {"content": [], "stop_reason": "max_tokens"}),
+    ],
+)
+async def test_an_answer_cut_off_by_the_output_limit_says_how_to_fix_it(provider, path, payload):
+    spec = SPECS[provider]
+    respx.post(f"{spec.base_url}{path or spec.chat_path}").mock(return_value=httpx.Response(200, json=payload))
+    with pytest.raises(ProviderError) as exc:
+        await complete(provider, "k", model="m", system="s", user="u", max_tokens=700)
+    assert "output limit (700 tokens)" in str(exc.value)
+    assert "Max tokens" in str(exc.value)

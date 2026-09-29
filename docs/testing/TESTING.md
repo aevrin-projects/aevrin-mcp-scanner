@@ -164,6 +164,11 @@ general-purpose SAST pass in the product standing in for it here.
   audit row, the per-call cap, a non-admin getting `404`, and approval of a
   remote-only suggestion (the gate's per-type rule). Its fake PostgREST
   compares `gte` numerically and refuses operators it does not know.
+- **AI explain route** (`tests/routes/test_ai_explain_route.py`): posts
+  real JSON through the app, because the route's `body: Any` made every
+  request a 422 while tests that called the route function with a dict
+  passed; a malformed or unreadable subject is `404`, an unknown subject
+  type `422`.
 - **Popularity refresh** (`tests/services/test_popularity_refresh.py`):
   GraphQL batching with owner and name as variables, a repository GitHub
   does not return stays unknown (not zero), no token means `skipped` and no

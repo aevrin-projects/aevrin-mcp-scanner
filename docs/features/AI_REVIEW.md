@@ -127,6 +127,16 @@ Aevrin's own credential rather than a customer's - and why, when no such
 credential is configured, the only key available to populate the catalogue
 at all is the one the customer just saved.
 
+**Reasoning models.** GPT-OSS on Groq (`openai/gpt-oss-*`) reasons before
+it answers, and the reasoning counts against the same output budget
+(console.groq.com/docs/reasoning). `complete` sends it `reasoning_effort:
+"low"` and `include_reasoning: false`: an explanation of structured
+evidence needs little reasoning, and the reasoning text is never shown or
+stored. When any provider stops at its output limit with no answer
+(`finish_reason: length`, Anthropic's `stop_reason: max_tokens`, Gemini's
+`finishReason: MAX_TOKENS`), the reason says so and points at Max tokens
+in Settings, AI Providers, rather than "empty response".
+
 ### Why LiteLLM was evaluated and not adopted
 
 LiteLLM's licence is acceptable (MIT outside `enterprise/`, which Aevrin
@@ -164,6 +174,18 @@ vendor's own pricing page rather than asserting a cost.
   the same as a scanner failure would make an unrelated outage look like a
   security-scanning problem, which is the one confusion this product
   cannot afford anywhere.
+- **Every failure the button shows says what happened.** A reason from the
+  API (no provider, a key the vendor rejected, an output limit) is shown
+  as given, with a link to the provider settings when that is where the
+  fix is, and a retry. A request the API refused is told apart by status:
+  401 sign in, 402 plan limit, 404 nothing to explain any more, 429 too
+  many requests, any other 4xx "reload and try again", and only a network
+  failure or a 5xx is "unavailable right now". A failed "Explain more"
+  keeps the explanation already shown. Until 2026-09-29 every failure was
+  one generic sentence, and it hid that `POST /ai/explain` declared its
+  body as `body: Any`, which FastAPI reads as a required query parameter:
+  every request was refused with 422 before any code ran, so no
+  explanation had ever been produced in production.
 
 ## Prompt injection
 
@@ -188,8 +210,12 @@ that stays unchanged.
 
 ## Testing
 
-`backend/api/tests/services/test_ai_providers.py` (no response model can
-carry a key; Gemini's key is never in a URL; output/input caps enforced),
+`backend/api/tests/routes/test_ai_explain_route.py` posts real JSON
+through the app (the layer the `body: Any` bug lived in, which the older
+tests called past), `backend/api/tests/services/test_ai_providers.py` (no
+response model can carry a key; Gemini's key is never in a URL;
+output/input caps enforced; GPT-OSS reasons at low effort; an answer cut
+off by the output limit says how to fix it),
 `test_marketplace_hardening.py`'s evidence-redaction and
 prompt-injection-bounding tests. See
 [`../testing/TESTING.md`](../testing/TESTING.md).

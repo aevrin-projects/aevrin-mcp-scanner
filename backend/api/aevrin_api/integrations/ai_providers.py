@@ -434,6 +434,15 @@ async def complete(
                 {"role": "user", "content": user},
             ],
         }
+        if provider == "groq" and model.startswith("openai/gpt-oss"):
+            # GPT-OSS on Groq reasons before it answers, and the reasoning
+            # counts against the same output budget (console.groq.com/docs/
+            # reasoning). At medium effort a 700-token explanation budget can
+            # be spent entirely on reasoning, leaving no answer. An
+            # explanation of structured evidence needs little of it, and the
+            # reasoning text itself is never shown, so it is not requested.
+            body["reasoning_effort"] = "low"
+            body["include_reasoning"] = False
 
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         try:
@@ -453,6 +462,12 @@ async def complete(
 
     text, input_tokens, output_tokens = _extract_completion(provider, payload)
     if not text:
+        if _stopped_at_token_limit(provider, payload):
+            raise ProviderError(
+                f"{spec.label} used its whole output limit ({max_tokens} tokens) before answering. "
+                "Raise Max tokens for it in Settings, AI Providers, or choose a model that does not "
+                "reason first."
+            )
         raise ProviderError(f"{spec.label} returned an empty response.")
 
     return Completion(
@@ -462,6 +477,22 @@ async def complete(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
     )
+
+
+def _stopped_at_token_limit(provider: str, payload: Any) -> bool:
+    """Whether the provider says it stopped because the output limit ran out,
+    in each vendor's own words for it."""
+    if not isinstance(payload, dict):
+        return False
+    if provider == "anthropic":
+        return payload.get("stop_reason") == "max_tokens"
+    if provider == "gemini":
+        candidates = payload.get("candidates")
+        first = candidates[0] if isinstance(candidates, list) and candidates else None
+        return isinstance(first, dict) and first.get("finishReason") == "MAX_TOKENS"
+    choices = payload.get("choices")
+    first = choices[0] if isinstance(choices, list) and choices else None
+    return isinstance(first, dict) and first.get("finish_reason") == "length"
 
 
 def _extract_completion(provider: str, payload: Any) -> tuple[str, int | None, int | None]:

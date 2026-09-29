@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { Loader2, RotateCw, Sparkles } from "lucide-react";
 
 import {
   explain,
@@ -26,7 +27,34 @@ import { Button } from "@/shared/ui/button";
  * configured, or a vendor is down, this renders a quiet line of text next to a
  * finding that remains completely valid. It never throws, never shows an error
  * banner, and never suggests the security result is in doubt.
+ *
+ * **Every failure says what happened.** The API's own reason is shown when
+ * it gave one (no provider, a key the vendor rejected, a plan limit), with a
+ * link to the provider settings when that is where the fix is, and a retry.
+ * One generic sentence for every failure hid a route that refused every
+ * request for weeks.
  */
+
+const SETTINGS_HREF = "/settings/ai-providers";
+
+/** Why a request failed, in words the reader can act on. */
+function failureReason(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return "Sign in to use AI explanations.";
+    if (error.status === 402) return error.message || "This plan's AI explanations for the month are used up.";
+    if (error.status === 404) return "There is nothing to explain here any more: the result may have been deleted.";
+    if (error.status === 429) return error.message || "Too many explanation requests. Try again in a minute.";
+    if (error.status >= 400 && error.status < 500) {
+      return "The explanation request was not accepted. Reload the page and try again.";
+    }
+  }
+  return "AI explanation unavailable right now. The security result below is unaffected.";
+}
+
+/** Whether the fix for this reason is in the AI provider settings. */
+function pointsAtSettings(reason: string): boolean {
+  return /Settings, AI Providers|AI provider is configured|API key/i.test(reason);
+}
 
 export function ExplainButton({
   subjectType,
@@ -42,23 +70,24 @@ export function ExplainButton({
   const [result, setResult] = useState<ExplanationResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // "Explain more" failing must not throw away the explanation already shown.
+  const [moreError, setMoreError] = useState<string | null>(null);
 
   async function run(detailed: boolean) {
     setLoading(true);
+    setMoreError(null);
     try {
       const next = await explain({ subjectType, subjectId, detailed });
+      if (detailed && !next.available && result?.available) {
+        setMoreError(next.reason);
+        return;
+      }
       setResult(next);
       if (detailed) setExpanded(true);
     } catch (error) {
-      // Including a 401. Someone whose session lapsed gets told to sign in,
-      // not an exception.
-      setResult({
-        available: false,
-        reason:
-          error instanceof ApiError && error.status === 401
-            ? "Sign in to use AI explanations."
-            : "AI explanation unavailable right now. The security result below is unaffected.",
-      });
+      const reason = failureReason(error);
+      if (detailed && result?.available) setMoreError(reason);
+      else setResult({ available: false, reason });
     } finally {
       setLoading(false);
     }
@@ -86,7 +115,22 @@ export function ExplainButton({
 
   if (!result.available) {
     return (
-      <p className={`text-xs text-muted-foreground ${className}`}>{result.reason}</p>
+      <div role="status" className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground ${className}`}>
+        <span>{result.reason}</span>
+        {pointsAtSettings(result.reason) ? (
+          <Link href={SETTINGS_HREF} className="font-medium text-foreground underline underline-offset-2">
+            Open AI provider settings
+          </Link>
+        ) : null}
+        <Button type="button" variant="ghost" size="sm" onClick={() => void run(false)} disabled={loading}>
+          {loading ? (
+            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+          ) : (
+            <RotateCw className="size-3.5" aria-hidden="true" />
+          )}
+          Try again
+        </Button>
+      </div>
     );
   }
 
@@ -127,6 +171,19 @@ export function ExplainButton({
           >
             {loading ? "Thinking…" : "Explain more"}
           </Button>
+        ) : null}
+        {moreError ? (
+          <span role="status" className="text-xs text-muted-foreground">
+            {moreError}
+            {pointsAtSettings(moreError) ? (
+              <>
+                {" "}
+                <Link href={SETTINGS_HREF} className="font-medium text-foreground underline underline-offset-2">
+                  Open AI provider settings
+                </Link>
+              </>
+            ) : null}
+          </span>
         ) : null}
       </div>
 

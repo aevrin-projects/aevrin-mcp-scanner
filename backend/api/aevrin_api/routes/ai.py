@@ -17,6 +17,7 @@ from aevrin_api.core.security import AuthenticatedUser
 from aevrin_api.db import SupabaseRest
 from aevrin_api.routes.deps import enforce_rate_limit, get_current_user, get_db
 from aevrin_api.schemas.ai import (
+    ExplainRequest,
     ModelOut,
     ProviderCredentialOut,
     SaveProviderRequest,
@@ -92,7 +93,7 @@ async def list_models(
 
 @router.post("/explain")
 async def explain(
-    body: Any,
+    body: ExplainRequest,
     db: Annotated[SupabaseRest, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[AuthenticatedUser, Depends(get_current_user)],
@@ -107,9 +108,11 @@ async def explain(
     introduce a vulnerability that the scanners did not find, and it never
     changes a score, a grade, or a finding.
     """
-    from aevrin_api.schemas.ai import ExplainRequest
-
-    parsed = ExplainRequest.model_validate(body)
+    # Typed as the request model, not `Any`: FastAPI reads a parameter typed
+    # `Any` as a required *query* parameter, so every explain request was
+    # refused with 422 before any of this ran, and the button showed its
+    # generic "unavailable" text for every user with a working key.
+    parsed = body
     if parsed.refresh:
         # Only the cache-bypassing path is limited. A cached read costs
         # nothing and should never be throttled.

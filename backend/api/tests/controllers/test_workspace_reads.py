@@ -30,6 +30,7 @@ from aevrin_api.routes import findings as finding_routes
 from aevrin_api.routes import orgs as org_routes
 from aevrin_api.routes import scans as scan_routes
 from aevrin_api.schemas import TriageRequest
+from aevrin_api.schemas.ai import ExplainRequest
 from aevrin_api.services import permissions as perms
 from aevrin_api.services.ai import explain as explain_service
 
@@ -296,10 +297,10 @@ def test_a_member_reads_every_agent_view_of_a_colleague_s_agent() -> None:
 
 def test_ai_explain_reads_exactly_what_the_scan_page_reads(explained, settings) -> None:
     w = World()
-    body = {"subject_type": "scan", "subject_id": w.bob_scan["id"]}
+    body = ExplainRequest(subject_type="scan", subject_id=w.bob_scan["id"])
     assert run(ai_routes.explain(body, w.db, settings, user(ALICE)))["available"] is True
     not_found(ai_routes.explain(body, w.db, settings, user(STRANGER)))
-    personal = {"subject_type": "scan", "subject_id": w.bob_personal["id"]}
+    personal = ExplainRequest(subject_type="scan", subject_id=w.bob_personal["id"])
     not_found(ai_routes.explain(personal, w.db, settings, user(ALICE)))
 
 

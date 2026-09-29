@@ -55,6 +55,24 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **AI explanations never worked in production.** `POST /ai/explain`
+  declared its body as `body: Any`, which FastAPI reads as a required query
+  parameter, so every request was refused with `422` before any code ran,
+  whatever key was configured; no explanation had ever been stored. The
+  button turned every failure into "AI explanation unavailable right now",
+  which hid it. The route now takes `ExplainRequest`, and a new test posts
+  real JSON through the app (the old test called the function past the
+  broken layer).
+- **AI explanation errors now say what happened.** The button shows the
+  API's reason (no provider, key rejected, output limit reached) with a
+  link to AI provider settings when that is the fix, a retry, and distinct
+  messages for sign-in, plan limit, deleted subject and rate limit. A
+  failed "Explain more" keeps the explanation already shown. A malformed
+  subject id is `404`, not a database error.
+- **Reasoning models could spend the whole output budget before answering.**
+  GPT-OSS on Groq now reasons at low effort without returning its
+  reasoning, and an answer cut off by the output limit on any provider
+  says to raise Max tokens instead of "empty response".
 - **"Apply popularity bar" would have unpublished servers whose stars were
   simply never fetched**, Context7 among them. A published server is now
   unpublished only when its known star count is below the bar (ADR-055).

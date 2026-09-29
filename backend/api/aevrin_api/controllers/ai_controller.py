@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException, status
 
@@ -136,6 +137,14 @@ async def explain_subject(
     body: ExplainRequest,
 ) -> dict[str, Any]:
     """Explain one subject, or say plainly why it could not be explained."""
+    try:
+        UUID(body.subject_id)
+    except ValueError:
+        # Every subject is a row id. A malformed one is "not found", not a
+        # database error surfacing as a 500.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Nothing found to explain."
+        ) from None
     try:
         document = await _gather_evidence(
             db, user_id=user_id, subject_type=body.subject_type, subject_id=body.subject_id
