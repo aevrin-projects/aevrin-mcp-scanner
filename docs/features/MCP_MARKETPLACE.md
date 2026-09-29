@@ -286,7 +286,9 @@ a notice that it is untrusted data, not instructions. Admin-authored
   removed). Popularity is log-scaled and takes the *max* signal. The score
   orders "Recommended"; it is never presented as a safety signal.
 - **`catalog.py`** - search, detail (with `content`, `install_configs`,
-  `versions` and `related`), categories, types, favourites, view counts,
+  `versions` and `related`), categories, types, favourites (saving and
+  the saved list use the detail page's visibility rule, so an unpublished
+  or no-longer-visible listing is neither saveable nor listed), view counts,
   and `build_install_config`. `install_configs` carries one config per
   supported agent with its warnings (secret variables, an unpinned version,
   a remote operator's control); the install dialog, the "Use it" section

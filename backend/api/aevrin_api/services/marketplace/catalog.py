@@ -404,16 +404,40 @@ async def _favorited_ids(
     return {row["listing_id"] for row in rows}
 
 
+class NotVisible(Exception):
+    """The caller cannot see this listing, so it cannot be saved."""
+
+
+async def _visible_ids(
+    db: SupabaseRest, *, listing_ids: list[str], org_id: str | None
+) -> set[str]:
+    """Which of these listings the caller could open: the detail page's rule
+    (published and public or unlisted, or their own workspace's)."""
+    if not listing_ids:
+        return set()
+    filters, or_filter = _visibility_filters(org_id=org_id, include_unlisted=True)
+    filters["id"] = f"in.({','.join(listing_ids)})"
+    rows = await db.select("mcp_listings", filters, columns="id", or_filter=or_filter)
+    return {row["id"] for row in rows}
+
+
 async def toggle_favorite(
-    db: SupabaseRest, *, user_id: str, listing_id: str, favorite: bool
+    db: SupabaseRest, *, user_id: str, listing_id: str, favorite: bool, org_id: str | None
 ) -> bool:
     """Add or remove a favourite, returning the resulting state.
+
+    Saving needs the listing to be one the caller can see: a draft or another
+    workspace's private item cannot be saved by id, which would otherwise put
+    its metadata on the saved page. Removing is always allowed, so a save
+    whose item has since been hidden can still be cleared.
 
     `favorite_count` on the listing is maintained by a database trigger rather
     than here, so two people favouriting at once cannot lose a count to a
     read-modify-write race.
     """
     if favorite:
+        if listing_id not in await _visible_ids(db, listing_ids=[listing_id], org_id=org_id):
+            raise NotVisible(listing_id)
         await db.insert(
             "mcp_favorites", {"user_id": user_id, "listing_id": listing_id}, upsert_on="user_id,listing_id"
         )
@@ -422,16 +446,23 @@ async def toggle_favorite(
     return favorite
 
 
-async def list_favorites(db: SupabaseRest, *, user_id: str) -> list[dict[str, Any]]:
+async def list_favorites(
+    db: SupabaseRest, *, user_id: str, org_id: str | None
+) -> list[dict[str, Any]]:
+    """The caller's saved listings that they can still open.
+
+    The same visibility rule as a listing's own page. A save outlives the
+    listing's state: when a listing is unpublished or archived, or the caller
+    leaves the workspace that owns a private one, it drops out of this list
+    (its page would 404) and comes back if the listing is published again.
+    """
     favorites = await db.select("mcp_favorites", {"user_id": user_id}, order="created_at.desc", limit=200)
     listing_ids = [f["listing_id"] for f in favorites]
     if not listing_ids:
         return []
-    rows = await db.select(
-        "mcp_listings",
-        {"id": f"in.({','.join(listing_ids)})"},
-        columns=LIST_COLUMNS,
-    )
+    filters, or_filter = _visibility_filters(org_id=org_id, include_unlisted=True)
+    filters["id"] = f"in.({','.join(listing_ids)})"
+    rows = await db.select("mcp_listings", filters, columns=LIST_COLUMNS, or_filter=or_filter)
     # Preserve the order the user favourited them in, which PostgREST's `in.`
     # does not guarantee.
     by_id = {row["id"]: row for row in rows}

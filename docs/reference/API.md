@@ -86,6 +86,15 @@ JWT) unless noted.
   leaked to an unauthorized caller. It carries `install_configs` (one
   client config per supported agent, each with its `warnings`), which is
   what the install dialog shows; there is no separate install-plan route.
+- **`GET /marketplace/favorites`** lists only the saved listings the caller
+  could open, by the detail route's rule (published and public or
+  unlisted, or their own workspace's). A save whose listing was
+  unpublished, archived, or belongs to a workspace the caller left drops
+  out, and returns if the listing is published again. **`PUT
+  /marketplace/mcp/{id}/favorite`** with `{"favorite": true}` returns `404`
+  for a listing the caller cannot see (or a malformed id), so a draft or
+  another workspace's private item cannot be saved by id; `{"favorite":
+  false}` always succeeds.
 - **`/marketplace/mcp` serves every registry item type, not only MCP
   servers.** The path predates the registry and is kept because clients
   (the frontend, the registry MCP tools, the CLI) already call it; the

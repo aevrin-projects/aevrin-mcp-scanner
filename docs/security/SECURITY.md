@@ -336,6 +336,11 @@ safe:
   popularity bar, one per repository, each through `set_status` and so
   through the same gate, and sets published MCP servers below the bar back
   to draft (ADR-054); its preview writes nothing.
+- **Saving follows visibility.** Saving a listing and the saved list use
+  the detail route's visibility rule (`catalog._visibility_filters`), so a
+  draft or another workspace's private item can neither be saved by id nor
+  appear on anyone's saved page; saving an invisible listing answers `404`,
+  the same as a listing that does not exist.
 - **Publishing is not a security claim.** The registry is discovery only
   (ADR-049): it stores no scan result, grade or scan state for any item,
   and no registry response or registry MCP tool returns one. The previous

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException, status
 
@@ -144,14 +145,20 @@ async def report(
 async def set_favorite(
     db: SupabaseRest, *, user_id: str, listing_id: str, favorite: bool
 ) -> dict[str, Any]:
-    result = await catalog.toggle_favorite(
-        db, user_id=user_id, listing_id=listing_id, favorite=favorite
-    )
+    try:
+        UUID(listing_id)
+        result = await catalog.toggle_favorite(
+            db, user_id=user_id, listing_id=listing_id, favorite=favorite,
+            org_id=await _org_for(db, user_id),
+        )
+    except (ValueError, catalog.NotVisible):
+        # The same answer for "no such listing" and "not yours to see".
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Listing not found") from None
     return {"favorite": result}
 
 
 async def favorites(db: SupabaseRest, *, user_id: str) -> list[dict[str, Any]]:
-    return await catalog.list_favorites(db, user_id=user_id)
+    return await catalog.list_favorites(db, user_id=user_id, org_id=await _org_for(db, user_id))
 
 
 # --------------------------------------------------------------------------

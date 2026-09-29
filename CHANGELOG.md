@@ -41,6 +41,16 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **The saved page listed servers that are no longer in the registry.**
+  `GET /marketplace/favorites` returned every saved listing whatever its
+  state, so servers the popularity bar sent back to draft stayed on
+  /marketplace/saved with pages that 404. It now applies the detail page's
+  visibility rule, and a save reappears if its listing is published again.
+- **Any listing could be saved by id**, including a draft or another
+  workspace's private item, which then showed its title and metadata on the
+  saver's saved page. Saving now needs the listing to be visible to the
+  caller (`404` otherwise, the same answer as for no such listing);
+  removing a save always works.
 - **A synced server that also ships an MCP Bundle could not be published**
   (Context7, for one). The official registry lists `mcpb` bundles and
   `cargo` crates beside npm and PyPI packages; the gate's package model
