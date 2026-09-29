@@ -391,3 +391,46 @@ def test_an_mcp_servers_env_and_headers_never_reach_the_snapshot(home, project, 
     # Not merely absent from these fixtures: absent from the schema, so no
     # future config shape can smuggle a value through them either.
     assert not {"env", "headers"} & set(agent.mcp_servers[0].model_dump())
+
+
+def test_an_mcp_rule_grants_the_level_its_form_and_bucket_say(home, project, nowhere):
+    """The same levels as every other tool (code.claude.com/docs/en/permissions):
+    the whole server is full, one tool is limited, an ask rule is ask. Every
+    MCP rule used to count as full, so an ask rule read as access granted
+    without asking."""
+    _write(
+        home / ".claude" / "settings.json",
+        {
+            "permissions": {
+                "allow": ["mcp__github", "mcp__slack__*", "mcp__db__query"],
+                "ask": ["mcp__stripe__create_refund"],
+                "deny": ["mcp__github__delete_repo", "mcp__jira__delete_issue"],
+            }
+        },
+    )
+
+    agent = _discover(home, project, nowhere)
+    levels = {c.subject: c.level for c in agent.capabilities if c.capability is Capability.MCP_TOOL}
+
+    assert levels == {
+        "github": Level.FULL,
+        "slack": Level.FULL,
+        "db": Level.LIMITED,
+        "stripe": Level.ASK,
+    }, "a deny-only server grants nothing, so it is not a capability"
+    github = next(c for c in agent.capabilities if c.subject == "github")
+    # The deny is kept as evidence beside the grant it narrows.
+    assert [e.detail for e in github.evidence] == [
+        "permissions.allow: mcp__github",
+        "permissions.deny: mcp__github__delete_repo",
+    ]
+
+
+def test_an_ask_rule_does_not_widen_an_allow_for_the_same_server(home, project, nowhere):
+    _write(
+        home / ".claude" / "settings.json",
+        {"permissions": {"allow": ["mcp__db__query"], "ask": ["mcp__db__*"]}},
+    )
+    agent = _discover(home, project, nowhere)
+    db = next(c for c in agent.capabilities if c.subject == "db")
+    assert db.level is Level.LIMITED

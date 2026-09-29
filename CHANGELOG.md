@@ -69,6 +69,13 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **An "ask first" MCP rule showed as full access.** Agent discovery
+  recorded every Claude Code `mcp__...` rule as full access to that
+  server, including an `ask` rule and one that allows a single tool. It
+  now reads them like every other rule: the whole server (`mcp__github`,
+  `mcp__github__*`) is full, one tool is limited, an `ask` rule is ask, and
+  a `deny` rule grants nothing. No score changes: posture does not score
+  MCP tool access.
 - **The popularity refresh still fetched few stars, and the scheduler job
   failed.** GitHub was not refusing the token: it answered most 100-repository
   GraphQL batches with 504 "couldn't respond in time" (and some 502), and the

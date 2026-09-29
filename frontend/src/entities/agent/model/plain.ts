@@ -4,10 +4,9 @@ import type { CapabilityLevel, CapabilityName, EffectiveCapability, Permission, 
  * and nothing else. Each one restates a level or a link the scanner
  * recorded; none adds a claim of its own. */
 
-/** What the agent can do at each level, for each capability. `mcp_tool` is
- *  deliberately phrased without "without asking": discovery records every
- *  MCP rule at the same level whatever its bucket, so the level cannot say
- *  whether the agent asks first. */
+/** What the agent can do at each level, for each capability. `mcp_tool`
+ *  never says "without asking": Codex records every enabled server as full,
+ *  and whether Codex asks first is its approval policy, a separate fact. */
 const CAPABILITY_SENTENCES: Record<Exclude<CapabilityName, "mcp_tool">, Record<CapabilityLevel, string>> = {
   shell: {
     full: "It can run any command on this computer.",
@@ -44,7 +43,12 @@ export function describeCapability(capability: EffectiveCapability): string {
     const server = capability.subject ?? "an MCP server";
     if (capability.level === "none") return `It cannot use the tools from ${server}.`;
     if (capability.level === "unknown") return `We could not tell whether it can use the tools from ${server}.`;
-    return `It is allowed to use tools from ${server}. An MCP server is an add-on that gives the agent extra tools.`;
+    const what = {
+      full: `It can use every tool from ${server}.`,
+      limited: `It can use some of the tools from ${server}, not all of them.`,
+      ask: `It has to ask you before it uses tools from ${server}.`,
+    }[capability.level];
+    return `${what} An MCP server is an add-on that gives the agent extra tools.`;
   }
   return CAPABILITY_SENTENCES[capability.capability][capability.level];
 }

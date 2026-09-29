@@ -46,7 +46,7 @@ What Codex can reach is decided by its sandbox, not by a permission list:
 
 | `sandbox_mode` | Filesystem read | Filesystem write | Shell | Network |
 |---|---|---|---|---|
-| `read-only` | Full — the whole filesystem, not just the workspace | None | Limited | None |
+| `read-only` | Full: the whole filesystem, not just the workspace | None | Limited | None |
 | `workspace-write` | Full | Limited to the workspace | Limited | None unless `sandbox_workspace_write.network_access = true` |
 | `danger-full-access` | Full | Full | Full | Full |
 
@@ -116,6 +116,10 @@ A few consequences worth knowing:
 - A **hook grants shell** whatever the permissions block says, because it runs a command on the
   agent's behalf with the agent's privileges.
 - `permissions.defaultMode: bypassPermissions` grants every capability, and is called out.
+- An MCP rule is read like any other rule. `mcp__github` and `mcp__github__*` allow every tool on
+  the `github` server (full), `mcp__github__create_issue` allows one tool (limited), and the same
+  rule under `ask` is ask. A `deny` rule is kept as evidence and grants nothing, so a server that
+  only appears in deny rules is not listed as something the agent can use.
 - `enableAllProjectMcpServers` marks project servers **auto-approved**, since it removes the one
   human checkpoint in front of an untrusted server.
 
@@ -274,7 +278,7 @@ It looks like a finding, is not one, and a product that publishes them teaches p
 
 The clearest consequence: an agent allowed only `Bash(npm run *)` with AWS credentials sitting on
 disk produces **no path**, because nothing establishes that `aws` is among the commands it may run.
-If the allowlist names it — `Bash(aws s3 *)` — the path appears, at high severity rather than
+If the allowlist names it (`Bash(aws s3 *)`), the path appears, at high severity rather than
 critical.
 
 The same rule elsewhere:
@@ -284,8 +288,8 @@ The same rule elsewhere:
 | Unrestricted shell, no credentials found | No |
 | Credentials found, no shell at all | No |
 | Shell level could not be established | No |
-| MCP server auto-approved, never scanned | No — auto-approval alone is not evidence of anything |
-| MCP server graded D, but still asks first | No — there is a human in the way |
+| MCP server auto-approved, never scanned | No: auto-approval alone is not evidence of anything |
+| MCP server graded D, but still asks first | No: there is a human in the way |
 | MCP server auto-approved **and** graded D | Yes |
 
 An empty Attack paths page means no evidenced path was found. It is not a guarantee that none
@@ -306,7 +310,7 @@ and would turn a posture report into a breach if it leaked.
 ## Coverage
 
 `coverage` says what was established and what was not. A configuration file that exists but will
-not parse is reported as unreadable, never treated as absent — an unparseable config is not an
+not parse is reported as unreadable, never treated as absent: an unparseable config is not an
 empty one, the same rule the MCP scanner applies to a stage whose tools did not run.
 
 ## MCP trust grade
@@ -325,8 +329,8 @@ The grade answers that, and the score stays underneath for the detail.
 The recommendation is a recommendation. Aevrin does not enforce it, and does not change any
 configuration on the strength of it.
 
-Grades are derived from the findings a scan already produced — the same scanners, severities and
-OWASP MCP categories — so a grade can never disagree with the scan it came from. It appears on a
+Grades are derived from the findings a scan already produced (the same scanners, severities and
+OWASP MCP categories), so a grade can never disagree with the scan it came from. It appears on a
 scan of an MCP target:
 
 ```text
@@ -372,19 +376,19 @@ Launcher noise is not identity: `npx -y pkg` and `npx pkg` are the same server, 
 
 **Uncertain identity is recorded, never resolved.** A server Aevrin can only identify by its local
 name is marked *Identity uncertain* and is never merged with anything else, because merging two
-unrelated servers attaches one server's findings to the other — a worse failure than listing one
+unrelated servers attaches one server's findings to the other, a worse failure than listing one
 server twice. Expanding a row shows every installation: the agent, the device, the scope, the
 project, the local name it was given there, and whether it is enabled.
 
 ### Grades on the MCP servers page
 
 A grade appears there only when a scan of that server actually ran, matched on the same identity
-above — so a scan of `https://x/mcp/` correlates with a config of `https://x/mcp`, and nothing
+above, so a scan of `https://x/mcp/` correlates with a config of `https://x/mcp`, and nothing
 looser. A server with no matching scan reads **Not scanned**, and the letter is absent rather than
 optimistic.
 
-Servers launched over stdio — a command on your machine, like
-`npx -y @modelcontextprotocol/server-github` — have no URL for Aevrin to reach, so they are always
+Servers launched over stdio (a command on your machine, like
+`npx -y @modelcontextprotocol/server-github`) have no URL for Aevrin to reach, so they are always
 Not scanned. Scan the package's repository from **New scan** to grade one of those.
 
 ## Usage and plan limits
@@ -393,7 +397,7 @@ A posture upload is metered on the same plan, the same rolling month and the sam
 configuration as every other scan. Two things are counted:
 
 **Agent posture scans.** One per `aevrin agent scan --upload`, **however many agents that upload
-reported**. Claude Code and Codex found by the same command are one posture scan, not two — billing
+reported**. Claude Code and Codex found by the same command are one posture scan, not two: billing
 two would charge you for the tool being thorough.
 
 **Monitored devices.** The number of machines whose posture is tracked. A machine already being
@@ -401,7 +405,7 @@ tracked keeps reporting even at the limit, so a plan change can never silently s
 device that was already being watched. Only a machine Aevrin has never seen is refused.
 
 Both appear on the billing page. When the device limit is reached, the refusal says the machine is
-**not monitored** — never that it is fine:
+**not monitored**, never that it is fine:
 
 ```text
 This device is not monitored: your plan covers 3 device(s) and 3 are already tracked.

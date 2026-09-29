@@ -41,6 +41,10 @@ class Accumulator:
     def __init__(self) -> None:
         self.levels: dict[Capability, Level] = {}
         self.evidence: dict[Capability, list[Evidence]] = {}
+        # Per MCP server: the widest level its rules grant, and the evidence
+        # for it. A server with only deny evidence has no level and is not a
+        # capability: a deny narrows access, it grants none.
+        self.mcp_tool_levels: dict[str, Level] = {}
         self.mcp_tool_servers: dict[str, list[Evidence]] = {}
 
     def grant(self, capability: Capability, level: Level, evidence: Evidence) -> None:
@@ -55,6 +59,16 @@ class Accumulator:
         else:
             self.levels[capability] = widest(self.levels[capability], level)
         self.evidence.setdefault(capability, []).append(evidence)
+
+    def grant_mcp(self, server: str, level: Level, evidence: Evidence) -> None:
+        """`grant`, for one MCP server's tools: widest level wins."""
+        current = self.mcp_tool_levels.get(server)
+        self.mcp_tool_levels[server] = level if current is None else widest(current, level)
+        self.mcp_tool_servers.setdefault(server, []).append(evidence)
+
+    def note_mcp(self, server: str, evidence: Evidence) -> None:
+        """`note`, for one MCP server: evidence that does not widen it."""
+        self.mcp_tool_servers.setdefault(server, []).append(evidence)
 
     def note(self, capability: Capability, evidence: Evidence) -> None:
         """Evidence that explains a capability without widening it -- a deny

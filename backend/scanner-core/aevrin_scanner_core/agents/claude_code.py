@@ -103,6 +103,18 @@ def _mcp_server_from_rule(rule: str) -> str | None:
     return parts[1] if len(parts) >= 2 and parts[1] else None
 
 
+def _mcp_rule_is_whole_server(rule: str) -> bool:
+    """Whether an MCP rule covers every tool on its server.
+
+    Documented forms (code.claude.com/docs/en/permissions): `mcp__puppeteer`
+    and `mcp__puppeteer__*` match any tool from the server;
+    `mcp__puppeteer__puppeteer_navigate` matches that one tool.
+    """
+    tool = _rule_tool(rule)[len("mcp__"):]
+    _, _, tool_name = tool.partition("__")
+    return tool_name in ("", "*")
+
+
 def _apply_permissions(
     acc: Accumulator, settings: dict[str, Any], path: str, scope: ConfigScope
 ) -> str | None:
@@ -139,7 +151,15 @@ def _apply_permissions(
 
             server = _mcp_server_from_rule(rule)
             if server:
-                acc.mcp_tool_servers.setdefault(server, []).append(evidence)
+                # The same levels as every other tool: allowing the whole
+                # server is full, allowing one of its tools is limited, and an
+                # ask rule is ask. Every MCP rule used to count as full, so an
+                # ask rule showed as access granted without asking.
+                if level is Level.ASK:
+                    mcp_level = Level.ASK
+                else:
+                    mcp_level = Level.FULL if _mcp_rule_is_whole_server(rule) else Level.LIMITED
+                acc.grant_mcp(server, mcp_level, evidence)
                 continue
             for capability in _TOOL_CAPABILITIES.get(_rule_tool(rule), ()):
                 acc.grant(capability, granted, evidence)
@@ -150,6 +170,12 @@ def _apply_permissions(
     # talks itself into a clean answer.
     for rule in permissions.get("deny", []) or []:
         if not isinstance(rule, str):
+            continue
+        server = _mcp_server_from_rule(rule)
+        if server:
+            acc.note_mcp(
+                server, Evidence(detail=f"permissions.deny: {rule}", source_path=path, scope=scope)
+            )
             continue
         for capability in _TOOL_CAPABILITIES.get(_rule_tool(rule), ()):
             acc.evidence.setdefault(capability, []).append(
@@ -408,9 +434,13 @@ def discover_claude_code(
     ]
     agent.capabilities += [
         EffectiveCapability(
-            capability=Capability.MCP_TOOL, level=Level.FULL, subject=server, evidence=evidence
+            capability=Capability.MCP_TOOL,
+            level=acc.mcp_tool_levels[server],
+            subject=server,
+            evidence=evidence,
         )
         for server, evidence in sorted(acc.mcp_tool_servers.items())
+        if server in acc.mcp_tool_levels
     ]
 
     agent.credentials = credentials(home)

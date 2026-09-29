@@ -125,13 +125,17 @@ first, with the exact data under **Technical details** (see
   `agent_posture`, whose evidence is read through `get_agent` (see
   [`AI_REVIEW.md`](AI_REVIEW.md)).
 
-One known inaccuracy in discovery, reported rather than changed with this
-copy: every Claude Code `mcp__<server>__...` rule, including an `ask` rule
-and one narrowed to a single tool, is recorded as `mcp_tool` at level
-`full` for that server (`claude_code.py`). Posture does not score
-`mcp_tool`, so no score is affected, but the level shown for those rows
-overstates an `ask` rule. The plain sentence for MCP tools therefore never
-says "without asking"; the rule's own row says whether it asks.
+A Claude Code MCP rule gets the same levels as any other tool
+(`claude_code._mcp_rule_is_whole_server`, the forms documented at
+code.claude.com/docs/en/permissions): `mcp__<server>` and
+`mcp__<server>__*` in `allow` are `full` for that server, one named tool
+is `limited`, and an `ask` rule is `ask`. A `deny` rule is evidence beside
+the server's grant and never a grant itself, so a server that appears only
+in deny rules is not a capability. Until 2026-09-29 every MCP rule was
+`full`, so an ask rule showed as access granted without asking; posture
+does not score `mcp_tool`, so no score changed. Codex still records every
+enabled server as `full`, and whether Codex asks first is its approval
+policy, so the plain sentence for MCP tools never says "without asking".
 
 ## Data
 
