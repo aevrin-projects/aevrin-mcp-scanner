@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { MotionConfig, motion } from "motion/react";
 import { Check, ChevronLeft, ChevronRight, Loader2, Plus, Search } from "lucide-react";
 
 import { marketplaceAdminApi } from "@/entities/admin";
@@ -101,39 +101,55 @@ export function AdminMarketplacePage() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const fetchAll = useCallback(async () => {
-    const [s, list, subs, reps] = await Promise.all([
-      marketplaceAdminApi.summary().catch(() => null),
-      marketplaceAdminApi
-        .list({
-          status: statusFilter || undefined,
-          type: typeFilter || undefined,
-          q: debouncedSearch || undefined,
-          limit: PAGE_SIZE,
-          offset: page * PAGE_SIZE,
-        })
-        .catch(() => []),
-      marketplaceAdminApi.submissions().catch(() => []),
-      marketplaceAdminApi.reports().catch(() => []),
-    ]);
-    return { s, list, subs, reps };
-  }, [statusFilter, typeFilter, debouncedSearch, page]);
-
+  // Two fetches, not one. Searching and paging change only the list, so they
+  // ask only for the list: they used to wait on the summary (about thirty
+  // exact counts), the suggestions and the reports as well, on every
+  // keystroke and page turn. Those three reload on first load and after an
+  // action (`reloadToken`), which is when they can change.
+  // Loading is derived, not set: the list on screen answers some query, and
+  // while that is not the current one, a newer page is on its way.
+  const listQuery = [statusFilter, typeFilter, debouncedSearch, page, reloadToken].join("|");
+  const [shownQuery, setShownQuery] = useState<string | null>(null);
+  const listLoading = shownQuery !== listQuery;
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      const { s, list, subs, reps } = await fetchAll();
-      if (cancelled) return;
-      setSummary(s as Summary | null);
-      setRows(list as Row[]);
-      setSubmissions(subs);
-      setReports(reps);
-      setLoading(false);
-    })();
+    void marketplaceAdminApi
+      .list({
+        status: statusFilter || undefined,
+        type: typeFilter || undefined,
+        q: debouncedSearch || undefined,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+      })
+      .catch(() => [])
+      .then((list) => {
+        // A slower, older response must not replace a newer one.
+        if (cancelled) return;
+        setRows(list as Row[]);
+        setShownQuery(listQuery);
+        setLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [fetchAll, reloadToken]);
+  }, [statusFilter, typeFilter, debouncedSearch, page, reloadToken, listQuery]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      marketplaceAdminApi.summary().catch(() => null),
+      marketplaceAdminApi.submissions().catch(() => []),
+      marketplaceAdminApi.reports().catch(() => []),
+    ]).then(([s, subs, reps]) => {
+      if (cancelled) return;
+      setSummary(s as Summary | null);
+      setSubmissions(subs);
+      setReports(reps);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
 
   // The result used to go to a toast at the top of the page, far above the
   // Suggestions and Reports panels, so a refused approval looked like a
@@ -290,7 +306,10 @@ export function AdminMarketplacePage() {
 
           <ActionOutcome panel="items" outcome={outcome} />
 
-          <PanelBody className="p-0">
+          <PanelBody
+            className={`p-0 transition-opacity ${listLoading ? "opacity-60" : ""}`}
+            aria-busy={listLoading}
+          >
             {rows.length === 0 ? (
               <div className="px-5 py-4">
                 <EmptyState title="No items match" body="Try clearing the filters, or create a new item." />
@@ -299,17 +318,11 @@ export function AdminMarketplacePage() {
               <>
                 <ScrollArea viewportClassName="overflow-y-auto scroll-fade">
                   <div className="divide-y divide-border">
-                    <AnimatePresence initial={false}>
-                      {rows.map((row) => {
+                    {rows.map((row) => {
                         const statusClass = STATUS_COLORS[row.status] ?? "bg-muted text-muted-foreground border-transparent";
                         return (
-                          <motion.div
+                          <div
                             key={row.id}
-                            layout
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={spring.fast}
                             className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3"
                           >
                             {/* Identity */}
@@ -411,10 +424,9 @@ export function AdminMarketplacePage() {
                                 </Button>
                               ) : null}
                             </div>
-                          </motion.div>
+                          </div>
                         );
                       })}
-                    </AnimatePresence>
                   </div>
                 </ScrollArea>
 

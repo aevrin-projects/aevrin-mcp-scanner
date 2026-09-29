@@ -50,22 +50,22 @@ security verdict. The editor's **Install** tab has the same **Scan with Aevrin**
 public page, which opens your own scan of the server on the scan page; nothing about that scan is
 recorded on the item.
 
-## Publishing qualifying drafts
+## Applying the popularity bar
 
-Every server synced from the official MCP Registry arrives as a draft, and keeps doing so. **Publish
-qualifying drafts** on the registry admin page publishes, in one action, only the drafts that meet
-this bar:
+Every server synced from the official MCP Registry arrives as a draft, and keeps doing so. **Apply
+popularity bar** on the registry admin page publishes, in one action, only the drafts that meet
+this bar, and sets every published MCP server below it back to draft:
 
 - a public MCP server that the registry sync added, still a draft (a draft an administrator created,
   or an organisation's private item, is never included);
-- 10 or more GitHub stars, or 1,000 or more npm downloads last month;
+- 50 or more GitHub stars (a server whose star count is not known yet does not meet it);
 - it passes the publish check above;
 - it is the only listing for its repository: a draft whose repository already has a published
   listing is skipped, and of several drafts for one repository only the one with the most stars
   (then npm downloads, then the most recently updated) is published.
 
-It always shows a preview first: the exact number that will be published, the bar, how many drafts
-stay drafts and why, and the most common reasons drafts fail the publish check. Nothing is written
+It always shows a preview first: the exact number that will be published and unpublished, the bar,
+how many drafts stay drafts and why, and the most common reasons drafts fail the publish check. Nothing is written
 until you confirm. At most 500 are published per run; if more qualify, the result says so and you
 can preview the next batch. Each item published this way gets its own timeline entry and audit
 record, and the run itself is recorded once more with the bar applied and the counts.

@@ -112,9 +112,15 @@ class InstallPackage(BaseModel):
             raise ValueError(f"{value!r} contains whitespace or shell punctuation")
         return value
 
-    @field_validator("runtime_hint")
+    @field_validator("runtime_hint", mode="before")
     @classmethod
     def _known_runtime(cls, value: str | None) -> str | None:
+        # The registry sync stores an absent hint as "" (normalize.py), and
+        # the config builder already treats "" as "use the registry type's
+        # default launcher". Read it as absent: refusing it kept 5,265 synced
+        # packages out of the registry for having no hint at all.
+        if isinstance(value, str) and not value.strip():
+            return None
         if value is not None and value not in _RUNTIMES:
             raise ValueError(f"runtime_hint must be one of {sorted(_RUNTIMES)}")
         return value

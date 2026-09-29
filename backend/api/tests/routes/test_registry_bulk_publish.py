@@ -172,10 +172,10 @@ def public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_only_popular_public_registry_mcp_drafts_are_candidates() -> None:
     db = FakeDb()
-    starred = draft(db, github_stars=10)
-    downloaded = draft(db, github_stars=None, npm_downloads_last_month=1000)
+    starred = draft(db, github_stars=50)
     excluded = [
-        draft(db, github_stars=9, npm_downloads_last_month=999),
+        # npm downloads do not count: the bar is GitHub stars (ADR-054).
+        draft(db, github_stars=49, npm_downloads_last_month=50_000),
         draft(db, github_stars=None, npm_downloads_last_month=None),
         draft(db, status="review"),
         draft(db, status="archived"),
@@ -186,9 +186,9 @@ def test_only_popular_public_registry_mcp_drafts_are_candidates() -> None:
 
     result = preview(db)
 
-    assert result["considered"] == 2
-    assert result["qualifying"] == 2
-    assert {s["id"] for s in result["sample"]} == {starred["id"], downloaded["id"]}
+    assert result["considered"] == 1
+    assert result["qualifying"] == 1
+    assert {s["id"] for s in result["sample"]} == {starred["id"]}
     assert all(status_of(db, row) != "published" for row in excluded)
     BulkPublishResult.model_validate(result)
 
@@ -200,8 +200,8 @@ def test_the_criteria_are_stated_in_the_response() -> None:
         "item_type": "mcp_server",
         "source": "registry",
         "visibility": "public",
-        "min_github_stars": 10,
-        "min_npm_downloads_last_month": 1000,
+        "min_github_stars": 50,
+        "unpublishes_below_bar": True,
         "one_per_repository": True,
         "max_per_call": 500,
     }
@@ -211,11 +211,11 @@ def test_one_listing_per_repository_among_drafts() -> None:
     """The official registry lists one repository under several names and
     spellings. Most stars wins, then npm downloads, then most recent."""
     db = FakeDb()
-    loser = draft(db, repository_url="https://github.com/Acme/Tool", github_stars=40)
+    loser = draft(db, repository_url="https://github.com/Acme/Tool", github_stars=60)
     winner = draft(db, repository_url="https://github.com/acme/tool.git/", github_stars=90)
-    also = draft(db, repository_url="https://github.com/acme/tool/", github_stars=12)
-    tie_low = draft(db, repository_url="https://github.com/acme/other", github_stars=20, npm_downloads_last_month=5)
-    tie_high = draft(db, repository_url="https://github.com/acme/other", github_stars=20, npm_downloads_last_month=5000)
+    also = draft(db, repository_url="https://github.com/acme/tool/", github_stars=55)
+    tie_low = draft(db, repository_url="https://github.com/acme/other", github_stars=70, npm_downloads_last_month=5)
+    tie_high = draft(db, repository_url="https://github.com/acme/other", github_stars=70, npm_downloads_last_month=5000)
     old = draft(db, repository_url="https://github.com/acme/third", updated_at="2026-01-01T00:00:00+00:00")
     new = draft(db, repository_url="https://github.com/acme/third", updated_at="2026-09-20T00:00:00+00:00")
 
@@ -231,7 +231,7 @@ def test_a_repository_that_is_already_published_is_skipped() -> None:
     db = FakeDb()
     db.rows("mcp_listings").append({
         "id": "live", "status": "published", "item_type": "mcp_server",
-        "repository_url": "https://github.com/acme/live",
+        "repository_url": "https://github.com/acme/live", "github_stars": 80,
     })
     again = draft(db, repository_url="https://github.com/ACME/live.git", github_stars=5000)
 
@@ -240,6 +240,54 @@ def test_a_repository_that_is_already_published_is_skipped() -> None:
     assert result["skipped"]["already_published_repository"] == 1
     assert result["published"] == 0
     assert status_of(db, again) == "draft"
+
+
+def published(db: FakeDb, **fields: Any) -> dict[str, Any]:
+    return draft(db, status="published", **fields)
+
+
+def test_published_servers_below_the_bar_are_unpublished() -> None:
+    """The bar is what the public registry shows, whatever brought an item
+    in: a published MCP server under 50 stars, or with no star count yet,
+    goes back to draft. Nothing else changes."""
+    db = FakeDb()
+    few = published(db, github_stars=49, source="user_submission")
+    unknown = published(db, github_stars=None)
+    kept = published(db, github_stars=50)
+    skill = published(db, item_type="skill", content={"instructions": "x"}, github_stars=0)
+
+    before = copy.deepcopy(db.tables)
+    shown = preview(db)
+    assert db.tables == before, "a preview writes nothing"
+    assert shown["below_bar"] == 2
+    assert shown["unpublished"] == 0
+    assert {s["id"] for s in shown["below_bar_sample"]} == {few["id"], unknown["id"]}
+
+    result = publish(db)
+
+    assert result["unpublished"] == 2
+    assert [status_of(db, r) for r in (few, unknown)] == ["draft", "draft"]
+    assert [status_of(db, r) for r in (kept, skill)] == ["published", "published"]
+    events = [e for e in db.rows("mcp_events") if e["new_value"] == "draft"]
+    assert sorted(e["listing_id"] for e in events) == sorted([few["id"], unknown["id"]])
+    audit = db.rows("admin_audit_log")
+    assert sorted(a["target_resource"] for a in audit if a["action"] == "registry.status.draft") == sorted(
+        [few["id"], unknown["id"]]
+    )
+    (summary,) = [a for a in audit if a["action"] == "registry.bulk_publish"]
+    assert summary["metadata"]["unpublished"] == 2
+    BulkPublishResult.model_validate(result)
+
+
+def test_a_draft_takes_the_place_of_an_unpublished_listing_for_its_repository() -> None:
+    db = FakeDb()
+    stale = published(db, repository_url="https://github.com/acme/tool", github_stars=None)
+    better = draft(db, repository_url="https://github.com/acme/tool", github_stars=300)
+
+    result = publish(db)
+
+    assert result["skipped"]["already_published_repository"] == 0
+    assert (status_of(db, stale), status_of(db, better)) == ("draft", "published")
 
 
 def test_drafts_with_no_repository_are_each_their_own_group() -> None:
@@ -323,14 +371,15 @@ def test_publish_writes_status_event_and_audit_per_item_and_one_summary() -> Non
     assert summary["actor_user_id"] == "admin-1"
     assert summary["metadata"]["published"] == 3
     assert summary["metadata"]["skipped"]["failed_gate"] == 1
-    assert summary["metadata"]["criteria"]["min_github_stars"] == 10
+    assert summary["metadata"]["criteria"]["min_github_stars"] == 50
+    assert summary["metadata"]["unpublished"] == 0
     assert len(audit) == 4
 
 
 def test_a_large_set_is_published_in_capped_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(admin, "BULK_PUBLISH_MAX_PER_CALL", 2)
     db = FakeDb()
-    low = draft(db, github_stars=11)
+    low = draft(db, github_stars=51)
     draft(db, github_stars=300)
     draft(db, github_stars=200)
 

@@ -94,7 +94,7 @@ carries a security state.
   registry sync inserts new servers as `draft`; a suggestion is created in
   `review` and only an admin decision moves it on. An admin may publish
   many synced drafts at once with
-  [Publish qualifying drafts](#publishing-qualifying-drafts), which is still
+  [Apply popularity bar](#publishing-qualifying-drafts), which is still
   an admin action and still goes through the publish gate per item.
 - `archived` is reversible (restore returns it to `draft`). `delete`
   removes the row and everything that cascades from it, and requires the
@@ -129,14 +129,16 @@ remote endpoint resolves its hostname (the SSRF guard), a blocking call.
 The registry holds tens of thousands of synced drafts; the sync keeps
 landing new ones as drafts and does not change. `admin.bulk_publish`
 (`GET` previews, `POST` publishes, `/admin/marketplace/bulk-publish`)
-publishes only the drafts that meet a fixed bar (`DECISIONS.md` ADR-053),
-defined as constants in `services/marketplace/admin.py`:
+applies a fixed popularity bar (`DECISIONS.md` ADR-053, raised and made
+two-way by ADR-054): it publishes the drafts that meet it and sets the
+published MCP servers below it back to draft. The bar is constants in
+`services/marketplace/admin.py`:
 
 | Constant | Value | Meaning |
 |---|---|---|
 | `BULK_PUBLISH_FILTERS` | `status=draft`, `item_type=mcp_server`, `source=registry`, `visibility=public` | Synced public MCP server drafts only; an admin-made draft or an org's private item is never included |
-| `BULK_PUBLISH_MIN_GITHUB_STARS` | `10` | Either this ... |
-| `BULK_PUBLISH_MIN_NPM_DOWNLOADS` | `1000` | ... or this (`npm_downloads_last_month`) |
+| `BULK_PUBLISH_MIN_GITHUB_STARS` | `50` | The bar, in GitHub stars only; unknown stars do not meet it |
+| `BULK_UNPUBLISH_FILTERS` | `status=published`, `item_type=mcp_server` | Published MCP servers the bar also applies to, whatever their source |
 | `BULK_PUBLISH_MAX_PER_CALL` | `500` | Per call; the rest is `remaining` |
 | `BULK_PUBLISH_CONCURRENCY` | `8` | Items in flight (gate checks and writes) |
 
@@ -155,9 +157,14 @@ The preview writes nothing. Publishing recomputes the set, then calls
 `status_changed` event and its own `registry.status.published` audit row;
 one more audit row, `registry.bulk_publish`, records the criteria and the
 counts. An item refused at that point (it changed since the read) is
-returned in `failed` and stays a draft. `npm_downloads_last_month` is
-filled for more drafts over time by the metadata refresh, so a later run
-can qualify drafts an earlier one did not.
+returned in `failed` and stays a draft. Every published MCP server under
+the bar (fewer than 50 stars, or stars not yet known) goes back to draft
+through `set_status` in the same POST, with its own event and
+`registry.status.draft` audit row; these are not capped per call, and a
+listing leaving this way does not count as its repository being published,
+so a better draft for the same repository can take its place. The metadata
+refresh fills `github_stars` for more drafts over time, so a later run can
+qualify drafts an earlier one did not.
 
 There is no scan requirement. Before ADR-049 an MCP server could not be
 published without a scan by the current engine (ADR-046); that gate went

@@ -107,18 +107,19 @@ JWT) unless noted.
   match. **`DELETE /admin/marketplace/categories/{slug}`** is refused while
   any item is filed under the category.
 - **`GET /admin/marketplace/bulk-publish`** previews and **`POST
-  /admin/marketplace/bulk-publish`** runs "Publish qualifying drafts"
+  /admin/marketplace/bulk-publish`** runs "Apply popularity bar"
   (`admin.bulk_publish`, criteria in `docs/features/MCP_MARKETPLACE.md`,
   `DECISIONS.md` ADR-053). No body. Both return `BulkPublishResult`:
   `{dry_run, criteria, considered, qualifying, batch, published, failed:
   [{id, slug, reason}], remaining, skipped: {already_published_repository,
   failed_gate, duplicate_repository}, gate_reasons: [{reason, count}],
   sample: [{id, slug, title, repository_url, github_stars,
-  npm_downloads_last_month}]}` (sample at most 20, gate reasons the top 5).
-  The preview writes nothing. The POST recomputes the set, publishes at most
-  500 per call through `set_status` (an event and an audit row per item) and
-  writes one `registry.bulk_publish` audit row; `remaining` > 0 means call
-  again.
+  npm_downloads_last_month}], below_bar, unpublished, below_bar_sample}`
+  (samples at most 20, gate reasons the top 5). The preview writes nothing.
+  The POST recomputes the set, publishes at most 500 per call and sets every
+  published MCP server under the bar back to draft, each through
+  `set_status` (an event and an audit row per item), and writes one
+  `registry.bulk_publish` audit row; `remaining` > 0 means call again.
 
 - **`POST /billing/checkout`** takes `{tier, cycle, seats}`. For Team,
   `seats` is 3-500 and the amount is the per-seat price times `seats`; it

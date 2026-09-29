@@ -180,7 +180,7 @@ export const marketplaceAdminApi = {
       body: JSON.stringify({ status, reason: reason ?? null }),
     }),
 
-  /** What "Publish qualifying drafts" would publish, and why the rest would
+  /** What "Apply popularity bar" would publish, and why the rest would
    *  stay drafts. Writes nothing. */
   bulkPublishPreview: () => request<BulkPublishResult>("/admin/marketplace/bulk-publish"),
 

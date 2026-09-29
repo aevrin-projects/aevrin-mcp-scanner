@@ -34,7 +34,12 @@ from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest, SupabaseRestError, select_all
 from aevrin_api.services.admin_auth import AdminIdentity, write_audit
 from aevrin_api.services.marketplace import items, submissions
-from aevrin_api.services.marketplace.catalog import DETAIL_COLUMNS, VERSION_COLUMNS, decorate
+from aevrin_api.services.marketplace.catalog import (
+    DETAIL_COLUMNS,
+    LIST_COLUMNS,
+    VERSION_COLUMNS,
+    decorate,
+)
 from aevrin_api.services.marketplace.normalize import slugify
 from aevrin_api.services.marketplace.sync import refresh_listing_metadata
 
@@ -117,11 +122,14 @@ async def admin_list(
     if query:
         filters["title"] = f"ilike.*{''.join(c for c in query if c not in ',()*')[:80]}*"
 
+    # The list projection, not the detail one: a page of rows needs no README
+    # (up to 140 KB each), installation or content. The editor loads those.
+    # `id` breaks ties in the order, so paging never repeats or skips a row.
     rows = await db.select(
         "mcp_listings",
         filters,
-        columns=DETAIL_COLUMNS,
-        order="updated_at.desc",
+        columns=LIST_COLUMNS,
+        order="updated_at.desc,id.desc",
         limit=min(limit, 200),
         offset=offset,
     )
@@ -528,10 +536,11 @@ BULK_PUBLISH_FILTERS: dict[str, str] = {
     "source": "eq.registry",
     "visibility": "eq.public",
 }
-# Evidence that someone uses it: either signal is enough. A registry entry
-# with neither is often a placeholder or a fork nobody runs.
-BULK_PUBLISH_MIN_GITHUB_STARS = 10
-BULK_PUBLISH_MIN_NPM_DOWNLOADS = 1000
+# Evidence that people use it: GitHub stars, the one popularity signal the
+# metadata refresh records for most listings. The owner set the bar at 50
+# (ADR-054). A listing whose stars are not yet known does not meet it: no
+# evidence is not evidence of popularity.
+BULK_PUBLISH_MIN_GITHUB_STARS = 50
 # Per call, so a request finishes well inside the proxy's timeout. The rest
 # is reported as `remaining` and published by calling again.
 BULK_PUBLISH_MAX_PER_CALL = 500
@@ -539,6 +548,10 @@ BULK_PUBLISH_MAX_PER_CALL = 500
 # resolved) and for the writes.
 BULK_PUBLISH_CONCURRENCY = 8
 BULK_PUBLISH_REASON = "published in bulk: a registry draft that meets the quality bar"
+BULK_UNPUBLISH_REASON = "unpublished in bulk: below the popularity bar"
+# Published MCP servers the same bar applies to, whatever their source: the
+# bar is what the public registry shows, not only what the sync brought in.
+BULK_UNPUBLISH_FILTERS: dict[str, str] = {"status": "eq.published", "item_type": "eq.mcp_server"}
 _BULK_SAMPLE = 20
 _BULK_TOP_REASONS = 5
 _BULK_COLUMNS = (
@@ -552,7 +565,7 @@ def bulk_publish_criteria() -> dict[str, Any]:
     return {
         **{column: value.removeprefix("eq.") for column, value in BULK_PUBLISH_FILTERS.items()},
         "min_github_stars": BULK_PUBLISH_MIN_GITHUB_STARS,
-        "min_npm_downloads_last_month": BULK_PUBLISH_MIN_NPM_DOWNLOADS,
+        "unpublishes_below_bar": True,
         "one_per_repository": True,
         "max_per_call": BULK_PUBLISH_MAX_PER_CALL,
     }
@@ -593,11 +606,24 @@ async def _bounded(
     return await asyncio.gather(*(one(row) for row in rows))
 
 
+def _sample(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "slug": row.get("slug"),
+        "title": row.get("title"),
+        "repository_url": row.get("repository_url"),
+        "github_stars": row.get("github_stars"),
+        "npm_downloads_last_month": row.get("npm_downloads_last_month"),
+    }
+
+
 async def bulk_publish(
     db: SupabaseRest, *, admin: AdminIdentity, dry_run: bool
 ) -> dict[str, Any]:
-    """Publish the registry drafts that meet the quality bar, or, with
-    `dry_run`, say exactly what that would do and write nothing.
+    """Apply the popularity bar to the registry: publish the registry drafts
+    that meet it and unpublish (back to draft) the published MCP servers
+    below it. With `dry_run`, say exactly what that would do and write
+    nothing.
 
     A candidate is skipped, for the first reason that applies, when its
     repository already belongs to a published listing, when it fails the
@@ -607,21 +633,27 @@ async def bulk_publish(
     candidates = await select_all(
         db,
         "mcp_listings",
-        BULK_PUBLISH_FILTERS,
+        {**BULK_PUBLISH_FILTERS, "github_stars": f"gte.{BULK_PUBLISH_MIN_GITHUB_STARS}"},
         columns=_BULK_COLUMNS,
         order="id.asc",
-        or_filter=(
-            f"github_stars.gte.{BULK_PUBLISH_MIN_GITHUB_STARS},"
-            f"npm_downloads_last_month.gte.{BULK_PUBLISH_MIN_NPM_DOWNLOADS}"
-        ),
     )
+    below_bar = [
+        row
+        for row in await select_all(
+            db, "mcp_listings", BULK_UNPUBLISH_FILTERS, columns=_BULK_COLUMNS, order="id.asc"
+        )
+        if (row.get("github_stars") or 0) < BULK_PUBLISH_MIN_GITHUB_STARS
+    ]
+    # Listings about to be unpublished do not hold their repository: a draft
+    # for the same repository that meets the bar may take its place.
+    leaving = {row["id"] for row in below_bar}
     published_repositories = {
         key
         for row in await select_all(
             db, "mcp_listings", {"status": "eq.published", "repository_url": "not.is.null"},
-            columns="repository_url", order="id.asc",
+            columns="id,repository_url", order="id.asc",
         )
-        if (key := repository_key(row.get("repository_url")))
+        if row["id"] not in leaving and (key := repository_key(row.get("repository_url")))
     }
 
     skipped = {"already_published_repository": 0, "failed_gate": 0, "duplicate_repository": 0}
@@ -671,6 +703,23 @@ async def bulk_publish(
             if error:
                 failed.append({"id": row["id"], "slug": row.get("slug"), "reason": error})
 
+    unpublish_failed: list[dict[str, Any]] = []
+    if not dry_run:
+        async def unpublish(row: dict[str, Any]) -> str | None:
+            try:
+                await set_status(
+                    db, listing_id=row["id"], status="draft", admin=admin,
+                    reason=BULK_UNPUBLISH_REASON,
+                )
+            except (AdminActionRefused, SupabaseRestError) as exc:
+                logger.warning("bulk unpublish item=%s failed: %s", row["id"], exc)
+                return str(exc) if isinstance(exc, AdminActionRefused) else "The database refused the change."
+            return None
+
+        for row, error in zip(below_bar, await _bounded(below_bar, unpublish), strict=True):
+            if error:
+                unpublish_failed.append({"id": row["id"], "slug": row.get("slug"), "reason": error})
+
     result = {
         "dry_run": dry_run,
         "criteria": bulk_publish_criteria(),
@@ -678,24 +727,17 @@ async def bulk_publish(
         "qualifying": len(qualifying),
         "batch": len(batch),
         "published": 0 if dry_run else len(batch) - len(failed),
-        "failed": failed,
+        "failed": failed + unpublish_failed,
+        "below_bar": len(below_bar),
+        "unpublished": 0 if dry_run else len(below_bar) - len(unpublish_failed),
+        "below_bar_sample": [_sample(row) for row in below_bar[:_BULK_SAMPLE]],
         "remaining": len(qualifying) - len(batch),
         "skipped": skipped,
         "gate_reasons": [
             {"reason": reason, "count": count}
             for reason, count in reasons.most_common(_BULK_TOP_REASONS)
         ],
-        "sample": [
-            {
-                "id": row["id"],
-                "slug": row.get("slug"),
-                "title": row.get("title"),
-                "repository_url": row.get("repository_url"),
-                "github_stars": row.get("github_stars"),
-                "npm_downloads_last_month": row.get("npm_downloads_last_month"),
-            }
-            for row in batch[:_BULK_SAMPLE]
-        ],
+        "sample": [_sample(row) for row in batch[:_BULK_SAMPLE]],
     }
     if not dry_run:
         # One row for the decision itself, beside the per-item rows
@@ -708,7 +750,8 @@ async def bulk_publish(
                 "considered": result["considered"],
                 "qualifying": result["qualifying"],
                 "published": result["published"],
-                "failed": len(failed),
+                "unpublished": result["unpublished"],
+                "failed": len(failed) + len(unpublish_failed),
                 "remaining": result["remaining"],
                 "skipped": skipped,
             },

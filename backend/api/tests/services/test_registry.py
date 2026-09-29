@@ -487,3 +487,23 @@ def test_an_ordinary_ref_is_accepted() -> None:
     row = listing(db)
     run(admin.update_listing(db, listing_id=row["id"], patch={"repository_ref": "release/v1.2.0"}, admin=ADMIN))
     assert db.rows("mcp_listings")[0]["repository_ref"] == "release/v1.2.0"
+
+
+def _package(runtime_hint: str) -> dict[str, Any]:
+    return {"packages": [{"registry_type": "npm", "identifier": "acme-mcp", "version": "1.0.0",
+                          "runtime_hint": runtime_hint, "transport": "stdio"}]}
+
+
+def test_a_synced_package_with_no_runtime_hint_passes_the_gate() -> None:
+    """The sync stores an absent hint as "", and the config builder falls back
+    to the registry type's launcher for it. Refusing "" kept 5,265 synced
+    packages out of the registry."""
+    row = {"title": "T", "description": "D", "item_type": "mcp_server", "installation": _package("")}
+    assert items.validate_item(row) == []
+
+
+@pytest.mark.parametrize("hint", ["bun", "rm", "/bin/sh"])
+def test_an_unknown_launcher_is_still_refused(hint: str) -> None:
+    """The hint becomes the `command` in every config a user copies."""
+    row = {"title": "T", "description": "D", "item_type": "mcp_server", "installation": _package(hint)}
+    assert any("runtime_hint must be one of" in p for p in items.validate_item(row))

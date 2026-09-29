@@ -157,7 +157,7 @@ general-purpose SAST pass in the product standing in for it here.
   ship unguarded by being forgotten - and if any removed registry scanning
   route (item scan, regrade, policy, scan queue, install plan) or grade
   query parameter comes back. `routes/test_registry_bulk_publish.py`
-  covers "Publish qualifying drafts" at the route: the criteria, one
+  covers "Apply popularity bar" at the route: the criteria, one
   listing per repository (within drafts and against published listings),
   gate failures skipped rather than published, a preview that writes
   nothing, a status change, event and audit row per item plus one summary

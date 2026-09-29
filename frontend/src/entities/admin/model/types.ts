@@ -124,7 +124,7 @@ export type BulkPublishResult = {
     source: string;
     visibility: string;
     min_github_stars: number;
-    min_npm_downloads_last_month: number;
+    unpublishes_below_bar: boolean;
     one_per_repository: boolean;
     max_per_call: number;
   };
@@ -153,4 +153,9 @@ export type BulkPublishResult = {
     github_stars: number | null;
     npm_downloads_last_month: number | null;
   }[];
+  /** Published MCP servers below the bar; a publish sets them all back to draft. */
+  below_bar: number;
+  /** Set back to draft by this call; 0 for a preview. */
+  unpublished: number;
+  below_bar_sample: BulkPublishResult["sample"];
 };

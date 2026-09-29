@@ -329,12 +329,13 @@ safe:
   automated path publishes: the registry sync inserts `draft` and
   suggestions land in `review`. `status` is outside the edit allow-list, so
   it changes only through the status route and its publish gate
-  (`items.validate_item`: the item is complete for its type). "Publish
-  qualifying drafts" (`/admin/marketplace/bulk-publish`, ADR-053) is an
+  (`items.validate_item`: the item is complete for its type). "Apply
+  popularity bar" (`/admin/marketplace/bulk-publish`, ADR-053, ADR-054) is an
   admin action under the same `admin_identity` guard, not an automated
   path: it publishes only synced public MCP server drafts that meet a fixed
   popularity bar, one per repository, each through `set_status` and so
-  through the same gate; its preview writes nothing.
+  through the same gate, and sets published MCP servers below the bar back
+  to draft (ADR-054); its preview writes nothing.
 - **Publishing is not a security claim.** The registry is discovery only
   (ADR-049): it stores no scan result, grade or scan state for any item,
   and no registry response or registry MCP tool returns one. The previous

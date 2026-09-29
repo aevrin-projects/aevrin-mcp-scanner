@@ -254,3 +254,8 @@ class BulkPublishResult(BaseModel):
     # The most common publish-gate refusals, most frequent first.
     gate_reasons: list[BulkPublishReason]
     sample: list[BulkPublishSample]
+    # Published MCP servers below the bar, set back to draft by a publish
+    # call (all of them, not capped); `unpublished` is 0 for a preview.
+    below_bar: int
+    unpublished: int
+    below_bar_sample: list[BulkPublishSample]

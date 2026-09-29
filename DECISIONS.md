@@ -2236,3 +2236,33 @@ over time by the metadata refresh, so a later run can qualify drafts an
 earlier one did not; that is intended, and each run is still an admin's
 decision. Changing a threshold is a code change with an entry here, not a
 setting.
+
+## ADR-054: The popularity bar is 50 GitHub stars, and it applies to published servers too
+
+**Date:** 2026-09-29
+
+**Context.** ADR-053 introduced "Publish qualifying drafts" at 10 or more
+GitHub stars or 1,000 or more npm downloads last month. The owner reviewed
+the first preview and set a higher bar: MCP servers with fewer than 50
+stars should not be in the public registry, whether they are drafts waiting
+to be published or already published (9 of the 12 published servers were
+below it: 8 with no star count, 1 with 2 stars).
+
+**Decision.** The bar is `github_stars >= 50`, stars only; npm downloads no
+longer qualify a draft on their own. A listing whose stars are not known
+yet does not meet it: no evidence is not evidence of popularity. The same
+action now applies the bar both ways: it publishes the qualifying synced
+drafts (unchanged rules otherwise: public, from the sync, passes the gate,
+one per repository) and sets every published MCP server under the bar back
+to draft, whatever its source. Unpublishing is reversible and goes through
+`set_status`, so each item gets its own event and audit row. A listing
+being unpublished does not hold its repository, so a better draft for the
+same repository can take its place. The button is renamed "Apply popularity
+bar". The sync still lands new servers as drafts (ADR-048).
+
+**Consequences.** The published registry is small until the metadata
+refresh has fetched stars for more drafts (1,188 of about 18,000 when this
+was decided; 79 of those at 50 or more). Running the action again later
+publishes more. A server an administrator publishes by hand below the bar
+will be unpublished the next time the action runs; the preview lists every
+such server before anything is written.

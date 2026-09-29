@@ -16,8 +16,9 @@ import {
 } from "@/shared/ui/dialog";
 
 /**
- * "Publish qualifying drafts": the one admin action that publishes many
- * registry drafts at once (DECISIONS.md ADR-053).
+ * "Apply popularity bar": the one admin action that publishes many registry
+ * drafts at once, and sets the published MCP servers below the same bar back
+ * to draft (DECISIONS.md ADR-053, ADR-054).
  *
  * It always previews first. The dialog states the exact count, the criteria
  * as the server applied them, and why the rest stay drafts; only then can the
@@ -63,7 +64,7 @@ export function BulkPublishControl({ onPublished }: { onPublished: () => void })
     } catch (error) {
       setPhase({ kind: "error", message: errorText(
           error,
-          "The request did not complete. Some drafts may already be published; preview again to see what is left.",
+          "The request did not complete. Some changes may already be made; preview again to see what is left.",
         ) });
       onPublished();
     }
@@ -75,20 +76,34 @@ export function BulkPublishControl({ onPublished }: { onPublished: () => void })
     <>
       <Button size="sm" variant="outline" onClick={() => void startPreview()}>
         <Upload className="size-4" aria-hidden="true" />
-        Publish qualifying drafts
+        Apply popularity bar
       </Button>
 
       <Dialog open={open} onOpenChange={(next) => (!busy ? setOpen(next) : null)}>
-        <DialogContent className="max-w-lg" showCloseButton={!busy}>
+        {/* Held inside the viewport, with the header and the actions always
+            visible and only the body scrolling between them: Base UI's
+            "inside scroll" dialog. The preview can list dozens of lines, and
+            a dialog taller than the screen hid its own Publish button. */}
+        <DialogContent
+          className="max-h-[calc(100dvh-2rem)] max-w-lg grid-rows-[auto_minmax(0,1fr)_auto]"
+          showCloseButton={!busy}
+        >
           <DialogHeader>
-            <DialogTitle>Publish qualifying drafts</DialogTitle>
+            <DialogTitle>Apply popularity bar</DialogTitle>
             <DialogDescription>
-              Publishes the registry drafts that meet the quality bar. Everything else stays a draft,
-              and the registry sync keeps adding new servers as drafts.
+              Publishes the registry drafts that meet the bar and sets published MCP servers below it back
+              to draft. The registry sync keeps adding new servers as drafts.
             </DialogDescription>
           </DialogHeader>
 
-          <div role="status" aria-live="polite" aria-busy={busy} className="grid gap-3">
+          <div
+            role="status"
+            aria-live="polite"
+            aria-busy={busy}
+            tabIndex={0}
+            aria-label="Preview"
+            className="-mx-4 grid min-h-0 content-start gap-3 overflow-y-auto overscroll-contain px-4"
+          >
             {phase.kind === "previewing" ? (
               <p className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -98,7 +113,7 @@ export function BulkPublishControl({ onPublished }: { onPublished: () => void })
             {phase.kind === "publishing" ? (
               <p className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                Publishing {n(phase.preview.batch)} drafts…
+                Publishing {n(phase.preview.batch)} and unpublishing {n(phase.preview.below_bar)}…
               </p>
             ) : null}
             {phase.kind === "preview" ? <PreviewBody result={phase.result} /> : null}
@@ -115,10 +130,8 @@ export function BulkPublishControl({ onPublished }: { onPublished: () => void })
             <Button variant="outline" disabled={busy} onClick={() => setOpen(false)}>
               {phase.kind === "preview" ? "Cancel" : "Close"}
             </Button>
-            {phase.kind === "preview" && phase.result.batch > 0 ? (
-              <Button onClick={() => void publish(phase.result)}>
-                Publish {n(phase.result.batch)}
-              </Button>
+            {phase.kind === "preview" && (phase.result.batch > 0 || phase.result.below_bar > 0) ? (
+              <Button onClick={() => void publish(phase.result)}>{confirmLabel(phase.result)}</Button>
             ) : null}
             {phase.kind === "done" && phase.result.remaining > 0 ? (
               <Button onClick={() => void startPreview()}>Preview the next batch</Button>
@@ -130,6 +143,15 @@ export function BulkPublishControl({ onPublished }: { onPublished: () => void })
   );
 }
 
+function confirmLabel(result: BulkPublishResult): string {
+  const parts = [
+    result.batch > 0 ? `publish ${n(result.batch)}` : null,
+    result.below_bar > 0 ? `unpublish ${n(result.below_bar)}` : null,
+  ].filter(Boolean);
+  const text = parts.join(" and ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function Criteria({ result }: { result: BulkPublishResult }) {
   const c = result.criteria;
   return (
@@ -137,17 +159,17 @@ function Criteria({ result }: { result: BulkPublishResult }) {
       <p className="font-medium">A draft qualifies when it is:</p>
       <ul className="mt-1 list-disc space-y-0.5 ps-5 text-muted-foreground">
         <li>a public MCP server the registry sync added, still a draft;</li>
-        <li>
-          at {n(c.min_github_stars)} or more GitHub stars, or {n(c.min_npm_downloads_last_month)} or more npm
-          downloads last month;
-        </li>
+        <li>at {n(c.min_github_stars)} or more GitHub stars;</li>
         <li>complete enough to pass the publish gate (a title, a description, and something to install);</li>
         <li>
           the only listing for its repository: none if that repository is already published, otherwise the
           most-starred draft.
         </li>
       </ul>
-      <p className="mt-1 text-muted-foreground">At most {n(c.max_per_call)} are published per run.</p>
+      <p className="mt-1 text-muted-foreground">
+        At most {n(c.max_per_call)} are published per run. A published MCP server under{" "}
+        {n(c.min_github_stars)} stars, or whose stars are not known yet, goes back to draft.
+      </p>
     </div>
   );
 }
@@ -178,41 +200,52 @@ function Skipped({ result }: { result: BulkPublishResult }) {
   );
 }
 
+function SampleList({ label, items }: { label: string; items: BulkPublishResult["sample"] }) {
+  return (
+    <ul aria-label={label} className="mt-1 space-y-0.5 rounded-md border border-border px-3 py-2 text-muted-foreground">
+      {items.map((item) => (
+        <li key={item.id} className="flex justify-between gap-3">
+          <span className="min-w-0 truncate">{item.title ?? item.slug}</span>
+          <span className="shrink-0 tabular-nums">
+            {item.github_stars != null ? `${n(item.github_stars)} stars` : "stars not known"}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function PreviewBody({ result }: { result: BulkPublishResult }) {
-  if (result.qualifying === 0) {
-    return (
-      <>
-        <p className="font-medium">No drafts qualify right now.</p>
-        <Criteria result={result} />
-        <Skipped result={result} />
-      </>
-    );
-  }
+  const publishing =
+    result.qualifying === 0
+      ? "No drafts qualify right now."
+      : `${n(result.batch)} drafts will be published${
+          result.remaining > 0 ? ` now, of ${n(result.qualifying)} that qualify` : ""
+        }.`;
+  const unpublishing =
+    result.below_bar > 0
+      ? `${n(result.below_bar)} published servers are below the bar and will go back to draft.`
+      : "No published server is below the bar.";
   return (
     <>
       <p className="text-base font-medium">
-        {n(result.batch)} drafts will be published
-        {result.remaining > 0 ? ` now, of ${n(result.qualifying)} that qualify` : ""}.
+        {publishing} {unpublishing}
       </p>
       <Criteria result={result} />
       <Skipped result={result} />
       {result.sample.length > 0 ? (
         <div>
-          <p className="font-medium">First {n(result.sample.length)}, most popular first:</p>
-          <ul
-            tabIndex={0}
-            aria-label="Drafts that will be published"
-            className="mt-1 max-h-40 space-y-0.5 overflow-y-auto rounded-md border border-border px-3 py-2 text-muted-foreground"
-          >
-            {result.sample.map((item) => (
-              <li key={item.id} className="flex justify-between gap-3">
-                <span className="truncate">{item.title ?? item.slug}</span>
-                <span className="shrink-0 tabular-nums">
-                  {item.github_stars != null ? `${n(item.github_stars)} stars` : `${n(item.npm_downloads_last_month ?? 0)} npm`}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <p className="font-medium">To publish, first {n(result.sample.length)}, most popular first:</p>
+          <SampleList label="Drafts that will be published" items={result.sample} />
+        </div>
+      ) : null}
+      {result.below_bar_sample.length > 0 ? (
+        <div>
+          <p className="font-medium">
+            Going back to draft
+            {result.below_bar > result.below_bar_sample.length ? `, first ${n(result.below_bar_sample.length)}` : ""}:
+          </p>
+          <SampleList label="Published servers that will go back to draft" items={result.below_bar_sample} />
         </div>
       ) : null}
     </>
@@ -222,11 +255,13 @@ function PreviewBody({ result }: { result: BulkPublishResult }) {
 function DoneBody({ result }: { result: BulkPublishResult }) {
   return (
     <>
-      <p className="text-base font-medium">Published {n(result.published)}.</p>
+      <p className="text-base font-medium">
+        Published {n(result.published)}. Set back to draft {n(result.unpublished)}.
+      </p>
       {result.failed.length > 0 ? (
         <div>
           <p className="font-medium text-rose-700 dark:text-rose-300">
-            {n(result.failed.length)} could not be published and stay drafts:
+            {n(result.failed.length)} could not be changed and keep their status:
           </p>
           <ul className="mt-1 space-y-0.5 text-muted-foreground">
             {result.failed.slice(0, 5).map((f) => (

@@ -27,10 +27,12 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   revoking EXECUTE from `public`, `anon` and `authenticated` fails the
   suite, and so does any read asking PostgREST for more than `MAX_ROWS`.
 
-- **Registry admin: "Publish qualifying drafts"** (`GET`/`POST
+- **Registry admin: "Apply popularity bar"** (`GET`/`POST
   /admin/marketplace/bulk-publish`). Previews, then publishes the public MCP
-  server drafts from the registry sync that have 10 or more GitHub stars or
-  1,000 or more npm downloads last month, pass the publish gate, and are the
+  server drafts from the registry sync that have 50 or more GitHub stars
+  (ADR-054; first shipped at 10 stars or 1,000 npm downloads, ADR-053), and
+  sets every published MCP server below 50 stars, or with no known star
+  count, back to draft. A qualifying draft must pass the publish gate and be the
   only listing for their repository (skipped if the repository is already
   published, otherwise the most-starred draft wins). At most 500 per run.
   Each item gets its own timeline event and audit row, plus one
@@ -39,6 +41,21 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **5,265 synced packages could never pass the publish gate.** The
+  registry sync stores an absent `runtime_hint` as `""`, and the gate read
+  that as an unknown launcher. It is now read as absent, which the config
+  builder already treated as "use the registry type's launcher". A real
+  unknown launcher (`bun`, anything else) is still refused, because the
+  hint becomes the `command` in every config a user copies.
+- **The registry admin page was slow to search and page.** Every keystroke
+  and page turn re-fetched the summary (about thirty exact counts), the
+  suggestions and the reports as well as the list, and waited for all of
+  them. They are now separate: search and paging fetch only the list, a
+  lighter projection without README, installation or content, ordered with
+  `id` as a tie-break so pages never repeat or skip a row. Rows swap
+  instantly instead of animating thirty out and thirty in. The bulk dialog
+  also stays inside the screen now, its body scrolling between a fixed
+  header and the confirm button.
 - **The admin registry totals showed at most 1,000 listings** (of 18,279).
   PostgREST returns at most 1,000 rows per response on this project and
   truncates silently, and the summary counted a `limit=10000` projection in
