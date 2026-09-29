@@ -111,10 +111,15 @@ workspace needs neither. See
 ## Security
 
 Credential metadata carries kind/source/presence, never a value - see
-[`../security/SECURITY.md`](../security/SECURITY.md). Tenant isolation on
-agent snapshots is covered by
-`backend/api/tests/controllers/test_agent_tenant_isolation.py`, and the two
-permission checks by `test_workspace_permissions.py` beside it.
+[`../security/SECURITY.md`](../security/SECURITY.md). In a workspace, every
+agent view (list, detail, MCP servers, skills, permissions, attack paths)
+includes the devices colleagues reported, and trust grades come from any
+scan the caller can read, their own or the workspace's (ADR-052). Tenant
+isolation on agent snapshots is covered by
+`backend/api/tests/controllers/test_agent_tenant_isolation.py` (no
+workspace) and `test_workspace_reads.py` (members, former members, other
+workspaces), and the two permission checks by `test_workspace_permissions.py`
+beside it.
 
 ## Limitations (stated, not hidden)
 

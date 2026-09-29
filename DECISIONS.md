@@ -2127,3 +2127,65 @@ Decision:
 Consequences: a Viewer cannot scan at all, including through the hook. The
 API still never lists a colleague's work (`ROADMAP.md`). Installed hooks and
 CLIs older than the next release do not recognise the new refusals.
+
+## ADR-052: Workspace members read each other's work through one scope
+
+**Status:** accepted (2026-09-29). Supersedes ADR-051's "a permission never
+widens row ownership: a colleague's scan is still `404`" and its note that
+the API never lists a colleague's work.
+
+Migration 0035 says members see the same scans, findings and agents, its RLS
+select policy allows it, and the Viewer role is defined as read access, yet
+every API list and detail route filtered on the caller's own `user_id`. Only
+`POST /ai/explain` read across members, through a membership query of its
+own. A workspace whose members could not see each other's work was a shared
+name on private data.
+
+Decision:
+
+- **One read rule, one place.** A row of `scans`, `findings` or
+  `agent_snapshots` is readable iff the caller created it or its `org_id` is
+  the caller's current workspace. `services/membership.py`'s `ReadScope`
+  holds it; every list and detail route of those tables, the agent views
+  derived from them, report export, the scan diff and AI explanations read
+  through `ReadScope.select`, which puts the rule in the query as
+  `or=(user_id.eq.X,org_id.eq.Y)` over the existing indexes. The workspace
+  comes from the membership row keyed by the caller's authenticated user id;
+  no request field names one. The AI controller's own membership query is
+  removed.
+- **Former members.** Leaving ends access to colleagues' rows at once. Rows
+  the caller created stay readable to them (their own work) and to the
+  remaining members (they are still the workspace's rows). A personal row
+  (`org_id` null) is never shared.
+- **Reading never widens changing.** `ReadScope.require_change` checks the
+  permission for every row in the caller's current workspace, whoever created
+  it, so deleting a colleague's scan needs `scans.delete`, triaging their
+  finding `findings.triage`, forgetting their agent `agents.delete`. A row
+  outside the workspace is changeable only by its creator. Writes are keyed
+  on the row's creator, never on the caller, so they touch only the row that
+  was authorised. ADR-051's edge for a creator who left a workspace stands,
+  and the remaining members can now remove such rows too.
+- **Deliberately not widened.** `DELETE /scans` (clear history) deletes the
+  caller's own scans only, and cancel stays with the scan's creator: one
+  person's "clear my history" or "stop" must not end a teammate's work. Per
+  person views stay per person: usage, the monitored-device allowance, the
+  hook cache.
+- **Identity.** A colleague's row carries `mine: false` and `created_by`,
+  their email from `org_member_emails` for the caller's own workspace, which
+  `GET /orgs/members` already shows every member; `null` once they left.
+- **The diff** is asked as the scan's creator and withheld when their
+  previous scan is one the caller cannot read, since it lists that scan's
+  finding titles and paths.
+- **Founding a workspace moves only personal rows.** It moved every row the
+  founder owned, including rows still stamped with a workspace they had
+  left, which with shared reads would hand one team's work to another.
+  `db.update` gains the operator pass-through `select` and `delete` already
+  had, for the `org_id=is.null` filter.
+
+Consequences: no migration and no RLS change. Every read of a shared table
+costs one membership lookup (three small queries) more than before for
+someone in no workspace or reading a personal row. A finding is scoped by its
+own `org_id`, like its scan; a creator who joined or left a workspace while a
+scan was running can leave the two stamped differently, and then the finding
+follows its own stamp. `test_workspace_reads.py` asserts the rule at the
+routes.

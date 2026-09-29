@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { ApiError } from "@/shared/api";
 import { agentApi, AGENT_KIND_LABELS, RiskBadge, RISK_ORDER } from "@/entities/agent";
 import type { AgentSummary } from "@/entities/agent";
-import { WORKSPACE_PERMISSIONS, useWorkspacePermission } from "@/entities/organization";
+import { WORKSPACE_PERMISSIONS, useWorkspacePermission, workspaceAuthor } from "@/entities/organization";
 import {
   EmptyState,
   PageHeader,
@@ -164,6 +164,7 @@ export function AgentsPage() {
                       <span className="font-medium">{agent.hostname}</span>
                       <span className="block text-xs text-muted-foreground">
                         {agent.platform ?? "platform unknown"}
+                        {workspaceAuthor(agent) ? ` · reported by ${workspaceAuthor(agent)}` : ""}
                       </span>
                     </TD>
                     <TD>

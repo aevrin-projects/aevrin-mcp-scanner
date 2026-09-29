@@ -225,7 +225,7 @@ export function DashboardPage() {
         <PageHeader
           pretitle="Overview"
           title="Dashboard"
-          description="See what needs attention first, what your latest scan actually covered, and which setup path to take next."
+          description="See what needs attention first, what the latest scan actually covered, and which setup path to take next."
           actions={
             <Button nativeButton={false} render={<Link href="/scans/new" />}>
               Scan an MCP server

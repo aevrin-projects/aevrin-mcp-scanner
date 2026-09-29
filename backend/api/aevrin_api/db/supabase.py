@@ -59,10 +59,21 @@ class SupabaseRest:
         return result
 
     async def update(
-        self, table: str, filters: dict[str, str], patch: dict[str, Any]
+        self,
+        table: str,
+        filters: dict[str, str],
+        patch: dict[str, Any],
+        *,
+        null_columns: tuple[str, ...] = (),
     ) -> list[dict[str, Any]]:
         headers = {**self._headers, "Prefer": "return=representation"}
+        # Every filter value is an equality, never an operator: a write keyed
+        # on a value that came from a request (a slug, an id) must not widen
+        # to other rows because that value happens to read "neq.x".
+        # `null_columns` is the one narrowing a caller may ask for explicitly
+        # (moving only personal rows into a new workspace).
         params = {k: f"eq.{v}" for k, v in filters.items()}
+        params.update({column: "is.null" for column in null_columns})
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.patch(
                 f"{self._base_url}/{table}", headers=headers, json=patch, params=params

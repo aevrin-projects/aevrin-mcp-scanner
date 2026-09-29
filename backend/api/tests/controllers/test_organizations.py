@@ -78,7 +78,8 @@ class FakeDb:
             made.append(new)
         return made
 
-    async def update(self, table: str, filters: dict, patch: dict) -> list[dict]:
+    async def update(self, table: str, filters: dict, patch: dict, *, null_columns: tuple[str, ...] = ()) -> list[dict]:
+        filters = {**filters, **{column: "is.null" for column in null_columns}}
         self.updates.append((table, filters, patch))
         hit = self._match(table, filters)
         for row in hit:
@@ -372,7 +373,21 @@ def test_creating_a_workspace_brings_the_founder_s_existing_work_with_it():
 
     moved = {table for table, filters, patch in db.updates if patch.get("org_id") == str(created.id)}
     assert moved == set(org_controller.SHARED_TABLES)
-    assert all(filters == {"user_id": OWNER} for _, filters, _ in db.updates)
+    assert all(filters == {"user_id": OWNER, "org_id": "is.null"} for _, filters, _ in db.updates)
+
+
+def test_a_new_workspace_does_not_take_work_from_one_the_founder_left():
+    """Members read each other's workspace rows, so moving a row stamped with
+    a workspace the founder left would take it from that team and show it to
+    this one. Only personal rows move."""
+    left_behind = {"_table": "scans", "id": str(uuid4()), "user_id": OWNER, "org_id": str(uuid4())}
+    personal = {"_table": "scans", "id": str(uuid4()), "user_id": OWNER, "org_id": None}
+    db = FakeDb([left_behind, personal])
+    old_org = left_behind["org_id"]
+    created = run(org_controller.create_organization(OrganizationIn(name="Acme"), OWNER, "o@example.com", db))
+
+    assert personal["org_id"] == str(created.id)
+    assert left_behind["org_id"] == old_org
 
 
 def test_a_new_workspace_starts_with_an_owner_and_usable_default_roles():

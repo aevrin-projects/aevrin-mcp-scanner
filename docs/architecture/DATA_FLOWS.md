@@ -63,6 +63,22 @@ Dashboard "New scan"
     -> Scan + Finding rows written to Supabase; dashboard reads them back
 ```
 
+```
+Dashboard reads a scan, finding or agent (any list or detail route)
+    -> services/membership.py read_scope(): the caller's membership, from
+       the organization_members row keyed by their authenticated user id
+    -> ReadScope.select(): or=(user_id.eq.<caller>,org_id.eq.<workspace>),
+       or user_id=eq.<caller> for someone in no workspace
+    -> a colleague's row comes back with mine=false and created_by (their
+       email via org_member_emails, only for the caller's own workspace)
+    -> a change to any row in the workspace re-checks the permission
+       (ReadScope.require_change) and writes keyed on the row's creator
+```
+
+**Failure behavior**: a row outside the scope is `404`, never `403`, so the
+response does not confirm it exists. A caller who has left a workspace
+resolves no membership on their next request, so only their own rows remain.
+
 **Failure behavior at every stage**: a stage where every tool in its
 category failed to execute (Docker down, binary missing, network
 unreachable) is recorded in `Scan.unreliable_stages`; the overall
@@ -154,8 +170,9 @@ permissive one, rewarding opacity). See
 
 ```
 User clicks "Explain with AI" on their own scan (its grade) or finding
-(only where a real evidence source exists; ai_controller checks the caller
-owns the scan or belongs to its organisation, else 404)
+(only where a real evidence source exists; ai_controller reads the scan and
+its findings through the same ReadScope as the scan page: the caller's own,
+or stamped with their current workspace, else 404)
     -> services/ai/evidence.py builds a bounded, redacted document from
        real findings/grade/coverage -- never the scanner's raw payload,
        never a credential value, every free-text field length-capped

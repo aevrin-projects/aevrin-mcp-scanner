@@ -1,9 +1,11 @@
-"""Nothing in the agent surface reads across accounts.
+"""Nothing in the agent surface reads across accounts outside a workspace.
 
 Every one of these endpoints was added recently and each one takes a user_id;
 the risk is not that the scoping is wrong today but that a later edit drops a
 filter. These assert the filter is present on every read, by giving the fake
 database rows belonging to somebody else and requiring that none come back.
+The callers here are in no workspace; reads shared with workspace colleagues
+are covered by `test_workspace_reads.py`.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ class StrictDb:
     async def select(self, table: str, filters: dict[str, str] | None = None, **kwargs: Any) -> list[dict]:
         assert filters is not None, f"unscoped select on {table}"
         assert "user_id" in filters, f"select on {table} is not scoped to a user"
+        assert "or_filter" not in kwargs, f"select on {table} widened with an or filter"
         rows = [r for r in self.rows if r.get("_table") == table]
         for key, value in filters.items():
             if value.startswith("in."):

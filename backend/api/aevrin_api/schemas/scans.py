@@ -90,6 +90,12 @@ class ScanOut(BaseModel):
     risk_summary: RiskSummaryOut | None = None
     created_at: datetime
     completed_at: datetime | None = None
+    # False for a colleague's scan, read through the shared workspace. Then
+    # `created_by` is their email while they are still a member, null once
+    # they have left. Never another workspace's identity: only rows stamped
+    # with the caller's own workspace are readable at all.
+    mine: bool = True
+    created_by: str | None = None
 
 
 class ScanStageOut(BaseModel):

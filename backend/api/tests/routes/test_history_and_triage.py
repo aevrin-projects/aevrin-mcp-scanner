@@ -21,6 +21,9 @@ class _FakeDb:
         self.updated: list[tuple[str, dict[str, str], dict[str, Any]]] = []
 
     async def select(self, table: str, filters: dict[str, str], **kwargs: Any) -> list[dict[str, Any]]:
+        if table.startswith("organization"):
+            # Every caller here is in no workspace; the rows below are theirs.
+            return []
         return [row for row in self.rows if all(str(row.get(key)) == value for key, value in filters.items())]
 
     async def delete(self, table: str, filters: dict[str, str]) -> None:

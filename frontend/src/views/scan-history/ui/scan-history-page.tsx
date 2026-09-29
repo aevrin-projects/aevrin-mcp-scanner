@@ -19,7 +19,7 @@ import { formatDateTime, formatDuration } from "@/shared/lib/format";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
-import { WORKSPACE_PERMISSIONS, useWorkspacePermission } from "@/entities/organization";
+import { WORKSPACE_PERMISSIONS, useWorkspacePermission, workspaceAuthor } from "@/entities/organization";
 
 type Summary = { scan: Scan; findings: Finding[]; stages: ScanStage[] };
 
@@ -82,11 +82,17 @@ export function ScanHistoryPage() {
   }
 
   async function clearHistory() {
-    if (!window.confirm("Delete your entire scan history? This cannot be undone.")) return;
+    if (
+      !window.confirm(
+        "Delete every scan you ran? Scans by other workspace members are not affected. This cannot be undone.",
+      )
+    )
+      return;
     setClearing(true);
     try {
       await scanApi.clearScanHistory();
-      setSummaries([]);
+      // Only the caller's own scans are deleted; a colleague's stay listed.
+      setSummaries((current) => current?.filter((summary) => !summary.scan.mine) ?? []);
       toast.success("Scan history cleared");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not clear scan history.");
@@ -174,7 +180,11 @@ export function ScanHistoryPage() {
         actions={
           <>
             {deleteScans.allowed ? (
-              <Button variant="destructive" disabled={clearing || !summaries?.length} onClick={() => void clearHistory()}>
+              <Button
+                variant="destructive"
+                disabled={clearing || !summaries?.some((summary) => summary.scan.mine)}
+                onClick={() => void clearHistory()}
+              >
                 <Trash2 className="size-4" />
                 {clearing ? "Clearing…" : "Clear history"}
               </Button>
@@ -394,6 +404,7 @@ function ScanHistoryRow({
     summary.findings.filter((finding) => finding.triage_status === "open"),
   );
   const coverage = summarizeCoverage(summary.stages);
+  const author = workspaceAuthor(summary.scan);
 
   return (
     <div className="flex items-center gap-3 border-b border-border/60 px-4 py-2.5 transition-colors last:border-0 hover:bg-muted/30">
@@ -411,6 +422,7 @@ function ScanHistoryRow({
             {coverage.completed}/{summary.stages.length || STAGE_ORDER.length} stages ·{" "}
             {formatDuration(summary.scan.created_at, summary.scan.completed_at)} ·{" "}
             {SCAN_SOURCE_LABELS[summary.scan.source]}
+            {author ? ` · by ${author}` : ""}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-3">

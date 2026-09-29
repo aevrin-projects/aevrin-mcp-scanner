@@ -54,33 +54,70 @@ Two layers:
   (`tier_limits`, public registry reads).
 
 `backend/api/tests/controllers/test_agent_tenant_isolation.py`,
-`backend/api/tests/controllers/test_organizations.py` and
-`backend/api/tests/controllers/test_workspace_permissions.py` are the tests
+`backend/api/tests/controllers/test_organizations.py`,
+`backend/api/tests/controllers/test_workspace_permissions.py` and
+`backend/api/tests/controllers/test_workspace_reads.py` are the tests
 that must keep passing for this boundary to mean anything.
 
 **What a workspace shares.** `scans`, `findings` and `agent_snapshots` carry
 an `org_id`, stamped on insert from the creator's membership by the
-`stamp_org_id` trigger (migration 0035), and moved into the workspace when
-its founder creates it (`org_controller.SHARED_TABLES`). RLS lets a member
-select a colleague's stamped rows directly, and `POST /ai/explain` accepts a
-scan or finding stamped with the caller's workspace. Every other API read and
-write of those tables is filtered by the caller's own `user_id`: no route
-lets one member change, or list, another member's scan, finding or agent.
-AI provider keys, API keys, payments, registry suggestions and favourites
-are personal and stay out of the workspace.
+`stamp_org_id` trigger (migration 0035), and a founder's personal rows
+(`org_id` null) move into the workspace when they create it
+(`org_controller.SHARED_TABLES`; a row stamped with a workspace the founder
+left stays there). Every member reads them (ADR-052). The rule, applied in
+one place (`services/membership.py`'s `ReadScope`), is:
 
-**What is actually enforced.** A permission governs the caller's own rows
-when they are workspace rows. The guards are in `services/membership.py`
-(`require_for_new_work`, `require_for_row`), called by the scan, finding,
-agent, CLI and hook controllers; both resolve the workspace from
-the membership row keyed by the caller's authenticated user id, and no
-request field carries an org id they read. A refusal is `403` naming the
-role, the permission's label and its key.
+> A row is readable iff the caller created it (`user_id`), or its `org_id`
+> is the caller's **current** workspace.
+
+`ReadScope.select` puts that into the query as PostgREST
+`or=(user_id.eq.<caller>,org_id.eq.<workspace>)` (both values parsed as
+UUIDs first, since a comma would add a clause), or `user_id=eq.<caller>` for
+someone in no workspace, using the existing `user_id` and `org_id` indexes.
+Every list and detail route of the three tables reads through it: scans
+(list, detail, stages, findings, diff, export), findings (detail), agents
+(list, detail, MCP servers, skills, permissions, attack paths, and the
+trust grades those derive from scans), and `POST /ai/explain`. What follows
+from the rule:
+
+- **A personal row stays with its creator**, including work from before
+  joining by invitation, which does not move earlier rows.
+- **Leaving a workspace ends access to colleagues' rows immediately** (the
+  next request resolves no membership), while the rows one created there stay
+  readable to their creator, and to the remaining members.
+- **Another workspace, or someone in no workspace, gets `404`** on every
+  detail route and nothing in any list: never `403`, which would confirm the
+  id exists.
+- **`GET /scans/{id}/diff`** is computed against the previous scan by the
+  scan's creator, and withheld (an empty diff) when that previous scan is one
+  the caller cannot read, since the diff carries its finding titles and paths.
+- **Member identity**: a colleague's row carries `mine: false` and
+  `created_by`, their email from `org_member_emails` for the caller's own
+  workspace only, the same email `GET /orgs/members` already shows every
+  member. A creator who has left is `null`.
+
+Per-person views stay per person: `GET /account/usage` (quota, monitored
+devices, charged activity), the monitored-device allowance, the hook cache
+and admin views read the caller's own rows only. AI provider keys, API keys,
+payments, registry suggestions and favourites are personal and stay out of
+the workspace.
+
+**What is actually enforced.** A permission governs every row in the
+caller's current workspace, whoever created it; reading a row never grants
+changing it. The guards are in `services/membership.py`
+(`require_for_new_work`, `ReadScope.require_change`, and `require_for_row`
+for the paths that act only on the caller's own rows), called by the scan,
+finding, agent, CLI and hook controllers; all resolve the workspace from the
+membership row keyed by the caller's authenticated user id, and no request
+field carries an org id they read. A refusal is `403` naming the role, the
+permission's label and its key. A change that passes is written with a
+filter on the row's creator (`id` plus `user_id`), so it touches exactly the
+row that was authorised.
 
 | Permission | Enforced on |
 |---|---|
-| `scans.run` | `POST /scans`, `POST /scans/upload`, `POST /scans/{id}/cancel`, `GET /cli/precheck`, `POST /cli/upload`, `POST /agents/snapshots`; `POST`/`GET /hook/cache` answers `decision: not_permitted` instead of starting a first scan (the hook fails open on HTTP errors, so a 403 would be silent) |
-| `scans.delete` | `DELETE /scans/{id}`, `DELETE /scans` (all or nothing: refused if any row in the history is a workspace row) |
+| `scans.run` | `POST /scans`, `POST /scans/upload`, `POST /scans/{id}/cancel` (the creator's own scan only; a colleague's is `404`), `GET /cli/precheck`, `POST /cli/upload`, `POST /agents/snapshots`; `POST`/`GET /hook/cache` answers `decision: not_permitted` instead of starting a first scan (the hook fails open on HTTP errors, so a 403 would be silent) |
+| `scans.delete` | `DELETE /scans/{id}` (any workspace scan), `DELETE /scans` (the caller's own scans only, never a colleague's; all or nothing: refused if any of them is a workspace row) |
 | `findings.triage` | `PATCH /findings/{id}`, for both a session and `X-API-Key` (the CLI's `aevrin findings triage`) |
 | `agents.delete` | `DELETE /agents/{id}` |
 | `members.manage` | invite, list and revoke invites, change a member's role, remove a member |
@@ -92,18 +129,20 @@ The rules, stated so nobody has to infer them:
 - **Someone in no workspace is never checked.** Their rows are personal.
 - **Creating** a scan, CLI result or agent snapshot is checked whenever the
   caller is in a workspace, because the new row joins it.
-- **Changing** an existing row is checked only when the row's `org_id` is the
-  caller's current workspace. A personal row (`org_id` null: work from
-  before joining by invitation, which does not move earlier rows) is
-  governed by ownership alone.
-- **A row stamped with a workspace the caller has left** is also governed
-  by ownership alone: a role is held only in the workspace one is in. So a
-  member without `scans.delete` who leaves (`POST /orgs/leave` needs no
-  permission) can then delete the scans they created there. This is
-  deliberate: the alternative leaves those rows deletable by nobody, since
-  no route lets anyone else delete them either.
-- **A permission never widens row ownership.** Holding `scans.delete` does
-  not let a member delete a colleague's scan; that is still `404`.
+- **Changing** an existing row is checked when the row's `org_id` is the
+  caller's current workspace, whether the caller or a colleague created it.
+  A personal row (`org_id` null: work from before joining by invitation,
+  which does not move earlier rows) is governed by ownership alone, and is
+  not readable, so not changeable, by anyone else.
+- **A row stamped with a workspace the caller has left** is governed by
+  ownership alone for its creator: a role is held only in the workspace one
+  is in. So a member without `scans.delete` who leaves (`POST /orgs/leave`
+  needs no permission) can then delete the scans they created there. The
+  remaining members can too, with `scans.delete`, since it is still a row of
+  their workspace.
+- **Cancelling** stays with the scan's creator; **clearing history**
+  (`DELETE /scans`) deletes only the caller's own scans, although the
+  history page lists colleagues' too.
 
 Six keys were removed from the catalogue (ADR-051, migration 0050), because
 the action each named is not a workspace action: `marketplace.publish` (only
@@ -119,7 +158,8 @@ API leaves it out of every role it returns.
 
 The frontend hides a control whose only outcome would be a `403`
 (`entities/organization`'s `useWorkspacePermission`, reading the same
-`my_permissions` as the workspace page). That is presentation; the server
+`my_permissions` as the workspace page), and shows Cancel only on the
+caller's own running scan (`mine`). That is presentation; the server
 refuses on its own.
 
 **Plan entitlement crosses users in exactly one place.**

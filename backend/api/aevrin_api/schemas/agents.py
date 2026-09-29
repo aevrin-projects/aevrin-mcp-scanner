@@ -53,6 +53,10 @@ class AgentSummaryOut(BaseModel):
     plugin_count: int
     hook_count: int
     coverage_complete: bool
+    # As on ScanOut: false for a colleague's snapshot, with their email in
+    # `created_by` while they are still a member of the workspace.
+    mine: bool = True
+    created_by: str | None = None
 
 
 class AgentDetailOut(AgentSummaryOut):

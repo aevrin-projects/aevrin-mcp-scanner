@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { AlertTriangle, Ban, CheckCircle2, CircleDashed, Loader2, MinusCircle, Search, Sparkles, XCircle } from "lucide-react";
 import { ApiError } from "@/shared/api";
 import { billingApi } from "@/entities/billing";
-import { WORKSPACE_PERMISSIONS, useWorkspacePermission } from "@/entities/organization";
+import { WORKSPACE_PERMISSIONS, useWorkspacePermission, workspaceAuthor } from "@/entities/organization";
 import { findingApi } from "@/entities/finding";
 import { scanApi } from "@/entities/scan";
 import type { Finding, Severity } from "@/entities/finding";
@@ -184,6 +184,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
   const coverage = summarizeCoverage(stages);
   const counts = summarizeFindings(openFindings);
   const resultSummary = verdictLabel(scan, counts);
+  const author = workspaceAuthor(scan);
 
   return (
     <div className="space-y-6">
@@ -231,6 +232,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
               <StatusBadge status={scan.status} />
               <span className="text-sm text-muted-foreground">{TARGET_TYPE_LABELS[scan.target_type]}</span>
               <span className="text-sm text-muted-foreground">{SCAN_SOURCE_LABELS[scan.source]}</span>
+              {author ? <span className="text-sm text-muted-foreground">Run by {author}</span> : null}
             </div>
             <div className="break-all text-2xl font-semibold tracking-tight">{scan.target}</div>
 
@@ -379,7 +381,9 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
           title="Scan progress"
           description="Stage-level status updates remain visible so you can leave the page and come back without losing context."
           action={
-            runScans.allowed ? (
+            // Only the person who started a scan can cancel it, even when a
+            // colleague can read it through the workspace.
+            scan.mine && runScans.allowed ? (
               <Button
                 size="sm"
                 variant="outline"
@@ -421,7 +425,9 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
           that resolved nothing. */}
       {diff && diff.previous_scan_id && (diff.resolved.length > 0 || diff.introduced.length > 0) ? (
         <section className="rounded-xl border border-border bg-card p-4">
-          <h2 className="text-sm font-medium">Since your last scan of this target</h2>
+          <h2 className="text-sm font-medium">
+            {scan.mine ? "Since your last scan of this target" : "Since their last scan of this target"}
+          </h2>
           <div className="mt-3 grid gap-4 sm:grid-cols-2">
             {diff.resolved.length > 0 ? (
               <div>

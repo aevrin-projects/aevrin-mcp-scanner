@@ -207,8 +207,18 @@ general-purpose SAST pass in the product standing in for it here.
   nothing, so only the implicit catalogue can let them through) and someone
   in no workspace all succeed; an `org_id` in a request body changes
   nothing; a stored role still carrying a removed key stays editable and
-  grants nothing. Removing any one guard from its controller fails a test
-  here; keep it that way when adding a route that writes shared work.
+  grants nothing. `controllers/test_workspace_reads.py` covers the read side
+  (ADR-052), also through the route functions and against a fake that
+  refuses an unscoped select of a shared table: a member lists and opens a
+  colleague's scan, findings, export, AI explanation and every agent view; a
+  stranger and someone in no workspace get `404` and see nothing; a personal
+  row stays with its creator; leaving ends access at once while one's own
+  rows stay; a Viewer reads but cannot delete, triage or remove; writes are
+  keyed on the row's creator; clear history deletes only the caller's rows;
+  a diff against a scan the caller cannot open is withheld. Removing any one
+  guard from its controller, or the scope from any read, fails a test in one
+  of the two files; keep it that way when adding a route that reads or writes
+  shared work.
 - **`backend/cli/tests/`** - target detection, upload, output rendering
   (including exit codes and encoding), remote scan, a dependency-contract
   test (the CLI's declared dependency on `scanner-core` matches what's

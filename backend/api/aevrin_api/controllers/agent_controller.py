@@ -147,6 +147,7 @@ async def store_snapshot(
 def _summary(
     row: dict[str, Any],
     mcp_grades: dict[str, str] | None = None,
+    attribution: dict[str, Any] | None = None,
 ) -> AgentSummaryOut:
     agent = DiscoveredAgent.model_validate(row["snapshot"])
     posture = assess_posture(agent, mcp_grades=mcp_grades)
@@ -170,11 +171,12 @@ def _summary(
         plugin_count=len(agent.plugins),
         hook_count=len(agent.hooks),
         coverage_complete=agent.coverage.complete and not agent.unreadable_paths,
+        **(attribution or {}),
     )
 
 
 async def _grades_for_agents(
-    rows: list[dict[str, Any]], user_id: str, db: SupabaseRest
+    rows: list[dict[str, Any]], scope: membership.ReadScope, db: SupabaseRest
 ) -> dict[str, dict[str, str]]:
     """Per snapshot row, the trust grade of each server it configures.
 
@@ -187,7 +189,7 @@ async def _grades_for_agents(
         agent = DiscoveredAgent.model_validate(row["snapshot"])
         servers[row["id"]] = [(s.name, mcp_identity(s).key) for s in agent.mcp_servers]
 
-    trust = await _trust_by_identity({key for pairs in servers.values() for _, key in pairs}, user_id, db)
+    trust = await _trust_by_identity({key for pairs in servers.values() for _, key in pairs}, scope, db)
     # An ungraded server (`grade is None`, coverage incomplete) is dropped
     # rather than passed through as a letter-shaped null: posture scoring
     # reads these as grades, and "we could not grade it" is not a grade. The
@@ -199,20 +201,33 @@ async def _grades_for_agents(
     }
 
 
+async def _snapshots(
+    user_id: str, db: SupabaseRest
+) -> tuple[list[dict[str, Any]], membership.ReadScope]:
+    """Every snapshot the caller may read: their own devices and, in a
+    workspace, their colleagues'. Every listing below derives from this."""
+    scope = await membership.read_scope(user_id, db)
+    rows = await scope.select(db, "agent_snapshots", order="reported_at.desc")
+    return rows, scope
+
+
 async def list_agents(user_id: str, db: SupabaseRest) -> list[AgentSummaryOut]:
-    rows = await db.select("agent_snapshots", {"user_id": user_id}, order="reported_at.desc")
-    grades = await _grades_for_agents(rows, user_id, db)
-    return [_summary(row, grades.get(row["id"])) for row in rows]
+    rows, scope = await _snapshots(user_id, db)
+    grades = await _grades_for_agents(rows, scope, db)
+    creators = await scope.creators(db, rows)
+    return [
+        _summary(row, grades.get(row["id"]), scope.attribution(row, creators)) for row in rows
+    ]
 
 
 async def get_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> AgentDetailOut:
-    rows = await db.select(
-        "agent_snapshots", {"id": str(agent_id), "user_id": user_id}, limit=1
-    )
+    scope = await membership.read_scope(user_id, db)
+    rows = await scope.select(db, "agent_snapshots", {"id": str(agent_id)}, limit=1)
     if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found.")
-    grades = await _grades_for_agents(rows, user_id, db)
-    summary = _summary(rows[0], grades.get(rows[0]["id"]))
+    grades = await _grades_for_agents(rows, scope, db)
+    attribution = scope.attribution(rows[0], await scope.creators(db, rows))
+    summary = _summary(rows[0], grades.get(rows[0]["id"]), attribution)
     return AgentDetailOut(
         **summary.model_dump(), snapshot=DiscoveredAgent.model_validate(rows[0]["snapshot"])
     )
@@ -229,7 +244,7 @@ def _scan_identity_key(target: str) -> str:
 
 
 async def _trust_by_identity(
-    wanted: set[str], user_id: str, db: SupabaseRest
+    wanted: set[str], scope: membership.ReadScope, db: SupabaseRest
 ) -> dict[str, McpTrustOut]:
     """Grade each configured server that has actually been scanned.
 
@@ -241,13 +256,17 @@ async def _trust_by_identity(
     stdio servers never match. They are a command on someone's machine, there
     is no target for Aevrin to have scanned, and they are reported as
     unscanned rather than assumed clean.
+
+    Reads the scans the caller may read, so in a workspace a colleague's
+    scan of a server grades it for everyone, and never one they may not.
     """
     if not wanted:
         return {}
 
-    scans = await db.select(
+    scans = await scope.select(
+        db,
         "scans",
-        {"user_id": user_id, "target_type": "live_mcp_server"},
+        {"target_type": "live_mcp_server"},
         columns="id,target,risk_score,grade,status,created_at,mcp_tools_declared",
         order="created_at.desc",
         limit=GRADE_SCAN_LOOKBACK,
@@ -263,7 +282,7 @@ async def _trust_by_identity(
         return {}
 
     ids = ",".join(scan["id"] for scan in latest.values())
-    rows = await db.select("findings", {"scan_id": f"in.({ids})", "user_id": user_id})
+    rows = await scope.select(db, "findings", {"scan_id": f"in.({ids})"})
     findings_by_scan: dict[str, list[Finding]] = {}
     for row in rows:
         findings_by_scan.setdefault(row["scan_id"], []).append(Finding.model_validate(row))
@@ -314,7 +333,7 @@ async def list_mcp_assets(user_id: str, db: SupabaseRest) -> list[McpAssetOut]:
     rather than in the page, so the CLI, the API and the dashboard can never
     disagree about what counts as one server.
     """
-    rows = await db.select("agent_snapshots", {"user_id": user_id}, order="reported_at.desc")
+    rows, scope = await _snapshots(user_id, db)
     grouped: dict[str, list[McpInstallationOut]] = {}
     identities: dict[str, Any] = {}
 
@@ -343,7 +362,7 @@ async def list_mcp_assets(user_id: str, db: SupabaseRest) -> list[McpAssetOut]:
                 )
             )
 
-    trust = await _trust_by_identity(set(grouped), user_id, db)
+    trust = await _trust_by_identity(set(grouped), scope, db)
 
     assets: list[McpAssetOut] = []
     for key, installations in grouped.items():
@@ -380,7 +399,7 @@ async def list_mcp_assets(user_id: str, db: SupabaseRest) -> list[McpAssetOut]:
 
 
 async def list_skills(user_id: str, db: SupabaseRest) -> list[SkillOut]:
-    rows = await db.select("agent_snapshots", {"user_id": user_id}, order="reported_at.desc")
+    rows, _ = await _snapshots(user_id, db)
     skills: list[SkillOut] = []
     for row in rows:
         agent = DiscoveredAgent.model_validate(row["snapshot"])
@@ -401,7 +420,7 @@ async def list_skills(user_id: str, db: SupabaseRest) -> list[SkillOut]:
 
 
 async def list_permissions(user_id: str, db: SupabaseRest) -> list[PermissionOut]:
-    rows = await db.select("agent_snapshots", {"user_id": user_id}, order="reported_at.desc")
+    rows, _ = await _snapshots(user_id, db)
     permissions: list[PermissionOut] = []
     for row in rows:
         agent = DiscoveredAgent.model_validate(row["snapshot"])
@@ -426,8 +445,8 @@ async def list_permissions(user_id: str, db: SupabaseRest) -> list[PermissionOut
 
 async def list_attack_paths(user_id: str, db: SupabaseRest) -> list[AttackPathOut]:
     """Every evidenced path across every reported device, worst first."""
-    rows = await db.select("agent_snapshots", {"user_id": user_id}, order="reported_at.desc")
-    grades = await _grades_for_agents(rows, user_id, db)
+    rows, scope = await _snapshots(user_id, db)
+    grades = await _grades_for_agents(rows, scope, db)
 
     found: list[AttackPathOut] = []
     for row in rows:
@@ -461,8 +480,16 @@ async def list_attack_paths(user_id: str, db: SupabaseRest) -> list[AttackPathOu
 
 
 async def delete_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> None:
-    rows = await db.select("agent_snapshots", {"id": str(agent_id), "user_id": user_id}, limit=1)
+    """Forget the caller's own agent, or a colleague's workspace agent.
+
+    Readable is not changeable: a snapshot in the caller's workspace needs
+    `agents.delete` whoever reported it, and one outside it only its reporter
+    can remove. The delete is keyed on the reporter, so it removes exactly
+    the row that was authorised.
+    """
+    scope = await membership.read_scope(user_id, db)
+    rows = await scope.select(db, "agent_snapshots", {"id": str(agent_id)}, limit=1)
     if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found.")
-    await membership.require_for_row(user_id, rows[0].get("org_id"), perms.AGENTS_DELETE, db)
-    await db.delete("agent_snapshots", {"id": str(agent_id), "user_id": user_id})
+    scope.require_change(rows[0], perms.AGENTS_DELETE)
+    await db.delete("agent_snapshots", {"id": str(agent_id), "user_id": str(rows[0]["user_id"])})

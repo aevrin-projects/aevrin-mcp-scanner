@@ -133,6 +133,10 @@ export interface AgentSummary {
   plugin_count: number;
   hook_count: number;
   coverage_complete: boolean;
+  /** False for a device a workspace colleague reported. */
+  mine: boolean;
+  /** That colleague's email while they are still a member, else null. */
+  created_by: string | null;
 }
 
 export interface AgentDetail extends AgentSummary {

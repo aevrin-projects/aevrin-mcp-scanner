@@ -21,10 +21,11 @@ Configure a provider at Settings → AI providers (Groq, OpenAI, Anthropic,
 or Google Gemini - the user's own key). "Explain with AI" appears on a scan
 result, next to its grade ("Why is this grade C?", subject `scan`), and on
 an individual finding (subject `finding`) - never on a decorative element.
-Both are the caller's own scans: `ai_controller._owned_scan` allows the
-scan's owner or a member of the scan's organisation and answers 404
-otherwise, the same rule the scans API applies, and the scan id is never
-taken as proof of access.
+Both are scans the caller may read: `ai_controller._owned_scan` reads the
+scan, and its findings, through `membership.ReadScope`, so it allows the
+scan's creator or a current member of the workspace it is stamped with and
+answers 404 otherwise. It is the same scope the scans API reads through,
+and the scan id is never taken as proof of access.
 
 The registry has no explanation. Before `DECISIONS.md` ADR-049 a listing's
 grade could be explained (subjects `trust_grade` and `listing`); the

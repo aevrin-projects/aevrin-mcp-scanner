@@ -50,10 +50,17 @@ def _finding_sort_key(row: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-async def _assert_owns_scan(db: SupabaseRest, scan_id: UUID, user_id: str) -> None:
-    rows = await db.select("scans", {"id": str(scan_id), "user_id": user_id})
+async def _readable_scan(
+    db: SupabaseRest, scan_id: UUID, user_id: str
+) -> tuple[dict[str, Any], membership.ReadScope]:
+    """The scan, if the caller may read it (their own, or their workspace's),
+    with the scope that decided it. `404` otherwise, never `403`: a refusal
+    would confirm the id exists."""
+    scope = await membership.read_scope(user_id, db)
+    rows = await scope.select(db, "scans", {"id": str(scan_id)})
     if not rows:
         raise _SCAN_NOT_FOUND
+    return rows[0], scope
 
 
 async def create_scan(
@@ -208,20 +215,39 @@ async def scan_diff(scan_id: UUID, user_id: str, db: SupabaseRest) -> dict[str, 
     the result looked unchanged. This answers "did my fix work" directly
     instead of leaving it to be inferred from a list.
     """
-    # Shape guaranteed by the scan_diff SQL function, not by db.rpc, which
-    # returns the response body untyped.
-    return cast(dict[str, Any], await db.rpc("scan_diff", {"p_scan_id": str(scan_id), "p_user_id": user_id}))
+    row, scope = await _readable_scan(db, scan_id, user_id)
+    # The SQL function compares against the previous scan of the same target
+    # *by the same person*, so it is asked as the scan's creator. Shape
+    # guaranteed by the function, not by db.rpc, which returns it untyped.
+    diff = cast(
+        dict[str, Any],
+        await db.rpc("scan_diff", {"p_scan_id": str(scan_id), "p_user_id": str(row["user_id"])}),
+    )
+    previous = diff.get("previous_scan_id")
+    # Asked as the creator, it can pick a scan of theirs the caller may not
+    # read: a personal one, or one from a workspace they have left. Its
+    # finding titles and paths are in `resolved`, so the diff is withheld
+    # rather than shown against a scan the caller cannot open.
+    if previous and not await scope.select(db, "scans", {"id": str(previous)}, columns="id"):
+        return {"previous_scan_id": None, "resolved": [], "introduced": [], "unchanged_count": 0}
+    return diff
 
 
 async def list_scans(user_id: str, db: SupabaseRest) -> list[ScanOut]:
-    rows = await db.select("scans", {"user_id": user_id}, order="created_at.desc", limit=25)
-    return [ScanOut(**r) for r in rows]
+    """The caller's scans and their workspace colleagues', newest first."""
+    scope = await membership.read_scope(user_id, db)
+    rows = await scope.select(db, "scans", order="created_at.desc", limit=25)
+    creators = await scope.creators(db, rows)
+    return [ScanOut(**r, **scope.attribution(r, creators)) for r in rows]
 
 
 async def clear_scan_history(user_id: str, db: SupabaseRest) -> None:
-    # Findings, stages, and related scan records are deleted by their existing
-    # foreign-key cascades. The user_id filter is mandatory because this client
-    # runs with the Supabase service role and therefore bypasses RLS.
+    # Only ever the caller's own scans, never a colleague's, even though the
+    # history page lists both: "clear my history" deleting a teammate's work
+    # would be a data loss nobody asked for. Findings, stages, and related scan
+    # records are deleted by their existing foreign-key cascades. The user_id
+    # filter is mandatory because this client runs with the Supabase service
+    # role and therefore bypasses RLS.
     active = await db.select("scans", {"user_id": user_id}, columns="id,status,org_id")
     # All or nothing: deleting only the personal rows of a history the caller
     # asked to clear would look like it worked and leave the rest behind.
@@ -248,14 +274,12 @@ async def get_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> ScanOut:
     positive should stop driving the headline - so deriving it on read is the
     only version that stays true.
     """
-    rows = await db.select("scans", {"id": str(scan_id), "user_id": user_id})
-    if not rows:
-        raise _SCAN_NOT_FOUND
-    row = rows[0]
+    row, scope = await _readable_scan(db, scan_id, user_id)
+    attribution = scope.attribution(row, await scope.creators(db, [row]))
     if row["status"] in ("queued", "running"):
-        return ScanOut(**row)
+        return ScanOut(**row, **attribution)
 
-    finding_rows = await db.select("findings", {"scan_id": str(scan_id), "user_id": user_id})
+    finding_rows = await scope.select(db, "findings", {"scan_id": str(scan_id)})
     findings = [Finding.model_validate(r) for r in finding_rows]
     # The stored verdict is the engine's. This call chooses the wording and
     # the policy around it; it never recomputes a grade from the finding rows.
@@ -278,6 +302,7 @@ async def get_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> ScanOut:
     )
     return ScanOut(
         **row,
+        **attribution,
         risk_summary=RiskSummaryOut(
             headline=result.summary.headline,
             explanation=result.summary.explanation,
@@ -368,6 +393,12 @@ async def cancel_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> dict[str
     Recorded as `failed` with an explicit reason rather than a new `cancelled`
     status, because a new status value needs a check-constraint migration and
     this has to work against the schema that is deployed right now.
+
+    Only the scan's creator may cancel it, including in a workspace: the
+    lookup stays on the caller's own user id, so a colleague's running scan
+    is `404` here although they can read it. Stopping someone else's work in
+    flight is not what `scans.run` grants, and an abandoned scan is closed by
+    the reaper and deletable with `scans.delete` anyway.
     """
     rows = await db.select("scans", {"id": str(scan_id), "user_id": user_id})
     if not rows:
@@ -393,11 +424,17 @@ async def cancel_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> dict[str
 
 
 async def delete_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> None:
-    rows = await db.select("scans", {"id": str(scan_id), "user_id": user_id})
-    if not rows:
-        raise _SCAN_NOT_FOUND
-    await membership.require_for_row(user_id, rows[0].get("org_id"), perms.SCANS_DELETE, db)
-    if rows[0]["status"] in _OPEN_STATUSES and not _is_abandoned(rows[0]):
+    """Delete one scan: the caller's own, or a colleague's workspace scan.
+
+    Reading a row does not grant changing it. `require_change` checks
+    `scans.delete` for any row in the caller's workspace, whoever created it,
+    and a row outside it only its creator can delete. The writes below are
+    then keyed on the row's creator, so they touch exactly the row that was
+    authorised and that creator's cached hook verdict for it.
+    """
+    row, scope = await _readable_scan(db, scan_id, user_id)
+    scope.require_change(row, perms.SCANS_DELETE)
+    if row["status"] in _OPEN_STATUSES and not _is_abandoned(row):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -405,18 +442,22 @@ async def delete_scan(scan_id: UUID, user_id: str, db: SupabaseRest) -> None:
                 "finish."
             ),
         )
-    await db.delete("hook_cache", {"last_scan_id": str(scan_id), "user_id": user_id})
-    await db.delete("scans", {"id": str(scan_id), "user_id": user_id})
+    creator = str(row["user_id"])
+    await db.delete("hook_cache", {"last_scan_id": str(scan_id), "user_id": creator})
+    await db.delete("scans", {"id": str(scan_id), "user_id": creator})
 
 
 async def get_scan_stages(scan_id: UUID, user_id: str, db: SupabaseRest) -> list[ScanStageOut]:
-    await _assert_owns_scan(db, scan_id, user_id)
+    # scan_stages carries no owner of its own; it is readable exactly when
+    # its scan is.
+    await _readable_scan(db, scan_id, user_id)
     rows = await db.select("scan_stages", {"scan_id": str(scan_id)})
     return [ScanStageOut(**r) for r in rows]
 
 
 async def get_scan_findings(scan_id: UUID, user_id: str, db: SupabaseRest) -> list[FindingOut]:
-    rows = await db.select("findings", {"scan_id": str(scan_id), "user_id": user_id})
+    scope = await membership.read_scope(user_id, db)
+    rows = await scope.select(db, "findings", {"scan_id": str(scan_id)})
     # Most severe first, then grouped by file. Postgres can't order by this
     # without a custom type, and the previous insertion order meant whichever
     # scanner happened to finish first led the list, so a critical could sit

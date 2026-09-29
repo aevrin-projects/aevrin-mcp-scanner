@@ -13,6 +13,7 @@ import {
   ScopeBadge,
 } from "@/entities/agent";
 import type { AgentDetail, CapabilityLevel } from "@/entities/agent";
+import { workspaceAuthor } from "@/entities/organization";
 import {
   EmptyState,
   PageHeader,
@@ -110,7 +111,8 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
         description={
           <>
             {agent.agent_version ? `Version ${agent.agent_version}. ` : null}
-            Last reported {formatDateTime(agent.reported_at)}.
+            Last reported {formatDateTime(agent.reported_at)}
+            {workspaceAuthor(agent) ? ` by ${workspaceAuthor(agent)}` : ""}.
           </>
         }
         actions={

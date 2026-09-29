@@ -155,6 +155,11 @@ in `0034` - a reversal recorded in `DECISIONS.md`, not silently erased.
 recursion a naive membership check would hit; see the migration's own
 comments for why a second permissive policy was added rather than
 rewriting the first (avoids an AND-of-conditions where OR was needed).
+0035's intent, members seeing the same scans, findings and agents, is what
+the API serves too: its reads use the same "own row, or stamped with my
+workspace" rule the RLS select policy states (`services/membership.py`
+`ReadScope`, ADR-052), filtered in the query over the existing `user_id` and
+`org_id` indexes. No migration was needed for it.
 
 **MCP Marketplace** (`0037_mcp_marketplace.sql`)
 `mcp_categories` (17 seeded), `mcp_listings`, `mcp_listing_versions`,

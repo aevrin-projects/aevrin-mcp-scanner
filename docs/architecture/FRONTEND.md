@@ -229,6 +229,69 @@ found to need a real server (Server Actions, a session check, or
 build-time-unknowable paths) and stay here permanently, not just until
 cutover - see `DECISIONS.md` ADR-011 for the reasoning behind each.
 
+## The public site's visual language (`frontend-public/`)
+
+The public site follows one reference (Folio) for its look and a second
+(Nguyen) for the structure of the feature bento and the pricing cards; the
+content is Aevrin's own. The rules, so a new section fits without a redesign:
+
+- **Tokens.** `.marketing` in `frontend-public/src/app/globals.css` defines
+  the `--mk-*` set (ground, surfaces, text, muted, hairlines, primary, dot
+  grid, frame shadow, radii 6/12/16/24px, easings) for light and dark; dark
+  is the default. The class sits on `<body>` in the root layout, so every
+  route, the fixed navbar and anything portalled read it, and the same block
+  re-points the app tokens (`--background`, `--card`, `--muted-foreground`,
+  `--border`, `--sidebar`...) at it, so pages built from `shared/ui` (status,
+  legal, CLI) share the ground. The chrome carries no brand hue; colour
+  appears only in content (severity chips, grades). Muted text never sits on
+  `--mk-surface-2` in light, where it falls under 4.5:1.
+- **Type.** Source Serif 4 (`next/font`, `--font-display`, 60pt optical size)
+  only for `.mk-display` (h1), `.mk-h2` and `.mk-h2-xl`; everything else is
+  Geist, with `.mk-eyebrow` in Geist Mono. `.mk-h3` and `.mk-lede` complete
+  the scale.
+- **Controls.** `.mk-btn` (36px, 6px radius; `.mk-btn-sm` 32px) with
+  `.mk-btn-solid` for the one primary action per area, `.mk-btn-outline`
+  beside it, and `.mk-btn-pill` only for the closing call to action.
+- **Layout.** `.mk-container` (1280px, 16/24/32px gutters) and `.mk-section`
+  (64px, 112px from 768px). Section headers are split: eyebrow, serif h2 on
+  the left, muted lede bottom-aligned on the right
+  (`views/home/ui/section-header.tsx`); only single-column sections centre.
+- **Navigation.** `widgets/public-navbar` is fixed: transparent and 1152px
+  wide at the top, a blurred 896px pill after 20px of scroll (300ms). Pricing
+  is `#pricing` on `/` and `/#pricing` elsewhere. Below 768px the links move
+  into a menu that traps focus, closes on Escape, the backdrop or a link, and
+  locks page scroll. `<main>` carries the navbar's 68px as top padding.
+- **Footer.** `widgets/site-footer` is a floating card (24px radius) inside
+  the page margin, used by every route.
+- **Motion.** The hero's scroll-driven chips and dashboard reveal are the one
+  choreographed effect. Elsewhere `shared/ui/reveal` fades an element in once
+  on first view: the static HTML is always visible, and only an element
+  still below the fold at mount is hidden by script, so nothing on screen
+  blinks and print or no-JS gets every section. Transform and opacity only;
+  off under `prefers-reduced-motion`, as is the announcement pill's ring, the
+  one loop. `shared/lib/use-prefers-reduced-motion` reads the preference
+  after hydration for anything whose rendered text depends on it.
+- **Solution blocks** (`views/home/ui/solutions/`). Three numbered blocks in
+  an alternating two-column layout, each a working product mockup built
+  from what the product actually does: 01 the registry reached from an
+  agent over MCP (`search_registry`, `get_registry_item`, install config;
+  no grade on any item, ADR-049), 02 AI explanations (the four supported
+  providers, each on the user's own key; the AI review labels; triage
+  states), 03 the Claude Code hook's allow, deny and scan-queued outcomes
+  and an agent-posture view. The final state is the server render; the
+  sequence plays once when a mockup scrolls into view, never under reduced
+  motion. 01 is `aria-hidden` with an sr-only description; 02 and 03 are
+  labelled figures whose controls are real buttons (`aria-pressed`).
+  Mock server names are fictional (`acme-*`, `*.example`).
+- **Home page order.** Hero, works-with strip, risk, features bento, the
+  numbered solution blocks, pricing, FAQ, closing call to action, footer.
+  Static mockups are `aria-hidden` and representative; the sentence beside it
+  carries the claim, and each section's header comment names the source
+  files its facts come from. Pricing renders the USD table from
+  `billing_controller._PRICE_CENTS` and then replaces amounts and currency
+  from `GET /billing/pricing` (allowed by `connect-src` in `public/_headers`),
+  keeping USD if the request fails; checkout stays in the app.
+
 ## The status page shows only what it measures
 
 `frontend-public/src/views/status/` is the one page where the "never invent

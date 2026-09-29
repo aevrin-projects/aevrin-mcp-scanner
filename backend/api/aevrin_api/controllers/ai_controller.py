@@ -23,6 +23,7 @@ from aevrin_api.schemas.ai import (
     UpdateProviderRequest,
 )
 from aevrin_api.services.ai import credentials, evidence, explain, provider_sync
+from aevrin_api.services.membership import ReadScope, read_scope
 from aevrin_api.services.quota import QuotaExceeded
 
 logger = logging.getLogger("aevrin.ai.controller")
@@ -188,15 +189,16 @@ async def _gather_evidence(
     return None
 
 
-async def _owned_scan(db: SupabaseRest, *, user_id: str, scan_id: str) -> dict[str, Any]:
+async def _owned_scan(db: SupabaseRest, scope: ReadScope, scan_id: str) -> dict[str, Any]:
     """A scan the caller may read, or a refusal.
 
-    Accepts a scan owned by the user directly, or one stamped with their
-    workspace. That is wider than the scans API, which reads only the
-    caller's own rows; it matches the RLS select policy on `scans` (migration
-    0035), which is what a member could read directly anyway.
+    Exactly what the scans API lets the caller read (`membership.ReadScope`):
+    their own scan, or one stamped with their current workspace. Findings are
+    read through the same scope, so evidence never includes a row the
+    finding pages would not show the caller.
     """
-    rows = await db.select(
+    rows = await scope.select(
+        db,
         "scans",
         {"id": scan_id},
         columns="id,user_id,org_id,risk_score,grade,status,unreliable_stages,target,target_type,mcp_detected",
@@ -204,31 +206,18 @@ async def _owned_scan(db: SupabaseRest, *, user_id: str, scan_id: str) -> dict[s
     )
     if not rows:
         raise PermissionError("Scan not found.")
-    scan = rows[0]
-
-    if str(scan.get("user_id")) == user_id:
-        return scan
-    org_id = scan.get("org_id")
-    if org_id:
-        membership = await db.select(
-            "organization_members",
-            {"user_id": user_id, "org_id": str(org_id)},
-            columns="user_id",
-            limit=1,
-        )
-        if membership:
-            return scan
-    raise PermissionError("Scan not found.")
+    return rows[0]
 
 
 async def _finding_evidence(
     db: SupabaseRest, *, user_id: str, finding_id: str
 ) -> dict[str, Any] | None:
-    rows = await db.select("findings", {"id": finding_id}, limit=1)
+    scope = await read_scope(user_id, db)
+    rows = await scope.select(db, "findings", {"id": finding_id}, limit=1)
     if not rows:
         return None
     finding = rows[0]
-    scan = await _owned_scan(db, user_id=user_id, scan_id=str(finding["scan_id"]))
+    scan = await _owned_scan(db, scope, str(finding["scan_id"]))
 
     return evidence.build_evidence(
         subject_type="finding",
@@ -245,8 +234,9 @@ async def _finding_evidence(
 async def _scan_evidence(
     db: SupabaseRest, *, user_id: str, scan_id: str
 ) -> dict[str, Any] | None:
-    scan = await _owned_scan(db, user_id=user_id, scan_id=scan_id)
-    findings = await db.select("findings", {"scan_id": scan_id}, limit=200)
+    scope = await read_scope(user_id, db)
+    scan = await _owned_scan(db, scope, scan_id)
+    findings = await scope.select(db, "findings", {"scan_id": scan_id}, limit=200)
     return evidence.build_evidence(
         subject_type="scan",
         subject_id=scan_id,

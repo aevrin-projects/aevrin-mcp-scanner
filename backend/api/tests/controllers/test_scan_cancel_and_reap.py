@@ -29,6 +29,10 @@ class _Db:
         self.deleted: list[dict[str, Any]] = []
 
     async def select(self, table: str, filters: dict[str, str], **kwargs: Any) -> list[dict[str, Any]]:
+        if table.startswith("organization"):
+            # The caller here is in no workspace; every scan below is theirs.
+            return []
+
         def matches(row: dict[str, Any]) -> bool:
             return all(str(row.get(k)) == str(v) for k, v in filters.items())
 

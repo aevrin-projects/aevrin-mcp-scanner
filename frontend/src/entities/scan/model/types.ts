@@ -53,6 +53,11 @@ export interface Scan {
   risk_summary: RiskSummary | null;
   created_at: string;
   completed_at: string | null;
+  /** False for a workspace colleague's scan. */
+  mine: boolean;
+  /** The colleague's email while they are still a member; null for the
+   *  caller's own scan, or once the colleague has left. */
+  created_by: string | null;
 }
 
 export interface ScanStage {

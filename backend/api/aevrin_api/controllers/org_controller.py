@@ -146,8 +146,11 @@ async def create_organization(
         {"org_id": org_id, "user_id": user_id, "role_id": owner_role["id"]},
     )
 
+    # Personal rows only. A founder who left another workspace still has rows
+    # stamped with it, which that workspace's members read; moving those too
+    # would take them from that team and show them to this one.
     for table in SHARED_TABLES:
-        await db.update(table, {"user_id": user_id}, {"org_id": org_id})
+        await db.update(table, {"user_id": user_id}, {"org_id": org_id}, null_columns=("org_id",))
 
     membership = Membership(org, owner_role, user_id)
     return await _organization_out(membership, db)

@@ -49,14 +49,26 @@ JWT) unless noted.
 - **`PATCH /findings/{id}`** accepts either a user session or `X-API-Key`
   (the hook and `aevrin findings triage` both use the API key path).
   `false_positive` requires a `reason`.
+- **Scan, finding and agent reads include the caller's workspace.** Every
+  list and detail route under `/scans` (including `/stages`, `/findings`,
+  `/diff` and `/export`), `GET /findings/{id}`, and every `GET /agents`
+  route returns the caller's own rows plus rows stamped with their current
+  workspace (ADR-052); another workspace's row, or a colleague's personal
+  one, is `404`. `ScanOut` and the agent summaries carry `mine` and
+  `created_by` (a colleague's email while they are a member, else `null`).
+  `GET /scans` is still the 25 newest. `GET /scans/{id}/diff` compares
+  against the previous scan by the scan's creator, and returns an empty diff
+  when that scan is one the caller cannot read. `POST /scans/{id}/cancel`
+  and `DELETE /scans` act on the caller's own scans only; `GET
+  /account/usage` stays per person.
 - **Workspace permissions return `403`.** For a caller in a workspace whose
-  role lacks the permission, and a row that belongs to that workspace:
-  `POST /scans`, `POST /scans/upload`, `POST /scans/{id}/cancel`, `GET
-  /cli/precheck`, `POST /cli/upload` and `POST /agents/snapshots` need
-  `scans.run`; `DELETE /scans/{id}` and `DELETE /scans` need
-  `scans.delete` (the latter refuses the whole history if any row is a
-  workspace row); `PATCH /findings/{id}` needs `findings.triage`; `DELETE
-  /agents/{id}` needs `agents.delete`. The `detail` names the role, the
+  role lacks the permission, and a row that belongs to that workspace
+  (whoever created it): `POST /scans`, `POST /scans/upload`, `POST
+  /scans/{id}/cancel`, `GET /cli/precheck`, `POST /cli/upload` and `POST
+  /agents/snapshots` need `scans.run`; `DELETE /scans/{id}` and `DELETE
+  /scans` need `scans.delete` (the latter refuses the caller's whole history
+  if any of their rows is a workspace row); `PATCH /findings/{id}` needs
+  `findings.triage`; `DELETE /agents/{id}` needs `agents.delete`. The `detail` names the role, the
   permission's label and its key. A refused create spends no quota. `POST`
   and `GET /hook/cache` do not return `403` for this: with nothing cached
   they answer `decision: "not_permitted"` with the reason in `detail`, and

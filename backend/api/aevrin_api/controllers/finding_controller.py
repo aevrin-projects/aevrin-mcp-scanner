@@ -16,7 +16,9 @@ _NOT_FOUND = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Findin
 
 
 async def get_finding(finding_id: UUID, user_id: str, db: SupabaseRest) -> FindingOut:
-    rows = await db.select("findings", {"id": str(finding_id), "user_id": user_id})
+    """The caller's own finding, or one stamped with their workspace."""
+    scope = await membership.read_scope(user_id, db)
+    rows = await scope.select(db, "findings", {"id": str(finding_id)})
     if not rows:
         raise _NOT_FOUND
     return FindingOut(**rows[0])
@@ -25,15 +27,15 @@ async def get_finding(finding_id: UUID, user_id: str, db: SupabaseRest) -> Findi
 async def triage_finding(
     finding_id: UUID, body: TriageRequest, user_id: str, db: SupabaseRest
 ) -> FindingOut:
-    existing = await db.select("findings", {"id": str(finding_id), "user_id": user_id})
+    scope = await membership.read_scope(user_id, db)
+    existing = await scope.select(db, "findings", {"id": str(finding_id)})
     if not existing:
         raise _NOT_FOUND
     # One check for both callers of this route: the dashboard (JWT) and the
     # CLI's `aevrin findings triage` (API key), which resolve to the same
-    # user id before they get here.
-    await membership.require_for_row(
-        user_id, existing[0].get("org_id"), perms.FINDINGS_TRIAGE, db
-    )
+    # user id before they get here. Readable is not changeable: a finding in
+    # the caller's workspace needs `findings.triage` whoever it belongs to.
+    scope.require_change(existing[0], perms.FINDINGS_TRIAGE)
     # Reopening clears the audit trail rather than leaving a stale reason
     # attached to a finding that is once again open.
     audit_patch: dict[str, str | None]
@@ -41,9 +43,11 @@ async def triage_finding(
         audit_patch = {"triage_reason": None, "triaged_at": None}
     else:
         audit_patch = {"triage_reason": body.reason, "triaged_at": datetime.now(UTC).isoformat()}
+    # Keyed on the row's creator: the write touches exactly the row that was
+    # authorised above.
     rows = await db.update(
         "findings",
-        {"id": str(finding_id), "user_id": user_id},
+        {"id": str(finding_id), "user_id": str(existing[0]["user_id"])},
         {"triage_status": body.triage_status, **audit_patch},
     )
     return FindingOut(**rows[0])

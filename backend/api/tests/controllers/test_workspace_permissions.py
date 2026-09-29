@@ -1,9 +1,9 @@
 """Workspace permissions on shared work, asserted at the routes that act on it.
 
 Scans, findings and agent snapshots are the workspace's shared work: a new row
-is stamped with the creator's workspace (`stamp_org_id`, migration 0035). Every
-API read and write of them is scoped to the caller's own user id; on top of
-that, a member needs the matching permission to change them:
+is stamped with the creator's workspace (`stamp_org_id`, migration 0035) and
+every member can read it (`test_workspace_reads.py`). A member needs the
+matching permission to change a row in their workspace, whoever created it:
 
     scans.run        POST /scans, POST /scans/upload, POST /scans/{id}/cancel,
                      GET /cli/precheck, POST /cli/upload, POST /agents/snapshots,
@@ -79,8 +79,19 @@ class FakeDb:
                 rows = [r for r in rows if str(r.get(key)) == str(value)]
         return rows
 
-    async def select(self, table: str, filters: dict[str, str] | None = None, **kwargs: Any) -> list[dict]:
-        return self._match(table, filters)
+    async def select(self, table: str, filters: dict[str, str] | None = None,
+                     or_filter: str | None = None, **kwargs: Any) -> list[dict]:
+        rows = self._match(table, filters)
+        if or_filter:
+            # "user_id.eq.X,org_id.eq.Y", the only shape ReadScope sends.
+            clauses = [c.split(".eq.") for c in or_filter.strip("()").split(",")]
+            rows = [r for r in rows if any(str(r.get(k)) == v for k, v in clauses)]
+        return rows
+
+    async def rpc(self, fn: str, args: dict[str, Any]) -> Any:
+        assert fn == "org_member_emails"
+        return [{"user_id": r["user_id"], "email": f"{r['user_id'][:6]}@example.com"}
+                for r in self._match("organization_members", {"org_id": args["p_org"]})]
 
     async def insert(self, table: str, rows: Any, **kwargs: Any) -> list[dict]:
         self.writes.append(("insert", table))
@@ -332,15 +343,13 @@ def test_delete_scans_allows_the_member_holding_it_the_owner_and_an_outsider(cal
     assert scan not in db.rows
 
 
-def test_a_role_never_reaches_a_colleague_s_scan() -> None:
-    """Holding the permission does not widen row ownership: every write is
-    still scoped to the caller's own user id, so a colleague's scan is 404."""
+def test_delete_scans_reaches_a_colleague_s_workspace_scan() -> None:
+    """Workspace scans are shared work (ADR-052): the permission is checked
+    in the row's workspace, whoever created it."""
     theirs = scan_row(VIEWER)
     db = FakeDb([*workspace((perms.SCANS_DELETE,)), theirs])
-    with pytest.raises(HTTPException) as exc:
-        run(scan_routes.delete_scan(UUID(theirs["id"]), user(PERMITTED), db))
-    assert exc.value.status_code == 404
-    assert theirs in db.rows
+    run(scan_routes.delete_scan(UUID(theirs["id"]), user(PERMITTED), db))
+    assert theirs not in db.rows
 
 
 def test_a_personal_scan_from_before_joining_is_the_member_s_own() -> None:
