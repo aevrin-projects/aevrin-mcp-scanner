@@ -217,11 +217,18 @@ fi
 # the repository never reached production.
 #
 # The live file is not something this repository can see, so installing over
-# it is guarded three ways: the new file must validate inside Caddy; it must
-# not drop any site the live config serves (a site defined only on the host
-# would otherwise vanish silently, and a reload would not fail to warn us);
-# and the live file is kept, and restored if the reload fails. Any refusal
-# leaves the running config exactly as it was.
+# it is guarded: the new file must validate inside Caddy; it must not drop any
+# site the live config serves (a site defined only on the host would otherwise
+# vanish silently, and a reload would not fail to warn us); the running
+# container must be seen to read the new content before it is reloaded; and the
+# previous file is kept and restored on any failure. Any refusal leaves the
+# running config exactly as it was.
+#
+# The file is written on the HOST. In this deployment /etc/caddy/Caddyfile is a
+# read-only bind mount, so writing it from inside the container fails. That
+# failure once went unnoticed and the step reported success, because bash
+# suspends `set -e` inside a function called as an `if` condition - which is
+# why every command below checks its own status.
 sites() {
   # Site addresses: top-level lines that open a block, other than the global
   # options block. Enough to tell whether one config serves a site the other
@@ -229,32 +236,64 @@ sites() {
   grep -E '^[^[:space:]#{][^{]*\{[[:space:]]*$' | sed -E 's/[[:space:]]*\{[[:space:]]*$//' | sort -u
 }
 
+caddy_mount_source() {
+  # The host path mounted at $1 in the caddy container, or nothing.
+  sudo docker inspect -f "{{range .Mounts}}{{if eq .Destination \"$1\"}}{{.Source}}{{end}}{{end}}" caddy
+}
+
 install_caddyfile() {
-  local live missing
-  if ! sudo docker exec caddy test -f /etc/caddy/Caddyfile; then
-    echo "caddy: no /etc/caddy/Caddyfile in the container; not installing"
+  local host dir live missing
+  host="$(caddy_mount_source /etc/caddy/Caddyfile)"
+  if [ -z "$host" ]; then
+    dir="$(caddy_mount_source /etc/caddy)"
+    [ -n "$dir" ] && host="$dir/Caddyfile"
+  fi
+  if [ -z "$host" ] || ! sudo test -f "$host"; then
+    echo "caddy: /etc/caddy/Caddyfile is not mounted from a host file this script can find; not installing"
     return 1
   fi
-  sudo docker cp backend/deploy/Caddyfile caddy:/etc/caddy/Caddyfile.new
-  if ! sudo docker exec caddy caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null 2>&1; then
+
+  if ! sudo docker cp backend/deploy/Caddyfile caddy:/tmp/Caddyfile.new; then
+    echo "caddy: could not copy the repository Caddyfile into the container to validate it"
+    return 1
+  fi
+  if ! sudo docker exec caddy caddy validate --config /tmp/Caddyfile.new --adapter caddyfile >/dev/null 2>&1; then
     echo "caddy: the repository Caddyfile does not validate; keeping the live one"
-    sudo docker exec caddy caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile 2>&1 | tail -5 || true
+    sudo docker exec caddy caddy validate --config /tmp/Caddyfile.new --adapter caddyfile 2>&1 | tail -5 || true
     return 1
   fi
-  live="$(sudo docker exec caddy cat /etc/caddy/Caddyfile | sites)"
+
+  if ! live="$(sudo cat "$host" | sites)"; then
+    echo "caddy: could not read the live Caddyfile at $host"
+    return 1
+  fi
   missing="$(comm -23 <(printf '%s\n' "$live") <(sites < backend/deploy/Caddyfile))"
   if [ -n "$missing" ]; then
     echo "caddy: the live config serves sites the repository Caddyfile does not: ${missing//$'\n'/, }"
     echo "caddy: keeping the live config. Add those sites to backend/deploy/Caddyfile to install it."
     return 1
   fi
-  sudo docker exec caddy cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.prev
-  # `cat >` rather than `mv`: if the file is a bind mount, it cannot be
-  # replaced by a rename, only written through.
-  sudo docker exec caddy sh -c 'cat /etc/caddy/Caddyfile.new > /etc/caddy/Caddyfile'
+
+  if ! sudo cp "$host" "$host.prev"; then
+    echo "caddy: could not back up $host; not installing"
+    return 1
+  fi
+  # Written in place (tee truncates the same file) rather than replaced: a
+  # single-file bind mount follows the inode, so a rename would leave the
+  # container reading the old file.
+  if ! sudo tee "$host" < backend/deploy/Caddyfile >/dev/null; then
+    echo "caddy: could not write $host; restoring the previous file"
+    sudo cp "$host.prev" "$host" || true
+    return 1
+  fi
+  if ! sudo docker exec caddy cat /etc/caddy/Caddyfile | cmp -s - backend/deploy/Caddyfile; then
+    echo "caddy: the container does not see the new file at /etc/caddy/Caddyfile; restoring the previous one"
+    sudo tee "$host" < "$host.prev" >/dev/null || true
+    return 1
+  fi
   if ! sudo docker exec caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
     echo "caddy: reload failed with the new Caddyfile; restoring the previous one"
-    sudo docker exec caddy sh -c 'cat /etc/caddy/Caddyfile.prev > /etc/caddy/Caddyfile'
+    sudo tee "$host" < "$host.prev" >/dev/null || true
     sudo docker exec caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || true
     return 1
   fi
