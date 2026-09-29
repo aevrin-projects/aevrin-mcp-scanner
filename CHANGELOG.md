@@ -20,6 +20,16 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-29 (CLI)
+
+`aevrin` and `aevrin-scanner-core` 0.6.0 on PyPI, and the npm wrapper 0.6.0.
+For the CLI this release carries the registry tools in `aevrin mcp-server`
+(and the hosted registry MCP server image), the hook's `not_permitted`
+decision, and the CLI's handling of the scan precheck `403`, so a member
+whose role cannot run scans is told so instead of an allowed install or a
+failure at upload. The entries below also cover the product changes that
+shipped to the dashboard and API over the same period.
+
 ### Added
 
 - **The Aevrin Registry.** The MCP marketplace is now an admin-curated
@@ -77,6 +87,31 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Changed
 
+- **Public site redesign (`frontend-public/`).** Aevrin's content and hero in
+  a new visual language: grey-scale tokens with no brand hue in the chrome,
+  Source Serif 4 for headlines (replacing Instrument Serif) with Geist for
+  everything else, 6px controls, hairline cards, a floating navbar that
+  condenses into a pill on scroll, and a floating footer card with a
+  copyright row. The home page is now hero, works-with strip, risk, a
+  feature bento (grade, coverage, OWASP mapping, exit codes, report),
+  three interactive solution blocks (the registry from inside an agent, AI
+  explanations with the four supported providers, the Claude Code hook's
+  outcomes and agent posture),
+  pricing with live amounts from `GET /billing/pricing` and per-plan annual
+  savings, a FAQ and a closing call to action. Every public route reads the
+  same tokens (`.marketing` on `<body>`). The hero's scroll animation is
+  unchanged. Section entrances run once on first view, transform and opacity
+  only, and not at all under reduced motion.
+- **Workspace members see each other's work** (ADR-052). Scan history, scan
+  detail (stages, findings, diff, report export), finding detail, the
+  agents list and detail, MCP servers, skills, permissions and attack paths
+  now include the scans, findings and agents of everyone in the caller's
+  workspace, not only their own. A colleague's scan or agent says whose it
+  is ("by <email>", or "a former member"). Work from before joining a
+  workspace stays private to its creator; leaving a workspace keeps one's
+  own work and ends access to colleagues'. Clear history still deletes only
+  the caller's own scans, and only the person who started a scan can cancel
+  it.
 - **Only an administrator publishes** (ADR-048). The weekly registry sync now
   inserts new servers as drafts. Migration 0048 returns published, ungraded
   registry-synced listings to draft. Edits can no longer change `status`; it
@@ -114,6 +149,24 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **False claims on the public home page.** It said Aevrin runs ten
+  open-source scanners and scans a pasted config (one engine; a pasted config
+  always ends Incomplete), nine OWASP MCP categories (seven are mapped, MCP08
+  is not tested), six scan stages with stale names (five: resolving,
+  launching, enumerating, analyzing, grading), grades from A to D (A to F),
+  a file and line on every finding (live-server findings have neither), an
+  attack-path model the code does not build, rug-pull detection (drift
+  between scans is no longer tracked), and shared workspaces before members
+  could see each other's scans. The site description made the same
+  "open-source tools" claim.
+- **No navigation on phones.** Below 768px the public navbar showed only
+  Home and Docs, so Pricing and Status were unreachable. It now has a menu
+  (Escape and the backdrop close it, focus stays inside while open and
+  returns to the button, the page behind does not scroll).
+- **Hydration error on the home page under reduced motion.** The hero's
+  dashboard drew its counters at their final values on the client's first
+  render while the static HTML had zeros (React error 418). It now reads the
+  preference after hydration.
 - **The admin breadcrumb's "Accounts" link, and the page shown after deleting
   an account, went to a 404.** Both pointed at `/admin/users`, which has no
   index page; the account list is `/admin`. Crumbs are now keyed by path
@@ -246,6 +299,12 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Security
 
+- **An update's filters are always equalities**, pinned by a test. Unlike
+  `select` and `delete`, `SupabaseRest.update` never passes an
+  operator-shaped value (`neq.x`) through, so a write keyed on a value from
+  a request cannot widen to other rows. The one narrowing a caller needs
+  (moving only personal rows into a new workspace) is the explicit
+  `null_columns` argument.
 - **Workspace permissions are enforced, and the ones nothing checked are
   gone** (ADR-051). A workspace member now needs `scans.run` to start a scan
   (dashboard, `aevrin scan`, CLI upload, agent snapshot upload) or cancel
@@ -260,6 +319,19 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   `0050_permission_catalogue.sql`). New workspaces' Security Admin role
   holds run, delete, triage and remove agents. The dashboard hides controls
   a member's role cannot use. The guards live in `services/membership.py`.
+- **Workspace reads have one scope, and reading never widens changing**
+  (ADR-052). Every read of scans, findings and agent snapshots goes through
+  `membership.ReadScope`: the caller's own rows plus rows stamped with their
+  current workspace, filtered in the query; anything else is `404`. Deleting
+  a colleague's scan, triaging their finding or forgetting their agent needs
+  `scans.delete`, `findings.triage` or `agents.delete`, and the write is
+  keyed on the row's creator. A colleague's email is returned only to members
+  of the same workspace. `POST /ai/explain` now reads through the same scope
+  instead of its own membership query, and a scan diff against a scan the
+  caller cannot open is withheld.
+- **Creating a workspace no longer moves work out of one the founder left.**
+  Only personal rows (`org_id` null) move into the new workspace; rows still
+  stamped with a previous workspace stay with that team.
 
 ## [0.5.0] - 2026-09-06 (CLI)
 
