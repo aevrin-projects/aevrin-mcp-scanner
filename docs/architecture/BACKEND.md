@@ -18,6 +18,11 @@ core/         Request authentication and the identity built on it
               API-key hashing).
 db/           db/supabase.py - a thin async PostgREST client using the
               service-role key. Knows nothing about product rules.
+              PostgREST returns at most MAX_ROWS (1000) rows per response
+              and truncates silently, so a read that needs every row uses
+              `select_all` (pages with a required total order) and a number
+              uses `db.count` (Prefer: count=exact); a `limit` above
+              MAX_ROWS fails tests/test_migration_guards.py.
 integrations/ Thin clients for external services: Redis, R2, Razorpay,
               GitHub (REST + App), DefectDojo, DeepSeek, geo/IP lookup,
               the MCP Registry, and the four AI providers.

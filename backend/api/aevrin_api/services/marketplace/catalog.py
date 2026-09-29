@@ -18,7 +18,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from aevrin_api.db import SupabaseRest
+from aevrin_api.db import SupabaseRest, select_all
 from aevrin_api.services.marketplace import normalize
 from aevrin_api.services.marketplace.ranking import DEFAULT_SORT, SORT_ORDERS
 
@@ -330,16 +330,16 @@ async def _related(db: SupabaseRest, listing_id: str) -> list[dict[str, Any]]:
 async def list_types(db: SupabaseRest) -> list[dict[str, Any]]:
     """How many published public items there are of each type.
 
-    Counted in Python over one projection, like `list_categories`: the
-    registry is thousands of rows at most, and one round trip beats nineteen.
-    Types with nothing published are omitted, so the tabs never offer an
-    empty section.
+    Counted in Python over one projection, like `list_categories`, read in
+    pages: PostgREST returns at most `MAX_ROWS` rows per response. Types with
+    nothing published are omitted, so the tabs never offer an empty section.
     """
-    rows = await db.select(
+    rows = await select_all(
+        db,
         "mcp_listings",
         {"status": "eq.published", "visibility": "eq.public"},
         columns="item_type",
-        limit=10000,
+        order="id.asc",
     )
     counts: dict[str, int] = {}
     for row in rows:
@@ -356,11 +356,12 @@ async def list_categories(db: SupabaseRest) -> list[dict[str, Any]]:
     render one sidebar.
     """
     categories = await db.select("mcp_categories", order="sort_order.asc")
-    rows = await db.select(
+    rows = await select_all(
+        db,
         "mcp_listings",
         {"status": "eq.published", "visibility": "eq.public"},
         columns="categories",
-        limit=5000,
+        order="id.asc",
     )
 
     counts: dict[str, int] = {}

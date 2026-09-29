@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
+import aevrin_api.db.supabase as supabase_module
 from aevrin_api.core.security import AuthenticatedUser
 from aevrin_api.main import app
 from aevrin_api.routes import admin_marketplace as routes
@@ -272,7 +273,7 @@ def test_a_draft_that_fails_the_publish_gate_is_skipped_not_published() -> None:
 
 
 def test_candidates_are_read_across_pages(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(admin, "_BULK_PAGE", 2)
+    monkeypatch.setattr(supabase_module, "MAX_ROWS", 2)
     db = FakeDb()
     rows = [draft(db) for _ in range(5)]
     assert preview(db)["qualifying"] == len(rows)

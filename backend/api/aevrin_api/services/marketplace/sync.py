@@ -30,7 +30,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from aevrin_api.config import Settings
-from aevrin_api.db import SupabaseRest
+from aevrin_api.db import SupabaseRest, select_all
 from aevrin_api.integrations.github_public import (
     fetch_npm_downloads,
     fetch_readme,
@@ -399,13 +399,14 @@ async def _recompute_rankings(db: SupabaseRest, report: SyncReport) -> None:
     because a score computed from half-refreshed inputs would be replaced an
     instant later anyway.
     """
-    rows = await db.select(
+    rows = await select_all(
+        db,
         "mcp_listings",
         {"status": "eq.published"},
         columns="id,description,readme,homepage_url,repository_url,license,github_stars,"
         "github_forks,github_last_commit_at,github_latest_release,npm_downloads_last_month,"
         "pypi_downloads_last_month,favorite_count,ranking_score",
-        limit=5000,
+        order="id.asc",
     )
 
     for row in rows:

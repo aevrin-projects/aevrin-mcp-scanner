@@ -508,10 +508,10 @@ async def analytics(
 async def _revenue_by_currency(db: SupabaseRest, days: int) -> dict[str, dict[str, int]]:
     """Paid revenue per currency, in that currency's minor units.
 
-    Computed here because the admin_analytics function's body is not in this
-    repository (migration 0022 is a stub), so whether its revenue_paise_*
-    figures add USD cents to INR paise cannot be checked. Those two units
-    differ by roughly 88x, so a single sum is not a number anyone can use.
+    Computed here because admin_analytics's revenue_paise_* figures (its
+    body is in migration 0051) sum `amount_paise` across currencies, adding
+    USD cents to INR paise. Those two units differ by roughly 88x, so a
+    single sum is not a number anyone can use.
 
     Paged until an empty page rather than until a short one, so a PostgREST
     max-rows setting below the page size cannot silently truncate the total.

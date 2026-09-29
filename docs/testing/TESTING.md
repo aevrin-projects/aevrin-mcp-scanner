@@ -164,6 +164,14 @@ general-purpose SAST pass in the product standing in for it here.
   audit row, the per-call cap, a non-admin getting `404`, and approval of a
   remote-only suggestion (the gate's per-type rule). Its fake PostgREST
   compares `gte` numerically and refuses operators it does not know.
+- **Source guards** (`tests/test_migration_guards.py`): every callable
+  `security definer` function in `backend/infra/migrations` must revoke
+  EXECUTE from `public`, `anon` and `authenticated` (two named exceptions
+  for signed-in users, two for RLS helpers, each with its reason), and no
+  code in `aevrin_api` may pass a `limit` above `MAX_ROWS`.
+  `services/test_row_cap.py` covers `db.count` (the total from
+  `Content-Range`, loud when absent), `select_all` paging, browse type
+  counts past the cap, and the admin summary counting the whole registry.
   `services/test_marketplace_security.py`
   asserts that a decorated card, the browse response model and the detail
   response carry no security, grade or scan key for any of the 19 item

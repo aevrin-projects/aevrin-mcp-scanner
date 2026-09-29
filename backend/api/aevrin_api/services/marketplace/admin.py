@@ -20,6 +20,7 @@ admin audit log (who, from where, and it survives the item being deleted), and
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import re
 from collections import Counter
@@ -30,7 +31,7 @@ from typing import Any
 from aevrin_scanner_core.execution.network_safety import public_https_url_error
 
 from aevrin_api.config import Settings
-from aevrin_api.db import SupabaseRest, SupabaseRestError
+from aevrin_api.db import SupabaseRest, SupabaseRestError, select_all
 from aevrin_api.services.admin_auth import AdminIdentity, write_audit
 from aevrin_api.services.marketplace import items, submissions
 from aevrin_api.services.marketplace.catalog import DETAIL_COLUMNS, VERSION_COLUMNS, decorate
@@ -538,7 +539,6 @@ BULK_PUBLISH_MAX_PER_CALL = 500
 # resolved) and for the writes.
 BULK_PUBLISH_CONCURRENCY = 8
 BULK_PUBLISH_REASON = "published in bulk: a registry draft that meets the quality bar"
-_BULK_PAGE = 1000
 _BULK_SAMPLE = 20
 _BULK_TOP_REASONS = 5
 _BULK_COLUMNS = (
@@ -581,20 +581,6 @@ def _preference(row: dict[str, Any]) -> tuple[int, int, str]:
     )
 
 
-async def _all_pages(
-    db: SupabaseRest, filters: dict[str, str], *, columns: str, or_filter: str | None = None
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    while True:
-        page = await db.select(
-            "mcp_listings", filters, columns=columns, or_filter=or_filter,
-            order="id.asc", limit=_BULK_PAGE, offset=len(rows),
-        )
-        rows.extend(page)
-        if len(page) < _BULK_PAGE:
-            return rows
-
-
 async def _bounded(
     rows: list[dict[str, Any]], work: Callable[[dict[str, Any]], Awaitable[Any]]
 ) -> list[Any]:
@@ -618,10 +604,12 @@ async def bulk_publish(
     publish gate, or when another candidate for the same repository is
     preferred (`_preference`). A draft with no repository is its own group.
     """
-    candidates = await _all_pages(
+    candidates = await select_all(
         db,
+        "mcp_listings",
         BULK_PUBLISH_FILTERS,
         columns=_BULK_COLUMNS,
+        order="id.asc",
         or_filter=(
             f"github_stars.gte.{BULK_PUBLISH_MIN_GITHUB_STARS},"
             f"npm_downloads_last_month.gte.{BULK_PUBLISH_MIN_NPM_DOWNLOADS}"
@@ -629,8 +617,9 @@ async def bulk_publish(
     )
     published_repositories = {
         key
-        for row in await _all_pages(
-            db, {"status": "eq.published", "repository_url": "not.is.null"}, columns="repository_url"
+        for row in await select_all(
+            db, "mcp_listings", {"status": "eq.published", "repository_url": "not.is.null"},
+            columns="repository_url", order="id.asc",
         )
         if (key := repository_key(row.get("repository_url")))
     }
@@ -887,35 +876,47 @@ async def delete_category(db: SupabaseRest, *, slug: str, admin: AdminIdentity) 
 # Summary and reports
 
 
+# Every value the listing status check allows (migration 0048), so the
+# per-status counts add up to the total. `scanning` is no longer set by
+# anything but is still allowed, so an old row in it is counted, not lost.
+LISTING_STATUSES = (
+    "draft", "submitted", "scanning", "review", "approved", "rejected",
+    "published", "suspended", "archived",
+)
+
+
 async def admin_summary(db: SupabaseRest) -> dict[str, Any]:
-    """The numbers on the admin dashboard.
+    """The numbers on the admin dashboard, counted by Postgres.
 
-    Counted in Python over one projection rather than with a dozen count
-    queries. The catalogue is thousands of rows, not millions, and one
-    round trip beats twelve.
+    Exact counts (`db.count`), not a projection counted in Python: PostgREST
+    returns at most `MAX_ROWS` rows per response and says nothing when it
+    truncates, and the catalogue is past 18,000 rows. The counts run
+    concurrently; each is a HEAD request that carries no rows.
     """
-    listings = await db.select("mcp_listings", columns="id,status,item_type", limit=10000)
-
-    statuses: dict[str, int] = {}
-    types: dict[str, int] = {}
-    for row in listings:
-        statuses[row.get("status", "unknown")] = statuses.get(row.get("status", "unknown"), 0) + 1
-        kind = row.get("item_type") or "mcp_server"
-        types[kind] = types.get(kind, 0) + 1
-
-    open_reports = await db.select(
-        "mcp_reports", {"status": "eq.open"}, columns="id", limit=1000
+    listing_count = functools.partial(db.count, "mcp_listings")
+    total, open_reports, pending, *by_status_and_type = await asyncio.gather(
+        listing_count(),
+        db.count("mcp_reports", {"status": "eq.open"}),
+        db.count("mcp_submissions", {"status": "eq.review"}),
+        *(listing_count({"status": f"eq.{status}"}) for status in LISTING_STATUSES),
+        *(listing_count({"item_type": f"eq.{kind}"}) for kind in items.ITEM_TYPES),
     )
-    pending = await db.select(
-        "mcp_submissions", {"status": "eq.review"}, columns="id", limit=1000
-    )
+    by_status = by_status_and_type[: len(LISTING_STATUSES)]
+    by_type = by_status_and_type[len(LISTING_STATUSES) :]
+    statuses = {s: n for s, n in zip(LISTING_STATUSES, by_status, strict=True) if n}
+    types = {t: n for t, n in zip(items.ITEM_TYPES, by_type, strict=True) if n}
+    # Should never happen while LISTING_STATUSES matches the check
+    # constraint; shown rather than hidden if the two ever drift.
+    unaccounted = total - sum(statuses.values())
+    if unaccounted:
+        statuses["unknown"] = unaccounted
 
     return {
-        "total": len(listings),
+        "total": total,
         "statuses": statuses,
         "types": types,
-        "open_reports": len(open_reports),
-        "pending_submissions": len(pending),
+        "open_reports": open_reports,
+        "pending_submissions": pending,
     }
 
 

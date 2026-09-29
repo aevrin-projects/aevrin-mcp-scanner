@@ -22,6 +22,11 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Added
 
+- **Source guards** (`backend/api/tests/test_migration_guards.py`). A
+  migration that creates a callable `security definer` function without
+  revoking EXECUTE from `public`, `anon` and `authenticated` fails the
+  suite, and so does any read asking PostgREST for more than `MAX_ROWS`.
+
 - **Registry admin: "Publish qualifying drafts"** (`GET`/`POST
   /admin/marketplace/bulk-publish`). Previews, then publishes the public MCP
   server drafts from the registry sync that have 10 or more GitHub stars or
@@ -34,6 +39,15 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **The admin registry totals showed at most 1,000 listings** (of 18,279).
+  PostgREST returns at most 1,000 rows per response on this project and
+  truncates silently, and the summary counted a `limit=10000` projection in
+  Python. It now asks Postgres for exact counts (`db.count`, a HEAD request
+  with `Prefer: count=exact`). The browse type and category counts, the
+  weekly ranking recompute and the status page history had the same pattern
+  and now read every row with `select_all`; they were under the cap today
+  (12 published listings, 510 checks in 90 days) but would have truncated
+  as the registry grew.
 - **Registry admin actions looked like they did nothing.** Approving a
   suggestion, publishing, restoring, unpublishing, archiving or resolving a
   report showed its result, including the server's refusal reason, in a

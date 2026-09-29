@@ -26,7 +26,7 @@ from typing import Any
 import httpx
 
 from aevrin_api.config import Settings
-from aevrin_api.db import SupabaseRest
+from aevrin_api.db import SupabaseRest, select_all
 
 logger = logging.getLogger("aevrin.status")
 
@@ -145,12 +145,12 @@ async def history(db: SupabaseRest, *, days: int = 30) -> dict[str, Any]:
     since = datetime.now(UTC) - timedelta(days=days - 1)
     window_start = since.date()
 
-    rows = await db.select(
+    rows = await select_all(
+        db,
         "service_checks",
         {"checked_at": f"gte.{window_start.isoformat()}"},
         columns="service,ok,latency_ms,checked_at",
-        order="checked_at.asc",
-        limit=20000,
+        order="checked_at.asc,id.asc",
     )
 
     # service -> date -> [total, ok, latency_sum, latency_n]

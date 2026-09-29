@@ -24,6 +24,15 @@ from aevrin_api.config import Settings
 # caller-supplied operator apart from a bare value that needs eq..
 _HAS_OPERATOR = re.compile(r"^(not\.)?[a-z]+\.")
 
+# PostgREST's `db-max-rows` on this project (read from the Supabase
+# PostgREST config, 2026-09-29). A response never carries more rows than
+# this, whatever `limit` asks for, and says nothing when it truncates: a
+# `select(..., limit=10000)` over 18,000 rows returns 1,000. Anything that
+# needs every row uses `select_all`, anything that needs a number uses
+# `count`. Must not exceed the server's setting, or `select_all` would read a
+# short page as the last one.
+MAX_ROWS = 1000
+
 
 class SupabaseRestError(Exception):
     def __init__(self, status_code: int, body: str):
@@ -147,9 +156,57 @@ class SupabaseRest:
         if resp.status_code >= 400:
             raise SupabaseRestError(resp.status_code, resp.text)
 
+    async def count(self, table: str, filters: dict[str, str] | None = None) -> int:
+        """How many rows match, counted by Postgres (`Prefer: count=exact`).
+
+        A HEAD request, so no rows travel. Filters behave as in `select`. A
+        response without a total fails loudly rather than reading as zero.
+        """
+        headers = {**self._headers, "Prefer": "count=exact"}
+        params = {
+            k: (v if _HAS_OPERATOR.match(v) else f"eq.{v}") for k, v in (filters or {}).items()
+        }
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.head(f"{self._base_url}/{table}", headers=headers, params=params)
+        if resp.status_code >= 400:
+            raise SupabaseRestError(resp.status_code, resp.text)
+        content_range = resp.headers.get("content-range", "")
+        total = content_range.rpartition("/")[2]
+        if not total.isdigit():
+            raise SupabaseRestError(resp.status_code, f"no exact count in Content-Range {content_range!r}")
+        return int(total)
+
     async def rpc(self, fn: str, args: dict[str, Any]) -> Any:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(f"{self._base_url}/rpc/{fn}", headers=self._headers, json=args)
         if resp.status_code >= 400:
             raise SupabaseRestError(resp.status_code, resp.text)
         return resp.json()
+
+
+async def select_all(
+    db: SupabaseRest,
+    table: str,
+    filters: dict[str, str] | None = None,
+    *,
+    columns: str = "*",
+    order: str,
+    or_filter: str | None = None,
+) -> list[dict[str, Any]]:
+    """Every matching row, read `MAX_ROWS` at a time.
+
+    `order` is required and must be a total order (end it with a unique
+    column such as `id`): pages are taken by offset, and an order with ties
+    lets a row move between pages, so it is read twice or never. A module
+    function rather than a method so the test fakes, which implement
+    `select`, page through it too.
+    """
+    rows: list[dict[str, Any]] = []
+    while True:
+        page = await db.select(
+            table, filters, columns=columns, order=order, or_filter=or_filter,
+            limit=MAX_ROWS, offset=len(rows),
+        )
+        rows.extend(page)
+        if len(page) < MAX_ROWS:
+            return rows

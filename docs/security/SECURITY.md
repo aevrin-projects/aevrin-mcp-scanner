@@ -67,8 +67,9 @@ creates it. Migrations 0004, 0032 and 0051 do this; 0051 closed it for
 key. The exceptions, callable by signed-in users on purpose, answer only
 about the caller: `is_org_member` and `my_org` (used by RLS policies),
 `org_member_emails` (checks membership itself) and
-`increment_listing_views`. Check a new function with
-`has_function_privilege('anon', 'public.<name>(<args>)', 'execute')`.
+`increment_listing_views`. `backend/api/tests/test_migration_guards.py` fails when a migration adds
+a callable definer function without that revoke. Check a live function
+with `has_function_privilege('anon', 'public.<name>(<args>)', 'execute')`.
 
 `backend/api/tests/controllers/test_agent_tenant_isolation.py`,
 `backend/api/tests/controllers/test_organizations.py`,
