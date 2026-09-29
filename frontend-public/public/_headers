@@ -8,7 +8,9 @@
 # (mirroring what frontend/'s CSP builds from NEXT_PUBLIC_API_URL at build
 # time) because the status page's live checks (`fetch(apiUrl + "/health")`,
 # `fetch(supabaseUrl + "/auth/v1/health")`) are otherwise silently blocked
-# by CSP and would misreport those services as down.
+# by CSP and would misreport those services as down. The home page's pricing
+# section also fetches `https://api.mcp.aevrin.net/billing/pricing` for the
+# visitor's currency; without the API origin here it silently shows USD.
 /*
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://api.mcp.aevrin.net https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   Referrer-Policy: strict-origin-when-cross-origin

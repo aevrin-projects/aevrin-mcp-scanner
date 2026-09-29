@@ -1,16 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/shared/lib/utils";
 
-function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-// Subtle fade + slide-up on scroll into view, matches aevrin.net's reveal
-// pattern. Deliberately small distance and short duration; this is meant to
-// be felt, not noticed. Respects prefers-reduced-motion by skipping the
-// initial hidden state entirely rather than firing the animation anyway.
+/**
+ * Fade and rise into view, once, the first time an element scrolls in.
+ *
+ * The rendered HTML is always the visible state. Only after mount, and only
+ * for an element that is still below the fold, does script mark it hidden
+ * (`data-reveal="hidden"`, styled in globals.css) and hand it to an
+ * IntersectionObserver. So nothing a reader can already see ever blinks out,
+ * and a page without script, a printout or a crawler gets every section.
+ *
+ * The previous version started hidden in the server HTML and used a 1.5s
+ * timer as a safety net, which meant sections further down were usually
+ * revealed by the timer, off screen, before anyone scrolled to them.
+ *
+ * Transform and opacity only, and no-op under prefers-reduced-motion (the CSS
+ * forces the visible state too, in case the preference changes mid-visit).
+ */
 export function Reveal({
   children,
   className,
@@ -18,56 +26,39 @@ export function Reveal({
 }: {
   children: ReactNode;
   className?: string;
+  /** Stagger, in milliseconds, applied when the element enters. */
   delay?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [skipAnimation] = useState(prefersReducedMotion);
-  const [visible, setVisible] = useState(skipAnimation);
 
   useEffect(() => {
-    if (skipAnimation) return;
-    const el = ref.current;
-    if (!el) return;
+    const element = ref.current;
+    if (!element) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    if (element.getBoundingClientRect().top < window.innerHeight) return;
 
-    // Safety net: if the observer never fires (missed intersection edge
-    // case, a stalled main thread on a slow machine, browsers without
-    // IntersectionObserver), never leave real content stuck invisible;
-    // a fade-in effect must never be able to hide the page permanently.
-    const fallback = window.setTimeout(() => setVisible(true), 1500);
-
-    if (typeof IntersectionObserver === "undefined") {
-      return () => window.clearTimeout(fallback);
-    }
-
+    element.dataset.reveal = "hidden";
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) {
-          setVisible(true);
-          observer.disconnect();
-        }
+        if (!entry.isIntersecting) return;
+        element.dataset.reveal = "shown";
+        observer.disconnect();
       },
-      { threshold: 0.1, rootMargin: "0px 0px -40px 0px" },
+      { rootMargin: "0px 0px -8% 0px" },
     );
-    observer.observe(el);
+    observer.observe(element);
     return () => {
       observer.disconnect();
-      window.clearTimeout(fallback);
+      element.dataset.reveal = "shown";
     };
-  }, [skipAnimation]);
+  }, []);
 
   return (
     <div
       ref={ref}
-      className={cn(!skipAnimation && "transition-all duration-700 ease-out", className)}
-      style={
-        skipAnimation
-          ? undefined
-          : {
-              opacity: visible ? 1 : 0,
-              transform: visible ? "translateY(0)" : "translateY(16px)",
-              transitionDelay: `${delay}ms`,
-            }
-      }
+      className={cn("mk-reveal", className)}
+      style={delay ? ({ "--reveal-delay": `${delay}ms` } as CSSProperties) : undefined}
     >
       {children}
     </div>

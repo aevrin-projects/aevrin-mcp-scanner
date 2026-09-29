@@ -220,7 +220,7 @@ export function StatusPage() {
           <Card>
             <CardHeader className="gap-4 sm:grid-cols-[1fr_auto]">
               <div>
-                <CardTitle className="text-2xl">Status</CardTitle>
+                <h1 className="mk-h2">Status</h1>
                 <CardDescription className="mt-1 text-sm">
                   Live checks run from your own browser, with the availability Aevrin has recorded
                   over the last 30 days.

@@ -14,7 +14,7 @@ export function InstallDocsSection({ headingLevel = "h2" }: { headingLevel?: "h1
         <div className="grid items-start gap-8 xl:grid-cols-[1.12fr_0.88fr]">
           <div className="space-y-6">
             <Reveal>
-              <span className="text-xs font-medium tracking-wide text-brand-text uppercase">Install and verify</span>
+              <span className="mk-eyebrow">Install and verify</span>
               <Heading className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
                 Set up Aevrin from a real terminal, not a marketing checklist.
               </Heading>

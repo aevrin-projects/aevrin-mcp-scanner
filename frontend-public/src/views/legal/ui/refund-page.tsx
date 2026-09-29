@@ -16,7 +16,7 @@ export function RefundPage() {
   return (
     <div>
       <div className="mx-auto max-w-2xl px-6 py-16">
-        <h1 className="text-2xl font-semibold tracking-tight">Refund and Cancellation Policy</h1>
+        <h1 className="mk-h2">Refund and Cancellation Policy</h1>
         <p className="mt-2 text-sm text-muted-foreground">Last updated: August 9, 2026.</p>
 
         <div className="mt-8 flex flex-col gap-6 text-sm leading-relaxed text-muted-foreground">

@@ -207,306 +207,17 @@
 }
 
 @layer components {
-  /* Display headlines. The serif only earns its place above ~30px, so these
-     are the only places it should appear; anything smaller stays in the sans
-     where x-height and hinting matter more than character. */
-  .display,
-  .display-xl,
-  .display-lg,
-  .display-md {
-    font-family: var(--font-display), ui-serif, Georgia, serif;
-    font-weight: 400;
-    letter-spacing: -0.02em;
-    line-height: 1.04;
-    text-wrap: balance;
-  }
-  .display-xl {
-    font-size: clamp(2.75rem, 6vw, 4.5rem);
-  }
-  .display-lg {
-    font-size: clamp(2.25rem, 4.5vw, 3.25rem);
-  }
-  .display-md {
-    font-size: clamp(1.75rem, 3vw, 2.25rem);
-    letter-spacing: -0.015em;
-  }
-
-  /* Small-caps section label, lifted from the Databricks product UI: it lets a
-     dense panel announce itself without spending a heading level or much
-     vertical space. */
-  .eyebrow {
-    @apply text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground;
-  }
-
-  /* Tabler's `subheader`: the product-side counterpart to .eyebrow, at the
-     exact 12px / 500 / 0.04em it uses. It appears above every figure, every
-     column header and every page title, and that repetition is most of why a
-     Tabler screen reads as one system rather than a stack of panels. Tighter
-     tracking and lighter weight than .eyebrow because it is used at density,
-     where .eyebrow's marketing-scale spacing would fray. */
+  /* Tabler's `subheader`: the product-side counterpart to .mk-eyebrow, at the
+     exact 12px / 500 / 0.04em it uses. `shared/ui` (Metric, PageHeader) reads
+     it; the marketing sections use .mk-eyebrow instead. */
   .subheader {
     @apply text-xs leading-4 font-medium uppercase tracking-[0.04em] text-muted-foreground;
   }
-
-  /* Measure caps for readable prose. Long lines are the single most common
-     reason a marketing section feels unedited. */
-  .lede {
-    @apply text-lg leading-relaxed text-muted-foreground;
-    max-width: 46ch;
-    text-wrap: pretty;
-  }
-
-  /* The card surface itself is defined further down, in the layered
-     subscription glass block. Only the type scale lives here. */
-  .plan-name {
-    font-size: 1.75rem;
-    font-weight: 400;
-    line-height: 1.15;
-    letter-spacing: -0.04em;
-  }
-  .plan-price {
-    font-size: 2.5rem;
-    font-weight: 400;
-    line-height: 1;
-    letter-spacing: -0.03em;
-    font-variant-numeric: tabular-nums;
-  }
-  /* FAQ rows as filled panels rather than divider-separated lines. Each answer
-     is then a self-contained block, which is easier to scan than a ruled list
-     when the answers differ a lot in length. */
-  .faq-row {
-    background: var(--muted);
-    border-radius: 10px;
-    padding: 4px 20px;
-    border: 1px solid transparent;
-  }
-  .dark .faq-row {
-    border-color: var(--border);
-  }
-}
-
-@keyframes security-drift-one {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(7vw, 5vh, 0) scale(1.12); }
-}
-
-@keyframes security-drift-two {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(-6vw, -4vh, 0) scale(0.9); }
-}
-
-@keyframes scan-travel {
-  0% { transform: translate3d(0, -110%, 0); opacity: 0; }
-  12%, 72% { opacity: 0.7; }
-  100% { transform: translate3d(0, 115vh, 0); opacity: 0; }
-}
-
-@keyframes panel-float {
-  0%, 100% { transform: perspective(1200px) rotateX(0deg) rotateY(0deg) translateY(0); }
-  50% { transform: perspective(1200px) rotateX(0.6deg) rotateY(-0.8deg) translateY(-8px); }
-}
-
-@keyframes sweep-across {
-  0%, 18% { transform: translateX(-140%) skewX(-16deg); opacity: 0; }
-  35% { opacity: 0.5; }
-  62%, 100% { transform: translateX(240%) skewX(-16deg); opacity: 0; }
-}
-
-@keyframes auth-panel-in {
-  from { opacity: 0; transform: translateY(18px) scale(0.985); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.security-mesh {
-  background-image:
-    linear-gradient(to right, color-mix(in oklab, var(--border) 55%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in oklab, var(--border) 55%, transparent) 1px, transparent 1px);
-  background-size: 52px 52px;
-  mask-image: linear-gradient(to bottom, black, transparent 88%);
-}
-
-.security-orb {
-  position: absolute;
-  width: min(44rem, 72vw);
-  aspect-ratio: 1;
-  border-radius: 9999px;
-  filter: blur(90px);
-  pointer-events: none;
-  will-change: transform;
-}
-
-.security-orb-one {
-  left: -22rem;
-  top: -20rem;
-  background: color-mix(in oklab, var(--brand) 24%, transparent);
-  animation: security-drift-one 15s ease-in-out infinite;
-}
-
-.security-orb-two {
-  right: -25rem;
-  top: 8rem;
-  background: color-mix(in oklab, var(--foreground) 9%, transparent);
-  animation: security-drift-two 18s ease-in-out infinite;
-}
-
-.hero-scan-beam,
-.auth-scan-line {
-  position: absolute;
-  inset-inline: 0;
-  top: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent 8%, var(--brand) 50%, transparent 92%);
-  box-shadow: 0 0 30px color-mix(in oklab, var(--brand) 55%, transparent);
-  pointer-events: none;
-  animation: scan-travel 9s linear infinite;
-}
-
-.motion-float-card {
-  animation: panel-float 8s ease-in-out infinite;
-  transform-style: preserve-3d;
-  will-change: transform;
-}
-
-.preview-scan-sweep {
-  position: absolute;
-  inset-block: -20%;
-  left: -35%;
-  width: 28%;
-  pointer-events: none;
-  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--brand) 18%, transparent), transparent);
-  animation: sweep-across 8s ease-in-out infinite;
-}
-
-.interactive-lift {
-  transition: transform 240ms ease, border-color 240ms ease, box-shadow 240ms ease, background-color 240ms ease;
-}
-
-.interactive-lift:hover {
-  transform: translateY(-4px);
-  border-color: color-mix(in oklab, var(--brand) 38%, var(--border));
-  box-shadow: 0 20px 45px -30px color-mix(in oklab, var(--brand) 45%, black);
-}
-
-.auth-panel-enter {
-  animation: auth-panel-in 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.auth-grid::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(circle at 15% 15%, color-mix(in oklab, var(--brand) 13%, transparent), transparent 38%);
-}
-
-.auth-grid > *:not(.auth-scan-line) {
-  position: relative;
-  z-index: 1;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .security-orb,
-  .hero-scan-beam,
-  .auth-scan-line,
-  .motion-float-card,
-  .preview-scan-sweep,
-  .auth-panel-enter {
-    animation: none !important;
-  }
-
-  .interactive-lift,
-  .interactive-lift:hover {
-    transform: none;
-    transition: none;
-  }
-}
-
-/* ---------------------------------------------------------------------------
-   Hero scan visual: a radar sweep over a faint code field, with ecosystem
-   badges around the perimeter and a finding surfacing inside the cone. All
-   motion is transform/opacity only so it stays off the layout path, and the
-   whole thing is decorative (aria-hidden); nothing here carries meaning that
-   isn't also stated in text.
---------------------------------------------------------------------------- */
-
-@keyframes hero-sweep {
-  0%   { transform: rotate(-32deg); }
-  50%  { transform: rotate(32deg); }
-  100% { transform: rotate(-32deg); }
-}
-
-@keyframes hero-ring-pulse {
-  0%   { transform: scale(0.82); opacity: 0; }
-  30%  { opacity: 0.55; }
-  100% { transform: scale(1.35); opacity: 0; }
-}
-
-@keyframes hero-badge-float {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-6px); }
-}
-
-@keyframes hero-finding-in {
-  0%   { opacity: 0; transform: translateY(8px) scale(0.97); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.hero-scan-cone {
-  /* Cone widening downward from the hub, pivoting at its apex. */
-  transform-origin: 50% 0%;
-  background: linear-gradient(
-    to bottom,
-    color-mix(in oklab, var(--brand) 42%, transparent) 0%,
-    color-mix(in oklab, var(--brand) 14%, transparent) 45%,
-    transparent 85%
-  );
-  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
-  animation: hero-sweep 7s ease-in-out infinite;
-}
-
-.hero-ring {
-  border: 1px solid color-mix(in oklab, var(--brand) 22%, transparent);
-  border-radius: 9999px;
-  animation: hero-ring-pulse 4.5s ease-out infinite;
-}
-
-.hero-badge {
-  animation: hero-badge-float 5s ease-in-out infinite;
-}
-
-.hero-finding {
-  animation: hero-finding-in 0.7s cubic-bezier(0.4, 0, 0.2, 1) 0.5s both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .hero-scan-cone,
-  .hero-ring,
-  .hero-badge,
-  .hero-finding {
-    animation: none !important;
-  }
-  /* Without the sweep the cone should still read as a beam, not a wedge
-     frozen mid-rotation. */
-  .hero-scan-cone { transform: rotate(0deg); }
-  .hero-ring { opacity: 0.35; transform: scale(1); }
 }
 
 /* --- Dashboard motion -----------------------------------------------------
-   Product-surface motion is deliberately quieter than the marketing hero:
-   short, one-shot, on mount only. Nothing loops, because a dashboard is a
-   place people read, and a looping animation in peripheral vision is a
-   permanent distraction. Every rule here degrades to a static end state
-   under prefers-reduced-motion. */
-
-@keyframes panel-rise {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes bar-grow-x {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
-}
+   Used by `shared/ui/severity-charts` inside the hero's dashboard preview.
+   Short, one-shot, on mount only, and static under prefers-reduced-motion. */
 
 @keyframes bar-grow-y {
   from { transform: scaleY(0); }
@@ -516,23 +227,6 @@
 @keyframes gauge-sweep {
   from { stroke-dashoffset: var(--gauge-circumference); }
   to { stroke-dashoffset: var(--gauge-offset); }
-}
-
-/* Applied to a grid/stack; children stagger by index via --i. */
-.panel-rise > * {
-  animation: panel-rise 0.45s cubic-bezier(0.4, 0, 0.2, 1) both;
-  animation-delay: calc(var(--i, 0) * 60ms);
-}
-
-.panel-rise-item {
-  animation: panel-rise 0.45s cubic-bezier(0.4, 0, 0.2, 1) both;
-  animation-delay: calc(var(--i, 0) * 60ms);
-}
-
-.bar-grow-x {
-  transform-origin: left center;
-  animation: bar-grow-x 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
-  animation-delay: calc(var(--i, 0) * 70ms);
 }
 
 .bar-grow-y {
@@ -546,9 +240,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .panel-rise > *,
-  .panel-rise-item,
-  .bar-grow-x,
   .bar-grow-y,
   .gauge-sweep {
     animation: none !important;
@@ -561,239 +252,297 @@
 /* ==========================================================================
    Marketing surface
    --------------------------------------------------------------------------
-   Scoped to `.marketing` so the signed-in app keeps its own tokens untouched.
-   Measured from the reference rather than guessed: paper #FDFFF8, ink #151414,
-   muted #5A5A5A, a pale panel at #F3F7EB and hairlines at #D1DECD. The two
-   details that carry most of the character are the square button (the
-   reference sets radius 0 on every real action and reserves the full pill for
-   chips) and the tight -0.03em tracking on body text at weight 500.
+   Folio's neutrals (measured, see the redesign brief): a grey-scale chrome
+   with no brand hue, so the only colour on the page is content - severity
+   chips, grades, data. Aevrin's green survives as --mk-accent for small marks.
 
-   Both themes are defined here because the header keeps its theme toggle: the
-   dark side inverts to ink-as-ground, which is what the reference itself does
-   for its full-bleed dark sections.
+   `.marketing` is set on <body> in the root layout, so every public route,
+   the fixed navbar and portalled menus all read these tokens. The app-level
+   tokens (--background, --card, --muted-foreground...) are re-pointed at them
+   here as well, so pages built from `shared/ui` (status, legal, CLI) land on
+   the same ground as the home page instead of the app's pure black.
    ========================================================================== */
 .marketing {
-  --mk-paper: #fdfff8;
-  --mk-ink: #151414;
-  --mk-muted: #5a5a5a;
-  --mk-panel: #f3f7eb;
-  --mk-raise: #ffffff;
-  --mk-line: #d1decd;
-  --mk-line-soft: #e4ebdf;
-  /* Inverse pair, for the deliberately dark bands inside a light page. */
-  --mk-invert-bg: #151414;
-  --mk-invert-fg: #fdfff8;
-  --mk-invert-muted: #9a9a94;
-  --mk-invert-line: #2e2d2c;
-  /* Section marker. The block set uses orange-600; this product's mark is
-     green, so the accent is green and orange appears nowhere. --mk-accent is
-     the solid fill (hover tiles, rails) and always carries
-     --mk-accent-contrast on top of it; --mk-accent-chart is the series colour,
-     tuned per theme so it reads on --mk-panel either way. */
+  --mk-bg: #ffffff;
+  --mk-surface: #ffffff;
+  --mk-surface-2: #f5f5f5;
+  --mk-hover: #f5f5f5;
+  --mk-fg: #171717;
+  --mk-fg-strong: #171717;
+  /* 4.7:1 on #fff and 4.5:1 on --mk-illustration, but only 4.3:1 on
+     --mk-surface-2: muted text never sits on --mk-surface-2 in light. */
+  --mk-muted: #737373;
+  --mk-line: #e6e6e6;
+  --mk-line-strong: #e6e6e6;
+  --mk-illustration: #fafafa;
+  --mk-ring: #171717;
+  --mk-primary: #171717;
+  --mk-primary-fg: #ffffff;
+  --mk-dot: rgb(23 23 23 / 0.06);
   --mk-accent: #15803d;
-  --mk-accent-contrast: #ffffff;
-  --mk-accent-chart: #2f9e68;
+  --mk-accent-ring: conic-gradient(from 0deg, transparent 0%, transparent 70%, #15803d 85%, #34d399 95%, transparent 100%);
+  --mk-shadow-frame: 0 2px 6px rgb(28 40 64 / 0.06), 0 6px 20px -2px rgb(28 40 64 / 0.08);
+  --mk-radius-btn: 6px;
+  --mk-radius-frame: 12px;
+  --mk-radius-card: 16px;
+  --mk-radius-shell: 24px;
+  --mk-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --mk-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 
-  background: var(--mk-paper);
-  color: var(--mk-ink);
-  font-weight: 500;
-  letter-spacing: -0.03em;
+  /* The app tokens, on the same ground. */
+  --background: var(--mk-bg);
+  --foreground: var(--mk-fg);
+  --card: var(--mk-surface);
+  --card-foreground: var(--mk-fg);
+  --popover: var(--mk-surface);
+  --popover-foreground: var(--mk-fg);
+  --primary: var(--mk-primary);
+  --primary-foreground: var(--mk-primary-fg);
+  --secondary: var(--mk-surface-2);
+  --secondary-foreground: var(--mk-fg);
+  --muted: var(--mk-surface-2);
+  --muted-foreground: var(--mk-muted);
+  --accent: var(--mk-hover);
+  --accent-foreground: var(--mk-fg);
+  --border: var(--mk-line);
+  /* The dashboard preview's sidebar (Folio's in-mockup sidebar). */
+  --sidebar: #ffffff;
+  --radius: 0.5rem;
+
+  background: var(--mk-bg);
+  color: var(--mk-fg);
 }
 
 .dark .marketing {
-  --mk-paper: #151414;
-  --mk-ink: #fdfff8;
-  --mk-muted: #9a9a94;
-  --mk-panel: #1c1b1b;
-  --mk-raise: #201f1f;
-  --mk-line: #2e2d2c;
-  --mk-line-soft: #232222;
-  /* Inverted again, so a band that is dark-on-light in the light theme
-     becomes light-on-dark here instead of disappearing into the page. */
-  --mk-invert-bg: #f3f7eb;
-  --mk-invert-fg: #151414;
-  --mk-invert-muted: #5a5a5a;
-  --mk-invert-line: #d1decd;
+  --mk-bg: #121212;
+  --mk-surface: #191919;
+  --mk-surface-2: #212121;
+  --mk-hover: #2b2b2b;
+  --mk-fg: #ebebeb;
+  --mk-fg-strong: #fafafa;
+  --mk-muted: #9b9b9b;
+  --mk-line: #242424;
+  --mk-line-strong: #2e2e2e;
+  --mk-illustration: #1a1a1a;
+  --mk-ring: #8c8c8c;
+  --mk-primary: #fafafa;
+  --mk-primary-fg: #171717;
+  --mk-dot: rgb(235 235 235 / 0.06);
   --mk-accent: #34d399;
-  --mk-accent-contrast: #0a0a0a;
-  --mk-accent-chart: #34d399;
+  --mk-shadow-frame: 0 2px 6px rgb(0 0 0 / 0.4), 0 6px 20px -2px rgb(0 0 0 / 0.5);
+  --sidebar: #0a0a0a;
+}
+
+html {
+  /* Anchor jumps (#pricing, the FAQ index) land below the fixed navbar. */
+  scroll-padding-top: 5.5rem;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
 }
 
 @layer components {
-  /* Display face. The reference sets its headline at 64px / weight 300 with
-     -0.03em; Instrument Serif is a touch lighter on the page at 400, so the
-     weight stays there and only the tracking is matched. */
-  .mk-display {
+  /* 1280px column: 16px gutters on a phone, 24px from 768, 32px from 1024. */
+  .mk-container {
+    width: 100%;
+    max-width: 80rem;
+    margin-inline: auto;
+    padding-inline: 1rem;
+  }
+  .mk-section {
+    padding-block: 4rem;
+  }
+  @media (min-width: 48rem) {
+    .mk-container { padding-inline: 1.5rem; }
+    .mk-section { padding-block: 7rem; }
+  }
+  @media (min-width: 64rem) {
+    .mk-container { padding-inline: 2rem; }
+  }
+
+  /* Serif for statements only (h1, h2); everything else is Geist. Source
+     Serif 4 is set at its 60pt optical size, which is what gives it the
+     tight, heavy headline cut rather than its bookish text cut. */
+  .mk-display,
+  .mk-h2,
+  .mk-h2-xl {
     font-family: var(--font-display), ui-serif, Georgia, serif;
-    font-weight: 400;
-    font-size: clamp(2.5rem, 5.6vw, 4rem);
-    line-height: 1.08;
-    letter-spacing: -0.03em;
+    font-variation-settings: "opsz" 60;
+    color: var(--mk-fg-strong);
     text-wrap: balance;
+  }
+  .mk-display {
+    font-weight: 600;
+    font-size: 2.25rem;
+    line-height: 2.5rem;
+    letter-spacing: -0.01em;
   }
   .mk-h2 {
-    font-family: var(--font-display), ui-serif, Georgia, serif;
-    font-weight: 400;
-    font-size: clamp(2rem, 3.6vw, 3.25rem);
-    line-height: 1.04;
-    letter-spacing: -0.03em;
-    text-wrap: balance;
+    font-weight: 700;
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+    letter-spacing: -0.025em;
   }
+  .mk-h2-xl {
+    font-weight: 700;
+    font-size: 3rem;
+    line-height: 1;
+    letter-spacing: -0.025em;
+  }
+  @media (min-width: 40rem) {
+    .mk-display { font-size: 3rem; line-height: 3rem; }
+  }
+  @media (min-width: 48rem) {
+    .mk-h2 { font-size: 3rem; line-height: 3rem; }
+    .mk-h2-xl { font-size: 3.75rem; }
+  }
+  @media (min-width: 64rem) {
+    .mk-display { font-size: 3.75rem; line-height: 3.75rem; }
+    .mk-h2-xl { font-size: 4.5rem; }
+  }
+
   .mk-h3 {
-    font-family: var(--font-display), ui-serif, Georgia, serif;
-    font-weight: 400;
-    font-size: clamp(1.35rem, 1.8vw, 1.75rem);
-    line-height: 1.15;
-    letter-spacing: -0.02em;
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 1.125rem;
+    line-height: 1.25;
+    color: var(--mk-fg-strong);
   }
   .mk-lede {
     font-size: 1.125rem;
-    line-height: 1.4;
-    letter-spacing: -0.03em;
+    line-height: 1.75rem;
     color: var(--mk-muted);
     text-wrap: pretty;
   }
+  @media (min-width: 64rem) {
+    .mk-lede { font-size: 1.25rem; }
+  }
+  .mk-eyebrow {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 11px;
+    line-height: 16.5px;
+    font-weight: 400;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--mk-muted);
+  }
 
-  /* Square, 14px, weight 600: the reference's one true action. */
+  /* Small, quiet controls: 36px at 6px radius, one solid per area. */
   .mk-btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 0.5rem;
-    padding: 1rem 1.1rem 1rem 1.3rem;
+    height: 2.25rem;
+    padding-inline: 1rem;
+    border-radius: var(--mk-radius-btn);
+    border: 1px solid transparent;
     font-size: 0.875rem;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    border-radius: 0;
-    transition: opacity 0.15s ease, background-color 0.15s ease;
+    line-height: 1.25rem;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background-color 150ms var(--mk-ease), border-color 150ms var(--mk-ease),
+      color 150ms var(--mk-ease), box-shadow 150ms var(--mk-ease);
+    outline: none;
+  }
+  .mk-btn:focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--mk-ring) 50%, transparent);
+  }
+  .mk-btn-sm {
+    height: 2rem;
+    padding-inline: 0.75rem;
   }
   .mk-btn-solid {
-    background: var(--mk-ink);
-    color: var(--mk-paper);
+    background: var(--mk-primary);
+    color: var(--mk-primary-fg);
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   }
-  .mk-btn-solid:hover { opacity: 0.85; }
-  .mk-btn-ghost {
-    border: 1px solid var(--mk-line);
-    color: var(--mk-ink);
+  .mk-btn-solid:hover {
+    background: color-mix(in oklab, var(--mk-primary) 90%, transparent);
   }
-  .mk-btn-ghost:hover { background: var(--mk-panel); }
+  .mk-btn-outline {
+    background: var(--mk-bg);
+    border-color: var(--mk-line);
+    color: var(--mk-fg);
+  }
+  .dark .mk-btn-outline {
+    background: rgb(255 255 255 / 0.03);
+  }
+  .mk-btn-outline:hover,
+  .dark .mk-btn-outline:hover {
+    background: var(--mk-hover);
+  }
+  .mk-btn-pill {
+    height: 2.5rem;
+    padding-inline: 1.5rem;
+    border-radius: 9999px;
+  }
 
-  /* Chips are the one place the reference goes fully round. */
+  /* The hero's category chips: the one place besides badges that goes round. */
   .mk-chip {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
     border-radius: 9999px;
-    padding: 0.4rem 0.9rem;
+    padding: 0.375rem 0.875rem;
     font-size: 0.8125rem;
-    font-weight: 600;
-    letter-spacing: -0.02em;
+    font-weight: 500;
     white-space: nowrap;
   }
 
-  .mk-mono {
-    font-family: var(--font-mono), ui-monospace, monospace;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--mk-muted);
+  /* Folio's card ground: a 14px dot grid at 6% of the foreground. */
+  .mk-dots {
+    background-image: radial-gradient(var(--mk-dot) 1px, transparent 0);
+    background-size: 14px 14px;
   }
 }
 
-/* --------------------------------------------------------------------------
-   Pricing: layered subscription glass
-   --------------------------------------------------------------------------
-   From the `subscription-details` block. Plans are distinguished by surface
-   rather than outline: unfeatured tiers sit on a soft panel behind a 2px
-   dashed border, and the featured tier is a solid ink slab carrying the
-   blurred orange-to-pink glow, a rotated translucent pane and the layered
-   sm-to-2xl shadow stack. The glow and pane are rendered in the component
-   itself, since they are elements rather than paint.
-
-   Applied globally, not scoped to `.marketing`: the pricing section is the
-   same section on `/` and on `/pricing`, and giving it two different designs
-   depending on which page it was mounted on is worse than either design.
-   -------------------------------------------------------------------------- */
-.plan-card {
-  background: var(--muted);
-  border: 2px dashed var(--border);
-  border-radius: 1rem;
-  padding: 28px 28px 32px;
-  box-shadow: none;
+/* Announcement pill: a 1px conic ring turning behind a pill of page colour.
+   The only loop on the site, and it stops under reduced motion. */
+@keyframes mk-spin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
 }
-.dark .plan-card {
-  border-color: var(--input);
+.mk-ring-spin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 130%;
+  aspect-ratio: 1;
+  background: var(--mk-accent-ring);
+  transform: translate(-50%, -50%);
+  animation: mk-spin 3s linear infinite;
 }
 
-.plan-card-featured {
-  /* Ink in both themes, as the source has it. In the dark theme the glow and
-     the shadow stack are what separate it from the page. */
-  background: #0a0a0a;
-  color: #ffffff;
-  border: 0;
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.08),
-    0 4px 8px rgb(0 0 0 / 0.10),
-    0 10px 20px rgb(0 0 0 / 0.12),
-    0 20px 44px rgb(0 0 0 / 0.18);
+/* Entrance on first view, driven by `shared/ui/reveal`. The hidden state is
+   only ever applied from script, to an element that is below the fold at
+   mount, so the static HTML (no JS, print, a crawler) is always visible. */
+.mk-reveal[data-reveal] {
+  transition: opacity 700ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--reveal-delay, 0ms);
 }
-.dark .plan-card-featured {
-  box-shadow:
-    0 0 0 1px rgb(255 255 255 / 0.08),
-    0 20px 44px rgb(0 0 0 / 0.55);
+.mk-reveal[data-reveal="hidden"] {
+  opacity: 0;
+  transform: translateY(24px);
 }
 
-/* Inside the ink slab the muted and border tokens have to flip, or every
-   secondary line falls to roughly 1.5:1 against it. */
-.plan-card-featured :where(.text-muted-foreground) {
-  color: oklch(0.75 0 0) !important;
+@media (prefers-reduced-motion: reduce) {
+  .mk-ring-spin { animation: none; }
+  .mk-reveal[data-reveal],
+  .mk-reveal[data-reveal="hidden"] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }
-.plan-card-featured :where(svg) {
-  color: #ffffff;
-}
-.plan-card-featured :where(.border-border, hr) {
-  border-color: rgb(255 255 255 / 0.18) !important;
-}
-
-/* The card's own action inverts with it: ink slab, paper button. The button
-   is styled with utilities rather than a `.plan-cta` class, so this targets
-   the element; left alone it renders `bg-primary`, which in the light theme
-   is the same ink as the slab it sits on. */
-.plan-card-featured :where(button, a) {
-  background: #ffffff !important;
-  color: #0a0a0a !important;
-  --tw-ring-color: transparent;
-  box-shadow: 0 4px 12px rgb(0 0 0 / 0.25);
-}
-.plan-card-featured :where(button, a):active {
-  scale: 0.97;
+@media print {
+  .mk-reveal[data-reveal="hidden"] {
+    opacity: 1;
+    transform: none;
+  }
 }
 
-.marketing .plan-card {
-  background: var(--mk-panel);
-  border-color: var(--mk-line);
-  color: var(--mk-ink);
-}
-/* Needed because the rule above is one class more specific than
-   `.plan-card-featured`, so without it the marketing panel repainted the ink
-   slab and the featured card came back light, taking its white pill and white
-   button with it. */
-.marketing .plan-card-featured {
-  background: #0a0a0a;
-  color: #ffffff;
-  border: 0;
-}
-.marketing .plan-name,
-.marketing .plan-price {
-  font-family: var(--font-display), ui-serif, Georgia, serif;
-}
-
-/* NumberFlow renders its own inline-block wrapper; without this the price
-   baseline drifts away from the "/month" beside it. */
-.plan-price {
-  display: inline-block;
-  vertical-align: baseline;
-}
 
 /* The dashboard preview, scrubbed by scroll rather than played on a clock.
  *

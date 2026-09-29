@@ -8,7 +8,9 @@ import github from "thesvg/github";
 import gitlab from "thesvg/gitlab";
 import google from "thesvg/google";
 import googleCloud from "thesvg/google-cloud";
+import googleGemini from "thesvg/google-gemini";
 import graphql from "thesvg/graphql";
+import groq from "thesvg/groq";
 import jira from "thesvg/jira";
 import kubernetes from "thesvg/kubernetes";
 import mongodb from "thesvg/mongodb";
@@ -58,10 +60,12 @@ const BRANDS = {
   discord,
   docker,
   gcp: googleCloud,
+  gemini: googleGemini,
   github,
   gitlab,
   google,
   graphql,
+  groq,
   jira,
   kubernetes,
   mongodb,

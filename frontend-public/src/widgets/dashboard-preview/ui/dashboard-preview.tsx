@@ -132,8 +132,10 @@ export function DashboardPreview({
   return (
     <div
       aria-hidden="true"
-      className={`preview-scrub pointer-events-none select-none overflow-hidden rounded-xl border border-border bg-background text-foreground shadow-2xl shadow-black/25 ${className}`}
-      style={{ ["--reveal" as string]: t }}
+      className={`preview-scrub pointer-events-none select-none overflow-hidden rounded-xl border border-border bg-background text-foreground ${className}`}
+      // Folio's product-frame shadow (globals.css), which lifts only real
+      // product frames; everything else on the page is hairlines.
+      style={{ ["--reveal" as string]: t, boxShadow: "var(--mk-shadow-frame)" }}
     >
       <div className="flex min-h-[420px]">
         {/* Sidebar */}

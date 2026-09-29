@@ -9,10 +9,10 @@ export function CliPage() {
     <div>
       <section className="border-b border-border/80 bg-muted/10">
         <div className="mx-auto max-w-5xl px-6 py-20 text-center sm:py-24">
-          <div className="mx-auto flex size-12 items-center justify-center rounded-xl border border-brand/25 bg-brand/10">
-            <TerminalSquare className="size-5 text-brand-text" />
+          <div className="mx-auto flex size-12 items-center justify-center rounded-xl border border-border bg-card">
+            <TerminalSquare className="size-5 text-foreground" aria-hidden="true" />
           </div>
-          <h1 className="mt-6 text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
+          <h1 className="mk-display mt-6">
             Install, authenticate, and run Aevrin from your terminal.
           </h1>
           <p className="mx-auto mt-5 max-w-3xl text-base leading-8 text-muted-foreground sm:text-lg">
@@ -35,8 +35,8 @@ export function CliPage() {
               { icon: Gauge, title: "Dashboard", body: "History, usage, scan sources, findings, false positives, and exports." },
               { icon: Braces, title: "API and hooks", body: "Endpoint contracts, hook cache decisions, overrides, auth, and safe execution." },
             ].map((item) => (
-              <div key={item.title} className="rounded-xl border border-border/80 bg-background/85 p-5">
-                <item.icon className="size-5 text-brand-text" />
+              <div key={item.title} className="rounded-xl border border-border bg-card p-5">
+                <item.icon className="size-5 text-foreground" aria-hidden="true" />
                 <h2 className="mt-4 font-medium text-foreground">{item.title}</h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.body}</p>
               </div>

@@ -1,0 +1,373 @@
+/* Solution blocks 01-03. Colours come from the `--mk-*` marketing tokens;
+   the few local values below exist because a token pairing failed contrast:
+   --mk-muted (#737373) on --mk-surface-2 (#f5f5f5) is 4.4:1 in the light
+   theme, under AA for the 12px text these mockups use. */
+
+.root {
+  --sb-dim: #5e5e5e;
+  --sb-chip: rgb(23 23 23 / 0.05);
+  --sb-highlight: rgb(23 23 23 / 0.045);
+  --sb-glow: rgb(21 128 61 / 0.22);
+  --sb-ok: #15803d;
+  --sb-warn: #a16207;
+  --sb-bad: #b91c1c;
+  --sb-code: #fafafa;
+}
+
+:global(.dark) .root {
+  --sb-dim: #a3a3a3;
+  --sb-chip: rgb(235 235 235 / 0.06);
+  --sb-highlight: rgb(235 235 235 / 0.05);
+  --sb-glow: rgb(52 211 153 / 0.2);
+  --sb-ok: #34d399;
+  --sb-warn: #fbbf24;
+  --sb-bad: #f87171;
+  --sb-code: #141414;
+}
+
+/* ---------- block layout ---------- */
+
+h3.title {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 700;
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  letter-spacing: -0.025em;
+  font-variation-settings: "opsz" 60;
+  text-wrap: balance;
+  color: var(--mk-fg-strong);
+}
+
+@media (min-width: 768px) {
+  h3.title {
+    font-size: 2.5rem;
+    line-height: 2.75rem;
+  }
+}
+
+p.eyebrow {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--mk-muted);
+  white-space: pre;
+}
+
+@media (min-width: 640px) {
+  p.eyebrow {
+    font-size: 11px;
+  }
+}
+
+.body {
+  color: var(--mk-muted);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+}
+
+.seeLink {
+  color: var(--mk-muted);
+  transition: color 150ms var(--mk-ease);
+  border-radius: 4px;
+}
+
+.seeLink:hover {
+  color: var(--mk-fg);
+}
+
+.focusRing:focus-visible,
+.seeLink:focus-visible {
+  outline: 2px solid var(--mk-ring);
+  outline-offset: 2px;
+}
+
+/* ---------- tile and surfaces ---------- */
+
+.tile {
+  position: relative;
+  border-radius: var(--mk-radius-shell, 24px);
+  border: 1px solid var(--mk-line);
+  background-color: var(--mk-illustration);
+  background-image: radial-gradient(var(--mk-dot) 1px, transparent 0);
+  background-size: 14px 14px;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.panel {
+  background: var(--mk-surface);
+  border: 1px solid var(--mk-line-strong);
+  border-radius: 14px;
+  box-shadow: var(--mk-shadow-frame);
+}
+
+.inset {
+  background: var(--mk-surface-2);
+  border: 1px solid var(--mk-line);
+  border-radius: 10px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  border: 1px solid var(--mk-line);
+  background: var(--sb-chip);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--mk-fg);
+  white-space: nowrap;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 5px;
+  border: 1px solid var(--mk-line-strong);
+  background: var(--mk-surface);
+  box-shadow: 0 1px 0 var(--mk-line-strong);
+  color: var(--mk-fg);
+}
+
+.mono {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+.dim {
+  color: var(--sb-dim);
+}
+
+.code {
+  background: var(--sb-code);
+  border: 1px solid var(--mk-line);
+  border-radius: 10px;
+}
+
+.row[data-active="true"] {
+  background: var(--sb-highlight);
+}
+
+.ok {
+  color: var(--sb-ok);
+}
+
+.warn {
+  color: var(--sb-warn);
+}
+
+.bad {
+  color: var(--sb-bad);
+}
+
+/* Severity marks always sit beside a written severity, so colour is never
+   the only signal. */
+.sev {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex: none;
+}
+
+.sev[data-sev="critical"] { background: var(--severity-critical); }
+.sev[data-sev="high"] { background: var(--severity-high); }
+.sev[data-sev="medium"] { background: var(--severity-medium); }
+.sev[data-sev="low"] { background: var(--severity-low); }
+.sev[data-sev="info"] { background: var(--mk-muted); }
+
+/* ---------- motion ---------- */
+
+.enter {
+  transition:
+    opacity 900ms var(--mk-ease-out-expo),
+    transform 900ms var(--mk-ease-out-expo);
+}
+
+.enter[data-state="hidden"] {
+  opacity: 0;
+  transform: translate3d(0, 22px, 0) scale(0.975);
+}
+
+.step {
+  transition:
+    opacity 480ms var(--mk-ease-out-expo),
+    transform 480ms var(--mk-ease-out-expo);
+}
+
+.step[data-on="false"] {
+  opacity: 0;
+  transform: translate3d(0, 8px, 0);
+}
+
+.stepSide[data-on="false"] {
+  opacity: 0;
+  transform: translate3d(18px, 0, 0);
+}
+
+.pop {
+  transition:
+    opacity 320ms var(--mk-ease),
+    transform 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pop[data-on="false"] {
+  opacity: 0;
+  transform: scale(0.85);
+}
+
+.fade {
+  transition: opacity 400ms var(--mk-ease);
+}
+
+.bar {
+  transform-origin: left center;
+  transition: transform 700ms var(--mk-ease-out-expo);
+}
+
+.caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 1.05em;
+  margin-left: 1px;
+  vertical-align: -0.15em;
+  background: currentColor;
+}
+
+.caret[data-live="true"] {
+  animation: blink 1.1s steps(1, end) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- 03 routing tree ---------- */
+
+.node {
+  transition:
+    opacity 360ms var(--mk-ease),
+    transform 420ms var(--mk-ease-out-expo),
+    box-shadow 360ms var(--mk-ease),
+    border-color 360ms var(--mk-ease);
+}
+
+.node[data-lit="false"] {
+  opacity: 0.5;
+}
+
+.node[data-lit="true"] {
+  border-color: var(--mk-fg);
+  box-shadow: 0 0 0 4px var(--sb-glow), var(--mk-shadow-frame);
+}
+
+.wire {
+  transform-origin: top center;
+  transition: transform 520ms var(--mk-ease-out-expo);
+}
+
+.wire[data-on="false"] {
+  transform: scaleY(0);
+}
+
+.branchLit {
+  transition: opacity 420ms var(--mk-ease);
+}
+
+.outcome {
+  transition:
+    background-color 150ms var(--mk-ease),
+    border-color 150ms var(--mk-ease);
+  border: 1px solid transparent;
+}
+
+.outcome:hover {
+  background: var(--mk-hover);
+}
+
+.outcome[aria-pressed="true"] {
+  background: var(--mk-surface);
+  border-color: var(--mk-line-strong);
+}
+
+.segment {
+  transition:
+    background-color 150ms var(--mk-ease),
+    color 150ms var(--mk-ease);
+  color: var(--sb-dim);
+}
+
+.segment:hover {
+  color: var(--mk-fg);
+}
+
+.segment[aria-pressed="true"] {
+  background: var(--mk-surface);
+  color: var(--mk-fg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+
+.provider {
+  transition:
+    border-color 150ms var(--mk-ease),
+    background-color 150ms var(--mk-ease);
+}
+
+.provider:hover {
+  background: var(--mk-hover);
+}
+
+.provider[aria-pressed="true"] {
+  border-color: var(--mk-fg);
+  background: var(--mk-surface);
+}
+
+.swap {
+  animation: swap 360ms var(--mk-ease-out-expo);
+}
+
+@keyframes swap {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter,
+  .step,
+  .stepSide,
+  .pop,
+  .fade,
+  .bar,
+  .node,
+  .wire,
+  .branchLit {
+    transition: none !important;
+  }
+
+  .caret[data-live="true"],
+  .spin,
+  .swap {
+    animation: none !important;
+  }
+}
