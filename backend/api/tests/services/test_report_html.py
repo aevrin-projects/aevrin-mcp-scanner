@@ -52,8 +52,6 @@ def finding(**over: Any) -> dict[str, Any]:
         "manifest_field": None,
         "remediation": "Use execFile.",
         "triage_status": "open",
-        "not_tested": False,
-        "excluded_path": False,
         "in_kev": False,
         "epss_score": None,
     }

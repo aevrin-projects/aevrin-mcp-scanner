@@ -24,6 +24,7 @@ import { Badge } from "@/shared/ui/badge";
 import { spring } from "@/lib/springs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
+import { BulkPublishControl } from "./bulk-publish-control";
 import { CategoryManager } from "./category-manager";
 
 /**
@@ -53,6 +54,18 @@ type Row = Record<string, unknown> & {
   item_type: ItemType;
 };
 
+type PanelName = "items" | "suggestions" | "reports";
+
+/** The result of the last row action, shown in the panel it was taken in. */
+interface Outcome {
+  panel: PanelName;
+  tone: "success" | "error";
+  text: string;
+  /** On a refused publish or approval: the item's editor, where the missing
+   *  field can be added before trying again. */
+  editHref?: string;
+}
+
 const STATUS_COLORS: Record<string, string> = {
   published: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
   review: "bg-amber-500/12 text-amber-700 dark:text-amber-400 border-amber-500/20",
@@ -69,7 +82,7 @@ export function AdminMarketplacePage() {
   const [reports, setReports] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
@@ -122,14 +135,29 @@ export function AdminMarketplacePage() {
     };
   }, [fetchAll, reloadToken]);
 
-  async function act(id: string, fn: () => Promise<unknown>, describe: (r: unknown) => string) {
+  // The result used to go to a toast at the top of the page, far above the
+  // Suggestions and Reports panels, so a refused approval looked like a
+  // button that did nothing. It now appears in the panel the action was
+  // taken in, in that panel's live region, naming the item.
+  async function act(
+    id: string,
+    target: { panel: PanelName; label: string; editHref?: string },
+    fn: () => Promise<unknown>,
+    success: string,
+  ) {
     setBusyId(id);
-    setMessage(null);
+    setOutcome(null);
     try {
-      setMessage(describe(await fn()));
+      await fn();
+      setOutcome({ panel: target.panel, tone: "success", text: `${target.label}: ${success}` });
       setReloadToken((n) => n + 1);
     } catch (error) {
-      setMessage(error instanceof ApiError ? error.message : "That action failed.");
+      setOutcome({
+        panel: target.panel,
+        tone: "error",
+        text: `${target.label}: ${error instanceof ApiError ? error.message : "that action failed."}`,
+        editHref: target.editHref,
+      });
     } finally {
       setBusyId(null);
     }
@@ -163,10 +191,13 @@ export function AdminMarketplacePage() {
           title="Registry"
           description="Every item in every state, suggestions, reports, and categories."
           actions={
-            <Link href="/admin/marketplace/new" className={buttonVariants({ size: "sm" })}>
-              <Plus className="size-4" aria-hidden="true" />
-              New item
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <BulkPublishControl onPublished={() => setReloadToken((n) => n + 1)} />
+              <Link href="/admin/marketplace/new" className={buttonVariants({ size: "sm" })}>
+                <Plus className="size-4" aria-hidden="true" />
+                New item
+              </Link>
+            </div>
           }
         />
 
@@ -184,22 +215,6 @@ export function AdminMarketplacePage() {
             <MetricCard label="Other types" value={String(summary.total - (summary.types.mcp_server ?? 0))} />
           </motion.div>
         ) : null}
-
-        {/* Toast-style message */}
-        <AnimatePresence mode="wait">
-          {message ? (
-            <motion.div
-              key={message}
-              className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm"
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={spring.fast}
-            >
-              {message}
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
 
         {/* Top row: Add server + quick stats side-by-side on wider screens */}
         <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
@@ -273,6 +288,8 @@ export function AdminMarketplacePage() {
             </div>
           </PanelHeader>
 
+          <ActionOutcome panel="items" outcome={outcome} />
+
           <PanelBody className="p-0">
             {rows.length === 0 ? (
               <div className="px-5 py-4">
@@ -324,8 +341,9 @@ export function AdminMarketplacePage() {
                                   onClick={() =>
                                     void act(
                                       row.id,
+                                      { panel: "items", label: row.title },
                                       () => marketplaceAdminApi.setStatus(row.id, "draft", "restored"),
-                                      () => "Restored to draft.",
+                                      "restored to draft.",
                                     )
                                   }
                                 >
@@ -339,13 +357,14 @@ export function AdminMarketplacePage() {
                                   onClick={() =>
                                     void act(
                                       row.id,
+                                      { panel: "items", label: row.title },
                                       () =>
                                         marketplaceAdminApi.setStatus(
                                           row.id,
                                           "draft",
                                           "unpublished by an administrator",
                                         ),
-                                      () => "Unpublished. It is a draft again.",
+                                      "unpublished. It is a draft again.",
                                     )
                                   }
                                 >
@@ -359,8 +378,13 @@ export function AdminMarketplacePage() {
                                   onClick={() =>
                                     void act(
                                       row.id,
+                                      {
+                                        panel: "items",
+                                        label: row.title,
+                                        editHref: `/admin/marketplace/${row.id}`,
+                                      },
                                       () => marketplaceAdminApi.setStatus(row.id, "published"),
-                                      () => "Published.",
+                                      "published.",
                                     )
                                   }
                                 >
@@ -377,8 +401,9 @@ export function AdminMarketplacePage() {
                                   onClick={() =>
                                     void act(
                                       row.id,
+                                      { panel: "items", label: row.title },
                                       () => marketplaceAdminApi.setStatus(row.id, "archived", "archived"),
-                                      () => "Archived.",
+                                      "archived.",
                                     )
                                   }
                                 >
@@ -439,6 +464,7 @@ export function AdminMarketplacePage() {
                 </Badge>
               ) : null}
             </PanelHeader>
+            <ActionOutcome panel="suggestions" outcome={outcome} />
             <PanelBody className="p-0">
               {submissions.length === 0 ? (
                 <div className="px-5 py-4">
@@ -450,15 +476,20 @@ export function AdminMarketplacePage() {
                     {submissions.map((submission) => {
                       const id = String(submission.id);
                       const listing = submission.listing as Record<string, unknown> | null;
+                      const label = (listing?.title as string) ?? String(submission.source_url);
+                      const listingId = submission.listing_id ? String(submission.listing_id) : null;
+                      const target = {
+                        panel: "suggestions" as const,
+                        label,
+                        editHref: listingId ? `/admin/marketplace/${listingId}` : undefined,
+                      };
                       return (
                         <div
                           key={id}
                           className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3"
                         >
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium">
-                              {(listing?.title as string) ?? String(submission.source_url)}
-                            </p>
+                            <p className="truncate text-sm font-medium">{label}</p>
                             <p className="truncate text-xs text-muted-foreground">
                               {String(submission.source_url)}
                             </p>
@@ -473,8 +504,9 @@ export function AdminMarketplacePage() {
                               onClick={() =>
                                 void act(
                                   id,
+                                  target,
                                   () => marketplaceAdminApi.decideSubmission(id, "approved"),
-                                  () => "Approved and published.",
+                                  "approved and published.",
                                 )
                               }
                             >
@@ -492,13 +524,14 @@ export function AdminMarketplacePage() {
                               onClick={() =>
                                 void act(
                                   id,
+                                  target,
                                   () =>
                                     marketplaceAdminApi.decideSubmission(
                                       id,
                                       "rejected",
                                       "did not meet the registry's criteria",
                                     ),
-                                  () => "Rejected.",
+                                  "rejected.",
                                 )
                               }
                             >
@@ -524,6 +557,7 @@ export function AdminMarketplacePage() {
                 </Badge>
               ) : null}
             </PanelHeader>
+            <ActionOutcome panel="reports" outcome={outcome} />
             <PanelBody className="p-0">
               {reports.length === 0 ? (
                 <div className="px-5 py-4">
@@ -535,6 +569,10 @@ export function AdminMarketplacePage() {
                     {reports.map((report) => {
                       const id = String(report.id);
                       const listing = report.listing as Record<string, unknown> | null;
+                      const target = {
+                        panel: "reports" as const,
+                        label: `Report on ${(listing?.title as string) ?? "an unknown listing"}`,
+                      };
                       return (
                         <div
                           key={id}
@@ -559,8 +597,9 @@ export function AdminMarketplacePage() {
                               onClick={() =>
                                 void act(
                                   id,
+                                  target,
                                   () => marketplaceAdminApi.resolveReport(id, "dismissed"),
-                                  () => "Dismissed.",
+                                  "dismissed.",
                                 )
                               }
                             >
@@ -572,8 +611,9 @@ export function AdminMarketplacePage() {
                               onClick={() =>
                                 void act(
                                   id,
+                                  target,
                                   () => marketplaceAdminApi.resolveReport(id, "actioned"),
-                                  () => "Marked actioned.",
+                                  "marked actioned.",
                                 )
                               }
                             >
@@ -594,5 +634,38 @@ export function AdminMarketplacePage() {
         </div>
       </div>
     </MotionConfig>
+  );
+}
+
+/**
+ * A panel's live region. Always mounted, so a screen reader announces the
+ * text when it appears; empty unless the last action was taken in this panel,
+ * so a result is announced once, in one place.
+ */
+function ActionOutcome({ panel, outcome }: { panel: PanelName; outcome: Outcome | null }) {
+  const mine = outcome?.panel === panel ? outcome : null;
+  return (
+    <div role="status" aria-live="polite" className={mine ? "border-b border-border px-5 py-3" : undefined}>
+      {mine ? (
+        <p
+          className={
+            mine.tone === "error"
+              ? "text-sm text-rose-700 dark:text-rose-300"
+              : "text-sm text-emerald-700 dark:text-emerald-400"
+          }
+        >
+          <span className="font-medium">{mine.tone === "error" ? "Not done. " : "Done. "}</span>
+          {mine.text}
+          {mine.tone === "error" && mine.editHref ? (
+            <>
+              {" "}
+              <Link href={mine.editHref} className="font-medium underline underline-offset-2">
+                Edit
+              </Link>
+            </>
+          ) : null}
+        </p>
+      ) : null}
+    </div>
   );
 }

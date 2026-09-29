@@ -25,6 +25,7 @@ from aevrin_api.schemas.marketplace import (
     AdminLinksRequest,
     AdminListingPatch,
     AdminStatusRequest,
+    BulkPublishResult,
     CategoryRequest,
     ReportDecisionRequest,
     SubmissionDecisionRequest,
@@ -171,6 +172,37 @@ async def refresh_metadata(
     """Re-read the repository's own signals and README. Never touches the
     title, description, tags, categories or content an administrator wrote."""
     return await ctl.admin_refresh_metadata(db, settings, listing_id=listing_id, admin=admin)
+
+
+@router.get("/bulk-publish", response_model=BulkPublishResult)
+async def preview_bulk_publish(
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    admin: Annotated[AdminIdentity, Depends(admin_identity)],
+) -> Any:
+    """What "Publish qualifying drafts" would publish, and why the rest would
+    stay drafts. Writes nothing.
+
+    A qualifying draft is a public MCP server the registry sync brought in,
+    with at least 10 GitHub stars or 1,000 npm downloads last month, that
+    passes the publish gate, and whose repository has no published listing;
+    of several drafts for one repository, only the most-starred qualifies.
+    """
+    return await ctl.admin_bulk_publish(db, admin=admin, dry_run=True)
+
+
+@router.post("/bulk-publish", response_model=BulkPublishResult)
+async def bulk_publish(
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    admin: Annotated[AdminIdentity, Depends(admin_identity)],
+) -> Any:
+    """Publish the qualifying drafts (see the preview), at most 500 per call.
+
+    The criteria are recomputed here, not taken from the preview. Every item
+    goes through the publish gate and gets its own timeline event and audit
+    row; one more audit row (`registry.bulk_publish`) records the bar applied
+    and the counts. `remaining` > 0 means call again.
+    """
+    return await ctl.admin_bulk_publish(db, admin=admin, dry_run=False)
 
 
 @router.get("/submissions")

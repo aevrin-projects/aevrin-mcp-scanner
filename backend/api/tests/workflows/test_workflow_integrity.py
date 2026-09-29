@@ -68,7 +68,6 @@ def test_hook_does_not_block_on_fixed_high_finding(monkeypatch, settings) -> Non
                     "scan_id": scan_id,
                     "user_id": user.id,
                     "severity": "high",
-                    "not_tested": False,
                     "triage_status": "fixed",
                 }
             ],
@@ -107,10 +106,7 @@ def _blocking_finding(scan_id: str, user_id: str, **overrides: Any) -> dict[str,
         "manifest_field": None,
         "tool_name_in_manifest": None,
         "remediation": "use parameterized queries",
-        "verified": None,
-        "not_tested": False,
         "triage_status": "open",
-        "excluded_path": False,
         "additional_locations": [],
     }
     row.update(overrides)

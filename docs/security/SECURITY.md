@@ -53,6 +53,23 @@ Two layers:
   full enforcement point for anything queried directly by a browser client
   (`tier_limits`, public registry reads).
 
+**Database functions are part of that boundary.** Postgres grants EXECUTE
+on a new function to PUBLIC, and PostgREST serves every function in
+`public` over `/rest/v1/rpc` to the `anon` and `authenticated` roles, whose
+key ships in the frontend. A `security definer` function runs with its
+owner's rights and sees every row, so one that trusts its caller (the admin
+functions, `scan_diff`, which takes a user id as an argument) must be
+executable by `service_role` only: `revoke all ... from public, anon,
+authenticated; grant execute ... to service_role` in the migration that
+creates it. Migrations 0004, 0032 and 0051 do this; 0051 closed it for
+`admin_list_users`, `admin_user_identity`, `admin_account_usage`,
+`admin_analytics` and `scan_diff`, which had been executable with the anon
+key. The exceptions, callable by signed-in users on purpose, answer only
+about the caller: `is_org_member` and `my_org` (used by RLS policies),
+`org_member_emails` (checks membership itself) and
+`increment_listing_views`. Check a new function with
+`has_function_privilege('anon', 'public.<name>(<args>)', 'execute')`.
+
 `backend/api/tests/controllers/test_agent_tenant_isolation.py`,
 `backend/api/tests/controllers/test_organizations.py`,
 `backend/api/tests/controllers/test_workspace_permissions.py` and
@@ -311,7 +328,12 @@ safe:
   automated path publishes: the registry sync inserts `draft` and
   suggestions land in `review`. `status` is outside the edit allow-list, so
   it changes only through the status route and its publish gate
-  (`items.validate_item`: the item is complete for its type).
+  (`items.validate_item`: the item is complete for its type). "Publish
+  qualifying drafts" (`/admin/marketplace/bulk-publish`, ADR-053) is an
+  admin action under the same `admin_identity` guard, not an automated
+  path: it publishes only synced public MCP server drafts that meet a fixed
+  popularity bar, one per repository, each through `set_status` and so
+  through the same gate; its preview writes nothing.
 - **Publishing is not a security claim.** The registry is discovery only
   (ADR-049): it stores no scan result, grade or scan state for any item,
   and no registry response or registry MCP tool returns one. The previous
@@ -334,7 +356,9 @@ safe:
   `registry.status.<status>`, `registry.delete`, `registry.links`,
   `registry.refresh_metadata`, `registry.category.save`,
   `registry.category.delete`, `registry.suggestion.<decision>`,
-  `registry.report.<status>`). Delete audits **before** removing the row,
+  `registry.report.<status>`, `registry.bulk_publish`). A bulk publish
+  writes a `registry.status.published` row per item and one
+  `registry.bulk_publish` row with the criteria and counts. Delete audits **before** removing the row,
   with a snapshot, because the item's own event timeline cascades away
   with it.
 - **Links cannot leak.** `mcp_listing_links` is readable (RLS) where its

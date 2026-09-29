@@ -53,6 +53,8 @@ def test_the_registry_control_plane_is_complete() -> None:
         ("GET", "/admin/marketplace/categories"),
         ("PUT", "/admin/marketplace/categories"),
         ("DELETE", "/admin/marketplace/categories/{slug}"),
+        ("GET", "/admin/marketplace/bulk-publish"),
+        ("POST", "/admin/marketplace/bulk-publish"),
     }
     assert expected <= have, expected - have
 

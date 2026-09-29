@@ -156,7 +156,15 @@ general-purpose SAST pass in the product standing in for it here.
   route lacks the `admin_identity` dependency - a new admin route cannot
   ship unguarded by being forgotten - and if any removed registry scanning
   route (item scan, regrade, policy, scan queue, install plan) or grade
-  query parameter comes back. `services/test_marketplace_security.py`
+  query parameter comes back. `routes/test_registry_bulk_publish.py`
+  covers "Publish qualifying drafts" at the route: the criteria, one
+  listing per repository (within drafts and against published listings),
+  gate failures skipped rather than published, a preview that writes
+  nothing, a status change, event and audit row per item plus one summary
+  audit row, the per-call cap, a non-admin getting `404`, and approval of a
+  remote-only suggestion (the gate's per-type rule). Its fake PostgREST
+  compares `gte` numerically and refuses operators it does not know.
+  `services/test_marketplace_security.py`
   asserts that a decorated card, the browse response model and the detail
   response carry no security, grade or scan key for any of the 19 item
   types (`ListingSummary.security` used to be required, so removing it from

@@ -124,9 +124,10 @@ application (`auto_fix_prs_per_month` is still referenced by the SQL
 function `admin_account_usage()`). `accounts.razorpay_customer_id`,
 `razorpay_subscription_id`, `subscription_status`, `downgrade_effective_at`
 and `auto_fix_bonus_prs` are likewise unread by application code (the last
-is read by `admin_account_usage()`). None is dropped yet: the body of
-`admin_analytics()` is not in the repository (migration 0022 is a stub), so
-nothing can show it does not read them. See `ROADMAP.md`.
+is read by `admin_account_usage()`). None is dropped yet. `admin_analytics()`
+reads none of them: its full body is now in migration 0051 (0022 was a stub).
+The `admin_account_usage()` reads above are what still block dropping those
+two. See `ROADMAP.md`.
 
 **Hook** (`0006_hook_overrides.sql`)
 `hook_overrides` - short-lived grants from `aevrin hook allow`.

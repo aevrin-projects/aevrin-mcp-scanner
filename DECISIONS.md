@@ -2189,3 +2189,50 @@ own `org_id`, like its scan; a creator who joined or left a workspace while a
 scan was running can leave the two stamped differently, and then the finding
 follows its own stamp. `test_workspace_reads.py` asserts the rule at the
 routes.
+
+## ADR-053: Registry drafts are published in bulk only above a stated quality bar
+
+**Status:** accepted (2026-09-29). Extends ADR-048 (only an administrator
+publishes) and ADR-049 (publishing needs a complete item, not a scan).
+
+The weekly sync has landed about 18,000 official-registry MCP servers as
+drafts, and 12 were published. Publishing them one at a time is not
+feasible; publishing all of them would put placeholders, forks and
+duplicates of one repository into the public catalogue, which is what
+ADR-048 took out.
+
+Decision:
+
+- **Curation stays admin-driven.** The sync keeps inserting drafts and is
+  unchanged. "Publish qualifying drafts" (`admin.bulk_publish`,
+  `GET`/`POST /admin/marketplace/bulk-publish`) is an action an
+  administrator takes, behind the same `admin_identity` guard, after a
+  preview that states the exact count and writes nothing.
+- **The bar is fixed and stated**, as constants in
+  `services/marketplace/admin.py`: a public MCP server draft from the
+  registry sync (never an admin's own draft or an org's private item);
+  10 or more GitHub stars or 1,000 or more npm downloads last month
+  (evidence someone uses it, either is enough); passes
+  `items.validate_item`; and one listing per repository, compared after
+  lowercasing and removing a trailing `/` and `.git`: skipped if that
+  repository is already published, and otherwise only the draft with the
+  most stars, then npm downloads, then the latest update. A draft with no
+  repository stands alone.
+- **No second gate.** Each item is published through `set_status`, so it
+  meets the same publish gate, gets its own `status_changed` event and its
+  own audit row; one `registry.bulk_publish` audit row records the bar and
+  the counts. At most 500 per call, 8 at a time, so a request stays inside
+  the proxy timeout; the rest is reported as `remaining`.
+- **The gate's per-type rule is fixed at the same time.** An MCP server
+  with only a package or a remote endpoint met its own rule and then fell
+  through to the generic "repository, homepage or usage text" rule, so no
+  remote-only or package-only server could be published or approved as a
+  suggestion. Each type is now checked by its own rule only; the
+  description requirement is unchanged.
+
+Consequences: the bar is a popularity filter, not a quality or security
+judgement, and the registry still says so. npm download counts are filled
+over time by the metadata refresh, so a later run can qualify drafts an
+earlier one did not; that is intended, and each run is still an admin's
+decision. Changing a threshold is a code change with an entry here, not a
+setting.

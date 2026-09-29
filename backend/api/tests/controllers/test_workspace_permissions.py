@@ -152,7 +152,7 @@ def finding_row(user_id: str) -> dict[str, Any]:
     return {"_table": "findings", "id": str(uuid4()), "scan_id": str(uuid4()),
             "user_id": user_id, "org_id": org_of(user_id), "tool": "mcp-scanner",
             "owasp_category": "MCP05", "severity": "high", "title": "Fixture finding",
-            "description": "Test fixture", "remediation": "Review it", "not_tested": False,
+            "description": "Test fixture", "remediation": "Review it",
             "triage_status": "open", "created_at": datetime.now(UTC).isoformat()}
 
 

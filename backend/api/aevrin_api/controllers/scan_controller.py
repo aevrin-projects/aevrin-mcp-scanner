@@ -39,10 +39,6 @@ _SCAN_NOT_FOUND = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="S
 
 def _finding_sort_key(row: dict[str, Any]) -> tuple[Any, ...]:
     return (
-        # A finding excluded from scoring (test fixture, untested category)
-        # is context, not a result, so it sinks below everything real
-        # regardless of the severity the scanner gave it.
-        bool(row.get("not_tested")) or bool(row.get("excluded_path")),
         _SEVERITY_RANK.get(str(row.get("severity")), 9),
         str(row.get("file_path") or "\uffff"),  # locationless findings last
         int(row.get("line_start") or 0),

@@ -96,7 +96,6 @@ def test_false_positive_persists_reason_timestamp_and_owner_filter() -> None:
                 "title": "Fixture finding",
                 "description": "Test fixture",
                 "remediation": "Review it",
-                "not_tested": False,
                 "triage_status": "open",
                 "created_at": datetime.now(UTC).isoformat(),
             }

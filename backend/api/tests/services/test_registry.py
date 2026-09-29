@@ -210,6 +210,52 @@ def test_an_incomplete_mcp_server_is_still_refused() -> None:
     assert db.rows("mcp_listings")[0]["status"] == "draft"
 
 
+_REMOTE = {"remotes": [{"type": "streamable-http", "url": "https://noveum.ai/api/mcp"}]}
+_PACKAGE = {"packages": [{"registry_type": "npm", "identifier": "acme-mcp"}]}
+
+
+@pytest.fixture
+def public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The gate resolves a remote endpoint's hostname (the SSRF guard).
+    Answer with a public address so the test never touches the network."""
+    import socket
+
+    monkeypatch.setattr(
+        socket, "getaddrinfo",
+        lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))],
+    )
+
+
+@pytest.mark.parametrize("installation", [_REMOTE, _PACKAGE], ids=["remote-only", "package-only"])
+def test_an_mcp_server_installable_without_a_repository_publishes(
+    installation: dict[str, Any], public_dns: None
+) -> None:
+    """A package or a remote endpoint is something to install and use. The gate
+    used to fall through to the generic "repository, homepage or usage text"
+    rule for these, so no remote-only or package-only server could publish."""
+    db = FakeDb()
+    row = listing(db, installation=installation, repository_url=None, homepage_url=None)
+    assert items.validate_item(row) == []
+    result = run(admin.set_status(db, listing_id=row["id"], status="published", admin=ADMIN))
+    assert result["status"] == "published"
+
+
+def test_an_mcp_server_with_nothing_installable_is_refused_for_that_reason() -> None:
+    problems = items.validate_item({"title": "T", "description": "D", "item_type": "mcp_server"})
+    assert len(problems) == 1
+    assert "package, a remote endpoint, or a repository" in problems[0]
+
+
+def test_an_installable_mcp_server_still_needs_a_description(public_dns: None) -> None:
+    db = FakeDb()
+    row = listing(db, installation=_REMOTE, repository_url=None, description="")
+    with pytest.raises(admin.AdminActionRefused) as exc:
+        run(admin.set_status(db, listing_id=row["id"], status="published", admin=ADMIN))
+    assert "description is required" in str(exc.value)
+    assert "something to use" not in str(exc.value)
+    assert db.rows("mcp_listings")[0]["status"] == "draft"
+
+
 def test_approving_a_suggestion_uses_the_same_gate_and_needs_no_scan() -> None:
     db = FakeDb()
     row = listing(db, status="review", repository_url="https://github.com/acme/server")

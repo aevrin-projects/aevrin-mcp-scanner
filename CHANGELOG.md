@@ -20,6 +20,58 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ## [Unreleased]
 
+### Added
+
+- **Registry admin: "Publish qualifying drafts"** (`GET`/`POST
+  /admin/marketplace/bulk-publish`). Previews, then publishes the public MCP
+  server drafts from the registry sync that have 10 or more GitHub stars or
+  1,000 or more npm downloads last month, pass the publish gate, and are the
+  only listing for their repository (skipped if the repository is already
+  published, otherwise the most-starred draft wins). At most 500 per run.
+  Each item gets its own timeline event and audit row, plus one
+  `registry.bulk_publish` audit row per run. The registry sync still adds
+  new servers as drafts (ADR-053).
+
+### Fixed
+
+- **Registry admin actions looked like they did nothing.** Approving a
+  suggestion, publishing, restoring, unpublishing, archiving or resolving a
+  report showed its result, including the server's refusal reason, in a
+  toast at the top of the page, far from the button. The result now appears
+  in the panel where the action was taken, announced to screen readers, with
+  an Edit link to the item when publishing is refused.
+- **An MCP server with only a package or a remote endpoint could never be
+  published or approved.** The publish gate let it pass its own rule and
+  then fall through to the generic "add a repository, a homepage, or usage
+  text" rule. Each type is now checked by its own rule only; a description
+  is still required.
+
+- **Admin analytics failed on every load** ("Upstream data store error"),
+  and the scan page's "since the last scan" diff failed the same way. The
+  `admin_analytics` and `scan_diff` database functions still filtered on
+  `findings.not_tested` and `excluded_path`, which migration 0047 dropped.
+  Migration `0051_dropped_columns_and_definer_grants.sql` recreates both
+  without those filters; the bodies were read back from production and each
+  was run read-only against it before the migration was written.
+
+### Security
+
+- **The Claude Code hook failed open on any server it should have blocked.**
+  Its decision read `f["not_tested"]` from each finding, a column 0047
+  dropped, so a cached scan with a high or critical finding raised
+  `KeyError`, the API answered 500, and the hook, which allows on any
+  error, let the install through. It now decides on severity and triage
+  state alone. The hook tests passed throughout because their fake findings
+  still carried the dropped columns; every fixture now has the real
+  `findings` shape, and restoring the old line fails them.
+- **Five database functions were executable with the public anon key.**
+  `admin_list_users`, `admin_user_identity`, `admin_account_usage`,
+  `admin_analytics` and `scan_diff` are `security definer` and trust their
+  caller, but kept Postgres's default EXECUTE grant to PUBLIC, so PostgREST
+  served them to `anon` and `authenticated` over `/rest/v1/rpc`. Migration
+  0051 revokes that and grants `service_role` only, which is the only role
+  the API calls them as. The rule for new functions is in `SECURITY.md`.
+
 ## [0.6.0] - 2026-09-29 (CLI)
 
 `aevrin` and `aevrin-scanner-core` 0.6.0 on PyPI, and the npm wrapper 0.6.0.

@@ -92,7 +92,10 @@ carries a security state.
 
 - `draft` is the only state any automated path creates. The weekly
   registry sync inserts new servers as `draft`; a suggestion is created in
-  `review` and only an admin decision moves it on.
+  `review` and only an admin decision moves it on. An admin may publish
+  many synced drafts at once with
+  [Publish qualifying drafts](#publishing-qualifying-drafts), which is still
+  an admin action and still goes through the publish gate per item.
 - `archived` is reversible (restore returns it to `draft`). `delete`
   removes the row and everything that cascades from it, and requires the
   caller to type the item's slug.
@@ -112,8 +115,49 @@ pre-check anything itself. It is pure (reads only the row):
 - `content` and `installation` match their schemas;
 - per type: a `prompt` needs its prompt text, a `skill` its instructions,
   an `mcp_server` a package, a remote endpoint or a repository, a
-  `repository` or `template` its repository URL; anything else needs a
-  repository, a homepage, or usage or documentation text.
+  `repository` or `template` its repository URL; any other type needs a
+  repository, a homepage, or usage or documentation text. Each type is
+  checked by its own rule only: a remote-only or package-only MCP server
+  with a description publishes (before 2026-09-29 it fell through to the
+  generic rule and was refused for having "nothing to use").
+
+`admin.set_status` runs the gate in a worker thread, because validating a
+remote endpoint resolves its hostname (the SSRF guard), a blocking call.
+
+### Publishing qualifying drafts
+
+The registry holds tens of thousands of synced drafts; the sync keeps
+landing new ones as drafts and does not change. `admin.bulk_publish`
+(`GET` previews, `POST` publishes, `/admin/marketplace/bulk-publish`)
+publishes only the drafts that meet a fixed bar (`DECISIONS.md` ADR-053),
+defined as constants in `services/marketplace/admin.py`:
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `BULK_PUBLISH_FILTERS` | `status=draft`, `item_type=mcp_server`, `source=registry`, `visibility=public` | Synced public MCP server drafts only; an admin-made draft or an org's private item is never included |
+| `BULK_PUBLISH_MIN_GITHUB_STARS` | `10` | Either this ... |
+| `BULK_PUBLISH_MIN_NPM_DOWNLOADS` | `1000` | ... or this (`npm_downloads_last_month`) |
+| `BULK_PUBLISH_MAX_PER_CALL` | `500` | Per call; the rest is `remaining` |
+| `BULK_PUBLISH_CONCURRENCY` | `8` | Items in flight (gate checks and writes) |
+
+A candidate stays a draft, counted once for the first reason that applies:
+its repository already belongs to a published listing
+(`already_published_repository`); it fails `validate_item` (`failed_gate`,
+with the five most common reasons); another candidate for the same
+repository is preferred (`duplicate_repository`: most `github_stars`, then
+`npm_downloads_last_month`, then latest `updated_at`). Repositories are
+compared by `admin.repository_key`: lowercased, trailing `/` and `.git`
+removed. A draft with no repository is its own group. Qualifying drafts are
+published most popular first.
+
+The preview writes nothing. Publishing recomputes the set, then calls
+`set_status` for each item, so each gets the publish gate again, its own
+`status_changed` event and its own `registry.status.published` audit row;
+one more audit row, `registry.bulk_publish`, records the criteria and the
+counts. An item refused at that point (it changed since the read) is
+returned in `failed` and stays a draft. `npm_downloads_last_month` is
+filled for more drafts over time by the metadata refresh, so a later run
+can qualify drafts an earlier one did not.
 
 There is no scan requirement. Before ADR-049 an MCP server could not be
 published without a scan by the current engine (ADR-046); that gate went
@@ -251,8 +295,8 @@ a notice that it is untrusted data, not instructions. Admin-authored
   legacy: nothing writes it, and the database check still allows it only
   because old rows may carry it.
 - **`admin.py`** - create (from a URL or by hand, always `draft`,
-  `source=admin`), edit, status changes, delete, links, metadata refresh,
-  categories. `EDITABLE_FIELDS` is a fixed allow-list with **no `status`
+  `source=admin`), edit, status changes, bulk publishing of qualifying
+  drafts, delete, links, metadata refresh, categories. `EDITABLE_FIELDS` is a fixed allow-list with **no `status`
   and no `ranking_score`**. An edit that changes an MCP server's
   `latest_version` adds it to the version list.
   Every mutation writes `write_audit` (`registry.<action>`) and
@@ -328,12 +372,20 @@ See [`../security/SECURITY.md`](../security/SECURITY.md#registry).
 ## Testing
 
 `backend/api/tests/services/test_registry.py` (types, validation, the
-publish gate with no scan requirement, suggestion approval through the same
+publish gate with no scan requirement, remote-only and package-only MCP
+servers publish while one with nothing installable or no description is
+refused, suggestion approval through the same
 gate, bare version rows from edits and the sync, sync lands drafts and does
 not overwrite curation, delete audit order, links),
 `test_marketplace_security.py` (ranking weights, no security sort, the
 admin allow-list, and no security, grade or scan key in a decorated card, a
 browse response model or a detail response, for every item type),
+`tests/routes/test_registry_bulk_publish.py` (bulk publishing: the
+criteria, one listing per repository within drafts and against published
+listings, gate failures skipped, the preview writes nothing, a status,
+event and audit row per item plus the summary row, the per-call cap, a
+publish-time refusal reported, remote-only suggestion approval, and a
+non-admin gets `404`),
 `tests/routes/test_registry_routes.py` (admin guard on every route; the
 scan, regrade, policy, scan-queue and install-plan routes and the grade
 query parameters no longer exist), `test_marketplace_registry.py`,

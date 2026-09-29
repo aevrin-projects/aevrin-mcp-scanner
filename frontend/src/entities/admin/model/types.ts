@@ -113,3 +113,44 @@ export type AdminLoginAttempt = {
   ip_address: string | null;
   created_at: string;
 };
+
+/** `GET`/`POST /admin/marketplace/bulk-publish`: what "Publish qualifying
+ *  drafts" would do (a preview, `dry_run: true`) or did. */
+export type BulkPublishResult = {
+  dry_run: boolean;
+  criteria: {
+    status: string;
+    item_type: string;
+    source: string;
+    visibility: string;
+    min_github_stars: number;
+    min_npm_downloads_last_month: number;
+    one_per_repository: boolean;
+    max_per_call: number;
+  };
+  /** Drafts that met the filters and the popularity bar. */
+  considered: number;
+  /** Of those, how many pass everything, over all calls. */
+  qualifying: number;
+  /** How many this call acts on. */
+  batch: number;
+  /** Published by this call; 0 for a preview. */
+  published: number;
+  failed: { id: string; slug: string | null; reason: string }[];
+  /** Qualifying drafts beyond this call's batch. */
+  remaining: number;
+  skipped: {
+    already_published_repository: number;
+    failed_gate: number;
+    duplicate_repository: number;
+  };
+  gate_reasons: { reason: string; count: number }[];
+  sample: {
+    id: string;
+    slug: string | null;
+    title: string | null;
+    repository_url: string | null;
+    github_stars: number | null;
+    npm_downloads_last_month: number | null;
+  }[];
+};

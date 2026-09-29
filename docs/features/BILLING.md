@@ -57,8 +57,8 @@ every paid tier the stronger model capped at 200 (`services/triage.py`).
 but **no code enforces them**, and nothing advertises them any more (the
 pricing page and docs site no longer promise a retention period). They are
 left in place because `admin_account_usage()` (migration `0023`) still reads
-`auto_fix_prs_per_month` and the body of `admin_analytics()` is not in this
-repository, so dropping them cannot be shown to be safe.
+`auto_fix_prs_per_month`. `admin_analytics()`, whose full body is now in
+migration `0051`, reads neither of them.
 
 ## Team and seats
 

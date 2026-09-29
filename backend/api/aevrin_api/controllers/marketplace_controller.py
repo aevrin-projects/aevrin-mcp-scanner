@@ -251,6 +251,12 @@ async def admin_refresh_metadata(
         raise _refused(exc) from exc
 
 
+async def admin_bulk_publish(
+    db: SupabaseRest, *, admin: AdminIdentity, dry_run: bool
+) -> dict[str, Any]:
+    return await admin_service.bulk_publish(db, admin=admin, dry_run=dry_run)
+
+
 async def admin_categories(db: SupabaseRest) -> list[dict[str, Any]]:
     return await admin_service.list_all_categories(db)
 

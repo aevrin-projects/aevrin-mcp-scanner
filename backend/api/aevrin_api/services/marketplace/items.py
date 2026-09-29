@@ -209,18 +209,28 @@ def validate_item(row: dict[str, Any]) -> list[str]:
         problems.extend(_format_errors("installation", exc))
         spec = InstallationSpec()
 
+    # One rule per type, and the generic rule only for the types that have no
+    # rule of their own. The conditions used to sit in the `elif` tests, so a
+    # type that *met* its own rule fell through to the generic one: an MCP
+    # server with only a package or a remote endpoint was refused for having
+    # "nothing to use", although a package or an endpoint is exactly what
+    # there is to install and use.
     repository = row.get("repository_url")
-    if item_type == "prompt" and not str(content.get("prompt") or "").strip():
-        problems.append("A prompt needs its prompt text.")
-    elif item_type == "skill" and not str(content.get("instructions") or "").strip():
-        problems.append("A skill needs its instructions.")
-    elif item_type == "mcp_server" and not (spec.packages or spec.remotes or repository):
-        problems.append(
-            "An MCP server needs a package, a remote endpoint, or a repository to be installed "
-            "from."
-        )
-    elif item_type in ("repository", "template") and not repository:
-        problems.append(f"A {item_type} needs its repository URL.")
+    if item_type == "prompt":
+        if not str(content.get("prompt") or "").strip():
+            problems.append("A prompt needs its prompt text.")
+    elif item_type == "skill":
+        if not str(content.get("instructions") or "").strip():
+            problems.append("A skill needs its instructions.")
+    elif item_type == "mcp_server":
+        if not (spec.packages or spec.remotes or repository):
+            problems.append(
+                "An MCP server needs a package, a remote endpoint, or a repository to be "
+                "installed from."
+            )
+    elif item_type in ("repository", "template"):
+        if not repository:
+            problems.append(f"A {item_type} needs its repository URL.")
     elif not (
         repository
         or row.get("homepage_url")

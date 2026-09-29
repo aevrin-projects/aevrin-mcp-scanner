@@ -1,5 +1,11 @@
 import { request } from "@/shared/api";
-import type { AdminAuditEntry, AdminLoginAttempt, AdminUserDetail, AdminUserPage } from "../model/types";
+import type {
+  AdminAuditEntry,
+  AdminLoginAttempt,
+  AdminUserDetail,
+  AdminUserPage,
+  BulkPublishResult,
+} from "../model/types";
 
 export const adminApi = {
   getSession: () =>
@@ -173,6 +179,16 @@ export const marketplaceAdminApi = {
       method: "POST",
       body: JSON.stringify({ status, reason: reason ?? null }),
     }),
+
+  /** What "Publish qualifying drafts" would publish, and why the rest would
+   *  stay drafts. Writes nothing. */
+  bulkPublishPreview: () => request<BulkPublishResult>("/admin/marketplace/bulk-publish"),
+
+  /** Publishes the qualifying drafts, at most `criteria.max_per_call` per
+   *  call; the server recomputes the set rather than trusting the preview.
+   *  `remaining` > 0 means call again. */
+  bulkPublish: () =>
+    request<BulkPublishResult>("/admin/marketplace/bulk-publish", { method: "POST" }),
 
   submissions: (status = "review") =>
     request<Record<string, unknown>[]>(`/admin/marketplace/submissions?status=${status}`),

@@ -17,8 +17,6 @@ def _row(**overrides):
         "file_path": "src/b.ts",
         "line_start": 10,
         "title": "t",
-        "not_tested": False,
-        "excluded_path": False,
     }
     row.update(overrides)
     return row
@@ -44,15 +42,6 @@ def test_same_severity_groups_by_file_then_line():
         ("src/a.ts", 90),
         ("src/z.ts", 1),
     ]
-
-
-def test_excluded_and_untested_sink_below_real_findings():
-    """A critical-severity test fixture must not outrank a real low: it is
-    excluded from scoring, so it is context rather than a result."""
-    rows = [
-        _row(severity="low", title="real"),
-    ]
-    assert _order(rows)[0]["title"] == "real"
 
 
 def test_findings_without_a_file_sort_last_within_their_severity():

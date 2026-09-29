@@ -199,3 +199,58 @@ class SubmissionDecisionRequest(BaseModel):
 class ReportDecisionRequest(BaseModel):
     status: Literal["reviewing", "dismissed", "actioned"]
     note: str | None = Field(default=None, max_length=2000)
+
+
+class BulkPublishSkipped(BaseModel):
+    """Candidates left as drafts, each counted once, for the first reason
+    that applies, in this order."""
+
+    already_published_repository: int
+    failed_gate: int
+    duplicate_repository: int
+
+
+class BulkPublishReason(BaseModel):
+    reason: str
+    count: int
+
+
+class BulkPublishFailure(BaseModel):
+    id: str
+    slug: str | None = None
+    reason: str
+
+
+class BulkPublishSample(BaseModel):
+    id: str
+    slug: str | None = None
+    title: str | None = None
+    repository_url: str | None = None
+    github_stars: int | None = None
+    npm_downloads_last_month: int | None = None
+
+
+class BulkPublishResult(BaseModel):
+    """What "Publish qualifying drafts" would do (a preview) or did.
+
+    A fixed shape, unlike the decorated rows above: the admin UI reads every
+    field, and the confirm dialog states the counts and the criteria verbatim.
+    """
+
+    dry_run: bool
+    criteria: dict[str, Any]
+    # Drafts that met the filters and the popularity bar.
+    considered: int
+    # Of those, how many pass everything: the total to publish over all calls.
+    qualifying: int
+    # How many this call acts on (at most `criteria.max_per_call`).
+    batch: int
+    # Published by this call; always 0 for a preview.
+    published: int
+    failed: list[BulkPublishFailure]
+    # Qualifying drafts beyond this call's batch. Call again to continue.
+    remaining: int
+    skipped: BulkPublishSkipped
+    # The most common publish-gate refusals, most frequent first.
+    gate_reasons: list[BulkPublishReason]
+    sample: list[BulkPublishSample]

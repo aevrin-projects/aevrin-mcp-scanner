@@ -76,8 +76,8 @@ marketplace/AI/admin/providers work is fully live)
   `auto_fix_prs_per_month` exist but nothing enforces them, and they are no
   longer advertised. Enforce or drop them in a migration that also redefines
   `admin_account_usage()` (which still reads `auto_fix_prs_per_month` and
-  `accounts.auto_fix_bonus_prs`), once `admin_analytics()`'s body - absent
-  from the repository, whose migration 0022 is a stub - is recovered.
+  `accounts.auto_fix_bonus_prs`). `admin_analytics()` reads none of them;
+  its body was recovered into migration 0051.
 - **Admin user lists show each account's own tier**, not Team inherited
   through a workspace: `admin_account_usage()` and `admin_list_users()` need
   redefining with `quota.entitled_tier`'s rule.

@@ -19,15 +19,18 @@ admin audit log (who, from where, and it survives the item being deleted), and
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+from collections import Counter
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
 from aevrin_scanner_core.execution.network_safety import public_https_url_error
 
 from aevrin_api.config import Settings
-from aevrin_api.db import SupabaseRest
+from aevrin_api.db import SupabaseRest, SupabaseRestError
 from aevrin_api.services.admin_auth import AdminIdentity, write_audit
 from aevrin_api.services.marketplace import items, submissions
 from aevrin_api.services.marketplace.catalog import DETAIL_COLUMNS, VERSION_COLUMNS, decorate
@@ -492,7 +495,10 @@ async def set_status(
 
     before = await _load(db, listing_id)
     if status == "published":
-        blockers = items.validate_item(before)
+        # In a worker thread: validating a remote endpoint resolves its
+        # hostname (the SSRF guard), which is a blocking call, and a bulk
+        # publish runs this for hundreds of items.
+        blockers = await asyncio.to_thread(items.validate_item, before)
         if blockers:
             raise AdminActionRefused(" ".join(blockers))
 
@@ -500,6 +506,229 @@ async def set_status(
         db, before=before, clean={"status": status}, admin=admin,
         action=f"registry.status.{status}", reason=reason,
     )
+
+
+# --------------------------------------------------------------------------
+# Publishing qualifying drafts in bulk
+#
+# The registry sync lands every official-registry server as a draft, and
+# keeps doing so: nothing automated publishes (ADR-048). This is the one
+# admin action that publishes many drafts at once, and only those that meet
+# the quality bar below (DECISIONS.md ADR-053). Every item still goes
+# through `set_status`, so through the one publish gate, its own
+# `status_changed` event and its own audit row.
+
+# Only drafts the registry sync brought in, public, and MCP servers. A draft
+# an administrator created by hand, or an organisation's private item, is
+# someone's deliberate work in progress, not backlog.
+BULK_PUBLISH_FILTERS: dict[str, str] = {
+    "status": "eq.draft",
+    "item_type": "eq.mcp_server",
+    "source": "eq.registry",
+    "visibility": "eq.public",
+}
+# Evidence that someone uses it: either signal is enough. A registry entry
+# with neither is often a placeholder or a fork nobody runs.
+BULK_PUBLISH_MIN_GITHUB_STARS = 10
+BULK_PUBLISH_MIN_NPM_DOWNLOADS = 1000
+# Per call, so a request finishes well inside the proxy's timeout. The rest
+# is reported as `remaining` and published by calling again.
+BULK_PUBLISH_MAX_PER_CALL = 500
+# Items in flight at once, for the gate (a remote endpoint's hostname is
+# resolved) and for the writes.
+BULK_PUBLISH_CONCURRENCY = 8
+BULK_PUBLISH_REASON = "published in bulk: a registry draft that meets the quality bar"
+_BULK_PAGE = 1000
+_BULK_SAMPLE = 20
+_BULK_TOP_REASONS = 5
+_BULK_COLUMNS = (
+    f"{items.PUBLISH_CHECK_COLUMNS},slug,github_stars,npm_downloads_last_month,updated_at"
+)
+
+
+def bulk_publish_criteria() -> dict[str, Any]:
+    """The bar, as data, so the admin UI and the audit row state exactly what
+    was applied rather than a paraphrase of it."""
+    return {
+        **{column: value.removeprefix("eq.") for column, value in BULK_PUBLISH_FILTERS.items()},
+        "min_github_stars": BULK_PUBLISH_MIN_GITHUB_STARS,
+        "min_npm_downloads_last_month": BULK_PUBLISH_MIN_NPM_DOWNLOADS,
+        "one_per_repository": True,
+        "max_per_call": BULK_PUBLISH_MAX_PER_CALL,
+    }
+
+
+def repository_key(url: str | None) -> str | None:
+    """The repository a listing points at, spelled one way.
+
+    `https://github.com/Acme/Server.git/` and `https://github.com/acme/server`
+    are the same repository; the official registry lists many servers more
+    than once under both spellings.
+    """
+    key = (url or "").strip().lower().rstrip("/")
+    if key.endswith(".git"):
+        key = key[: -len(".git")].rstrip("/")
+    return key or None
+
+
+def _preference(row: dict[str, Any]) -> tuple[int, int, str]:
+    """Which of several drafts for one repository to publish: most stars, then
+    most npm downloads, then the most recently updated."""
+    return (
+        int(row.get("github_stars") or 0),
+        int(row.get("npm_downloads_last_month") or 0),
+        str(row.get("updated_at") or ""),
+    )
+
+
+async def _all_pages(
+    db: SupabaseRest, filters: dict[str, str], *, columns: str, or_filter: str | None = None
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    while True:
+        page = await db.select(
+            "mcp_listings", filters, columns=columns, or_filter=or_filter,
+            order="id.asc", limit=_BULK_PAGE, offset=len(rows),
+        )
+        rows.extend(page)
+        if len(page) < _BULK_PAGE:
+            return rows
+
+
+async def _bounded(
+    rows: list[dict[str, Any]], work: Callable[[dict[str, Any]], Awaitable[Any]]
+) -> list[Any]:
+    gate = asyncio.Semaphore(BULK_PUBLISH_CONCURRENCY)
+
+    async def one(row: dict[str, Any]) -> Any:
+        async with gate:
+            return await work(row)
+
+    return await asyncio.gather(*(one(row) for row in rows))
+
+
+async def bulk_publish(
+    db: SupabaseRest, *, admin: AdminIdentity, dry_run: bool
+) -> dict[str, Any]:
+    """Publish the registry drafts that meet the quality bar, or, with
+    `dry_run`, say exactly what that would do and write nothing.
+
+    A candidate is skipped, for the first reason that applies, when its
+    repository already belongs to a published listing, when it fails the
+    publish gate, or when another candidate for the same repository is
+    preferred (`_preference`). A draft with no repository is its own group.
+    """
+    candidates = await _all_pages(
+        db,
+        BULK_PUBLISH_FILTERS,
+        columns=_BULK_COLUMNS,
+        or_filter=(
+            f"github_stars.gte.{BULK_PUBLISH_MIN_GITHUB_STARS},"
+            f"npm_downloads_last_month.gte.{BULK_PUBLISH_MIN_NPM_DOWNLOADS}"
+        ),
+    )
+    published_repositories = {
+        key
+        for row in await _all_pages(
+            db, {"status": "eq.published", "repository_url": "not.is.null"}, columns="repository_url"
+        )
+        if (key := repository_key(row.get("repository_url")))
+    }
+
+    skipped = {"already_published_repository": 0, "failed_gate": 0, "duplicate_repository": 0}
+    fresh = []
+    for row in candidates:
+        if repository_key(row.get("repository_url")) in published_repositories:
+            skipped["already_published_repository"] += 1
+        else:
+            fresh.append(row)
+
+    async def check(row: dict[str, Any]) -> list[str]:
+        return await asyncio.to_thread(items.validate_item, row)
+
+    reasons: Counter[str] = Counter()
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row, blockers in zip(fresh, await _bounded(fresh, check), strict=True):
+        if blockers:
+            skipped["failed_gate"] += 1
+            reasons.update(blockers)
+            continue
+        key = repository_key(row.get("repository_url")) or f"id:{row['id']}"
+        groups.setdefault(key, []).append(row)
+
+    qualifying = []
+    for group in groups.values():
+        qualifying.append(max(group, key=_preference))
+        skipped["duplicate_repository"] += len(group) - 1
+    qualifying.sort(key=_preference, reverse=True)
+    batch = qualifying[:BULK_PUBLISH_MAX_PER_CALL]
+
+    failed: list[dict[str, Any]] = []
+    if not dry_run:
+        async def publish(row: dict[str, Any]) -> str | None:
+            try:
+                await set_status(
+                    db, listing_id=row["id"], status="published", admin=admin,
+                    reason=BULK_PUBLISH_REASON,
+                )
+            except AdminActionRefused as exc:
+                return str(exc)
+            except SupabaseRestError as exc:
+                logger.warning("bulk publish item=%s failed: %s", row["id"], exc)
+                return "The database refused the change."
+            return None
+
+        for row, error in zip(batch, await _bounded(batch, publish), strict=True):
+            if error:
+                failed.append({"id": row["id"], "slug": row.get("slug"), "reason": error})
+
+    result = {
+        "dry_run": dry_run,
+        "criteria": bulk_publish_criteria(),
+        "considered": len(candidates),
+        "qualifying": len(qualifying),
+        "batch": len(batch),
+        "published": 0 if dry_run else len(batch) - len(failed),
+        "failed": failed,
+        "remaining": len(qualifying) - len(batch),
+        "skipped": skipped,
+        "gate_reasons": [
+            {"reason": reason, "count": count}
+            for reason, count in reasons.most_common(_BULK_TOP_REASONS)
+        ],
+        "sample": [
+            {
+                "id": row["id"],
+                "slug": row.get("slug"),
+                "title": row.get("title"),
+                "repository_url": row.get("repository_url"),
+                "github_stars": row.get("github_stars"),
+                "npm_downloads_last_month": row.get("npm_downloads_last_month"),
+            }
+            for row in batch[:_BULK_SAMPLE]
+        ],
+    }
+    if not dry_run:
+        # One row for the decision itself, beside the per-item rows
+        # `set_status` wrote, so the audit log shows what bar was applied.
+        await write_audit(
+            db, admin, "registry.bulk_publish",
+            reason=BULK_PUBLISH_REASON,
+            metadata={
+                "criteria": result["criteria"],
+                "considered": result["considered"],
+                "qualifying": result["qualifying"],
+                "published": result["published"],
+                "failed": len(failed),
+                "remaining": result["remaining"],
+                "skipped": skipped,
+            },
+        )
+        logger.info(
+            "registry bulk publish published=%s failed=%s remaining=%s actor=%s",
+            result["published"], len(failed), result["remaining"], admin.user_id,
+        )
+    return result
 
 
 # --------------------------------------------------------------------------

@@ -127,9 +127,7 @@ async def _decide_from_cache(
     blocking = [
         f
         for f in findings
-        if f["severity"] in _BLOCKING_SEVERITIES
-        and not f["not_tested"]
-        and f["triage_status"] == "open"
+        if f["severity"] in _BLOCKING_SEVERITIES and f["triage_status"] == "open"
     ]
 
     decision = "allow_clean"
