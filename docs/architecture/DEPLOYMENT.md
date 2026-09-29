@@ -360,7 +360,7 @@ console.
 
 | Job | Cron (UTC) | Calls |
 |---|---|---|
-| `uptime` | `0 * * * *` (hourly) | `POST /scheduler/uptime-check`, then `POST /scheduler/registry-popularity` (GitHub stars for up to 1,500 GitHub-hosted listings of any status, never-fetched first; needs `GITHUB_TOKEN` on the API, and says `skipped` without it) |
+| `uptime` | `0 * * * *` (hourly) | `POST /scheduler/uptime-check`, then `POST /scheduler/registry-popularity` in a loop of up to 12 calls (GitHub stars for up to 1,500 GitHub-hosted listings of any status per call, never-fetched first; needs `GITHUB_TOKEN` on the API, says `skipped` without it and `github_error` when GitHub refuses it). GitHub runs this "hourly" schedule every four to eight hours in practice; run it by hand with `gh workflow run scheduler.yml -f job=uptime` |
 | `weekly` | `15 3 * * 0` (Sun 03:15) | `POST /scheduler/registry-sync`, then `POST /scheduler/provider-sync` |
 
 Both jobs declare `environment: aws` and read the token out of

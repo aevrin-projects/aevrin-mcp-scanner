@@ -186,9 +186,19 @@ asks GitHub's GraphQL API for 100 repositories per request
 (`github_public.fetch_repo_stats`; owner and name are query variables).
 It writes only what the repository says about itself (stars, forks, open
 issues, upkeep, licence, the timestamp), never a title, description,
-README or anything an admin wrote. A repository GitHub does not return is
-left as it was and tried again. Without `GITHUB_TOKEN` it writes nothing and
-says `skipped`: GitHub's GraphQL API needs a token. The metadata
+README or anything an admin wrote. A repository GitHub answers "no such
+repository" for (a null inside an answered query; about a third of registry
+repositories) is stamped as checked with its stars left unknown, so it moves
+to the back of the queue and is asked again in six days; left unstamped,
+those would fill every batch within a few runs. Without `GITHUB_TOKEN` it
+writes nothing and says `skipped`: GitHub's GraphQL API needs a token. When
+GitHub refuses the GraphQL request, its reason is returned as `github_error`
+and the run reads up to 300 repositories over REST instead (`method:
+"rest"`), which does not stamp missing ones because REST cannot tell "no
+such repository" from a failure. The scheduler step calls the endpoint in a
+loop (up to 12 calls, stopping when nothing is due or a call makes no
+progress), because GitHub runs "hourly" schedules every four to eight hours
+in practice. The metadata
 refresh fills `github_stars` for more drafts over time, so a later run can
 qualify drafts an earlier one did not.
 

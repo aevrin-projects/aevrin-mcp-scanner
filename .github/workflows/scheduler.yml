@@ -106,21 +106,34 @@ jobs:
           [ "$code" = "200" ]
 
       - name: Refresh registry popularity
-        # Hourly, so the GitHub stars the popularity bar reads are known for
-        # drafts as well as published listings (the weekly sync covers only
-        # the published ones). Runs even if the uptime sample failed: the two
-        # are independent. A response with "skipped" means GITHUB_TOKEN is
-        # not set on the API.
+        # So the GitHub stars the popularity bar reads are known for drafts
+        # as well as published listings (the weekly sync covers only the
+        # published ones). Runs even if the uptime sample failed: the two
+        # are independent.
+        #
+        # Called in a loop, not once. GitHub runs "hourly" schedules every
+        # four to eight hours in practice, so one batch per run left a
+        # backlog of 12,000 listings for days. Each call does one batch
+        # (inside Cloudflare's 100-second limit); the loop stops when
+        # nothing is left, when a call makes no progress, or after 12 calls.
+        # "skipped" means GITHUB_TOKEN is not set on the API; "github_error"
+        # is GitHub's own reason for refusing a request.
         if: always()
         run: |
-          code="$(curl -sS -o popularity.json -w '%{http_code}' -X POST \
-            -H "X-Scheduler-Token: ${SCHEDULER_TOKEN}" \
-            --max-time 600 \
-            "${API}/scheduler/registry-popularity")"
-          echo "HTTP ${code}"
-          cat popularity.json || true
-          echo
-          [ "$code" = "200" ]
+          for i in $(seq 1 12); do
+            code="$(curl -sS -o popularity.json -w '%{http_code}' -X POST \
+              -H "X-Scheduler-Token: ${SCHEDULER_TOKEN}" \
+              --max-time 120 \
+              "${API}/scheduler/registry-popularity")"
+            echo "call ${i}: HTTP ${code}"
+            cat popularity.json || true
+            echo
+            [ "$code" = "200" ] || exit 1
+            if jq -e '.skipped' popularity.json >/dev/null; then break; fi
+            updated="$(jq '.updated_listings' popularity.json)"
+            left="$(jq '.due - .attempted_listings' popularity.json)"
+            if [ "$updated" -eq 0 ] || [ "$left" -le 0 ]; then break; fi
+          done
 
   weekly:
     name: Registry and provider sync

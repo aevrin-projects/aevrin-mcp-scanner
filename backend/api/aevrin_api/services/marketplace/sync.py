@@ -68,6 +68,10 @@ _METADATA_MAX_AGE = timedelta(days=6)
 # a backlog of 11,000 listings in about eight hours.
 POPULARITY_BUDGET = 1500
 _WRITE_CONCURRENCY = 16
+# When GraphQL is refused, how many repositories one run reads over REST
+# instead (two requests each, within the token's 5,000 an hour and inside
+# the 100-second limit), so stars keep arriving while the cause is fixed.
+_REST_FALLBACK_BUDGET = 300
 
 
 @dataclass
@@ -442,12 +446,24 @@ async def refresh_popularity(db: SupabaseRest, settings: Settings) -> dict[str, 
         "updated_listings": 0,
         "failures": [],
     }
-    stats = await fetch_repo_stats(settings, list(by_repository))
+    problems: list[str] = []
+    not_found: list[tuple[str, str]] = []
+    stats = await fetch_repo_stats(settings, list(by_repository), problems, not_found)
     if stats is None:
         logger.warning("popularity refresh skipped: GITHUB_TOKEN is not set")
         report["skipped"] = "GITHUB_TOKEN is not set; GitHub's GraphQL API needs a token."
         return report
+    report["method"] = "graphql"
+    if problems:
+        # Recorded, not only logged: a refused GraphQL request fetched
+        # nothing for a whole run while reporting success, and the reason
+        # was visible only in the API's own log.
+        report["github_error"] = problems[0]
+    if not stats and problems and by_repository:
+        report["method"] = "rest"
+        stats = await _rest_stats(settings, list(by_repository)[:_REST_FALLBACK_BUDGET])
     report["fetched_repositories"] = len(stats)
+    report["not_found_repositories"] = len(not_found)
 
     now = datetime.now(UTC).isoformat()
     writes: list[tuple[str, dict[str, Any]]] = []
@@ -469,6 +485,15 @@ async def refresh_popularity(db: SupabaseRest, settings: Settings) -> dict[str, 
         if metadata.license_id:
             patch["license"] = metadata.license_id
         writes.extend((row["id"], patch) for row in listings)
+    # A repository GitHub answered "no such repository" for is checked, not
+    # pending: stamp it, stars left unknown, so it moves to the back of the
+    # queue and is asked again in six days. Left unstamped, the third of
+    # registry repositories that no longer exist would sit at the front for
+    # ever and, within a few runs, fill every batch.
+    for key in not_found:
+        writes.extend(
+            (row["id"], {"github_metadata_updated_at": now}) for row in by_repository.get(key, [])
+        )
 
     semaphore = asyncio.Semaphore(_WRITE_CONCURRENCY)
 
@@ -487,6 +512,24 @@ async def refresh_popularity(db: SupabaseRest, settings: Settings) -> dict[str, 
         report["repositories"], report["fetched_repositories"], report["updated_listings"],
     )
     return report
+
+
+async def _rest_stats(
+    settings: Settings, repositories: list[tuple[str, str]]
+) -> dict[tuple[str, str], Any]:
+    """The same facts over REST, one repository at a time: the fallback when
+    GraphQL is refused (a token GraphQL does not accept still reads REST)."""
+    semaphore = asyncio.Semaphore(_FETCH_CONCURRENCY + 3)
+    found: dict[tuple[str, str], Any] = {}
+
+    async def one(owner: str, repo: str) -> None:
+        async with semaphore:
+            metadata = await fetch_repo_metadata(settings, f"https://github.com/{owner}/{repo}")
+            if metadata is not None:
+                found[(owner, repo)] = metadata
+
+    await asyncio.gather(*(one(owner, repo) for owner, repo in repositories))
+    return found
 
 
 def _npm_identifier(installation: dict[str, Any]) -> str | None:

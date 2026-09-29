@@ -55,6 +55,16 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **The popularity refresh fetched nothing in production and could have
+  stalled.** Its first real run returned `200` with 0 of 1,330 repositories
+  fetched and no reason: GitHub refused the GraphQL request and the refusal
+  was only logged. The report now carries GitHub's reason (`github_error`),
+  and the run falls back to REST for up to 300 repositories so stars keep
+  arriving. A repository GitHub says does not exist is stamped as checked,
+  where before it would have stayed first in the queue for ever; about a
+  third of registry repositories no longer exist, enough to fill every
+  batch within a few runs. The scheduler step now loops until nothing is
+  due, because GitHub runs the "hourly" schedule every four to eight hours.
 - **AI explanations never worked in production.** `POST /ai/explain`
   declared its body as `body: Any`, which FastAPI reads as a required query
   parameter, so every request was refused with `422` before any code ran,

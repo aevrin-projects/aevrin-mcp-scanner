@@ -175,8 +175,26 @@ def _metadata_from_graphql(node: dict[str, Any]) -> RepoMetadata:
     return metadata
 
 
+def _graphql_error(response: httpx.Response) -> str:
+    """GitHub's own words for a refused GraphQL request, short, never the
+    request itself (which carries only repository names anyway)."""
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text[:200]
+    if isinstance(body, dict):
+        errors = body.get("errors")
+        if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+            return str(errors[0].get("message", ""))[:200]
+        return str(body.get("message", ""))[:200]
+    return ""
+
+
 async def fetch_repo_stats(
-    settings: Settings, repositories: list[tuple[str, str]]
+    settings: Settings,
+    repositories: list[tuple[str, str]],
+    problems: list[str] | None = None,
+    not_found: list[tuple[str, str]] | None = None,
 ) -> dict[tuple[str, str], RepoMetadata] | None:
     """Popularity and upkeep for many repositories, `GRAPHQL_BATCH` per request.
 
@@ -212,18 +230,37 @@ async def fetch_repo_stats(
                 )
             except httpx.HTTPError as exc:
                 logger.warning("github graphql unavailable: %s", exc)
+                if problems is not None:
+                    problems.append(f"GitHub GraphQL could not be reached ({type(exc).__name__}).")
                 break
             if response.status_code != 200:
-                logger.warning("github graphql returned %s: %s", response.status_code, response.text[:300])
+                message = _graphql_error(response)
+                logger.warning("github graphql returned %s: %s", response.status_code, message)
+                if problems is not None:
+                    problems.append(f"GitHub GraphQL answered {response.status_code}: {message}")
                 break
             try:
-                data = (response.json() or {}).get("data") or {}
+                body = response.json() or {}
             except ValueError:
+                if problems is not None:
+                    problems.append("GitHub GraphQL returned a non-JSON response.")
+                break
+            data = body.get("data") if isinstance(body, dict) else None
+            if not isinstance(data, dict):
+                # The whole query was refused (no per-repository data at all),
+                # which is not what a missing repository looks like.
+                if problems is not None:
+                    problems.append(f"GitHub GraphQL refused the query: {_graphql_error(response)}")
                 break
             for i, (owner, repo) in enumerate(batch):
                 node = data.get(f"r{i}")
                 if isinstance(node, dict):
                     found[(owner.lower(), repo.lower())] = _metadata_from_graphql(node)
+                elif not_found is not None:
+                    # Null inside an answered query: GitHub resolved no
+                    # repository by that name (deleted, renamed, private).
+                    # A definite answer, unlike a refused request.
+                    not_found.append((owner.lower(), repo.lower()))
     return found
 
 

@@ -117,8 +117,11 @@ def test_drafts_and_published_alike_get_their_stars(monkeypatch: pytest.MonkeyPa
     ]
     asked: list[list[tuple[str, str]]] = []
 
-    async def stats(settings: Any, repositories: list[tuple[str, str]]) -> dict[tuple[str, str], RepoMetadata]:
+    async def stats(settings: Any, repositories: list[tuple[str, str]], problems: Any = None,
+                    not_found: Any = None) -> dict[tuple[str, str], RepoMetadata]:
         asked.append(repositories)
+        if not_found is not None:
+            not_found.append(("acme", "gone"))
         return {("upstash", "context7"): RepoMetadata(stars=40000, license_id="MIT")}
 
     monkeypatch.setattr(sync, "fetch_repo_stats", stats)
@@ -127,12 +130,17 @@ def test_drafts_and_published_alike_get_their_stars(monkeypatch: pytest.MonkeyPa
     report = asyncio.run(sync.refresh_popularity(db, _Settings()))  # type: ignore[arg-type]
 
     assert sorted(asked[0]) == [("acme", "gone"), ("upstash", "context7")]
-    assert sorted(listing_id for listing_id, _ in db.updates) == ["id-1", "id-2"]
-    patch = db.updates[0][1]
+    updates = dict(db.updates)
+    assert sorted(updates) == ["id-1", "id-2", "id-4"]
+    patch = updates["id-1"]
     assert patch["github_stars"] == 40000 and patch["license"] == "MIT"
     assert "title" not in patch and "description" not in patch and "readme" not in patch
     assert report["due"] == 3
-    assert (report["repositories"], report["fetched_repositories"], report["updated_listings"]) == (2, 1, 2)
+    assert (report["repositories"], report["fetched_repositories"], report["updated_listings"]) == (2, 1, 3)
+    # A repository GitHub says does not exist is stamped as checked, stars
+    # left unknown, so it cannot sit at the front of the queue for ever.
+    assert list(updates["id-4"]) == ["github_metadata_updated_at"]
+    assert report["not_found_repositories"] == 1
 
 
 def test_never_fetched_listings_go_first_within_the_budget(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -144,7 +152,7 @@ def test_never_fetched_listings_go_first_within_the_budget(monkeypatch: pytest.M
     ]
     asked: list[list[tuple[str, str]]] = []
 
-    async def stats(settings: Any, repositories: list[tuple[str, str]]) -> dict[tuple[str, str], RepoMetadata]:
+    async def stats(settings: Any, repositories: list[tuple[str, str]], *more: Any) -> dict[tuple[str, str], RepoMetadata]:
         asked.append(repositories)
         return {}
 
@@ -178,3 +186,52 @@ def test_every_scheduler_route_requires_the_scheduler_token() -> None:
         if scheduler.require_scheduler_token not in {d.call for d in r.dependant.dependencies}
     ]
     assert unguarded == []
+
+
+def test_a_refused_graphql_request_is_reported_and_rest_takes_over(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Production fetched nothing for a whole run while reporting success; the
+    reason was only in the API log. It is in the report now, and stars still
+    arrive over REST while it is fixed."""
+
+    async def refused(settings: Any, repositories: Any, problems: list[str], not_found: Any) -> dict[Any, Any]:
+        problems.append("GitHub GraphQL answered 403: Resource not accessible by personal access token")
+        return {}
+
+    async def rest(settings: Any, url: str) -> RepoMetadata | None:
+        return RepoMetadata(stars=52000) if url.endswith("/chromedevtools/chrome-devtools-mcp") else None
+
+    monkeypatch.setattr(sync, "fetch_repo_stats", refused)
+    monkeypatch.setattr(sync, "fetch_repo_metadata", rest)
+    db = _FakeDb([_listing(1, "ChromeDevTools/chrome-devtools-mcp"), _listing(2, "a/b")])
+
+    report = asyncio.run(sync.refresh_popularity(db, _Settings()))  # type: ignore[arg-type]
+
+    assert report["github_error"].startswith("GitHub GraphQL answered 403")
+    assert report["method"] == "rest"
+    assert [(i, p["github_stars"]) for i, p in db.updates] == [("id-1", 52000)]
+
+
+def test_a_graphql_refusal_carries_github_s_own_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Resp:
+        status_code = 401
+        text = ""
+
+        @staticmethod
+        def json() -> dict[str, Any]:
+            return {"message": "Bad credentials"}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc: object) -> bool:
+            return False
+
+        async def post(self, url: str, json: Any) -> _Resp:
+            return _Resp()
+
+    monkeypatch.setattr(github_public.httpx, "AsyncClient", lambda *a, **k: _Client())
+    problems: list[str] = []
+    found = asyncio.run(fetch_repo_stats(_Settings(), [("a", "b")], problems))  # type: ignore[arg-type]
+    assert found == {}
+    assert problems == ["GitHub GraphQL answered 401: Bad credentials"]
