@@ -55,6 +55,13 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **The registry's Claude Code connect command added the server for one
+  directory only.** It now reads `claude mcp add --scope user ...` on the
+  home page, the registry pages, the docs site and the CLI reference.
+  Without a scope, Claude Code keys the server to the exact path it was
+  run in, so a session that opened the same folder by a different path
+  (VS Code on Windows opens `b:\` where a terminal has `B:\`) never
+  loaded it.
 - **The popularity refresh fetched nothing in production and could have
   stalled.** Its first real run returned `200` with 0 of 1,330 repositories
   fetched and no reason: GitHub refused the GraphQL request and the refusal

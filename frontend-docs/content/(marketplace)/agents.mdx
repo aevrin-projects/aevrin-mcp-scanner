@@ -12,8 +12,13 @@ exactly what an anonymous visitor to the registry sees: published, public items,
 The hosted endpoint needs no install and no account:
 
 ```bash
-claude mcp add --transport http aevrin https://api.mcp.aevrin.net/mcp
+claude mcp add --scope user --transport http aevrin https://api.mcp.aevrin.net/mcp
 ```
+
+`--scope user` makes the registry available in every project. Without it, Claude Code saves the
+server for the exact directory you ran the command in, and a session opened on the same folder by a
+different path (on Windows, `b:\` rather than `B:\`, as VS Code often does) does not load it. Start
+a new session after adding it: Claude Code loads MCP servers only when a session starts.
 
 For a client configured with JSON:
 

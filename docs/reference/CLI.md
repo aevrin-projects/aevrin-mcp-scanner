@@ -127,7 +127,7 @@ The registry tools alone are also served at a hosted endpoint, which needs
 no install:
 
 ```bash
-claude mcp add --transport http aevrin https://api.mcp.aevrin.net/mcp
+claude mcp add --scope user --transport http aevrin https://api.mcp.aevrin.net/mcp
 ```
 
 ```json

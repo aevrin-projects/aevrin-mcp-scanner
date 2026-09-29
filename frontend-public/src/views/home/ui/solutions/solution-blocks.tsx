@@ -52,7 +52,7 @@ export function SolutionBlocks() {
               )}
               style={{ borderColor: "var(--mk-line)", background: "var(--mk-surface)", color: "var(--mk-fg)" }}
             >
-              claude mcp add --transport http aevrin https://api.mcp.aevrin.net/mcp
+              claude mcp add --scope user --transport http aevrin https://api.mcp.aevrin.net/mcp
             </code>
           }
           seeAlso={REGISTRY_LINKS}

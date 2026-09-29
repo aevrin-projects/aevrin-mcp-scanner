@@ -11,7 +11,7 @@ import { CopyButton } from "@/shared/ui/copy-button";
 
 export const AEVRIN_MCP_URL = "https://api.mcp.aevrin.net/mcp";
 
-const ADD_COMMAND = `claude mcp add --transport http aevrin ${AEVRIN_MCP_URL}`;
+const ADD_COMMAND = `claude mcp add --scope user --transport http aevrin ${AEVRIN_MCP_URL}`;
 
 const CONFIG = JSON.stringify(
   { mcpServers: { aevrin: { type: "http", url: AEVRIN_MCP_URL } } },
