@@ -180,10 +180,18 @@ is what gives drafts a star count at all. The weekly `_refresh_metadata`
 covers published listings only (it also fetches READMEs), so before this
 existed 10,991 GitHub-hosted listings had never been measured and the bar
 judged them on nothing. It reads every listing whose repository is on
-GitHub, whatever its status, takes up to `POPULARITY_BUDGET` (1,500) that
+GitHub, whatever its status, takes up to `POPULARITY_BUDGET` (1,000) that
 were never fetched or are older than six days, never-fetched first, and
-asks GitHub's GraphQL API for 100 repositories per request
-(`github_public.fetch_repo_stats`; owner and name are query variables).
+asks GitHub's GraphQL API for 25 repositories per request
+(`github_public.fetch_repo_stats`; owner and name are query variables). At
+100 per request GitHub answered most batches with 504 "couldn't respond in
+time" (each repository also counts its open issues and reads its latest
+release), and the first such answer ended the run with nothing fetched. A
+batch answered 502, 503 or 504, or not answered within 20 seconds, is now
+skipped and the next one tried (three in a row end the run), and no new
+batch starts after 45 seconds, so a call always returns inside the
+scheduler's 120-second limit with what it fetched; what it did not reach
+stays due for the next call.
 It writes only what the repository says about itself (stars, forks, open
 issues, upkeep, licence, the timestamp), never a title, description,
 README or anything an admin wrote. A repository GitHub answers "no such

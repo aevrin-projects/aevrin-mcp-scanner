@@ -235,3 +235,69 @@ def test_a_graphql_refusal_carries_github_s_own_reason(monkeypatch: pytest.Monke
     found = asyncio.run(fetch_repo_stats(_Settings(), [("a", "b")], problems))  # type: ignore[arg-type]
     assert found == {}
     assert problems == ["GitHub GraphQL answered 401: Bad credentials"]
+
+
+def _statuses(monkeypatch: pytest.MonkeyPatch, statuses: list[int]) -> list[dict[str, Any]]:
+    """A GraphQL endpoint answering each request with the next status; a 200
+    returns every asked-for repository with 5 stars."""
+    sent: list[dict[str, Any]] = []
+
+    class _Resp:
+        def __init__(self, status: int, body: dict[str, Any]) -> None:
+            self.status_code = status
+            self.text = ""
+            self._body = body
+
+        def json(self) -> dict[str, Any]:
+            return self._body
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc: object) -> bool:
+            return False
+
+        async def post(self, url: str, json: dict[str, Any]) -> _Resp:
+            sent.append(json)
+            status = statuses[len(sent) - 1]
+            if status != 200:
+                return _Resp(status, {"message": "We couldn't respond to your request in time."})
+            names = [k[1:] for k in json["variables"] if k.startswith("o")]
+            return _Resp(200, {"data": {f"r{i}": _node(5) for i in names}})
+
+    monkeypatch.setattr(github_public.httpx, "AsyncClient", lambda *a, **k: _Client())
+    return sent
+
+
+def test_a_batch_github_could_not_answer_in_time_is_skipped_not_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Production: 100-repository batches drew 504s, and the first one ended
+    # the run with nothing fetched.
+    monkeypatch.setattr(github_public, "GRAPHQL_BATCH", 1)
+    sent = _statuses(monkeypatch, [504, 200, 502, 200])
+    problems: list[str] = []
+    repos = [("a", "one"), ("a", "two"), ("a", "three"), ("a", "four")]
+    found = asyncio.run(fetch_repo_stats(_Settings(), repos, problems))  # type: ignore[arg-type]
+    assert found is not None
+    assert set(found) == {("a", "two"), ("a", "four")}
+    assert len(sent) == 4
+    assert problems[0].startswith("GitHub GraphQL answered 504 for a batch; it was skipped")
+
+
+def test_three_timeouts_in_a_row_stop_the_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(github_public, "GRAPHQL_BATCH", 1)
+    sent = _statuses(monkeypatch, [504, 504, 504, 200])
+    found = asyncio.run(fetch_repo_stats(_Settings(), [("a", str(i)) for i in range(4)], []))  # type: ignore[arg-type]
+    assert found == {}
+    assert len(sent) == 3
+
+
+def test_no_new_batch_starts_after_the_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    # What is left stays due for the next call, instead of the call running
+    # past the scheduler's time limit and reporting nothing.
+    monkeypatch.setattr(github_public, "GRAPHQL_DEADLINE_SECONDS", -1.0)
+    sent = _statuses(monkeypatch, [200])
+    assert asyncio.run(fetch_repo_stats(_Settings(), [("a", "b")], [])) == {}  # type: ignore[arg-type]
+    assert sent == []

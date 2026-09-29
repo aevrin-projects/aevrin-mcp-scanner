@@ -61,12 +61,11 @@ _GITHUB_REFRESH_BUDGET = 400
 _FETCH_CONCURRENCY = 5
 # Metadata older than this is stale enough to be worth a request.
 _METADATA_MAX_AGE = timedelta(days=6)
-# Listings whose GitHub popularity one `refresh_popularity` run brings up to
-# date. Batched through GraphQL (100 repositories a request), so the cost is
-# mostly the database writes. Sized to finish in about a minute, inside
-# Cloudflare's 100-second limit on a proxied request; run hourly, it clears
-# a backlog of 11,000 listings in about eight hours.
-POPULARITY_BUDGET = 1500
+# Listings one `refresh_popularity` call considers. GraphQL batches of 25
+# stop at GRAPHQL_DEADLINE_SECONDS, so this is sized to what a call can
+# fetch and write inside the scheduler's 120-second limit; whatever a call
+# does not reach stays due, and the scheduler step calls again.
+POPULARITY_BUDGET = 1000
 _WRITE_CONCURRENCY = 16
 # When GraphQL is refused, how many repositories one run reads over REST
 # instead (two requests each, within the token's 5,000 an hour and inside

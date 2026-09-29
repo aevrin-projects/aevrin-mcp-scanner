@@ -20,6 +20,7 @@ folded into it.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -142,10 +143,25 @@ async def fetch_repo_metadata(settings: Settings, repository_url: str) -> RepoMe
 
 
 _GRAPHQL_URL = f"{_API_BASE}/graphql"
-# Repositories per GraphQL request. Each is one aliased `repository` field
-# with no paginated connections, so a request costs about one point of the
-# 5,000 an hour a token gets, against one REST request per repository.
-GRAPHQL_BATCH = 100
+# Repositories per GraphQL request. Each is one aliased `repository` field,
+# so a request costs about one point of the 5,000 an hour a token gets,
+# against one REST request per repository. It was 100: in production GitHub
+# answered most of those with 504 "couldn't respond in time" (and some 502),
+# because every repository also counts its open issues and reads its latest
+# release, and a hundred of those overran GitHub's own time limit.
+GRAPHQL_BATCH = 25
+# GitHub gives up on a GraphQL query after about ten seconds, so waiting
+# longer only delays the next batch.
+_GRAPHQL_TIMEOUT = httpx.Timeout(20.0, connect=8.0)
+# How long one run keeps starting new batches. What is left stays due and is
+# fetched by the next call, so a run always answers inside the scheduler's
+# 120-second limit instead of being cut off with nothing reported.
+GRAPHQL_DEADLINE_SECONDS = 45.0
+# GitHub's answers to a query it could not finish in time: worth skipping
+# that batch and trying the next, not worth ending the run over. Three in a
+# row means GitHub is struggling, and the run stops.
+_TRANSIENT_STATUSES = frozenset({502, 503, 504})
+_MAX_CONSECUTIVE_TRANSIENT = 3
 _GRAPHQL_REPO_FIELDS = (
     "stargazerCount forkCount pushedAt createdAt isArchived "
     "primaryLanguage { name } licenseInfo { spdxId } defaultBranchRef { name } "
@@ -205,15 +221,30 @@ async def fetch_repo_stats(
     recording a run that fetched nothing as a success.
 
     Owner and name travel as GraphQL variables, never spliced into the query
-    text, so a repository URL cannot change the query's shape. A request
-    that fails (rate limit, outage) ends the run with what was fetched so
-    far: the rest keeps its stored values and is retried next time.
+    text, so a repository URL cannot change the query's shape. A batch
+    GitHub could not answer in time (502, 503, 504, or our own timeout) is
+    skipped and the next one tried; any other refusal (bad token, rate
+    limit) ends the run with what was fetched so far. Either way the rest
+    keeps its stored values and is retried next time.
     """
     if not settings.github_token:
         return None
     found: dict[tuple[str, str], RepoMetadata] = {}
-    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=8.0), headers=_headers(settings)) as client:
+    started = time.monotonic()
+    transient_in_a_row = 0
+
+    def transient(message: str) -> bool:
+        """Record a batch GitHub could not answer in time; True to stop."""
+        nonlocal transient_in_a_row
+        transient_in_a_row += 1
+        if problems is not None:
+            problems.append(message)
+        return transient_in_a_row >= _MAX_CONSECUTIVE_TRANSIENT
+
+    async with httpx.AsyncClient(timeout=_GRAPHQL_TIMEOUT, headers=_headers(settings)) as client:
         for start in range(0, len(repositories), GRAPHQL_BATCH):
+            if time.monotonic() - started > GRAPHQL_DEADLINE_SECONDS:
+                break
             batch = repositories[start : start + GRAPHQL_BATCH]
             params = ", ".join(f"$o{i}: String!, $n{i}: String!" for i in range(len(batch)))
             fields = " ".join(
@@ -228,11 +259,24 @@ async def fetch_repo_stats(
                 response = await client.post(
                     _GRAPHQL_URL, json={"query": f"query({params}) {{ {fields} }}", "variables": variables}
                 )
+            except httpx.TimeoutException:
+                logger.info("github graphql batch timed out")
+                if transient("GitHub GraphQL did not answer a batch in time; it was skipped."):
+                    break
+                continue
             except httpx.HTTPError as exc:
                 logger.warning("github graphql unavailable: %s", exc)
                 if problems is not None:
                     problems.append(f"GitHub GraphQL could not be reached ({type(exc).__name__}).")
                 break
+            if response.status_code in _TRANSIENT_STATUSES:
+                logger.info("github graphql batch answered %s", response.status_code)
+                if transient(
+                    f"GitHub GraphQL answered {response.status_code} for a batch; it was skipped: "
+                    f"{_graphql_error(response)}"
+                ):
+                    break
+                continue
             if response.status_code != 200:
                 message = _graphql_error(response)
                 logger.warning("github graphql returned %s: %s", response.status_code, message)
@@ -252,6 +296,7 @@ async def fetch_repo_stats(
                 if problems is not None:
                     problems.append(f"GitHub GraphQL refused the query: {_graphql_error(response)}")
                 break
+            transient_in_a_row = 0
             for i, (owner, repo) in enumerate(batch):
                 node = data.get(f"r{i}")
                 if isinstance(node, dict):
