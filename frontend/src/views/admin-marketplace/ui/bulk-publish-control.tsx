@@ -6,6 +6,8 @@ import { Loader2, Upload } from "lucide-react";
 import { marketplaceAdminApi, type BulkPublishResult } from "@/entities/admin";
 import { ApiError } from "@/shared/api";
 import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +39,14 @@ type Phase =
 
 const n = (value: number) => value.toLocaleString();
 
+const DEFAULT_MIN_STARS = 50;
+
+/** A whole number of stars within the server's accepted range, or null. */
+function parseStars(raw: string): number | null {
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 1 && value <= 1_000_000 ? value : null;
+}
+
 function errorText(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
 }
@@ -44,12 +54,15 @@ function errorText(error: unknown, fallback: string): string {
 export function BulkPublishControl({ onPublished }: { onPublished: () => void }) {
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "previewing" });
+  const [starsInput, setStarsInput] = useState(String(DEFAULT_MIN_STARS));
+  const minStars = parseStars(starsInput);
 
-  async function startPreview() {
+  async function startPreview(stars = minStars ?? DEFAULT_MIN_STARS) {
     setOpen(true);
+    setStarsInput(String(stars));
     setPhase({ kind: "previewing" });
     try {
-      setPhase({ kind: "preview", result: await marketplaceAdminApi.bulkPublishPreview() });
+      setPhase({ kind: "preview", result: await marketplaceAdminApi.bulkPublishPreview(stars) });
     } catch (error) {
       setPhase({ kind: "error", message: errorText(error, "The preview could not be loaded.") });
     }
@@ -58,7 +71,9 @@ export function BulkPublishControl({ onPublished }: { onPublished: () => void })
   async function publish(preview: BulkPublishResult) {
     setPhase({ kind: "publishing", preview });
     try {
-      const result = await marketplaceAdminApi.bulkPublish();
+      // The bar the preview was computed at, not whatever the field holds
+      // now: the confirm button names that preview's counts.
+      const result = await marketplaceAdminApi.bulkPublish(preview.criteria.min_github_stars);
       setPhase({ kind: "done", result });
       onPublished();
     } catch (error) {
@@ -94,6 +109,37 @@ export function BulkPublishControl({ onPublished }: { onPublished: () => void })
               Publishes the registry drafts that meet the bar and sets published MCP servers below it back
               to draft. The registry sync keeps adding new servers as drafts.
             </DialogDescription>
+            <form
+              className="mt-2 flex flex-wrap items-end gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (minStars !== null) void startPreview(minStars);
+              }}
+            >
+              <div className="grid gap-1">
+                <Label htmlFor="bulk-min-stars">Minimum GitHub stars</Label>
+                <Input
+                  id="bulk-min-stars"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={1_000_000}
+                  step={1}
+                  className="w-32"
+                  value={starsInput}
+                  disabled={busy}
+                  aria-invalid={minStars === null}
+                  aria-describedby="bulk-min-stars-hint"
+                  onChange={(event) => setStarsInput(event.target.value)}
+                />
+              </div>
+              <Button type="submit" variant="outline" disabled={busy || minStars === null}>
+                Preview
+              </Button>
+              <p id="bulk-min-stars-hint" className="basis-full text-xs text-muted-foreground">
+                {minStars === null ? "Enter a whole number from 1 to 1,000,000." : "Change it and preview again to compare."}
+              </p>
+            </form>
           </DialogHeader>
 
           <div
@@ -134,7 +180,9 @@ export function BulkPublishControl({ onPublished }: { onPublished: () => void })
               <Button onClick={() => void publish(phase.result)}>{confirmLabel(phase.result)}</Button>
             ) : null}
             {phase.kind === "done" && phase.result.remaining > 0 ? (
-              <Button onClick={() => void startPreview()}>Preview the next batch</Button>
+              <Button onClick={() => void startPreview(phase.result.criteria.min_github_stars)}>
+                Preview the next batch
+              </Button>
             ) : null}
           </DialogFooter>
         </DialogContent>
@@ -167,8 +215,8 @@ function Criteria({ result }: { result: BulkPublishResult }) {
         </li>
       </ul>
       <p className="mt-1 text-muted-foreground">
-        At most {n(c.max_per_call)} are published per run. A published MCP server under{" "}
-        {n(c.min_github_stars)} stars, or whose stars are not known yet, goes back to draft.
+        At most {n(c.max_per_call)} are published per run. A published MCP server known to have fewer than{" "}
+        {n(c.min_github_stars)} stars goes back to draft; one whose stars are not known yet stays.
       </p>
     </div>
   );
@@ -215,6 +263,42 @@ function SampleList({ label, items }: { label: string; items: BulkPublishResult[
   );
 }
 
+function StarCounts({ result }: { result: BulkPublishResult }) {
+  const unknown = result.star_counts.find((c) => c.min_stars === null);
+  return (
+    <div>
+      <p className="font-medium">Drafts at each bar, before the publish check:</p>
+      <table className="mt-1 w-full text-muted-foreground">
+        <thead className="sr-only">
+          <tr>
+            <th scope="col">Minimum stars</th>
+            <th scope="col">Drafts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {result.star_counts
+            .filter((c) => c.min_stars !== null)
+            .map((c) => (
+              <tr
+                key={c.min_stars}
+                className={c.min_stars === result.criteria.min_github_stars ? "font-medium text-foreground" : ""}
+              >
+                <td>{n(c.min_stars as number)}+ stars</td>
+                <td className="text-right tabular-nums">{n(c.drafts)}</td>
+              </tr>
+            ))}
+        </tbody>
+      </table>
+      {unknown && unknown.drafts > 0 ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {n(unknown.drafts)} drafts have no star count yet: no GitHub repository, or not fetched yet. Stars are
+          refreshed every hour.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function PreviewBody({ result }: { result: BulkPublishResult }) {
   const publishing =
     result.qualifying === 0
@@ -231,6 +315,7 @@ function PreviewBody({ result }: { result: BulkPublishResult }) {
       <p className="text-base font-medium">
         {publishing} {unpublishing}
       </p>
+      <StarCounts result={result} />
       <Criteria result={result} />
       <Skipped result={result} />
       {result.sample.length > 0 ? (

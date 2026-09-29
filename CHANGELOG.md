@@ -22,6 +22,20 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Added
 
+- **Hourly popularity refresh for every GitHub-hosted listing**
+  (`POST /scheduler/registry-popularity`, run by the hourly scheduler job).
+  The weekly metadata refresh only ever covered published listings, so
+  10,991 listings, nearly every draft, had never had their GitHub stars
+  fetched, and the popularity bar judged them on no data (Context7 showed
+  "stars not known"). The new job asks GitHub's GraphQL API for 100
+  repositories per request and brings up to 1,500 listings up to date per
+  run, never-fetched first, so the backlog clears in about eight hours. It
+  needs `GITHUB_TOKEN` on the API and reports `skipped` without it.
+- **The admin chooses the popularity bar.** "Apply popularity bar" takes a
+  minimum star count (default 50) and its preview shows how many drafts
+  meet 1, 10, 25, 50, 100 and 500 stars, so the bar is chosen on numbers
+  (ADR-055).
+
 - **Source guards** (`backend/api/tests/test_migration_guards.py`). A
   migration that creates a callable `security definer` function without
   revoking EXECUTE from `public`, `anon` and `authenticated` fails the
@@ -41,6 +55,9 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **"Apply popularity bar" would have unpublished servers whose stars were
+  simply never fetched**, Context7 among them. A published server is now
+  unpublished only when its known star count is below the bar (ADR-055).
 - **The saved page listed servers that are no longer in the registry.**
   `GET /marketplace/favorites` returned every saved listing whatever its
   state, so servers the popularity bar sent back to draft stayed on

@@ -164,6 +164,12 @@ general-purpose SAST pass in the product standing in for it here.
   audit row, the per-call cap, a non-admin getting `404`, and approval of a
   remote-only suggestion (the gate's per-type rule). Its fake PostgREST
   compares `gte` numerically and refuses operators it does not know.
+- **Popularity refresh** (`tests/services/test_popularity_refresh.py`):
+  GraphQL batching with owner and name as variables, a repository GitHub
+  does not return stays unknown (not zero), no token means `skipped` and no
+  writes, drafts and published listings alike are refreshed with only
+  repository-owned fields, never-fetched first within the budget, and every
+  `/scheduler` route requires the scheduler token.
 - **Source guards** (`tests/test_migration_guards.py`): every callable
   `security definer` function in `backend/infra/migrations` must revoke
   EXECUTE from `public`, `anon` and `authenticated` (two named exceptions

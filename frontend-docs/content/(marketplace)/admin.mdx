@@ -54,11 +54,14 @@ recorded on the item.
 
 Every server synced from the official MCP Registry arrives as a draft, and keeps doing so. **Apply
 popularity bar** on the registry admin page publishes, in one action, only the drafts that meet
-this bar, and sets every published MCP server below it back to draft:
+a star bar you choose (50 by default), and sets every published MCP server known to be below it back
+to draft. The preview shows how many drafts meet each common bar (1, 10, 25, 50, 100 and 500 stars),
+so you can compare before choosing:
 
 - a public MCP server that the registry sync added, still a draft (a draft an administrator created,
   or an organisation's private item, is never included);
-- 50 or more GitHub stars (a server whose star count is not known yet does not meet it);
+- at least the chosen number of GitHub stars (a draft whose star count is not known yet does not meet
+  it; a published server whose count is not known yet is left published);
 - it passes the publish check above;
 - it is the only listing for its repository: a draft whose repository already has a published
   listing is skipped, and of several drafts for one repository only the one with the most stars
@@ -69,6 +72,10 @@ how many drafts stay drafts and why, and the most common reasons drafts fail the
 until you confirm. At most 500 are published per run; if more qualify, the result says so and you
 can preview the next batch. Each item published this way gets its own timeline entry and audit
 record, and the run itself is recorded once more with the bar applied and the counts.
+
+Star counts come from GitHub and are refreshed every hour for every server with a GitHub repository,
+drafts included, so a newly synced server has a count within a few hours. A server with no GitHub
+repository never has one, and so is published by hand rather than by the bar.
 
 ## What an administrator cannot do
 

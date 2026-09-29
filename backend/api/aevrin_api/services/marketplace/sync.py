@@ -31,10 +31,12 @@ from typing import Any
 
 from aevrin_api.config import Settings
 from aevrin_api.db import SupabaseRest, select_all
+from aevrin_api.integrations.github_app import parse_github_repo
 from aevrin_api.integrations.github_public import (
     fetch_npm_downloads,
     fetch_readme,
     fetch_repo_metadata,
+    fetch_repo_stats,
 )
 from aevrin_api.integrations.mcp_registry import (
     RegistryServer,
@@ -59,6 +61,13 @@ _GITHUB_REFRESH_BUDGET = 400
 _FETCH_CONCURRENCY = 5
 # Metadata older than this is stale enough to be worth a request.
 _METADATA_MAX_AGE = timedelta(days=6)
+# Listings whose GitHub popularity one `refresh_popularity` run brings up to
+# date. Batched through GraphQL (100 repositories a request), so the cost is
+# mostly the database writes. Sized to finish in about a minute, inside
+# Cloudflare's 100-second limit on a proxied request; run hourly, it clears
+# a backlog of 11,000 listings in about eight hours.
+POPULARITY_BUDGET = 1500
+_WRITE_CONCURRENCY = 16
 
 
 @dataclass
@@ -382,6 +391,102 @@ async def refresh_listing_metadata(
 
     await db.update("mcp_listings", {"id": listing["id"]}, patch)
     return True
+
+
+async def refresh_popularity(db: SupabaseRest, settings: Settings) -> dict[str, Any]:
+    """Bring GitHub popularity up to date for every listing hosted on GitHub.
+
+    Every status, not only published. The weekly `_refresh_metadata` covers
+    published listings only (it also fetches READMEs), so a draft never had
+    its stars measured, and the popularity bar that decides which drafts to
+    publish was judging nearly all of them on no data: 10,991 GitHub-hosted
+    listings had never been fetched when this was added.
+
+    Never-fetched listings first, then the stalest, `POPULARITY_BUDGET` per
+    run. Writes only what the repository says about itself (stars, forks,
+    issues, upkeep, licence) and the timestamp; never a title, description
+    or anything an administrator wrote. A repository GitHub does not return
+    keeps its stored values and no timestamp, so it is tried again.
+    """
+    rows = await select_all(
+        db,
+        "mcp_listings",
+        {"repository_url": "ilike.https://github.com/*"},
+        columns="id,repository_url,github_metadata_updated_at",
+        order="id.asc",
+    )
+    cutoff = datetime.now(UTC) - _METADATA_MAX_AGE
+
+    def due(row: dict[str, Any]) -> bool:
+        stamp = row.get("github_metadata_updated_at")
+        return not stamp or datetime.fromisoformat(str(stamp)) < cutoff
+
+    queue = sorted(
+        (row for row in rows if due(row)),
+        key=lambda row: (row.get("github_metadata_updated_at") is not None, str(row.get("github_metadata_updated_at") or "")),
+    )[:POPULARITY_BUDGET]
+
+    by_repository: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in queue:
+        parsed = parse_github_repo(str(row.get("repository_url") or ""))
+        if parsed:
+            key = (parsed[0].lower(), parsed[1].lower())
+            by_repository.setdefault(key, []).append(row)
+
+    report: dict[str, Any] = {
+        "github_listings": len(rows),
+        "due": sum(1 for row in rows if due(row)),
+        "attempted_listings": len(queue),
+        "repositories": len(by_repository),
+        "fetched_repositories": 0,
+        "updated_listings": 0,
+        "failures": [],
+    }
+    stats = await fetch_repo_stats(settings, list(by_repository))
+    if stats is None:
+        logger.warning("popularity refresh skipped: GITHUB_TOKEN is not set")
+        report["skipped"] = "GITHUB_TOKEN is not set; GitHub's GraphQL API needs a token."
+        return report
+    report["fetched_repositories"] = len(stats)
+
+    now = datetime.now(UTC).isoformat()
+    writes: list[tuple[str, dict[str, Any]]] = []
+    for key, listings in by_repository.items():
+        metadata = stats.get(key)
+        if metadata is None:
+            continue
+        patch: dict[str, Any] = {
+            "github_stars": metadata.stars,
+            "github_forks": metadata.forks,
+            "github_open_issues": metadata.open_issues,
+            "github_default_branch": metadata.default_branch,
+            "github_language": metadata.language,
+            "github_last_commit_at": metadata.pushed_at,
+            "github_created_at": metadata.created_at,
+            "github_latest_release": metadata.latest_release,
+            "github_metadata_updated_at": now,
+        }
+        if metadata.license_id:
+            patch["license"] = metadata.license_id
+        writes.extend((row["id"], patch) for row in listings)
+
+    semaphore = asyncio.Semaphore(_WRITE_CONCURRENCY)
+
+    async def write(listing_id: str, patch: dict[str, Any]) -> None:
+        async with semaphore:
+            try:
+                await db.update("mcp_listings", {"id": listing_id}, patch)
+                report["updated_listings"] += 1
+            except Exception as exc:  # noqa: BLE001 - recorded, and the rest continue
+                if len(report["failures"]) < 20:
+                    report["failures"].append(f"{listing_id}: {exc}")
+
+    await asyncio.gather(*(write(listing_id, patch) for listing_id, patch in writes))
+    logger.info(
+        "popularity refresh repositories=%s fetched=%s updated=%s",
+        report["repositories"], report["fetched_repositories"], report["updated_listings"],
+    )
+    return report
 
 
 def _npm_identifier(installation: dict[str, Any]) -> str | None:

@@ -141,6 +141,92 @@ async def fetch_repo_metadata(settings: Settings, repository_url: str) -> RepoMe
     return metadata
 
 
+_GRAPHQL_URL = f"{_API_BASE}/graphql"
+# Repositories per GraphQL request. Each is one aliased `repository` field
+# with no paginated connections, so a request costs about one point of the
+# 5,000 an hour a token gets, against one REST request per repository.
+GRAPHQL_BATCH = 100
+_GRAPHQL_REPO_FIELDS = (
+    "stargazerCount forkCount pushedAt createdAt isArchived "
+    "primaryLanguage { name } licenseInfo { spdxId } defaultBranchRef { name } "
+    "issues(states: OPEN) { totalCount } latestRelease { tagName }"
+)
+
+
+def _metadata_from_graphql(node: dict[str, Any]) -> RepoMetadata:
+    def name(block: Any, key: str, limit: int) -> str | None:
+        return _str(block.get(key), limit) if isinstance(block, dict) else None
+
+    issues = node.get("issues")
+    metadata = RepoMetadata(
+        stars=_int(node.get("stargazerCount")),
+        forks=_int(node.get("forkCount")),
+        open_issues=_int(issues.get("totalCount")) if isinstance(issues, dict) else None,
+        default_branch=name(node.get("defaultBranchRef"), "name", 200),
+        language=name(node.get("primaryLanguage"), "name", 60),
+        license_id=name(node.get("licenseInfo"), "spdxId", 60),
+        pushed_at=_str(node.get("pushedAt"), 40),
+        created_at=_str(node.get("createdAt"), 40),
+        latest_release=name(node.get("latestRelease"), "tagName", 120),
+        archived=bool(node.get("isArchived")),
+    )
+    if metadata.license_id in ("NOASSERTION", "NONE", ""):
+        metadata.license_id = None
+    return metadata
+
+
+async def fetch_repo_stats(
+    settings: Settings, repositories: list[tuple[str, str]]
+) -> dict[tuple[str, str], RepoMetadata] | None:
+    """Popularity and upkeep for many repositories, `GRAPHQL_BATCH` per request.
+
+    Keyed by (owner, repo) lowercased. A repository GitHub does not return
+    (deleted, renamed, private) is simply absent: no fact, not a zero. None
+    when no `GITHUB_TOKEN` is configured, because GitHub's GraphQL API does
+    not answer anonymous requests; the caller reports that rather than
+    recording a run that fetched nothing as a success.
+
+    Owner and name travel as GraphQL variables, never spliced into the query
+    text, so a repository URL cannot change the query's shape. A request
+    that fails (rate limit, outage) ends the run with what was fetched so
+    far: the rest keeps its stored values and is retried next time.
+    """
+    if not settings.github_token:
+        return None
+    found: dict[tuple[str, str], RepoMetadata] = {}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=8.0), headers=_headers(settings)) as client:
+        for start in range(0, len(repositories), GRAPHQL_BATCH):
+            batch = repositories[start : start + GRAPHQL_BATCH]
+            params = ", ".join(f"$o{i}: String!, $n{i}: String!" for i in range(len(batch)))
+            fields = " ".join(
+                f"r{i}: repository(owner: $o{i}, name: $n{i}) {{ {_GRAPHQL_REPO_FIELDS} }}"
+                for i in range(len(batch))
+            )
+            variables: dict[str, str] = {}
+            for i, (owner, repo) in enumerate(batch):
+                variables[f"o{i}"] = owner
+                variables[f"n{i}"] = repo
+            try:
+                response = await client.post(
+                    _GRAPHQL_URL, json={"query": f"query({params}) {{ {fields} }}", "variables": variables}
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("github graphql unavailable: %s", exc)
+                break
+            if response.status_code != 200:
+                logger.warning("github graphql returned %s: %s", response.status_code, response.text[:300])
+                break
+            try:
+                data = (response.json() or {}).get("data") or {}
+            except ValueError:
+                break
+            for i, (owner, repo) in enumerate(batch):
+                node = data.get(f"r{i}")
+                if isinstance(node, dict):
+                    found[(owner.lower(), repo.lower())] = _metadata_from_graphql(node)
+    return found
+
+
 async def fetch_readme(settings: Settings, repository_url: str) -> str | None:
     """The rendered-source README, as plain text.
 

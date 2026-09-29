@@ -259,3 +259,6 @@ class BulkPublishResult(BaseModel):
     below_bar: int
     unpublished: int
     below_bar_sample: list[BulkPublishSample]
+    # Candidate drafts at each common bar (`min_stars` null: stars unknown),
+    # before the gate and one-per-repository.
+    star_counts: list[dict[str, int | None]]

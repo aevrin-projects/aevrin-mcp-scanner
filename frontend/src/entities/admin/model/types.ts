@@ -158,4 +158,7 @@ export type BulkPublishResult = {
   /** Set back to draft by this call; 0 for a preview. */
   unpublished: number;
   below_bar_sample: BulkPublishResult["sample"];
+  /** Candidate drafts at each common bar, before the publish check and one
+   *  per repository; `min_stars` null counts drafts whose stars are unknown. */
+  star_counts: { min_stars: number | null; drafts: number }[];
 };

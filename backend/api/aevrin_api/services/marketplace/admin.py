@@ -537,10 +537,16 @@ BULK_PUBLISH_FILTERS: dict[str, str] = {
     "visibility": "eq.public",
 }
 # Evidence that people use it: GitHub stars, the one popularity signal the
-# metadata refresh records for most listings. The owner set the bar at 50
-# (ADR-054). A listing whose stars are not yet known does not meet it: no
-# evidence is not evidence of popularity.
+# popularity refresh records for every GitHub-hosted listing. 50 is the
+# default the owner set (ADR-054); the admin chooses the bar per run, within
+# these bounds (ADR-055). A draft whose stars are not known does not meet
+# any bar, and a published listing whose stars are not known is left alone:
+# no evidence either way is not a reason to unpublish.
 BULK_PUBLISH_MIN_GITHUB_STARS = 50
+BULK_PUBLISH_STARS_RANGE = (1, 1_000_000)
+# The thresholds the preview counts drafts at, so an admin can see what a
+# lower or higher bar would publish before choosing one.
+BULK_PUBLISH_STAR_STEPS = (1, 10, 25, 50, 100, 500)
 # Per call, so a request finishes well inside the proxy's timeout. The rest
 # is reported as `remaining` and published by calling again.
 BULK_PUBLISH_MAX_PER_CALL = 500
@@ -559,12 +565,12 @@ _BULK_COLUMNS = (
 )
 
 
-def bulk_publish_criteria() -> dict[str, Any]:
+def bulk_publish_criteria(min_stars: int = BULK_PUBLISH_MIN_GITHUB_STARS) -> dict[str, Any]:
     """The bar, as data, so the admin UI and the audit row state exactly what
     was applied rather than a paraphrase of it."""
     return {
         **{column: value.removeprefix("eq.") for column, value in BULK_PUBLISH_FILTERS.items()},
-        "min_github_stars": BULK_PUBLISH_MIN_GITHUB_STARS,
+        "min_github_stars": min_stars,
         "unpublishes_below_bar": True,
         "one_per_repository": True,
         "max_per_call": BULK_PUBLISH_MAX_PER_CALL,
@@ -617,8 +623,26 @@ def _sample(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _star_counts(db: SupabaseRest) -> list[dict[str, int | None]]:
+    """How many candidate drafts meet each of `BULK_PUBLISH_STAR_STEPS`, plus
+    how many have no known star count (`min_stars` None). Before the gate and
+    one-per-repository, so an upper bound on what each bar would publish."""
+    steps = [f"gte.{n}" for n in BULK_PUBLISH_STAR_STEPS] + ["is.null"]
+    counts = await asyncio.gather(
+        *(db.count("mcp_listings", {**BULK_PUBLISH_FILTERS, "github_stars": step}) for step in steps)
+    )
+    return [
+        {"min_stars": n, "drafts": count}
+        for n, count in zip([*BULK_PUBLISH_STAR_STEPS, None], counts, strict=True)
+    ]
+
+
 async def bulk_publish(
-    db: SupabaseRest, *, admin: AdminIdentity, dry_run: bool
+    db: SupabaseRest,
+    *,
+    admin: AdminIdentity,
+    dry_run: bool,
+    min_stars: int = BULK_PUBLISH_MIN_GITHUB_STARS,
 ) -> dict[str, Any]:
     """Apply the popularity bar to the registry: publish the registry drafts
     that meet it and unpublish (back to draft) the published MCP servers
@@ -633,7 +657,7 @@ async def bulk_publish(
     candidates = await select_all(
         db,
         "mcp_listings",
-        {**BULK_PUBLISH_FILTERS, "github_stars": f"gte.{BULK_PUBLISH_MIN_GITHUB_STARS}"},
+        {**BULK_PUBLISH_FILTERS, "github_stars": f"gte.{min_stars}"},
         columns=_BULK_COLUMNS,
         order="id.asc",
     )
@@ -642,7 +666,7 @@ async def bulk_publish(
         for row in await select_all(
             db, "mcp_listings", BULK_UNPUBLISH_FILTERS, columns=_BULK_COLUMNS, order="id.asc"
         )
-        if (row.get("github_stars") or 0) < BULK_PUBLISH_MIN_GITHUB_STARS
+        if row.get("github_stars") is not None and row["github_stars"] < min_stars
     ]
     # Listings about to be unpublished do not hold their repository: a draft
     # for the same repository that meets the bar may take its place.
@@ -722,7 +746,8 @@ async def bulk_publish(
 
     result = {
         "dry_run": dry_run,
-        "criteria": bulk_publish_criteria(),
+        "criteria": bulk_publish_criteria(min_stars),
+        "star_counts": await _star_counts(db),
         "considered": len(candidates),
         "qualifying": len(qualifying),
         "batch": len(batch),

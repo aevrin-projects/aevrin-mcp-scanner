@@ -360,7 +360,7 @@ console.
 
 | Job | Cron (UTC) | Calls |
 |---|---|---|
-| `uptime` | `0 * * * *` (hourly) | `POST /scheduler/uptime-check` |
+| `uptime` | `0 * * * *` (hourly) | `POST /scheduler/uptime-check`, then `POST /scheduler/registry-popularity` (GitHub stars for up to 1,500 GitHub-hosted listings of any status, never-fetched first; needs `GITHUB_TOKEN` on the API, and says `skipped` without it) |
 | `weekly` | `15 3 * * 0` (Sun 03:15) | `POST /scheduler/registry-sync`, then `POST /scheduler/provider-sync` |
 
 Both jobs declare `environment: aws` and read the token out of

@@ -182,13 +182,16 @@ export const marketplaceAdminApi = {
 
   /** What "Apply popularity bar" would publish, and why the rest would
    *  stay drafts. Writes nothing. */
-  bulkPublishPreview: () => request<BulkPublishResult>("/admin/marketplace/bulk-publish"),
+  bulkPublishPreview: (minStars: number) =>
+    request<BulkPublishResult>(`/admin/marketplace/bulk-publish?min_stars=${encodeURIComponent(minStars)}`),
 
   /** Publishes the qualifying drafts, at most `criteria.max_per_call` per
    *  call; the server recomputes the set rather than trusting the preview.
    *  `remaining` > 0 means call again. */
-  bulkPublish: () =>
-    request<BulkPublishResult>("/admin/marketplace/bulk-publish", { method: "POST" }),
+  bulkPublish: (minStars: number) =>
+    request<BulkPublishResult>(`/admin/marketplace/bulk-publish?min_stars=${encodeURIComponent(minStars)}`, {
+      method: "POST",
+    }),
 
   submissions: (status = "review") =>
     request<Record<string, unknown>[]>(`/admin/marketplace/submissions?status=${status}`),

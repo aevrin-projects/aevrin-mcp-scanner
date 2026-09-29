@@ -18,7 +18,7 @@ frontend/CI-only variables.
 | `UPSTASH_FALLBACK_REDIS_REST_URL` / `..._TOKEN` | no | token is secret | Failover instance; unset means callers fail open if the primary refuses. |
 | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_S3_ENDPOINT` | yes | keys are secret | Cloudflare R2 (S3-compatible), scan report storage. |
 | `R2_BUCKET` | no (default `aevrin-report`) | no | Bucket name. |
-| `GITHUB_TOKEN` | no | **yes** | Plain PAT for cloning a private repository to read its manifests - distinct from the GitHub App below. Never passed to the scan container. |
+| `GITHUB_TOKEN` | no, but the registry needs it | **yes** | Plain PAT for cloning a private repository to read its manifests - distinct from the GitHub App below. Never passed to the scan container. Also the only way the registry learns GitHub stars at scale: the hourly popularity refresh uses GitHub's GraphQL API, which does not answer without a token (it reports `skipped`), and the REST fallback is 60 requests an hour. Any token works; it needs no scopes for public repositories. |
 | `AEVRIN_SCANNER_IMAGE` | no | no | Overrides the pinned scanner image (default `aevrin/mcp-scanner:0.3.19`). Set it to a digest to pin harder; never to `latest`, which would let findings change between scans without a version to point at. |
 | `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_APP_SLUG` | no (all three, or none) | private key is secret | "Connect GitHub." Unset disables Connect (returns 503), not an error. |
 | `TRUSTED_PROXY_HOPS` | no (default `1`) | no | How many reverse proxies append to `X-Forwarded-For`. Must match the real deployment topology - see `docs/architecture/DEPLOYMENT.md`. |

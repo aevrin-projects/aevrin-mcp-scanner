@@ -29,7 +29,7 @@ JWT) unless noted.
 | `/marketplace` | `marketplace.py` | `GET /mcp`, `GET /types`, `GET /categories`, `GET /mcp/{slug}`, `POST /submissions`, `GET /submissions`, `POST /mcp/{id}/report`, `PUT /mcp/{id}/favorite`, `GET /favorites` |
 | `/orgs` | `orgs.py` | `GET /permissions`, `GET /me`, `POST ""`, `PATCH ""`, `POST /leave`, `GET /members`, `PATCH /members/{id}`, `DELETE /members/{id}`, `GET /invites`, `POST /invites`, `DELETE /invites/{id}`, `POST /invites/{id}/accept`, `GET /roles`, `POST /roles`, `PATCH /roles/{id}`, `DELETE /roles/{id}` |
 | `/scans` | `scans.py` | `POST ""`, `POST /upload` (`X-API-Key`), `GET /{id}/diff`, `GET ""`, `DELETE ""`, `GET /{id}`, `POST /{id}/cancel`, `DELETE /{id}`, `GET /{id}/stages`, `GET /{id}/findings` |
-| `/scheduler` | `scheduler.py` | `POST /reap-stuck-scans`, `POST /registry-sync`, `POST /provider-sync`, `POST /uptime-check` - all gated by `require_scheduler_token` (HMAC comparison against `SCHEDULER_TOKEN`, fails closed if unconfigured), not a user session |
+| `/scheduler` | `scheduler.py` | `POST /reap-stuck-scans`, `POST /registry-sync`, `POST /registry-popularity`, `POST /provider-sync`, `POST /uptime-check` - all gated by `require_scheduler_token` (HMAC comparison against `SCHEDULER_TOKEN`, fails closed if unconfigured), not a user session |
 | `/status` | `status.py` | `GET /history` - **unauthenticated by design**: it is the data behind the public status page, which has to stay readable when nobody can sign in. Carries no user, org, or scan data. |
 
 `GET /health` is registered directly in `main.py`, outside `ROUTERS`.
@@ -118,12 +118,16 @@ JWT) unless noted.
 - **`GET /admin/marketplace/bulk-publish`** previews and **`POST
   /admin/marketplace/bulk-publish`** runs "Apply popularity bar"
   (`admin.bulk_publish`, criteria in `docs/features/MCP_MARKETPLACE.md`,
-  `DECISIONS.md` ADR-053). No body. Both return `BulkPublishResult`:
+  `DECISIONS.md` ADR-053 to ADR-055). No body; `?min_stars=` (1 to
+  1,000,000, default 50) is the bar the admin chose. Both return `BulkPublishResult`:
   `{dry_run, criteria, considered, qualifying, batch, published, failed:
   [{id, slug, reason}], remaining, skipped: {already_published_repository,
   failed_gate, duplicate_repository}, gate_reasons: [{reason, count}],
   sample: [{id, slug, title, repository_url, github_stars,
-  npm_downloads_last_month}], below_bar, unpublished, below_bar_sample}`
+  npm_downloads_last_month}], below_bar, unpublished, below_bar_sample,
+  star_counts: [{min_stars, drafts}]}` (`star_counts` gives the candidate
+  drafts at 1, 10, 25, 50, 100 and 500 stars, and `min_stars: null` for
+  those with no known count)
   (samples at most 20, gate reasons the top 5). The preview writes nothing.
   The POST recomputes the set, publishes at most 500 per call and sets every
   published MCP server under the bar back to draft, each through

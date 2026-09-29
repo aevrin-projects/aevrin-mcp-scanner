@@ -100,6 +100,9 @@ class FakeDb:
         found = found[start: start + limit] if limit else found[start:]
         return copy.deepcopy(found)
 
+    async def count(self, table: str, filters: dict[str, str] | None = None) -> int:
+        return len(await self.select(table, filters))
+
     async def insert(self, table: str, rows: Any, *, upsert_on: str | None = None) -> list[dict[str, Any]]:
         incoming = rows if isinstance(rows, list) else [rows]
         self.rows(table).extend(dict(row) for row in incoming)
@@ -248,8 +251,9 @@ def published(db: FakeDb, **fields: Any) -> dict[str, Any]:
 
 def test_published_servers_below_the_bar_are_unpublished() -> None:
     """The bar is what the public registry shows, whatever brought an item
-    in: a published MCP server under 50 stars, or with no star count yet,
-    goes back to draft. Nothing else changes."""
+    in: a published MCP server whose known star count is under the bar goes
+    back to draft. One whose stars are not known yet stays: Context7 was
+    about to be unpublished for a star count nobody had fetched (ADR-055)."""
     db = FakeDb()
     few = published(db, github_stars=49, source="user_submission")
     unknown = published(db, github_stars=None)
@@ -259,29 +263,27 @@ def test_published_servers_below_the_bar_are_unpublished() -> None:
     before = copy.deepcopy(db.tables)
     shown = preview(db)
     assert db.tables == before, "a preview writes nothing"
-    assert shown["below_bar"] == 2
+    assert shown["below_bar"] == 1
     assert shown["unpublished"] == 0
-    assert {s["id"] for s in shown["below_bar_sample"]} == {few["id"], unknown["id"]}
+    assert {s["id"] for s in shown["below_bar_sample"]} == {few["id"]}
 
     result = publish(db)
 
-    assert result["unpublished"] == 2
-    assert [status_of(db, r) for r in (few, unknown)] == ["draft", "draft"]
-    assert [status_of(db, r) for r in (kept, skill)] == ["published", "published"]
+    assert result["unpublished"] == 1
+    assert status_of(db, few) == "draft"
+    assert [status_of(db, r) for r in (unknown, kept, skill)] == ["published"] * 3
     events = [e for e in db.rows("mcp_events") if e["new_value"] == "draft"]
-    assert sorted(e["listing_id"] for e in events) == sorted([few["id"], unknown["id"]])
+    assert [e["listing_id"] for e in events] == [few["id"]]
     audit = db.rows("admin_audit_log")
-    assert sorted(a["target_resource"] for a in audit if a["action"] == "registry.status.draft") == sorted(
-        [few["id"], unknown["id"]]
-    )
+    assert [a["target_resource"] for a in audit if a["action"] == "registry.status.draft"] == [few["id"]]
     (summary,) = [a for a in audit if a["action"] == "registry.bulk_publish"]
-    assert summary["metadata"]["unpublished"] == 2
+    assert summary["metadata"]["unpublished"] == 1
     BulkPublishResult.model_validate(result)
 
 
 def test_a_draft_takes_the_place_of_an_unpublished_listing_for_its_repository() -> None:
     db = FakeDb()
-    stale = published(db, repository_url="https://github.com/acme/tool", github_stars=None)
+    stale = published(db, repository_url="https://github.com/acme/tool", github_stars=5)
     better = draft(db, repository_url="https://github.com/acme/tool", github_stars=300)
 
     result = publish(db)
@@ -473,3 +475,32 @@ def test_a_non_admin_cannot_reach_bulk_publish(method: str) -> None:
     assert response.status_code == 404
     assert status_of(db, row) == "draft"
     assert "admin_audit_log" not in db.tables
+
+
+def test_the_admin_chooses_the_bar() -> None:
+    """The same drafts and published servers, judged at two bars."""
+    db = FakeDb()
+    twelve = draft(db, github_stars=12)
+    sixty = draft(db, github_stars=60)
+    live = published(db, github_stars=30)
+
+    at_fifty = asyncio.run(routes.preview_bulk_publish(db, ADMIN, min_stars=50))  # type: ignore[arg-type]
+    assert {s["id"] for s in at_fifty["sample"]} == {sixty["id"]}
+    assert at_fifty["below_bar"] == 1
+    assert at_fifty["criteria"]["min_github_stars"] == 50
+
+    result = asyncio.run(routes.bulk_publish(db, ADMIN, min_stars=10))  # type: ignore[arg-type]
+    assert result["criteria"]["min_github_stars"] == 10
+    assert (result["published"], result["unpublished"]) == (2, 0)
+    assert [status_of(db, r) for r in (twelve, sixty, live)] == ["published"] * 3
+
+
+def test_the_preview_counts_drafts_at_each_common_bar() -> None:
+    db = FakeDb()
+    for stars in (None, None, 3, 12, 60, 150, 900):
+        draft(db, github_stars=stars)
+    draft(db, github_stars=900, source="admin")  # not a candidate: never counted
+
+    counts = {c["min_stars"]: c["drafts"] for c in preview(db)["star_counts"]}
+
+    assert counts == {1: 5, 10: 4, 25: 3, 50: 3, 100: 2, 500: 1, None: 2}

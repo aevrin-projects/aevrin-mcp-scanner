@@ -2266,3 +2266,36 @@ was decided; 79 of those at 50 or more). Running the action again later
 publishes more. A server an administrator publishes by hand below the bar
 will be unpublished the next time the action runs; the preview lists every
 such server before anything is written.
+
+## ADR-055: Stars are fetched for every listing, unknown is not "below the bar", and the admin picks the bar
+
+**Date:** 2026-09-29
+
+**Context.** The first preview under ADR-054 offered to unpublish Context7,
+one of the most used MCP servers, for "stars not known", and found only 71
+drafts to publish out of about 18,000. Both came from one gap: the weekly
+metadata refresh read published listings only, so 10,991 GitHub-hosted
+listings (nearly every draft) had never had their stars fetched. The owner
+expects thousands of servers to be worth publishing and wants to judge the
+bar on real counts.
+
+**Decision.**
+1. An hourly job (`sync.refresh_popularity`, `/scheduler/registry-popularity`)
+   fetches GitHub stars and upkeep for every GitHub-hosted listing of any
+   status through the GraphQL API, 100 repositories per request, up to
+   1,500 listings per run, never-fetched first. It writes only
+   repository-owned fields. It needs `GITHUB_TOKEN`.
+2. Unknown is not "below the bar". A published server is unpublished only
+   when its known star count is under the bar; a draft still needs a known
+   count at or above it to be published. No evidence either way is not a
+   reason to change what is public.
+3. The bar is the admin's per run (`min_stars`, 1 to 1,000,000, default 50),
+   and the preview counts candidate drafts at 1, 10, 25, 50, 100 and 500
+   stars so the choice is made on numbers, not guessed.
+
+**Consequences.** Once the backlog clears (about eight hours of hourly runs)
+the preview shows the real distribution. A server with no GitHub repository
+(remote-only, or a package with no repository link) never has a star count
+and is never published by the bar; an admin publishes it by hand. This
+supersedes ADR-054's rule that unknown stars do not meet the bar for
+published servers.

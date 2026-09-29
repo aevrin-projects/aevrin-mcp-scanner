@@ -259,9 +259,9 @@ async def admin_refresh_metadata(
 
 
 async def admin_bulk_publish(
-    db: SupabaseRest, *, admin: AdminIdentity, dry_run: bool
+    db: SupabaseRest, *, admin: AdminIdentity, dry_run: bool, min_stars: int
 ) -> dict[str, Any]:
-    return await admin_service.bulk_publish(db, admin=admin, dry_run=dry_run)
+    return await admin_service.bulk_publish(db, admin=admin, dry_run=dry_run, min_stars=min_stars)
 
 
 async def admin_categories(db: SupabaseRest) -> list[dict[str, Any]]:

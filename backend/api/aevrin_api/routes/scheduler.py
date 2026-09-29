@@ -29,7 +29,7 @@ from aevrin_api.db import SupabaseRest
 from aevrin_api.routes.deps import get_db
 from aevrin_api.services import status as status_service
 from aevrin_api.services.ai.provider_sync import sync_all_providers
-from aevrin_api.services.marketplace.sync import run_weekly_sync
+from aevrin_api.services.marketplace.sync import refresh_popularity, run_weekly_sync
 
 logger = logging.getLogger("aevrin.scheduler")
 
@@ -76,6 +76,21 @@ async def registry_sync(
     """
     report = await run_weekly_sync(db, settings, full=full)
     return report.as_dict()
+
+
+@router.post("/registry-popularity", dependencies=[Depends(require_scheduler_token)])
+async def registry_popularity(
+    db: Annotated[SupabaseRest, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Any:
+    """Refresh GitHub stars and upkeep for GitHub-hosted listings of every
+    status, never-fetched first. Intended hourly; the popularity bar that
+    decides which drafts to publish reads what this writes.
+
+    Returns a report. When `GITHUB_TOKEN` is not set it says so in `skipped`
+    and writes nothing, rather than reporting an empty run as a success.
+    """
+    return await refresh_popularity(db, settings)
 
 
 @router.post("/provider-sync", dependencies=[Depends(require_scheduler_token)])

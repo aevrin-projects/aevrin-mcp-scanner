@@ -144,7 +144,8 @@ published MCP servers below it back to draft. The bar is constants in
 | Constant | Value | Meaning |
 |---|---|---|
 | `BULK_PUBLISH_FILTERS` | `status=draft`, `item_type=mcp_server`, `source=registry`, `visibility=public` | Synced public MCP server drafts only; an admin-made draft or an org's private item is never included |
-| `BULK_PUBLISH_MIN_GITHUB_STARS` | `50` | The bar, in GitHub stars only; unknown stars do not meet it |
+| `BULK_PUBLISH_MIN_GITHUB_STARS` | `50` | The default bar, in GitHub stars only; the admin sets it per run (`?min_stars=`, ADR-055). A draft with unknown stars never meets it |
+| `BULK_PUBLISH_STAR_STEPS` | `1, 10, 25, 50, 100, 500` | The bars the preview counts candidate drafts at (`star_counts`), so the choice is made on numbers |
 | `BULK_UNPUBLISH_FILTERS` | `status=published`, `item_type=mcp_server` | Published MCP servers the bar also applies to, whatever their source |
 | `BULK_PUBLISH_MAX_PER_CALL` | `500` | Per call; the rest is `remaining` |
 | `BULK_PUBLISH_CONCURRENCY` | `8` | Items in flight (gate checks and writes) |
@@ -164,12 +165,30 @@ The preview writes nothing. Publishing recomputes the set, then calls
 `status_changed` event and its own `registry.status.published` audit row;
 one more audit row, `registry.bulk_publish`, records the criteria and the
 counts. An item refused at that point (it changed since the read) is
-returned in `failed` and stays a draft. Every published MCP server under
-the bar (fewer than 50 stars, or stars not yet known) goes back to draft
+returned in `failed` and stays a draft. Every published MCP server whose
+known star count is under the bar goes back to draft (one whose stars are
+not known yet stays published: ADR-055)
 through `set_status` in the same POST, with its own event and
 `registry.status.draft` audit row; these are not capped per call, and a
 listing leaving this way does not count as its repository being published,
-so a better draft for the same repository can take its place. The metadata
+so a better draft for the same repository can take its place.
+
+### Popularity refresh
+
+`sync.refresh_popularity` (`POST /scheduler/registry-popularity`, hourly)
+is what gives drafts a star count at all. The weekly `_refresh_metadata`
+covers published listings only (it also fetches READMEs), so before this
+existed 10,991 GitHub-hosted listings had never been measured and the bar
+judged them on nothing. It reads every listing whose repository is on
+GitHub, whatever its status, takes up to `POPULARITY_BUDGET` (1,500) that
+were never fetched or are older than six days, never-fetched first, and
+asks GitHub's GraphQL API for 100 repositories per request
+(`github_public.fetch_repo_stats`; owner and name are query variables).
+It writes only what the repository says about itself (stars, forks, open
+issues, upkeep, licence, the timestamp), never a title, description,
+README or anything an admin wrote. A repository GitHub does not return is
+left as it was and tried again. Without `GITHUB_TOKEN` it writes nothing and
+says `skipped`: GitHub's GraphQL API needs a token. The metadata
 refresh fills `github_stars` for more drafts over time, so a later run can
 qualify drafts an earlier one did not.
 
