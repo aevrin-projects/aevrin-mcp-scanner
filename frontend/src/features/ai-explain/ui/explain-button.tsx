@@ -42,13 +42,13 @@ function failureReason(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 401) return "Sign in to use AI explanations.";
     if (error.status === 402) return error.message || "This plan's AI explanations for the month are used up.";
-    if (error.status === 404) return "There is nothing to explain here any more: the result may have been deleted.";
+    if (error.status === 404) return "There is nothing to explain here any more. The result may have been deleted.";
     if (error.status === 429) return error.message || "Too many explanation requests. Try again in a minute.";
     if (error.status >= 400 && error.status < 500) {
-      return "The explanation request was not accepted. Reload the page and try again.";
+      return "We could not ask for an explanation. Reload the page and try again.";
     }
   }
-  return "AI explanation unavailable right now. The security result below is unaffected.";
+  return "AI explanation is not available right now. Your scan results are still complete.";
 }
 
 /** Whether the fix for this reason is in the AI provider settings. */
@@ -188,8 +188,8 @@ export function ExplainButton({
       </div>
 
       <p className="mt-3 border-t border-border pt-2.5 text-[11px] text-muted-foreground">
-        Generated from Aevrin&apos;s scan evidence. It explains findings; it does not
-        produce them, and it cannot change a score or a grade.
+        Written by AI from Aevrin&apos;s scan results. It explains them; it cannot find new
+        problems or change a score, a grade or a finding.
       </p>
     </div>
   );

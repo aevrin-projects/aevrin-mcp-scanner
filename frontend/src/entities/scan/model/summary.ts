@@ -24,9 +24,9 @@ export function verdictLabel(scan: Scan, activeCounts: Record<Severity, number>)
   // the point of withholding the letter is that the findings do not add up
   // to an assessment, so summarising them as one would undo that.
   if (scan.status === "incomplete" || scan.grade === null) return "Not graded";
-  if (activeCounts.critical > 0) return "Critical issues need attention";
-  if (activeCounts.high > 0) return "High-risk findings need review";
-  if (scan.risk_score !== null && scan.risk_score <= 9) return "No significant issues found";
-  if (scan.risk_score !== null && scan.risk_score <= 24) return "Lower-severity issues found";
-  return "Review the findings before use";
+  if (activeCounts.critical > 0) return "Very serious problems need fixing";
+  if (activeCounts.high > 0) return "Serious problems need a look";
+  if (scan.risk_score !== null && scan.risk_score <= 9) return "No big problems found";
+  if (scan.risk_score !== null && scan.risk_score <= 24) return "Only smaller problems found";
+  return "Look at the problems before you use it";
 }

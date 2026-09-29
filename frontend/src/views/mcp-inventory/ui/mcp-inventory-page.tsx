@@ -117,14 +117,14 @@ export function McpInventoryPage() {
       <PageHeader
         pretitle="AI security"
         title="MCP servers"
-        description="One row per server, however many agents and devices it is configured on."
+        description="Add-ons that give your agents extra tools. One row per server, however many agents and computers use it."
       />
 
       <Alert>
-        <AlertTitle>Read-only</AlertTitle>
+        <AlertTitle>Aevrin can only look, not change</AlertTitle>
         <AlertDescription>
-          These are the servers your agents are configured to load. Adding, removing or disabling one
-          happens on the machine itself; Aevrin cannot change a configuration from here.
+          These are the servers your agents are set up to use. To add, remove or turn one off, change
+          the settings on the computer itself. Aevrin cannot change them from here.
         </AlertDescription>
       </Alert>
 

@@ -28,8 +28,9 @@ different kinds of claim and are never presentable as the same thing.
 - On a scan result, next to its grade, as "Why is this grade C?" (or "Explain this result" when the
   scan could not be graded)
 - On an individual finding
+- On an agent, next to its safety score, as "Why is this agent high risk?"
 
-Both are your own scans, or scans shared with your workspace. Anyone else asking about the same scan
+All of these are your own, or shared with your workspace. Anyone else asking about the same scan
 gets a "not found", which does not even confirm the scan exists.
 
 The registry has no explanation button. It carries no grade to explain: to understand an MCP server
@@ -41,7 +42,14 @@ A structured evidence document, and nothing else. It is not given the repository
 your configuration, or your conversation.
 
 Included: findings (title, severity, OWASP category, file path, line, remediation), the scan's
-grade and risk score, the target type, and coverage.
+grade and risk score, the target type, and coverage. For an agent: the points it lost and why, what
+it can reach with the rule that allows each, its rules as written, which kinds of password or key are
+present (never a value or a location), its skill names, its score, risk level and confidence, and
+coverage. File paths are left out.
+
+Explanations are written for someone with no security background: short sentences and everyday
+words, with any technical word explained. The model is told never to state a different grade, score,
+severity or risk level than the scan did, and never to add, remove or soften a finding.
 
 Excluded, by construction:
 

@@ -21,7 +21,7 @@ async def get_finding(finding_id: UUID, user_id: str, db: SupabaseRest) -> Findi
     rows = await scope.select(db, "findings", {"id": str(finding_id)})
     if not rows:
         raise _NOT_FOUND
-    return FindingOut(**rows[0])
+    return FindingOut.from_row(rows[0])
 
 
 async def triage_finding(
@@ -50,4 +50,4 @@ async def triage_finding(
         {"id": str(finding_id), "user_id": str(existing[0]["user_id"])},
         {"triage_status": body.triage_status, **audit_patch},
     )
-    return FindingOut(**rows[0])
+    return FindingOut.from_row(rows[0])

@@ -22,6 +22,20 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Added
 
+- **Plain language across the agent and scan pages.** The agent page now
+  answers, in everyday words, how safe the agent is, why it got its score,
+  what to do, what it can reach, and which rule gives it each kind of
+  access; every rule is shown exactly as written beside what it does. The
+  Rules (formerly Permissions), Attack paths, Skills, Devices, MCP servers,
+  scan result and finding pages use the same vocabulary. Every finding page
+  answers what is wrong, why it matters, what could happen and what to do.
+  The exact scanner data stays on each page under "Technical details".
+  Scores, grades, severities and findings are unchanged (ADR-056).
+- **"Why is this agent high risk?"** explains an agent's posture with your
+  configured AI provider, from the same data the page shows. AI
+  explanations everywhere are now written for readers with no security
+  background, and cannot restate a different grade, score or severity.
+
 - **Hourly popularity refresh for every GitHub-hosted listing**
   (`POST /scheduler/registry-popularity`, run by the hourly scheduler job).
   The weekly metadata refresh only ever covered published listings, so
@@ -55,6 +69,19 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **The popularity refresh still fetched few stars, and the scheduler job
+  failed.** GitHub was not refusing the token: it answered most 100-repository
+  GraphQL batches with 504 "couldn't respond in time" (and some 502), and the
+  first such answer ended the run. One call then ran past the scheduler's
+  120-second limit, which failed the whole job. Batches are now 25
+  repositories, a batch GitHub cannot answer in time is skipped rather than
+  ending the run, and no new batch starts after 45 seconds, so every call
+  answers in time and what it did not reach is fetched by the next.
+- **The finding page never showed why a finding matters.** The
+  single-finding API routes returned findings without the rule's `impact`,
+  so "Why it matters" showed the description instead. It also never showed
+  the evidence or the affected tools; both are now under Technical details.
+- **Each finding card on a scan showed its rule id and tool count twice.**
 - **The registry's Claude Code connect command added the server for one
   directory only.** It now reads `claude mcp add --scope user ...` on the
   home page, the registry pages, the docs site and the CLI reference.

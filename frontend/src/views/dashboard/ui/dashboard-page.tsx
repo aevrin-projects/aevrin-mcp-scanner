@@ -363,8 +363,8 @@ export function DashboardPage() {
         <SectionCard
           className="lg:col-span-2"
           style={{ "--i": 4 } as React.CSSProperties}
-          title="Security posture"
-          description="Latest risk score, and open findings per scan over time."
+          title="Overall safety"
+          description="Your latest risk score, and how many problems each scan found over time."
           action={
             latest ? (
               <Link

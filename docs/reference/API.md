@@ -36,6 +36,15 @@ JWT) unless noted.
 
 ## Notable behavioral details worth knowing before calling a route
 
+- **Findings, posture factors and rules carry plain-language text.** Every
+  route that returns a finding includes `impact` and `plain`
+  (`{problem, why, could_happen, fix}`) from the rule catalogue, both
+  `null` for a rule id the catalogue does not know. `PostureFactorOut` has
+  `plain` beside `reason`. `PermissionOut` has `grants` (the capabilities
+  the rule is recorded as evidence for), and `GET /agents/{id}` returns the
+  agent's rules in that shape as `permissions`. `POST /ai/explain` accepts
+  `subject_type: "agent_posture"` with an agent id; an agent the caller
+  cannot read is `404` "Agent not found."
 - **`GET /cli/precheck`** returns `402` with `{bucket, resets_at,
   upgrade_url}` when quota is exhausted, `401` for an invalid/revoked key -
   the CLI's `_authenticated_preflight()` renders both directly rather than

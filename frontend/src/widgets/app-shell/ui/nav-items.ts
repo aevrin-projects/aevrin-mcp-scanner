@@ -50,7 +50,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/agents/devices", label: "Devices", icon: Laptop },
       { href: "/agents/mcp", label: "MCP servers", icon: Blocks },
       { href: "/agents/skills", label: "Skills", icon: Sparkles },
-      { href: "/agents/permissions", label: "Permissions", icon: ShieldCheck },
+      { href: "/agents/permissions", label: "Rules", icon: ShieldCheck },
       { href: "/agents/attack-paths", label: "Attack paths", icon: ShieldAlert },
     ],
   },

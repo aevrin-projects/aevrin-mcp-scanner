@@ -58,16 +58,74 @@ Use the vocabulary the code itself uses, not a paraphrase:
 
 - **Finding**, not "issue" or "alert" (matches `Finding` the model).
 - **Severity** (`critical`/`high`/`medium`/`low`/`info`), not "priority."
-- **Trust grade** (A-F) for a scan's and agent posture's letter (the
-  registry carries none),
-  **security score** for the 0-100 number underneath it - the two are
-  always shown together, never one standing in for the other.
+- **Trust grade** (A-F) for a scan's letter (the registry carries none),
+  and **risk score** for the 0-100 number beside it, which counts up: 0 is
+  clean, 100 is "do not use". The two are always shown together, never one
+  standing in for the other. Agent posture has no letter: it is a **safety
+  score** (0-100, higher is safer) and a **risk level** (low to critical).
 - **OWASP MCP Top 10** category codes (`MCP01`-`MCP10`) with their full
   title on first reference in a document, code alone thereafter.
 - **Workspace**, not "team" or "organization," in user-facing copy - even
   though the database table is literally `organizations` (that's schema
   history, not the product's vocabulary; see
   `frontend/src/views/workspace/`).
+
+These are the terms for engineering documents, code, and technical
+details. Dashboard copy a non-specialist reads first uses the plain words
+below.
+
+## Plain language on the dashboard
+
+The scan result, finding, agent, rule, attack path, skill and device pages
+are read by people who are not security engineers. Their first layer of
+copy is written so an eight-year-old could follow it: short sentences,
+everyday words, and every unavoidable technical word explained in the same
+sentence. The exact technical data is never removed to get there. It sits
+under a **Technical details** disclosure (`shared/ui/technical-details.tsx`)
+on the same screen: simple first, technical second, never simple instead.
+
+Plain text restates what the scanner established; it never softens it,
+generalises it, or adds a claim of its own. So it is written beside the
+data it describes, not in a separate copy of it:
+
+- A finding's four answers (what is wrong, why it matters, what could
+  happen, what to do) live in the rule catalogue (`mcp/catalog.py`,
+  `PlainText`), next to the technical `impact` and `fix`.
+- A posture deduction's everyday sentence lives beside its technical
+  reason in `agents/posture.py` (`PostureFactor.plain`).
+- What a rule does is built from the access discovery recorded for it
+  (`PermissionOut.grants`), never from reading the rule's wording.
+- The agent vocabulary is in one file, `entities/agent/model/labels.ts`,
+  and finding severity and status meanings in
+  `entities/finding/model/plain.ts`.
+
+| Technical term | Plain word on the dashboard |
+|---|---|
+| Effective capabilities | What this agent can reach |
+| Permission rules | Rules that give the agent access |
+| Capability names | Read files, Change files, Run commands, Use the internet, Use MCP tools |
+| Levels (none, ask, limited, full, unknown) | No, Only if you say yes, Some, Everything, Could not tell |
+| Effect (allow, ask, deny) | Gives access, Asks you first, Limits or blocks |
+| Agent posture score | Safety score (higher is safer) |
+| Security posture | Overall safety |
+| Finding | Problem found |
+| Severity | How serious |
+| Evidence | What we found |
+| Affected tools | Tools with the problem |
+| Potential impact | What could happen? |
+| Recommended action / remediation | What should I do? |
+| Coverage | What we could check |
+| Triage status (open, fixed, false positive) | Not fixed yet, Fixed, Not a real problem |
+| Unattended | Does not ask you before it acts |
+| Credentials | Passwords and keys |
+| Device | Computer |
+
+"deny" is "Limits or blocks", not "Blocks": Codex records a sandbox that
+narrows access (`sandbox_mode = workspace-write`) as a deny, and "Blocks"
+would overstate it.
+
+AI explanations follow the same standard (see
+[`../features/AI_REVIEW.md`](../features/AI_REVIEW.md)).
 
 ## Tables for structured reference, prose for reasoning
 

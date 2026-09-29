@@ -9,11 +9,11 @@ export const STAGE_ORDER: StageName[] = [
 ];
 
 export const STAGE_LABELS: Record<StageName, string> = {
-  resolving: "Resolving MCP server",
-  launching: "Launching server",
-  enumerating: "Enumerating tools",
-  analyzing: "Analyzing tools",
-  grading: "Calculating grade",
+  resolving: "Finding the MCP server",
+  launching: "Starting the server",
+  enumerating: "Listing its tools",
+  analyzing: "Checking its tools",
+  grading: "Working out the grade",
 };
 
 export const TARGET_TYPE_LABELS: Record<TargetType, string> = {

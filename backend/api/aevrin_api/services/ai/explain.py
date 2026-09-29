@@ -46,26 +46,33 @@ class ExplanationUnavailable(Exception):
 # The prohibitions are specific rather than a general plea for accuracy. "Do
 # not speculate" is advice; "if the evidence does not say, write that it does
 # not say" is an instruction with an observable outcome.
-SYSTEM_PROMPT = """You are explaining a security finding produced by Aevrin, an MCP security scanner.
+SYSTEM_PROMPT = """You are explaining a security result produced by Aevrin, an MCP and AI agent security scanner.
 
-Aevrin's scanners have already determined what is true. Your job is to explain what it means to the person reading it, not to look for new vulnerabilities.
+Aevrin's scanners have already determined what is true. Your job is to explain what it means to the person reading it, not to look for new problems.
 
 Rules, in order of importance:
 
 1. Use only the supplied evidence. Every claim you make must be traceable to something in the evidence document. If the evidence does not establish something, say that it does not, rather than filling the gap.
-2. Never invent a vulnerability, a CVE, a file, a tool, or a capability that is not in the evidence.
-3. If the evidence includes a coverage section indicating incomplete scanning, say plainly that the unscanned categories are unknown, not safe. Never describe a partially scanned target as clean.
-4. Do not restate the whole document. The reader can already see the finding.
+2. Never invent a vulnerability, a CVE, a file, a tool, a rule, or a capability that is not in the evidence.
+3. Never state a different grade, score, severity or risk level than the evidence shows, and never add, remove, soften or dispute a finding. You explain the result; you do not change it.
+4. If the evidence includes a coverage section indicating incomplete scanning, say plainly that what was not checked is unknown, not safe. Never describe a partially scanned target as clean.
 5. Do not give reassurance the evidence does not support. If something is dangerous, say so directly.
 
 Cover, briefly and in this order:
 - What was found
 - Why it matters
-- What capability or access is involved
-- What an attacker could plausibly reach, limited strictly to what the evidence shows
-- What to change
+- What could happen, limited strictly to what the evidence shows
+- What to do about it
 
-Write plain prose for a working developer. No preamble, no headings, no markdown formatting, no bullet characters. Around 120 words unless asked for more."""
+For an agent, cover what it can reach, which of its rules give it that access, why its score and risk level are what they are (using the listed deductions), and which rules to change.
+
+Write for someone with no security background. Use short sentences and everyday words, the way you would explain it to a curious eight-year-old, without changing any fact. Say "run commands" rather than "shell execution", "change files" rather than "filesystem write". When a technical word or a rule name is unavoidable, explain it in the same sentence. No preamble, no headings, no markdown formatting, no bullet characters. Around 120 words unless asked for more."""
+
+# Part of the cache key. Explanations are cached by the evidence they were
+# built from, so a changed prompt would otherwise keep serving answers written
+# under the old one: bump this whenever SYSTEM_PROMPT changes what an answer
+# says or how it says it.
+PROMPT_VERSION = "2026-09-29-plain"
 
 # The "Explain more" variant. Same rules, longer budget.
 SYSTEM_PROMPT_DETAILED = SYSTEM_PROMPT.replace(
@@ -82,7 +89,10 @@ def _build_user_prompt(document: dict[str, Any], question: str | None) -> str:
 def _default_question(subject_type: str) -> str:
     return {
         "finding": "Explain this security finding.",
-        "agent_posture": "Explain the security risk in this agent's current posture.",
+        "agent_posture": (
+            "Explain what this agent can reach, which of its rules give it that access, "
+            "why it received this score and risk level, and what to change."
+        ),
         "permission": "Explain what this permission actually allows.",
         "skill": "Explain what capability this skill grants.",
         "attack_path": "Explain this attack path and what makes it reachable.",
@@ -134,7 +144,7 @@ async def explain(
     # `detailed` changes the answer, so it has to change the key. Without this
     # the short version would be served forever to anyone pressing
     # "Explain more".
-    keyed = {**document, "_detail": "long" if detailed else "short"}
+    keyed = {**document, "_detail": "long" if detailed else "short", "_prompt": PROMPT_VERSION}
     hash_value = evidence_hash(keyed)
 
     if not force_refresh:
@@ -156,7 +166,8 @@ async def explain(
     )
     if completion is None:
         raise ExplanationUnavailable(
-            "AI explanation unavailable: " + "; ".join(attempts[:3])
+            "AI explanation is not available right now. Your scan results are still "
+            "complete. What went wrong: " + "; ".join(attempts[:3])
         )
 
     stored = await _store(

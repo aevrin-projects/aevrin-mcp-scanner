@@ -212,3 +212,29 @@ def test_a_codex_sandbox_scores_through_the_same_engine() -> None:
     )
     assert result.risk is PostureRisk.CRITICAL
     assert result.score == 32
+
+
+def test_every_factor_also_says_its_fact_in_everyday_words() -> None:
+    # The dashboard leads with `plain` and keeps `reason` under Technical
+    # details. A factor without it would show a blank line where the most
+    # important sentence on the page belongs.
+    everything = agent(
+        capabilities=[
+            cap(Capability.SHELL, Level.FULL),
+            cap(Capability.FILESYSTEM_WRITE, Level.FULL),
+            cap(Capability.NETWORK, Level.FULL),
+            cap(Capability.FILESYSTEM_READ, Level.FULL),
+            cap(Capability.MCP_TOOL, Level.UNKNOWN),
+        ],
+        credentials=[credential()],
+        mcp_servers=[server("github", auto_approved=True)],
+        unattended=True,
+        coverage=Coverage(checked=[], not_checked=["managed settings"], complete=False),
+    )
+    for subject in (everything, agent()):
+        result = assess_posture(subject, mcp_grades={"github": "D"})
+        assert all(factor.plain for factor in result.factors)
+        # Plain words never carry the jargon they exist to replace.
+        for factor in result.factors:
+            assert "unrestricted" not in factor.plain
+            assert "privilege" not in factor.plain

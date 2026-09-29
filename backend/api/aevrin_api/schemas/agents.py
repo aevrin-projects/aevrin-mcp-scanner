@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from aevrin_scanner_core.agents.models import AgentKind, ConfigScope, DiscoveredAgent
+from aevrin_scanner_core.agents.models import AgentKind, Capability, ConfigScope, DiscoveredAgent
 from pydantic import BaseModel, Field
 
 
@@ -31,6 +31,8 @@ class AgentSnapshotUploadResponse(BaseModel):
 class PostureFactorOut(BaseModel):
     points: int
     reason: str
+    # The same fact in everyday words, written beside `reason` in posture.py.
+    plain: str = ""
 
 
 class AgentSummaryOut(BaseModel):
@@ -61,6 +63,9 @@ class AgentSummaryOut(BaseModel):
 
 class AgentDetailOut(AgentSummaryOut):
     snapshot: DiscoveredAgent
+    # The snapshot's rules with the access each one produced, the same shape
+    # the Permissions page lists, so both pages link rule to access one way.
+    permissions: list[PermissionOut] = Field(default_factory=list)
 
 
 class RiskSummaryOut(BaseModel):
@@ -183,7 +188,16 @@ class PermissionOut(BaseModel):
     source_path: str
     agent_id: UUID
     agent_type: AgentKind
+    # The capabilities this rule is recorded as evidence for: what the rule
+    # gives, asks about, or limits. Empty when it touches none of them.
+    grants: list[RuleGrantOut] = Field(default_factory=list)
     hostname: str
+
+
+class RuleGrantOut(BaseModel):
+    capability: Capability
+    # The MCP server, for an `mcp_tool` grant.
+    subject: str | None = None
 
 
 class AttackStepOut(BaseModel):

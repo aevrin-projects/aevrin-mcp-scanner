@@ -106,7 +106,11 @@ export interface AgentSnapshot {
 
 export interface PostureFactor {
   points: number;
+  /** The precise sentence, for Technical details. */
   reason: string;
+  /** The same fact in everyday words, written beside `reason` in the
+   *  scanner's posture.py so the two cannot say different things. */
+  plain: string;
 }
 
 /** How much the posture score itself can be relied on. Separate from the
@@ -141,6 +145,9 @@ export interface AgentSummary {
 
 export interface AgentDetail extends AgentSummary {
   snapshot: AgentSnapshot;
+  /** The snapshot's rules with the access each produced; the same shape the
+   *  Permissions page lists. */
+  permissions: Permission[];
 }
 
 export type TrustGrade = "A" | "B" | "C" | "D" | "F";
@@ -221,6 +228,13 @@ export interface Skill {
   hostname: string;
 }
 
+/** One capability a rule is recorded as evidence for. */
+export interface RuleGrant {
+  capability: CapabilityName;
+  /** The MCP server, for an `mcp_tool` grant. */
+  subject: string | null;
+}
+
 export interface Permission {
   rule: string;
   effect: "allow" | "ask" | "deny";
@@ -229,6 +243,9 @@ export interface Permission {
   agent_id: string;
   agent_type: AgentKind;
   hostname: string;
+  /** What this rule gives, asks about, or limits. Empty when it touches
+   *  none of the access Aevrin measures. */
+  grants: RuleGrant[];
 }
 
 /** Derived from the agent list rather than fetched: a device is the machine

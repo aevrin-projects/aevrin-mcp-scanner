@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from aevrin_scanner_core import rule_for
 from aevrin_scanner_core.execution.network_safety import public_https_url_error
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -106,6 +107,16 @@ class ScanStageOut(BaseModel):
     finished_at: datetime | None = None
 
 
+class PlainFindingOut(BaseModel):
+    """The rule in everyday words (catalog.PlainText): what is wrong, why it
+    matters, what could happen, what to do."""
+
+    problem: str
+    why: str
+    could_happen: str
+    fix: str
+
+
 class FindingOut(BaseModel):
     id: UUID
     scan_id: UUID
@@ -117,6 +128,9 @@ class FindingOut(BaseModel):
     # rewording a rule never requires rewriting stored rows - and the
     # frontend never needs its own copy of the catalogue.
     impact: str | None = None
+    # The same rule for a reader with no security background, from the same
+    # catalogue entry. Null exactly when `impact` is.
+    plain: PlainFindingOut | None = None
     # The specific facts that made the rule fire. A finding with no evidence
     # is an assertion, and this product does not ship assertions.
     evidence: list[str] = Field(default_factory=list)
@@ -155,6 +169,29 @@ class FindingOut(BaseModel):
     llm_reasoning: str | None = None
     llm_remediation: str | None = None
     llm_triaged_at: datetime | None = None
+
+    @classmethod
+    def from_row(cls, row: dict[str, Any]) -> FindingOut:
+        """A stored finding with its rule's text looked up from the catalogue.
+
+        Every route that returns a finding builds it here. The single-finding
+        routes used to construct it bare, so the finding page never received
+        `impact` and showed the description under "Why it matters" instead.
+        """
+        rule = rule_for(row.get("rule_id"))
+        if rule is None:
+            return cls(**row)
+        plain = (
+            PlainFindingOut(
+                problem=rule.plain.problem,
+                why=rule.plain.why,
+                could_happen=rule.plain.could_happen,
+                fix=rule.plain.fix,
+            )
+            if rule.plain
+            else None
+        )
+        return cls(**row, impact=rule.impact, plain=plain)
 
 
 class TriageRequest(BaseModel):

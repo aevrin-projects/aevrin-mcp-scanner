@@ -100,7 +100,7 @@ mcp/              The MCP security layer. tooltrust.py (invoke the engine,
                   normalise its JSON, roll per-tool grades up to the worst
                   tool), resolve.py (target -> launch command, from the
                   project's own manifest), catalog.py (the only place a
-                  rule id has prose), risk.py (policy, labels, the risk
+                  rule id has prose, technical and plain), risk.py (policy, labels, the risk
                   summary - no scoring), data/ (the vendored engine
                   licence).
 classification/   owasp.py (OwaspMcpCategory, MCP01-MCP10), grouping.py

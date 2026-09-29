@@ -113,6 +113,9 @@ def build_evidence(
     attack_paths: list[dict[str, Any]] | None = None,
     coverage: dict[str, Any] | None = None,
     context: dict[str, Any] | None = None,
+    posture_factors: list[dict[str, Any]] | None = None,
+    agent_capabilities: list[dict[str, Any]] | None = None,
+    permission_rules: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Assemble the document, in the structure the prompt expects.
 
@@ -189,6 +192,39 @@ def build_evidence(
                 "steps": [_redact(s) for s in (a.get("steps") or [])[:10]],
             }
             for a in attack_paths[:15]
+        ]
+
+    if posture_factors:
+        # The deductions that produced an agent's score, each with its points.
+        # Without them a model asked "why this score" can only guess.
+        document["posture_factors"] = [
+            {"points": int(f.get("points") or 0), "reason": _redact(f.get("reason"))}
+            for f in posture_factors[:30]
+        ]
+
+    if agent_capabilities:
+        # What the agent can reach and the rule text that granted it. The rule
+        # is what the reader would edit, so the explanation has to be able to
+        # name it; it is redacted like every other free-text field, and the
+        # file it lives in is left out (a home-directory path names a person).
+        document["agent_capabilities"] = [
+            {
+                "capability": _redact(c.get("capability")),
+                "level": _redact(c.get("level")),
+                "subject": _redact(c.get("subject")) or None,
+                "granted_by": [_redact(g) for g in (c.get("granted_by") or [])[:10]],
+            }
+            for c in agent_capabilities[:20]
+        ]
+
+    if permission_rules:
+        document["permission_rules"] = [
+            {
+                "rule": _redact(r.get("rule")),
+                "effect": _redact(r.get("effect")),
+                "scope": _redact(r.get("scope")),
+            }
+            for r in permission_rules[:60]
         ]
 
     if coverage:

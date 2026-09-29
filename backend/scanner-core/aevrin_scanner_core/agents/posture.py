@@ -17,6 +17,11 @@ Deterministic and explainable. Points are deductions from 100 and every one
 of them arrives with the sentence that earned it. Two rules override the
 arithmetic, because a weighted total can average away the single fact that
 mattered.
+
+Each factor carries two sentences for one fact: `reason`, the precise one a
+security reviewer reads, and `plain`, the same fact in everyday words for
+someone who is not one. They are written side by side here so they cannot
+drift apart, and neither changes a single point.
 """
 
 from __future__ import annotations
@@ -111,6 +116,17 @@ class PostureFactor:
 
     points: int
     reason: str
+    plain: str = ""
+
+
+# What each capability is, in everyday words, for the sentences below.
+_PLAIN_CAPABILITY = {
+    Capability.SHELL: "running commands",
+    Capability.FILESYSTEM_WRITE: "changing files",
+    Capability.FILESYSTEM_READ: "reading files",
+    Capability.NETWORK: "using the internet",
+    Capability.MCP_TOOL: "using MCP tools",
+}
 
 
 @dataclass(frozen=True)
@@ -138,8 +154,8 @@ def assess_posture(
     """
     factors: list[PostureFactor] = []
 
-    def deduct(points: int, reason: str) -> None:
-        factors.append(PostureFactor(points=points, reason=reason))
+    def deduct(points: int, reason: str, plain: str) -> None:
+        factors.append(PostureFactor(points=points, reason=reason, plain=plain))
 
     shell = _level(agent, Capability.SHELL)
     writes = _level(agent, Capability.FILESYSTEM_WRITE)
@@ -149,28 +165,46 @@ def assess_posture(
     can_run_commands = shell in (Level.FULL, Level.LIMITED)
 
     if shell is Level.FULL:
-        deduct(SHELL_FULL, "unrestricted shell access")
+        deduct(SHELL_FULL, "unrestricted shell access", "It can run any command on this computer.")
     elif shell is Level.LIMITED:
-        deduct(SHELL_LIMITED, "shell access, limited to specific commands")
+        deduct(
+            SHELL_LIMITED,
+            "shell access, limited to specific commands",
+            "It can run some commands on this computer, but not every command.",
+        )
 
     if writes is Level.FULL:
-        deduct(WRITE_FULL, "unrestricted file writes")
+        deduct(WRITE_FULL, "unrestricted file writes", "It can change or create any file it can reach.")
     elif writes is Level.LIMITED:
-        deduct(WRITE_LIMITED, "file writes, limited to specific directories")
+        deduct(
+            WRITE_LIMITED,
+            "file writes, limited to specific directories",
+            "It can change files, but only in some folders.",
+        )
 
     if network is Level.FULL:
-        deduct(NETWORK_FULL, "unrestricted network access")
+        deduct(
+            NETWORK_FULL,
+            "unrestricted network access",
+            "It can reach any website or server on the internet.",
+        )
     if reads is Level.FULL:
-        deduct(READ_FULL, "reads any file on this machine")
+        deduct(READ_FULL, "reads any file on this machine", "It can read any file on this computer.")
 
     if agent.unattended:
-        deduct(UNATTENDED, "no action is put to a human before it runs")
+        deduct(
+            UNATTENDED,
+            "no action is put to a human before it runs",
+            "It does not ask you before it does things, so nobody gets a chance to say no.",
+        )
 
     if has_credentials and can_run_commands:
         kinds = sorted({c.kind for c in agent.credentials if c.present})
         deduct(
             CREDENTIALS_WITH_SHELL,
             f"credentials reachable from a shell this agent can use: {', '.join(kinds)}",
+            "It can run commands on a computer that has passwords or keys on it "
+            f"({', '.join(kinds)}), so it could use them.",
         )
 
     auto_approved = sorted(s.name for s in agent.mcp_servers if s.auto_approved)
@@ -178,20 +212,36 @@ def assess_posture(
         deduct(
             min(AUTO_APPROVED_SERVER * len(auto_approved), AUTO_APPROVED_CAP),
             f"{len(auto_approved)} MCP server(s) approved without a prompt: {', '.join(auto_approved)}",
+            f"It can use {len(auto_approved)} MCP server(s) without asking you first: "
+            f"{', '.join(auto_approved)}.",
         )
 
     for name, grade in sorted((mcp_grades or {}).items()):
         if grade == "F":
-            deduct(GRADE_F_SERVER, f"calls {name}, graded F (do not use) by its own scan")
+            deduct(
+                GRADE_F_SERVER,
+                f"calls {name}, graded F (do not use) by its own scan",
+                f"It uses {name}, which Aevrin graded F when it was scanned: do not use it.",
+            )
         elif grade == "D":
-            deduct(GRADE_D_SERVER, f"calls {name}, graded D (high risk) by its own scan")
+            deduct(
+                GRADE_D_SERVER,
+                f"calls {name}, graded D (high risk) by its own scan",
+                f"It uses {name}, which Aevrin graded D when it was scanned: high risk.",
+            )
         elif grade == "C":
-            deduct(GRADE_C_SERVER, f"calls {name}, graded C (caution) by its own scan")
+            deduct(
+                GRADE_C_SERVER,
+                f"calls {name}, graded C (caution) by its own scan",
+                f"It uses {name}, which Aevrin graded C when it was scanned: use it with care.",
+            )
 
     if agent.hooks:
         deduct(
             HOOKS_CONFIGURED,
             f"{len(agent.hooks)} hook(s) run commands with this agent's privileges",
+            f"{len(agent.hooks)} hook(s) run commands on their own when the agent does something, "
+            "with all of the agent's access.",
         )
 
     unknown = [c.capability for c in agent.capabilities if c.level is Level.UNKNOWN]
@@ -201,12 +251,23 @@ def assess_posture(
             for capability in unknown
         )
         named = sorted(c.value.replace("_", " ") for c in unknown)
-        deduct(cost, f"could not establish, so scored as if unrestricted: {', '.join(named)}")
+        plain_named = sorted(_PLAIN_CAPABILITY.get(c, c.value.replace("_", " ")) for c in unknown)
+        deduct(
+            cost,
+            f"could not establish, so scored as if unrestricted: {', '.join(named)}",
+            "We could not tell how much it is allowed here, so we counted it as the most: "
+            f"{', '.join(plain_named)}.",
+        )
 
     coverage_complete = agent.coverage.complete and not agent.unreadable_paths
     if not coverage_complete:
         missing = ", ".join(agent.coverage.not_checked) or "some configuration"
-        deduct(INCOMPLETE_COVERAGE, f"incomplete, not clean: {missing} could not be established")
+        deduct(
+            INCOMPLETE_COVERAGE,
+            f"incomplete, not clean: {missing} could not be established",
+            f"We could not read all of its settings ({missing}), so this report is not complete. "
+            "Missing parts are not counted as safe.",
+        )
 
     score = max(0, min(100, 100 - sum(f.points for f in factors)))
     risk = _risk_from(
@@ -225,7 +286,11 @@ def assess_posture(
 
     if not factors:
         factors.append(
-            PostureFactor(0, "no elevated capability found in the configuration that was read")
+            PostureFactor(
+                0,
+                "no elevated capability found in the configuration that was read",
+                "We found no extra access in the settings we read.",
+            )
         )
 
     return PostureAssessment(

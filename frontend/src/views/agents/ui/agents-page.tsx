@@ -46,7 +46,7 @@ export function AgentsPage() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof ApiError ? err.message : "Could not load your agents.");
+        setError(err instanceof ApiError ? err.message : "We could not load your agents.");
         setAgents([]);
       });
     return () => {
@@ -58,18 +58,18 @@ export function AgentsPage() {
 
   async function forget(agent: AgentSummary) {
     const confirmed = window.confirm(
-      `Forget ${agent.agent_name} on ${agent.hostname}?\n\n` +
-        "This removes Aevrin's copy of what that machine reported. Nothing on the machine changes, " +
-        "and the next `aevrin agent scan --upload` from it will report it again.",
+      `Remove ${agent.agent_name} on ${agent.hostname} from Aevrin?\n\n` +
+        "This only deletes what that computer reported to Aevrin. Nothing on the computer changes, " +
+        "and running `aevrin agent scan --upload` there again will add it back.",
     );
     if (!confirmed) return;
     setForgetting(agent.id);
     try {
       await agentApi.forgetAgent(agent.id);
       setAgents((current) => current?.filter((entry) => entry.id !== agent.id) ?? []);
-      toast.success("Agent forgotten");
+      toast.success("Agent removed from Aevrin");
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Could not forget this agent.");
+      toast.error(err instanceof ApiError ? err.message : "We could not remove this agent.");
     } finally {
       setForgetting(null);
     }
@@ -80,24 +80,24 @@ export function AgentsPage() {
       <PageHeader
         pretitle="AI security"
         title="Agents"
-        description="The AI coding agents that have reported in, and what each has been allowed to do on the machine it runs on."
+        description="The AI coding agents Aevrin has checked, and what each one is allowed to do on its computer. The safety score goes from 0 to 100, and higher is safer."
       />
 
       {/* Stated once, up front. A security product that leaves people guessing
           whether a page can act on their machine is a product they will not
           trust when it says something more serious. */}
       <Alert>
-        <AlertTitle>Read-only</AlertTitle>
+        <AlertTitle>Aevrin can only look, not change</AlertTitle>
         <AlertDescription>
-          Aevrin cannot reach your machine or change any agent configuration from here. Everything on
-          this page is what a device reported the last time you ran{" "}
+          Aevrin cannot reach your computer or change an agent&apos;s settings from here. This page shows
+          what each computer reported the last time you ran{" "}
           <code className="font-mono text-[13px]">{ENROL_COMMAND}</code> on it.
         </AlertDescription>
       </Alert>
 
       {error ? (
         <Alert variant="destructive">
-          <AlertTitle>Could not load agents</AlertTitle>
+          <AlertTitle>We could not load your agents</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
@@ -114,11 +114,11 @@ export function AgentsPage() {
         <Panel>
           <EmptyState
             icon={<Bot />}
-            title="No agent has reported yet"
+            title="No agent has been checked yet"
             body={
               <>
-                Run this on any machine where you use an AI coding agent. It reads configuration only:
-                nothing is executed, and no credential value is ever sent.
+                Run this on any computer where you use an AI coding agent. It only reads settings: it
+                runs nothing, and it never sends a password or key.
               </>
             }
             action={
@@ -136,12 +136,12 @@ export function AgentsPage() {
               <THead>
                 <TR>
                   <TH>Agent</TH>
-                  <TH>Device</TH>
-                  <TH>Posture</TH>
-                  <TH className="text-right">MCP</TH>
+                  <TH>Computer</TH>
+                  <TH>How safe</TH>
+                  <TH className="text-right">MCP servers</TH>
                   <TH className="text-right">Skills</TH>
                   <TH className="text-right">Hooks</TH>
-                  <TH>Last reported</TH>
+                  <TH>Last checked</TH>
                   {removeAgents.allowed ? <TH className="text-right">Actions</TH> : null}
                 </TR>
               </THead>
@@ -157,13 +157,13 @@ export function AgentsPage() {
                         <ChevronRight className="size-3.5 text-muted-foreground" aria-hidden="true" />
                       </Link>
                       <span className="text-xs text-muted-foreground">
-                        {agent.agent_version ? `v${agent.agent_version}` : "version unknown"}
+                        {agent.agent_version ? `v${agent.agent_version}` : "Version not known"}
                       </span>
                     </TD>
                     <TD>
                       <span className="font-medium">{agent.hostname}</span>
                       <span className="block text-xs text-muted-foreground">
-                        {agent.platform ?? "platform unknown"}
+                        {agent.platform ?? "System not known"}
                         {workspaceAuthor(agent) ? ` · reported by ${workspaceAuthor(agent)}` : ""}
                       </span>
                     </TD>
@@ -176,8 +176,7 @@ export function AgentsPage() {
                           inside it: a 90 from complete evidence and a 90 with
                           half the config unreadable are not the same claim. */}
                       <span className="block text-xs text-muted-foreground">
-                        {agent.coverage_complete ? "Complete coverage" : "Incomplete coverage"} ·{" "}
-                        {agent.confidence} confidence
+                        {agent.coverage_complete ? "All settings read" : "Some settings could not be read"}
                       </span>
                     </TD>
                     <TD className="text-right tabular-nums">{agent.mcp_server_count}</TD>
@@ -189,7 +188,7 @@ export function AgentsPage() {
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          aria-label={`Forget ${agent.agent_name} on ${agent.hostname}`}
+                          aria-label={`Remove ${agent.agent_name} on ${agent.hostname} from Aevrin`}
                           disabled={forgetting === agent.id}
                           onClick={() => void forget(agent)}
                         >

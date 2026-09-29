@@ -24,6 +24,7 @@ export type {
   PostureFactor,
   PostureRisk,
   RawPermission,
+  RuleGrant,
   Skill,
   SkillRef,
   TrustGrade,
@@ -32,11 +33,15 @@ export {
   AGENT_KIND_LABELS,
   CAPABILITY_LABELS,
   CAPABILITY_LEVEL_LABELS,
+  CONFIDENCE_LABELS,
+  EFFECT_LABELS,
   RISK_LABELS,
+  RISK_MEANINGS,
   RISK_ORDER,
   SCOPE_DESCRIPTIONS,
   SCOPE_LABELS,
 } from "./model/labels";
+export { describeCapability, describeRule } from "./model/plain";
 export { agentApi } from "./api/agent-api";
 export { TrustGradeBadge } from "./ui/trust-grade-badge";
 export { groupByDevice } from "./model/devices";

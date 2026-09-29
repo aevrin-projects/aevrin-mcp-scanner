@@ -49,12 +49,12 @@ export function DevicesPage() {
       <PageHeader
         pretitle="AI security"
         title="Devices"
-        description="Every machine that has reported an agent, rated by the least restricted agent on it."
+        description="Every computer with a checked agent. Each computer gets the score of its least safe agent, so one risky agent is never hidden by a safe one."
       />
 
       {error ? (
         <Alert variant="destructive">
-          <AlertTitle>Could not load devices</AlertTitle>
+          <AlertTitle>We could not load your devices</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
@@ -70,8 +70,8 @@ export function DevicesPage() {
         <Panel>
           <EmptyState
             icon={<Laptop />}
-            title="No devices reported"
-            body="A device appears here after you run `aevrin agent scan --upload` on it."
+            title="No computers checked yet"
+            body="A computer shows up here after you run `aevrin agent scan --upload` on it."
           />
         </Panel>
       ) : devices.length === 0 ? null : (
@@ -80,10 +80,10 @@ export function DevicesPage() {
             <Table>
               <THead>
                 <TR>
-                  <TH>Device</TH>
+                  <TH>Computer</TH>
                   <TH>Agents</TH>
-                  <TH>Posture</TH>
-                  <TH>Last reported</TH>
+                  <TH>How safe</TH>
+                  <TH>Last checked</TH>
                 </TR>
               </THead>
               <TBody>
@@ -92,7 +92,7 @@ export function DevicesPage() {
                     <TD>
                       <span className="font-medium">{device.hostname}</span>
                       <span className="block text-xs text-muted-foreground">
-                        {device.platform ?? "platform unknown"}
+                        {device.platform ?? "System not known"}
                       </span>
                     </TD>
                     <TD>

@@ -17,3 +17,4 @@ export { IconTile, StatTile } from "./icon-tile";
 export { EmptyState } from "./empty-state";
 export { ListGroup, ListRow } from "./list-row";
 export { Select } from "./select";
+export { TechnicalDetails } from "./technical-details";

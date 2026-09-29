@@ -97,6 +97,42 @@ graded `C` costs 8 - but only from a **real** grade. An unscanned server
 contributes nothing to this deduction and is accounted for separately as
 missing evidence, never assumed safe or assumed risky by default.
 
+## How the dashboard explains it
+
+The agent page (`frontend/src/views/agent-detail/`) answers, in order: how
+safe is this agent, why it got its score, what to do, what it can reach,
+and which rules give it that access. Each answer is in everyday words
+first, with the exact data under **Technical details** (see
+[`../writing/STANDARDS.md`](../writing/STANDARDS.md#plain-language-on-the-dashboard)).
+
+- **Why the score.** Every `PostureFactor` carries `plain` beside
+  `reason`, written next to each other in `posture.py` so they cannot say
+  different things. Neither moves a point; the API passes both
+  (`PostureFactorOut`).
+- **What it can reach.** The effective capabilities, each with a sentence
+  for its level (`entities/agent/model/plain.ts`). The panel still says,
+  under Technical details, that this is the widest grant across every file
+  and not the winner of precedence.
+- **Which rule gives it.** `PermissionOut.grants` lists the capabilities a
+  rule is recorded as evidence for, matched on discovery's own evidence
+  text in the same file (`permissions.<bucket>: <rule>` for Claude Code,
+  the setting line for Codex; `agent_controller._grants`). Nothing is
+  inferred from the rule's wording. The agent detail carries its rules in
+  this shape (`AgentDetailOut.permissions`), the same one the Rules page
+  lists, so both pages link rule to access one way. A rule that touches
+  none of the measured access says so.
+- **Explain with AI.** "Why is this agent high risk?" asks for subject
+  `agent_posture`, whose evidence is read through `get_agent` (see
+  [`AI_REVIEW.md`](AI_REVIEW.md)).
+
+One known inaccuracy in discovery, reported rather than changed with this
+copy: every Claude Code `mcp__<server>__...` rule, including an `ask` rule
+and one narrowed to a single tool, is recorded as `mcp_tool` at level
+`full` for that server (`claude_code.py`). Posture does not score
+`mcp_tool`, so no score is affected, but the level shown for those rows
+overstates an `ask` rule. The plain sentence for MCP tools therefore never
+says "without asking"; the rule's own row says whether it asks.
+
 ## Data
 
 `AgentSnapshot` (Supabase table `agent_snapshots`, migration
@@ -135,7 +171,11 @@ beside it.
 
 ## Testing
 
-`backend/scanner-core/tests/test_agent_posture_risk.py`,
+`backend/scanner-core/tests/test_agent_posture_risk.py` (including that
+every factor has its plain sentence),
+`backend/api/tests/controllers/test_rule_grants.py` (rule to access links,
+one way on both pages), `test_agent_explanation.py` (the AI evidence and
+its tenancy),
 `test_attack_paths.py`, `test_claude_code_discovery.py`,
 `test_codex_discovery.py`, `test_mcp_identity.py`. See
 [`../testing/TESTING.md`](../testing/TESTING.md).

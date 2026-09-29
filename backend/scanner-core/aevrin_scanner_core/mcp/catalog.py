@@ -17,13 +17,30 @@ tooltrust.dev refer to the same check.
 Both are written for a developer who did not ask to become a security
 engineer today, and neither is allowed to be generic filler - a rule that
 cannot say something specific does not belong in this catalogue.
+
+`plain` says the same thing again for someone with no security background
+at all: what is wrong, why it matters, what could happen, what to do, in
+short everyday sentences. It restates the rule; it never softens it, and it
+never adds a claim `impact` does not make. The technical text stays the
+reference and is shown beside it, never replaced by it.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..classification.owasp import OwaspMcpCategory
+
+
+@dataclass(frozen=True)
+class PlainText:
+    """One rule in everyday words: the four questions a reader with no
+    security background asks, in the order they ask them."""
+
+    problem: str
+    why: str
+    could_happen: str
+    fix: str
 
 
 @dataclass(frozen=True)
@@ -35,6 +52,9 @@ class Rule:
     owasp: OwaspMcpCategory
     impact: str
     fix: str
+    # Filled from _PLAIN below. Every rule has one; test_rule_catalog.py
+    # fails the build when a new rule arrives without it.
+    plain: PlainText | None = None
 
 
 def _rules() -> dict[str, Rule]:
@@ -311,7 +331,119 @@ def _rules() -> dict[str, Rule]:
             ),
         ),
     ]
-    return {rule.id: rule for rule in entries}
+    return {rule.id: replace(rule, plain=_PLAIN.get(rule.id)) for rule in entries}
+
+
+_PLAIN: dict[str, PlainText] = {
+    "AS-001": PlainText(
+        problem="A tool's description has hidden orders for the AI agent in it.",
+        why="The agent reads tool descriptions and follows them, and you never see them.",
+        could_happen="The agent could be tricked into ignoring its rules or giving away your information.",
+        fix="Take the orders out of the description. If this server is not yours, do not install it.",
+    ),
+    "AS-002": PlainText(
+        problem="This tool can reach more than it needs to.",
+        why="Anything that can steer the tool, like a bad web page the agent just read, gets all of that access too.",
+        could_happen="One small mistake or trick could reach much more than it should.",
+        fix="Give the tool only the access it really needs, like one folder instead of every folder.",
+    ),
+    "AS-003": PlainText(
+        problem="This tool's name says it only looks at things, but it can also change things or run code.",
+        why="People and agents trust a tool's name when they decide to allow it.",
+        could_happen="Someone could allow it thinking it is harmless, and it could then change things nobody agreed to.",
+        fix="Rename the tool so the name says what it really does, or take away the extra power.",
+    ),
+    "AS-004": PlainText(
+        problem="This server uses a package (someone else's code) that has a known security hole.",
+        why="The server runs that code, so the hole comes with it.",
+        could_happen="An attacker who knows about the hole could use it against the server and the agent.",
+        fix="Update the package to a version where the hole is fixed, then scan again.",
+    ),
+    "AS-005": PlainText(
+        problem="This tool asks for admin power, or to act as another person.",
+        why="If the agent can be talked into using it, the agent gets that same power.",
+        could_happen="The agent could make big changes that look like a real person made them.",
+        fix="Ask for the smallest access the tool needs, and have a person approve every admin action.",
+    ),
+    "AS-006": PlainText(
+        problem="This tool can run any code or command.",
+        why="This is the most powerful thing an MCP server can let an agent do.",
+        could_happen="Anyone who can steer the tool could run their own code, read your files and secrets, or reach your network.",
+        fix="Remove the tool if you can. If you need it, have a person approve every use and run it somewhere locked down.",
+    ),
+    "AS-007": PlainText(
+        problem="This tool has no description.",
+        why="Without one, nobody can tell what the tool does before using it, and most checks have nothing to read.",
+        could_happen="The tool could do something unexpected that nobody checked.",
+        fix="Add a description that says what the tool does, what it touches and what it gives back.",
+    ),
+    "AS-008": PlainText(
+        problem="This exact version of a package is known to be malicious.",
+        why="Attackers took over this version in a real attack.",
+        could_happen="Installing it has stolen cloud and SSH passwords and keys before any tool was even used.",
+        fix="Remove this version now, then change every password and key the computer that installed it could reach.",
+    ),
+    "AS-009": PlainText(
+        problem="This tool's name is almost the same as a well-known tool.",
+        why="When names look alike, it is easy to pick the wrong one.",
+        could_happen="You or the agent could use this tool when you meant the real one.",
+        fix="Check this is the server you meant to install. If it is, rename the tool so nobody mixes them up.",
+    ),
+    "AS-010": PlainText(
+        problem="This tool asks for a password or key as an input.",
+        why="Inputs pass through the AI conversation, and conversations are often saved.",
+        could_happen="Your password or key could end up in chat history, logs or reports that other people can read.",
+        fix="Let the server read the password or key from its own settings instead of asking for it as input.",
+    ),
+    "AS-011": PlainText(
+        problem="This tool has no time limit and no limit on how often it can run.",
+        why="Without limits, one bad plan can keep it running over and over.",
+        could_happen="It could get stuck, run up a big bill, or overload a service.",
+        fix="Add a time limit and a limit on how often it can run.",
+    ),
+    "AS-012": PlainText(
+        problem="A tool on this server changed what it says it does since the last scan.",
+        why="What you checked before is not what is there now.",
+        could_happen="The server could now do something you never agreed to.",
+        fix="Find out why it changed. If the version number stayed the same, stop using the server until you know.",
+    ),
+    "AS-013": PlainText(
+        problem="Two tools have the same name.",
+        why="Which one the agent uses depends on which loaded first, not on what you meant.",
+        could_happen="A newer server could take over calls meant for a tool you trust.",
+        fix="Give every tool its own name, and remove the one you do not need.",
+    ),
+    "AS-014": PlainText(
+        problem="We could not see which packages this server uses.",
+        why="Without that list, we could not check those packages for known problems.",
+        could_happen="The packages might be fine or might not. This scan cannot tell, so this is not a clean result.",
+        fix="Publish the server's package list or its code repository address, then scan again.",
+    ),
+    "AS-015": PlainText(
+        problem="A package runs its own code while it is being installed.",
+        why="That code runs before anyone has checked anything.",
+        could_happen="This is how most bad npm packages break into computers.",
+        fix="Install with --ignore-scripts and read what the script does. If it downloads or runs code from the internet, do not install it.",
+    ),
+    "AS-016": PlainText(
+        problem="A package this server uses shows signs seen in real attacks.",
+        why="It points to names, websites or scripts that attackers have used before.",
+        could_happen="Installing it could let an attacker steal passwords and keys from your computer.",
+        fix="Do not install it. Report it, and change any password or key on computers that already installed it.",
+    ),
+    "AS-017": PlainText(
+        problem="This tool's description says it sends data to an outside place.",
+        why="Whatever the agent knows when it uses the tool can be sent along with it.",
+        could_happen="Your files, conversations or passwords could be sent somewhere you do not control.",
+        fix="Remove the outside place, or limit it to places you trust and list exactly what is sent. Until then, have a person approve every use.",
+    ),
+    "AS-018": PlainText(
+        problem="We could not read the list of tools in this server's code.",
+        why="Our checks only covered the tools we could see.",
+        could_happen="Some tools were not checked at all, so a clean-looking result may be hiding problems.",
+        fix="Register tools with plain names and descriptions, or publish a tool list, so they can be checked.",
+    ),
+}
 
 
 RULE_CATALOG: dict[str, Rule] = _rules()

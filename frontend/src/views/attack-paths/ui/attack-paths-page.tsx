@@ -14,6 +14,7 @@ import {
   PanelHeader,
   PanelSubtitle,
   PanelTitle,
+  TechnicalDetails,
   TBody,
   TD,
   TH,
@@ -75,7 +76,7 @@ export function AttackPathsPage() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof ApiError ? err.message : "Could not load attack paths.");
+        setError(err instanceof ApiError ? err.message : "We could not load the attack paths.");
         setPaths([]);
       });
     return () => {
@@ -88,23 +89,30 @@ export function AttackPathsPage() {
       <PageHeader
         pretitle="AI security"
         title="Attack paths"
-        description="What an agent on one of your machines can reach, when there is evidence for every step."
+        description="Step-by-step ways a mistake or a trick could get from one of your agents to something important, like your passwords and keys. Each step was read from real settings."
       />
 
       <Alert>
-        <AlertTitle>Evidence, not speculation</AlertTitle>
+        <AlertTitle>Only what we could prove</AlertTitle>
         <AlertDescription>
-          A path appears only when every step was read out of a configuration. An agent that might
-          reach a cloud that might reach production is three maybes chained together: it looks like a
-          finding, is not one, and is deliberately absent here. An agent allowed only{" "}
-          <code className="font-mono">Bash(npm run *)</code> with AWS credentials on disk produces no
-          path, because nothing establishes that it may run <code className="font-mono">aws</code>.
+          <p>
+            A path shows up here only when we found every step in the agent&apos;s real settings. We do
+            not list guesses like &ldquo;it might reach this, which might reach that&rdquo;.
+          </p>
+          <TechnicalDetails className="mt-2">
+            <p>
+              A path appears only when every step was read out of a configuration. An agent allowed
+              only <code className="font-mono">Bash(npm run *)</code> with AWS credentials on disk
+              produces no path, because nothing establishes that it may run{" "}
+              <code className="font-mono">aws</code>.
+            </p>
+          </TechnicalDetails>
         </AlertDescription>
       </Alert>
 
       {error ? (
         <Alert variant="destructive">
-          <AlertTitle>Could not load attack paths</AlertTitle>
+          <AlertTitle>We could not load the attack paths</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
@@ -119,8 +127,8 @@ export function AttackPathsPage() {
         <Panel>
           <EmptyState
             icon={<ShieldCheck />}
-            title="No evidenced attack paths"
-            body="Nothing your devices reported chains all the way to a resource. That is the absence of an evidenced path, not a guarantee that none exists."
+            title="No attack paths found"
+            body="We did not find every step of a path in the settings your computers reported. That means we could not prove one, not that none exists."
           />
         </Panel>
       ) : (
@@ -133,13 +141,13 @@ export function AttackPathsPage() {
                   variant="outline"
                   className={cn("rounded-full px-2 py-0.5 text-xs", SEVERITY_CLASSES[path.severity])}
                 >
-                  {path.severity}
+                  {path.severity === "critical" ? "Very serious" : path.severity === "high" ? "Serious" : "Worth fixing"}
                 </Badge>
                 <Badge
                   variant="outline"
                   className="rounded-full px-2 py-0.5 text-xs text-muted-foreground"
                 >
-                  {path.confidence} confidence
+                  {path.confidence === "high" ? "We are sure" : "We are fairly sure"}
                 </Badge>
               </PanelTitle>
               <PanelSubtitle>
@@ -157,7 +165,7 @@ export function AttackPathsPage() {
                   <TR>
                     <TH>Step</TH>
                     <TH>What it means</TH>
-                    <TH>Evidence</TH>
+                    <TH>What we found</TH>
                   </TR>
                 </THead>
                 <TBody>
@@ -174,7 +182,7 @@ export function AttackPathsPage() {
               </Table>
 
               <p className="text-sm">
-                <span className="font-medium">How to break it: </span>
+                <span className="font-medium">What should I do? </span>
                 {path.remediation}
               </p>
             </PanelBody>

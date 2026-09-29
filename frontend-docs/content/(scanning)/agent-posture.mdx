@@ -119,6 +119,23 @@ A few consequences worth knowing:
 - `enableAllProjectMcpServers` marks project servers **auto-approved**, since it removes the one
   human checkpoint in front of an untrusted server.
 
+## On the dashboard
+
+After `aevrin agent scan --upload`, each agent's page answers, in everyday words: how safe is this
+agent, why it got its score, what to do, what it can reach, and which rules give it that access. Each
+rule is shown exactly as written, next to what it does. The exact data (capability ids, levels, the
+technical reasons, file paths) is one click away under **Technical details**.
+
+| On the page | Means |
+|---|---|
+| Safety score | The agent posture score, 0 to 100. Higher is safer. It starts at 100 and loses points for each reason listed. |
+| What it can reach | The widest access in any settings file, not only the setting that wins. |
+| Everything, Some, Only if you say yes, No, Could not tell | Levels full, limited, ask, none and unknown. Could not tell is counted as the most it could allow. |
+| Gives access, Asks you first, Limits or blocks | A rule's effect: allow, ask, deny. |
+
+**Why is this agent high risk?** asks your configured AI provider to explain the score from the same
+data the page shows. It cannot change the score.
+
 ## JSON output
 
 ```bash

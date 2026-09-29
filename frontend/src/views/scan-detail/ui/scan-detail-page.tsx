@@ -12,7 +12,7 @@ import { findingApi } from "@/entities/finding";
 import { scanApi } from "@/entities/scan";
 import type { Finding, Severity } from "@/entities/finding";
 import type { Scan, ScanDiff, ScanStage } from "@/entities/scan";
-import { OWASP_CATEGORY_LABELS } from "@/entities/finding";
+import { OWASP_CATEGORY_LABELS, TRIAGE_LABELS } from "@/entities/finding";
 import { GRADE_LABELS, GRADE_STYLES, STAGE_LABELS, STAGE_ORDER } from "@/entities/scan";
 import { summarizeFindings } from "@/entities/finding";
 import { SCAN_SOURCE_LABELS, TARGET_TYPE_LABELS, summarizeCoverage, verdictLabel } from "@/entities/scan";
@@ -29,6 +29,21 @@ import { Card, CardContent } from "@/shared/ui/card";
 import { Skeleton } from "@/shared/ui/skeleton";
 
 const POLL_INTERVAL_MS = 2000;
+
+const STAGE_STATUS_LABELS: Record<ScanStage["status"], string> = {
+  pending: "Waiting",
+  running: "Running",
+  done: "Done",
+  failed: "Did not finish",
+  skipped: "Skipped",
+};
+
+/** The scanner's suggested policy, in words. The value itself stays beside it. */
+const POLICY_LABELS: Record<string, string> = {
+  ALLOW: "Allow it.",
+  REQUIRE_APPROVAL: "Allow it only if a person approves each use.",
+  BLOCK: "Do not allow it.",
+};
 
 const STAGE_ICON: Record<ScanStage["status"], React.ReactNode> = {
   pending: <CircleDashed className="size-4 text-muted-foreground" />,
@@ -69,7 +84,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
         }
       }
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : "Could not load this scan.";
+      const message = err instanceof ApiError ? err.message : "We could not load this scan.";
       setLoadError(message);
     }
   }, [scanId]);
@@ -102,10 +117,10 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
     setCancelling(true);
     try {
       await scanApi.cancelScan(scanId);
-      toast.success("Scan cancelled. It produced no security assessment.");
+      toast.success("Scan stopped. It did not check anything, so there is no result.");
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Could not cancel this scan.");
+      toast.error(err instanceof ApiError ? err.message : "We could not stop this scan.");
     } finally {
       setCancelling(false);
     }
@@ -166,7 +181,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
     return (
       <Alert variant="destructive">
         <AlertTriangle className="size-4" />
-        <AlertTitle>Could not load scan</AlertTitle>
+        <AlertTitle>We could not load this scan</AlertTitle>
         <AlertDescription>{loadError}</AlertDescription>
       </Alert>
     );
@@ -191,7 +206,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
       <PageHeader
         pretitle="Scan"
         title="Scan result"
-        description="Review the target, actual coverage, score, urgent findings, and the limitations that still need separate verification."
+        description="What we checked, what we found, how risky it is and what to do about it."
         actions={
           <>
             {scan.target_type === "local_path" ? (
@@ -209,7 +224,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                     const { url } = await scanApi.exportReport(scanId);
                     window.open(url, "_blank", "noopener,noreferrer");
                   } catch (err) {
-                    toast.error(err instanceof ApiError ? err.message : "Could not export the report.");
+                    toast.error(err instanceof ApiError ? err.message : "We could not export the report.");
                   } finally {
                     setExporting(false);
                   }
@@ -256,8 +271,8 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                 </p>
                 <p className="text-sm text-muted-foreground tabular-nums">
                   {scan.risk_score === null
-                    ? "Risk score unavailable"
-                    : `Risk score ${scan.risk_score}/100`}
+                    ? "No risk score"
+                    : `Risk score ${scan.risk_score} out of 100. Lower is safer.`}
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{resultSummary}</p>
               </div>
@@ -275,14 +290,14 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
             ) : null}
 
             <div className="grid gap-4 sm:grid-cols-3">
-              <MetaBlock label="Scanned at" value={formatDateTime(scan.completed_at ?? scan.created_at)} />
-              <MetaBlock label="Duration" value={formatDuration(scan.created_at, scan.completed_at)} />
-              <MetaBlock label="Coverage" value={`${coverage.completed}/${stages.length || STAGE_ORDER.length} stages complete`} />
+              <MetaBlock label="Checked on" value={formatDateTime(scan.completed_at ?? scan.created_at)} />
+              <MetaBlock label="Took" value={formatDuration(scan.created_at, scan.completed_at)} />
+              <MetaBlock label="Checks finished" value={`${coverage.completed} of ${stages.length || STAGE_ORDER.length}`} />
             </div>
           </div>
 
           <div className="rounded-xl border border-border bg-background/70 p-5">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Active findings</p>
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Problems not fixed yet</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
               <CountRow severity="critical" count={counts.critical} />
               <CountRow severity="high" count={counts.high} />
@@ -300,8 +315,8 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
           looking for. */}
       {scan.risk_summary ? (
         <SectionCard
-          title="Risk summary"
-          description="What this scan found, what it could mean, and what to do about it."
+          title="What this means"
+          description="What we found, what could happen and what to do."
         >
           <div className="space-y-4">
             <p className="text-lg font-medium">{scan.risk_summary.headline}</p>
@@ -309,26 +324,29 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
             <dl className="grid gap-4 sm:grid-cols-2">
               <div>
                 <dt className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                  Potential impact
+                  What could happen?
                 </dt>
                 <dd className="mt-1.5 text-sm leading-6">{scan.risk_summary.potential_impact}</dd>
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                  Recommended action
+                  What should I do?
                 </dt>
                 <dd className="mt-1.5 text-sm leading-6">{scan.risk_summary.recommended_action}</dd>
               </div>
             </dl>
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-background/70 px-4 py-3">
               <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                Suggested policy
+                What we suggest
               </span>
-              <span className="font-mono text-sm font-medium">
-                {scan.risk_summary.suggested_policy.replace(/_/g, " ")}
+              <span className="text-sm font-medium">
+                {POLICY_LABELS[scan.risk_summary.suggested_policy] ?? scan.risk_summary.suggested_policy}
+              </span>
+              <span className="font-mono text-xs text-muted-foreground">
+                {scan.risk_summary.suggested_policy}
               </span>
               <span className="text-xs text-muted-foreground">
-                A recommendation, not an automatic action.
+                This is advice. Aevrin does not change anything for you.
               </span>
             </div>
           </div>
@@ -338,9 +356,9 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
       {scan.status === "incomplete" ? (
         <Alert variant="destructive">
           <AlertTriangle className="size-4" />
-          <AlertTitle>Partial scan coverage</AlertTitle>
+          <AlertTitle>This scan could not finish every check</AlertTitle>
           <AlertDescription>
-            Required scanners did not complete for {scan.unreliable_stages.map((stage) => STAGE_LABELS[stage]).join(", ")}. No grade is given for this scan: the findings below are real, but they do not add up to a complete assessment.
+            These checks did not finish: {scan.unreliable_stages.map((stage) => STAGE_LABELS[stage]).join(", ")}. So there is no grade. The problems below are real, but the list may not be complete, and what was not checked is not safe just because nothing was found.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -351,7 +369,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
       {scan.triage_note ? (
         <Alert>
           <Sparkles className="size-4" />
-          <AlertTitle>AI review was capped for this scan</AlertTitle>
+          <AlertTitle>The AI second opinion did not look at every problem</AlertTitle>
           <AlertDescription>{scan.triage_note}</AlertDescription>
         </Alert>
       ) : null}
@@ -359,9 +377,9 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
       {scan.status === "failed" ? (
         <Alert variant="destructive">
           <AlertTriangle className="size-4" />
-          <AlertTitle>Scan failed</AlertTitle>
+          <AlertTitle>This scan did not finish</AlertTitle>
           <AlertDescription>
-            This scan did not complete. Any results below are not a reliable assessment of this target, rescan before making a decision.
+            The results below are not a full check of this target. Run the scan again before you decide anything.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -369,9 +387,9 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
       {scan.source === "cli" ? (
         <Alert>
           <AlertTriangle className="size-4" />
-          <AlertTitle>Uploaded from the authenticated CLI</AlertTitle>
+          <AlertTitle>This scan ran on your own computer</AlertTitle>
           <AlertDescription>
-            Aevrin recomputed the risk score and grade from the uploaded findings and preserved the CLI stages, timestamps, and evidence. The local findings are client-reported and were not independently re-scanned by the API.
+            It was run with the Aevrin CLI and uploaded. Aevrin worked out the score and grade again from the uploaded problems, and kept the checks, times and evidence as they were. Aevrin did not scan the target again itself.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -379,7 +397,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
       {scan.status === "queued" || scan.status === "running" ? (
         <SectionCard
           title="Scan progress"
-          description="Stage-level status updates remain visible so you can leave the page and come back without losing context."
+          description="You can leave this page and come back. The progress is saved."
           action={
             // Only the person who started a scan can cancel it, even when a
             // colleague can read it through the workspace.
@@ -412,7 +430,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                     {STAGE_ICON[stage.status]}
                     <span>{STAGE_LABELS[stage.name]}</span>
                   </div>
-                  <span className="text-muted-foreground">{stage.status}</span>
+                  <span className="text-muted-foreground">{STAGE_STATUS_LABELS[stage.status]}</span>
                 </div>
               );
             })}
@@ -433,7 +451,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
               <div>
                 <p className="flex items-center gap-1.5 text-[13px] text-chart-1">
                   <CheckCircle2 className="size-3.5" />
-                  {diff.resolved.length} resolved
+                  {diff.resolved.length} fixed
                 </p>
                 <ul className="mt-1.5 space-y-1">
                   {diff.resolved.slice(0, 5).map((d, i) => (
@@ -463,16 +481,16 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
             ) : null}
           </div>
           <p className="mt-3 text-[11px] text-muted-foreground">
-            {diff.unchanged_count} finding{diff.unchanged_count === 1 ? "" : "s"} unchanged. A finding is matched
-            on title, file, and scanner, so the same issue in a different file counts separately.
+            {diff.unchanged_count} problem{diff.unchanged_count === 1 ? "" : "s"} stayed the same. A problem counts
+            as the same one when its title, file and scanner match, so the same problem in another file counts separately.
           </p>
         </section>
       ) : null}
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_360px]">
         <SectionCard
-          title="Findings"
-          description="Search and filter the active findings for this scan. Limitation notices remain separate from actual findings."
+          title="Problems found"
+          description="Search and filter what this scan found. Checks that could not run are listed separately, not as problems."
         >
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px_180px]">
@@ -482,16 +500,16 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                   value={query}
                   onChange={(event) => updateFilter("q", event.target.value)}
                   className="pl-9"
-                  placeholder="Search title, tool, path, or description"
-                  aria-label="Search findings"
+                  placeholder="Search problems, tools or files"
+                  aria-label="Search problems"
                 />
               </div>
               <Select
-                aria-label="Filter findings by severity"
+                aria-label="Filter problems by how serious they are"
                 value={severityFilter}
                 onChange={(event) => updateFilter("severity", event.target.value)}
               >
-                <option value="all">All severities</option>
+                <option value="all">Any severity</option>
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
@@ -499,24 +517,24 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                 <option value="info">Info</option>
               </Select>
               <Select
-                aria-label="Filter findings by triage status"
+                aria-label="Filter problems by status"
                 value={triageFilter}
                 onChange={(event) => updateFilter("triage", event.target.value)}
               >
-                <option value="all">All statuses</option>
-                <option value="open">Open</option>
-                <option value="fixed">Fixed</option>
-                <option value="false_positive">False positive</option>
+                <option value="all">Any status</option>
+                <option value="open">{TRIAGE_LABELS.open}</option>
+                <option value="fixed">{TRIAGE_LABELS.fixed}</option>
+                <option value="false_positive">{TRIAGE_LABELS.false_positive}</option>
               </Select>
             </div>
 
             {filteredFindings.length === 0 ? (
               <EmptyState
-                title={activeFindings.length === 0 ? "No active findings in completed checks" : "No findings match these filters"}
+                title={activeFindings.length === 0 ? "No problems found in the checks that finished" : "No problems match this search"}
                 body={
                   activeFindings.length === 0
-                    ? "That does not mean the target is fully safe. Review the stage coverage and documented limitations below before trusting the result."
-                    : "Change the search query or filters to return to the current result set."
+                    ? "That does not mean it is safe. Look at which checks finished before you trust this result."
+                    : "Change the search or the filters to see more."
                 }
                 icon="attention"
               />
@@ -543,19 +561,9 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                         <div className="space-y-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <SeverityBadge severity={finding.severity} />
-                            {finding.rule_id ? (
-                              <span className="rounded-full border border-border bg-muted px-2 py-0.5 font-mono text-xs font-medium">
-                                {finding.rule_id}
-                              </span>
-                            ) : null}
                             {/* One card per rule verdict, with the count, not
                                 one card per affected tool. Five tools missing
                                 a timeout is one thing to fix. */}
-                            {finding.occurrence_count > 1 ? (
-                              <span className="text-xs text-muted-foreground tabular-nums">
-                                ×{finding.occurrence_count}
-                              </span>
-                            ) : null}
                             {finding.rule_id ? (
                               <span className="rounded-full border border-border px-2 py-0.5 font-mono text-xs text-muted-foreground">
                                 {finding.rule_id}
@@ -571,6 +579,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                             </span>
                           </div>
                           <p className="text-base font-medium">{finding.title}</p>
+                          {finding.plain ? <p className="text-sm">{finding.plain.problem}</p> : null}
                           {finding.file_path ? (
                             <p className="font-mono text-[12px] text-brand-text">
                               {finding.file_path}
@@ -582,7 +591,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                           </p>
                           {finding.affected_tools.length > 0 ? (
                             <p className="text-xs text-muted-foreground">
-                              <span className="uppercase tracking-[0.12em]">Affected tools</span>{" "}
+                              <span className="uppercase tracking-[0.12em]">Tools with the problem</span>{" "}
                               <span className="font-mono">
                                 {finding.affected_tools.slice(0, 6).join(", ")}
                                 {finding.affected_tools.length > 6
@@ -593,7 +602,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                           ) : null}
                           {finding.evidence.length > 0 ? (
                             <p className="text-xs text-muted-foreground">
-                              <span className="uppercase tracking-[0.12em]">Evidence</span>{" "}
+                              <span className="uppercase tracking-[0.12em]">What we found</span>{" "}
                               <span className="font-mono">{finding.evidence[0]}</span>
                               {finding.evidence.length > 1
                                 ? ` +${finding.evidence.length - 1} more`
@@ -608,12 +617,12 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                           {finding.llm_classification === "likely_false_positive" ? (
                             <p className="flex items-center gap-1.5 text-xs text-chart-1">
                               <Sparkles className="size-3" />
-                              AI review: likely a false positive
+                              AI second opinion: may not be a real problem
                             </p>
                           ) : finding.llm_severity && finding.llm_severity !== finding.severity ? (
                             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                               <Sparkles className="size-3" />
-                              AI review suggests {finding.llm_severity}
+                              AI second opinion suggests {finding.llm_severity}
                             </p>
                           ) : null}
                         </div>
@@ -633,8 +642,8 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
 
         <div className="space-y-6">
           <SectionCard
-            title="Coverage and limitations"
-            description="Keep skipped and failed scanner stages visible so the score is not mistaken for complete coverage."
+            title="What we could check"
+            description="Checks that were skipped or did not finish stay listed here, so the score is not mistaken for a full check."
           >
             <div className="space-y-3">
               {STAGE_ORDER.map((name) => {
@@ -647,7 +656,7 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
                         {STAGE_ICON[stage.status]}
                         <span className="font-medium text-foreground">{STAGE_LABELS[stage.name]}</span>
                       </div>
-                      <span className="text-sm text-muted-foreground">{stage.status}</span>
+                      <span className="text-sm text-muted-foreground">{STAGE_STATUS_LABELS[stage.status]}</span>
                     </div>
                     {stage.error ? (
                       <p className="mt-2 text-sm leading-6 text-muted-foreground">{stage.error}</p>
@@ -663,13 +672,13 @@ export function ScanDetailClient({ scanId }: { scanId: string }) {
               better. Risk now counts the other way and Aevrin does not compute
               it at all. Publishing the old direction under the word "current"
               inverted the meaning of every number on this page. */}
-          <SectionCard title="Score method" description="Where the risk score and the grade come from.">
+          <SectionCard title="How the grade works" description="Where the risk score and the grade come from.">
             <div className="space-y-3 text-sm leading-6 text-muted-foreground">
-              <p>The scan engine assigns a risk score and a letter to each tool. Risk counts upward: 0 is clean and 100 is &quot;do not use&quot;. Aevrin does not recompute either number.</p>
-              <p>A server is graded by its worst tool, not by an average across them. You install the whole server, and one tool that can execute code is not offset by four that cannot.</p>
-              <p>A scan that could not read a server&apos;s tools carries no grade at all, rather than a lenient one. A letter is a claim about evidence.</p>
-              <p>Later triage changes active-risk counts and hook decisions, but preserves the original scan-time score for auditability and CLI/dashboard consistency.</p>
-              <p>The score never guarantees safety. Coverage and failed stages must be read beside it.</p>
+              <p>The scanner gives each tool a risk score and a letter. The risk score goes up with risk: 0 means no problems found, and 100 means do not use it. Aevrin does not change either number.</p>
+              <p>A server gets the grade of its worst tool, not an average. You install the whole server, so one tool that can run code is not made safe by four that cannot.</p>
+              <p>If the scan could not read a server&apos;s tools, it gets no grade at all, not a kind one. A grade has to be backed by what we actually checked.</p>
+              <p>Marking a problem as fixed changes the counts and what the hook allows, but keeps the score the scan gave, so the report reads the same in the CLI and here.</p>
+              <p>A good score never promises safety. Always look at which checks finished.</p>
             </div>
           </SectionCard>
 

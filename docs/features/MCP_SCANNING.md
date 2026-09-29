@@ -92,7 +92,11 @@ grade, taken from the engine unchanged.
 **Prose.** A finding arrives with `rule_id`, `severity`, `code`,
 `description`, `location` and `evidence`, and nothing that says why it matters
 or what to change. `mcp/catalog.py` supplies the title, impact and fix, keyed
-by rule id. A rule id the catalogue does not recognise still produces a
+by rule id, and a `plain` version of the same rule for a reader with no
+security background: what is wrong, why it matters, what could happen, what
+to do. `FindingOut.from_row` attaches both on every route that returns a
+finding; the single-finding routes used to skip it, so the finding page
+never received `impact`. A rule id the catalogue does not recognise still produces a
 finding using the engine's own description - dropping a real finding for want
 of a title would mean an engine upgrade quietly reduced coverage.
 

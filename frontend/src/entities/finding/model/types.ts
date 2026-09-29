@@ -1,6 +1,14 @@
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
 export type TriageStatus = "open" | "fixed" | "false_positive";
 
+/** A rule's four answers for a reader with no security background. */
+export interface PlainFinding {
+  problem: string;
+  why: string;
+  could_happen: string;
+  fix: string;
+}
+
 export interface Finding {
   id: string;
   scan_id: string;
@@ -13,6 +21,9 @@ export interface Finding {
   /** "Why this matters", from the rule catalogue. Null for a finding whose
    *  rule id this build does not know - never generic filler. */
   impact: string | null;
+  /** The same rule in everyday words, from the same catalogue entry. Null
+   *  exactly when `impact` is. */
+  plain: PlainFinding | null;
   /** The specific facts that made the rule fire: matched text, a capability,
    *  an input property, a package version. A finding with no evidence is an
    *  assertion, and this product does not ship assertions. */

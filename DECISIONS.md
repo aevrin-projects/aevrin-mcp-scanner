@@ -2299,3 +2299,44 @@ the preview shows the real distribution. A server with no GitHub repository
 and is never published by the bar; an admin publishes it by hand. This
 supersedes ADR-054's rule that unknown stars do not meet the bar for
 published servers.
+
+
+## ADR-056: Plain language is written beside the technical text, in the layer that owns the fact
+
+**Date:** 2026-09-29
+
+**Context.** The agent, rule, scan and finding pages were written for a
+security reviewer ("the widest grant across every configuration file, not
+the winner of precedence"). The owner asked for every one of them to be
+readable by someone with no security background, without losing or
+changing any technical fact, and for AI explanations of an agent's posture
+through the user's own configured provider.
+
+**Decision.**
+1. Plain text restates a fact and sits next to it, in the layer that owns
+   the fact: a finding's four answers (`PlainText`) in the rule catalogue
+   beside `impact` and `fix`; a posture deduction's sentence
+   (`PostureFactor.plain`) beside its `reason` in `posture.py`. A copy of
+   the facts in the frontend would drift from them, and the CLI and the AI
+   layer read the same catalogue.
+2. What a rule does is derived from discovery's own evidence
+   (`PermissionOut.grants`, matched on the evidence text in the same file),
+   never from parsing the rule's wording in the UI.
+3. The technical data stays on the page under a "Technical details"
+   disclosure. Simple first, technical second, never simple instead.
+4. Agent posture is explained through the existing AI layer (subject
+   `agent_posture`, already allowed by the schema and the database) with
+   evidence read through `agent_controller.get_agent`, so the explanation
+   has the page's tenancy and the page's score. This is the first
+   controller-to-controller call; it is taken over a second read path that
+   could get tenancy or scoring wrong on its own.
+5. The system prompt asks for everyday words, and `PROMPT_VERSION` joins
+   the cache key so a rewritten prompt stops serving answers cached under
+   the old one.
+
+**Consequences.** No score, grade, severity, finding or policy changes. A
+new rule without plain text fails `test_rule_catalog.py`; a new posture
+factor without one fails `test_agent_posture_risk.py`. Every cached AI
+explanation is regenerated once, on its next request, at the user's cost
+with their provider. The CLI still prints the technical reasons; showing
+the plain ones there is possible later from the same fields.

@@ -22,6 +22,7 @@ from aevrin_scanner_core.agents.models import (
     ConfigScope,
     DiscoveredAgent,
     McpServerRef,
+    RawPermission,
 )
 from aevrin_scanner_core.agents.posture import assess_posture
 from aevrin_scanner_core.mcp.risk import GRADE_LABELS, GRADE_POLICIES, Grade, grade_scan
@@ -42,6 +43,7 @@ from aevrin_api.schemas.agents import (
     PermissionOut,
     PostureFactorOut,
     RiskSummaryOut,
+    RuleGrantOut,
     SkillOut,
 )
 from aevrin_api.services import membership
@@ -164,7 +166,8 @@ def _summary(
         risk=posture.risk.value,
         confidence=posture.confidence.value,
         risk_factors=[
-            PostureFactorOut(points=f.points, reason=f.reason) for f in posture.factors
+            PostureFactorOut(points=f.points, reason=f.reason, plain=f.plain)
+            for f in posture.factors
         ],
         mcp_server_count=len(agent.mcp_servers),
         skill_count=len(agent.skills),
@@ -228,9 +231,51 @@ async def get_agent(agent_id: UUID, user_id: str, db: SupabaseRest) -> AgentDeta
     grades = await _grades_for_agents(rows, scope, db)
     attribution = scope.attribution(rows[0], await scope.creators(db, rows))
     summary = _summary(rows[0], grades.get(rows[0]["id"]), attribution)
+    agent = DiscoveredAgent.model_validate(rows[0]["snapshot"])
     return AgentDetailOut(
-        **summary.model_dump(), snapshot=DiscoveredAgent.model_validate(rows[0]["snapshot"])
+        **summary.model_dump(), snapshot=agent, permissions=_permissions(rows[0], agent)
     )
+
+
+def _evidence_details(permission: RawPermission) -> set[str]:
+    """How discovery wrote this rule down as capability evidence.
+
+    Claude Code records `permissions.<bucket>: <rule>` (claude_code.py);
+    Codex records the setting line itself, sometimes followed by a comment
+    after a comma (codex.py). Matching those exact strings, in the same file,
+    is what ties a rule to the access it produced; nothing is inferred from
+    the rule's wording.
+    """
+    return {f"permissions.{permission.effect}: {permission.rule}", permission.rule}
+
+
+def _grants(agent: DiscoveredAgent, permission: RawPermission) -> list[RuleGrantOut]:
+    details = _evidence_details(permission)
+    return [
+        RuleGrantOut(capability=capability.capability, subject=capability.subject)
+        for capability in agent.capabilities
+        if any(
+            item.source_path == permission.source_path
+            and (item.detail in details or item.detail.startswith(f"{permission.rule},"))
+            for item in capability.evidence
+        )
+    ]
+
+
+def _permissions(row: dict[str, Any], agent: DiscoveredAgent) -> list[PermissionOut]:
+    return [
+        PermissionOut(
+            rule=permission.rule,
+            effect=permission.effect,
+            scope=permission.scope,
+            source_path=permission.source_path,
+            agent_id=UUID(row["id"]),
+            agent_type=agent.kind,
+            hostname=row["hostname"],
+            grants=_grants(agent, permission),
+        )
+        for permission in agent.permissions
+    ]
 
 
 def _scan_identity_key(target: str) -> str:
@@ -423,19 +468,7 @@ async def list_permissions(user_id: str, db: SupabaseRest) -> list[PermissionOut
     rows, _ = await _snapshots(user_id, db)
     permissions: list[PermissionOut] = []
     for row in rows:
-        agent = DiscoveredAgent.model_validate(row["snapshot"])
-        permissions.extend(
-            PermissionOut(
-                rule=permission.rule,
-                effect=permission.effect,
-                scope=permission.scope,
-                source_path=permission.source_path,
-                agent_id=UUID(row["id"]),
-                agent_type=agent.kind,
-                hostname=row["hostname"],
-            )
-            for permission in agent.permissions
-        )
+        permissions.extend(_permissions(row, DiscoveredAgent.model_validate(row["snapshot"])))
     # Allow first: a rule that grants is what someone scanning this page needs
     # to see, and a deny buried above it wastes the top of the screen.
     order = {"allow": 0, "ask": 1, "deny": 2}

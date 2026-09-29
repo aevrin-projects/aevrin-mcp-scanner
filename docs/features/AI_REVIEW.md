@@ -19,13 +19,23 @@ enforce structurally, not just by policy.
 
 Configure a provider at Settings → AI providers (Groq, OpenAI, Anthropic,
 or Google Gemini - the user's own key). "Explain with AI" appears on a scan
-result, next to its grade ("Why is this grade C?", subject `scan`), and on
-an individual finding (subject `finding`) - never on a decorative element.
+result, next to its grade ("Why is this grade C?", subject `scan`), on
+an individual finding (subject `finding`), and on an agent next to its
+safety score ("Why is this agent high risk?", subject `agent_posture`) -
+never on a decorative element.
 Both are scans the caller may read: `ai_controller._owned_scan` reads the
 scan, and its findings, through `membership.ReadScope`, so it allows the
 scan's creator or a current member of the workspace it is stamped with and
 answers 404 otherwise. It is the same scope the scans API reads through,
-and the scan id is never taken as proof of access.
+and the scan id is never taken as proof of access. An agent's evidence is
+read through `agent_controller.get_agent`, the same call and the same
+`ReadScope` the agent page uses, so the explanation can never describe an
+agent the page would not show the caller, and it explains the same score
+the page shows. It carries the posture deductions with their points, each
+capability with the rule text that granted it, the rules as written,
+credential kinds and presence, skill names, coverage, and the score, risk
+level and confidence. It leaves out every file path (a home directory
+names a person) and every credential location.
 
 The registry has no explanation. Before `DECISIONS.md` ADR-049 a listing's
 grade could be explained (subjects `trust_grade` and `listing`); the
@@ -52,7 +62,11 @@ migration `0049` deletes their cached rows and narrows the
   last four characters), not a deny-list that could accidentally grow a
   leak.
 - **`explain.py`** - the system prompt carries five numbered rules (the
-  contract above, made explicit to the model); caches a response against a
+  contract above, made explicit to the model, including that it never
+  states a different grade, score, severity or risk level and never adds,
+  removes or softens a finding) and asks for everyday words a reader with
+  no security background can follow, the dashboard's plain-language
+  standard (`docs/writing/STANDARDS.md`); caches a response against a
   hash of the *exact* evidence shown; provider fallback is deliberately
   shallow (try the next configured provider in order, stop - no health
   scoring, no silent reordering, because "which vendor saw my
@@ -62,7 +76,10 @@ migration `0049` deletes their cached rows and narrows the
 ## Cache correctness
 
 Cached against `evidence_hash()` - a canonical-JSON SHA-256 of the exact
-document shown to the model. Two members of a workspace viewing the same
+document shown to the model, plus whether the long form was asked for and
+`PROMPT_VERSION`. The version is bumped whenever the system prompt changes
+what an answer says or how it says it; without it, a rewritten prompt
+would keep serving every answer cached under the old one. Two members of a workspace viewing the same
 scan are asking the identical question and share one answer; evidence built
 from a different scan hashes differently by construction, so nothing crosses
 a tenant boundary through the cache. A rescan is a new scan with new
@@ -210,6 +227,10 @@ that stays unchanged.
 
 ## Testing
 
+`backend/api/tests/controllers/test_agent_explanation.py` (an agent the
+caller cannot read is not found, through the route too; the deductions in
+the evidence add up to the page's score; no path or credential location
+leaves; a new prompt version is a new cache key),
 `backend/api/tests/routes/test_ai_explain_route.py` posts real JSON
 through the app (the layer the `body: Any` bug lived in, which the older
 tests called past), `backend/api/tests/services/test_ai_providers.py` (no

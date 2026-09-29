@@ -7,8 +7,8 @@ import { toast } from "sonner";
 import { ApiError } from "@/shared/api";
 import { findingApi } from "@/entities/finding";
 import type { Finding } from "@/entities/finding";
-import { OWASP_CATEGORY_LABELS } from "@/entities/finding";
-import { PageHeader, SectionCard } from "@/shared/ui";
+import { OWASP_CATEGORY_LABELS, SEVERITY_MEANINGS, TRIAGE_LABELS } from "@/entities/finding";
+import { PageHeader, SectionCard, TechnicalDetails } from "@/shared/ui";
 import { SeverityBadge } from "@/entities/finding";
 import { Button } from "@/shared/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
@@ -42,7 +42,7 @@ export function FindingDetailClient({
         setTriageReason(loadedFinding.triage_reason ?? "");
       })
       .catch((err) => {
-        const message = err instanceof ApiError ? err.message : "Could not load this finding.";
+        const message = err instanceof ApiError ? err.message : "We could not load this problem.";
         setError(message);
       });
   }, [findingId]);
@@ -53,9 +53,9 @@ export function FindingDetailClient({
       const updated = await findingApi.triageFinding(findingId, status, reason);
       setFinding(updated);
       setTriageReason(updated.triage_reason ?? "");
-      toast.success(status === "open" ? "Finding reopened" : status === "fixed" ? "Marked as fixed" : "False positive recorded");
+      toast.success(status === "open" ? "Marked as not fixed" : status === "fixed" ? "Marked as fixed" : "Saved as not a real problem");
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Could not update this finding.");
+      toast.error(err instanceof ApiError ? err.message : "We could not update this problem.");
     } finally {
       setTriaging(false);
     }
@@ -65,7 +65,7 @@ export function FindingDetailClient({
     return (
       <Alert variant="destructive">
         <AlertTriangle className="size-4" />
-        <AlertTitle>Could not load finding</AlertTitle>
+        <AlertTitle>We could not load this problem</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
       </Alert>
     );
@@ -84,7 +84,7 @@ export function FindingDetailClient({
     ? `${finding.file_path}${finding.line_start ? `:${finding.line_start}` : ""}`
     : finding.manifest_field
       ? `${finding.tool_name_in_manifest ? `${finding.tool_name_in_manifest} -> ` : ""}${finding.manifest_field}`
-      : "No file, line, or manifest field was recorded for this finding.";
+      : "No file, line or manifest field was recorded for this problem.";
 
   const scanHref = `/scans/${scanId}`;
   // Search params are already decoded by Next.js. Keep navigation on this
@@ -98,13 +98,13 @@ export function FindingDetailClient({
         className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="size-4" />
-        Back to filtered results
+        Back to the scan
       </Link>
 
       <PageHeader
-        pretitle="Finding"
+        pretitle="Problem found"
         title={finding.title}
-        description="Review the recorded severity, category, source, context, remediation, and auditable triage history."
+        description="What is wrong, why it matters and what to do about it. The exact scanner data is under Technical details."
         actions={
           triage.allowed ? (
           <>
@@ -116,7 +116,7 @@ export function FindingDetailClient({
               ) : (
                 <Button variant="outline" disabled={triaging} onClick={() => void updateStatus("open")}>
                   <RotateCcw className="size-4" />
-                  Reopen finding
+                  Mark as not fixed
                 </Button>
               )}
           </>
@@ -125,51 +125,75 @@ export function FindingDetailClient({
       />
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.3fr)_360px]">
+        {/* Simple first, technical second. The four answers come from the
+            rule catalogue (the same entry as the technical impact and fix),
+            so they restate the scanner's result rather than add to it. A
+            finding with no known rule falls back to the scanner's own text. */}
         <SectionCard
-          title="Finding context"
-          description="Everything shown below comes from the stored finding record for this scan."
+          title="The problem"
+          description="From Aevrin's scan. Nothing here was written by AI."
         >
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
               <SeverityBadge severity={finding.severity} />
-              {finding.rule_id ? (
-                <span className="rounded-full border border-border px-2 py-1 font-mono text-xs text-muted-foreground">
-                  {finding.rule_id}
-                </span>
-              ) : null}
-              <span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">
-                {finding.triage_status.replace("_", " ")}
-              </span>
-              <span className="rounded-full border border-border px-2 py-1 text-xs text-muted-foreground">
-                {OWASP_CATEGORY_LABELS[finding.owasp_category] ?? finding.owasp_category}
-              </span>
-            </div>
-            <div className="rounded-xl border border-border bg-background/80 p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Location</p>
-              <p className="mt-2 break-all font-mono text-sm text-foreground">{location}</p>
+              <span className="text-sm text-muted-foreground">{SEVERITY_MEANINGS[finding.severity]}</span>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <MetaPanel label="Scanner source" value={finding.tool} />
-              <MetaPanel label="Recorded at" value={formatDateTime(finding.created_at)} />
-              <MetaPanel label="Risk impact" value={riskImpactForSeverity(finding.severity)} />
-              <MetaPanel label="Identifiers" value="Not available in the current backend response" />
-            </div>
+            <SectionBody title="What is wrong?" body={finding.plain?.problem ?? finding.description} />
+            {finding.plain?.why ?? finding.impact ? (
+              <SectionBody title="Why does it matter?" body={(finding.plain?.why ?? finding.impact) as string} />
+            ) : null}
+            {finding.plain ? <SectionBody title="What could happen?" body={finding.plain.could_happen} /> : null}
+            <SectionBody title="What should I do?" body={finding.plain?.fix ?? finding.remediation} />
 
-            <SectionBody title="Why it matters" body={finding.description} />
-            <SectionBody title="Remediation" body={finding.remediation} />
             <AiReview finding={finding} />
-            <ExplainButton subjectType="finding" subjectId={findingId} />
+            <ExplainButton subjectType="finding" subjectId={findingId} label="Explain this problem with AI" />
+
+            <div className="rounded-xl border border-border bg-background/80 p-4">
+              <TechnicalDetails>
+                <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-[10rem_minmax(0,1fr)]">
+                  <TechRow label="Finding" value={finding.title} />
+                  <TechRow label="Severity" value={finding.severity} />
+                  <TechRow label="Rule" value={finding.rule_id ?? "None recorded"} mono />
+                  <TechRow
+                    label="Category"
+                    value={`${finding.owasp_category}: ${OWASP_CATEGORY_LABELS[finding.owasp_category] ?? "Unknown category"}`}
+                  />
+                  <TechRow label="Scanner" value={finding.tool} mono />
+                  <TechRow label="Location" value={location} mono />
+                  {finding.additional_locations.length > 0 ? (
+                    <TechRow
+                      label="Other locations"
+                      value={finding.additional_locations
+                        .map((extra) => extra.file_path ?? extra.manifest_field ?? "unknown")
+                        .join(", ")}
+                      mono
+                    />
+                  ) : null}
+                  {finding.affected_tools.length > 0 ? (
+                    <TechRow label="Tools with the problem" value={finding.affected_tools.join(", ")} mono />
+                  ) : null}
+                  {finding.evidence.length > 0 ? (
+                    <TechRow label="What we found" value={finding.evidence.join("\n")} mono />
+                  ) : null}
+                  <TechRow label="Description" value={finding.description} />
+                  {finding.impact ? <TechRow label="Impact" value={finding.impact} /> : null}
+                  <TechRow label="Remediation" value={finding.remediation} />
+                  <TechRow label="Risk score impact" value={riskImpactForSeverity(finding.severity)} />
+                  <TechRow label="Recorded" value={formatDateTime(finding.created_at)} />
+                </dl>
+              </TechnicalDetails>
+            </div>
           </div>
         </SectionCard>
 
         <div className="space-y-6">
-          <SectionCard title="Status" description="Triage changes are retained with their reason and timestamp.">
+          <SectionCard title="Status" description="Every change is saved with its reason and time.">
             <div className="space-y-4 text-sm leading-6 text-muted-foreground">
-              <p>Current status: <strong className="text-foreground">{finding.triage_status.replace("_", " ")}</strong></p>
+              <p>Right now: <strong className="text-foreground">{TRIAGE_LABELS[finding.triage_status]}</strong></p>
               {finding.triaged_at ? (
                 <div className="rounded-xl border border-border bg-background/80 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Last triage</p>
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Last changed</p>
                   <p className="mt-2 text-foreground">{formatDateTime(finding.triaged_at)}</p>
                   {finding.triage_reason ? <p className="mt-2 whitespace-pre-wrap">{finding.triage_reason}</p> : null}
                 </div>
@@ -178,8 +202,8 @@ export function FindingDetailClient({
               {triage.allowed ? (
               <div className="space-y-3 border-t border-border pt-4">
                   <div>
-                    <label htmlFor="false-positive-reason" className="font-medium text-foreground">False-positive reason</label>
-                    <p className="mt-1 text-xs">Explain why this result is not applicable or not exploitable. The reason is required and stored with the report.</p>
+                    <label htmlFor="false-positive-reason" className="font-medium text-foreground">Not a real problem? Say why</label>
+                    <p className="mt-1 text-xs">If this does not apply to you or cannot be used against you (a &ldquo;false positive&rdquo;), explain why. A reason is required, and it is saved with the report.</p>
                   </div>
                   <Textarea
                     id="false-positive-reason"
@@ -197,14 +221,14 @@ export function FindingDetailClient({
                       onClick={() => void updateStatus("false_positive", triageReason.trim())}
                     >
                       <Flag className="size-4" />
-                      {finding.triage_status === "false_positive" ? "Update report" : "Report false positive"}
+                      {finding.triage_status === "false_positive" ? "Update the reason" : "Mark as not a real problem"}
                     </Button>
                   </div>
               </div>
               ) : (
                 <p className="border-t border-border pt-4">
                   Your workspace role ({triage.role}) does not include &ldquo;Triage findings&rdquo;, so
-                  this finding&apos;s status cannot be changed from here.
+                  you cannot change this problem&apos;s status.
                 </p>
               )}
             </div>
@@ -225,9 +249,9 @@ export function FindingDetailClient({
  * overrule a scanner, which it cannot.
  */
 const AI_CLASSIFICATION: Record<string, { label: string; className: string }> = {
-  confirmed: { label: "Confirmed", className: "text-severity-high" },
-  likely_false_positive: { label: "Likely false positive", className: "text-chart-1" },
-  needs_review: { label: "Needs review", className: "text-muted-foreground" },
+  confirmed: { label: "Agrees this is a real problem", className: "text-severity-high" },
+  likely_false_positive: { label: "Thinks this may not be a real problem", className: "text-chart-1" },
+  needs_review: { label: "Could not decide", className: "text-muted-foreground" },
 };
 
 function AiReview({ finding }: { finding: Finding }) {
@@ -241,13 +265,13 @@ function AiReview({ finding }: { finding: Finding }) {
     <div className="rounded-xl border border-brand/30 bg-brand/[0.04] p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Sparkles className="size-4 text-brand-text" />
-        <p className="text-sm font-medium text-foreground">AI review</p>
+        <p className="text-sm font-medium text-foreground">AI second opinion</p>
         <span className={`text-sm font-medium ${verdict.className}`}>{verdict.label}</span>
         {/* Only shown when the model disagrees with the scanner. An identical
             severity repeated back adds nothing and reads as noise. */}
         {finding.llm_severity && finding.llm_severity !== finding.severity ? (
           <span className="text-xs text-muted-foreground">
-            suggests {finding.llm_severity} rather than {finding.severity}
+            suggests {finding.llm_severity} instead of {finding.severity}
           </span>
         ) : null}
       </div>
@@ -268,19 +292,19 @@ function AiReview({ finding }: { finding: Finding }) {
           implementation detail, and naming it invites users to weigh the
           verdict by brand rather than by the reasoning shown above. */}
       <p className="mt-3 text-xs text-muted-foreground">
-        A second opinion on the scanner result, not a replacement for it. The risk impact above is
-        computed from the scanner&apos;s severity, never from this.
+        A second opinion, not a replacement for the scan. The score is worked out from the
+        scanner&apos;s severity, never from this.
       </p>
     </div>
   );
 }
 
-function MetaPanel({ label, value }: { label: string; value: string }) {
+function TechRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="rounded-xl border border-border bg-background/80 p-4">
-      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
-      <p className="mt-2 text-sm font-medium text-foreground">{value}</p>
-    </div>
+    <>
+      <dt className="font-medium text-foreground">{label}</dt>
+      <dd className={`whitespace-pre-wrap break-words ${mono ? "font-mono" : ""}`}>{value}</dd>
+    </>
   );
 }
 

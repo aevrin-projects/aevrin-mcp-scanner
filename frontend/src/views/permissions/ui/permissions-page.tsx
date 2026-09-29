@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { ApiError } from "@/shared/api";
-import { agentApi, AGENT_KIND_LABELS, ScopeBadge } from "@/entities/agent";
+import { agentApi, AGENT_KIND_LABELS, describeRule, EFFECT_LABELS, ScopeBadge } from "@/entities/agent";
 import type { Permission } from "@/entities/agent";
 import {
   EmptyState,
@@ -12,6 +12,7 @@ import {
   Panel,
   PanelBody,
   PanelTableWrap,
+  TechnicalDetails,
   TBody,
   TD,
   TH,
@@ -46,7 +47,7 @@ export function PermissionsPage() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof ApiError ? err.message : "Could not load your permission rules.");
+        setError(err instanceof ApiError ? err.message : "We could not load your rules.");
         setPermissions([]);
       });
     return () => {
@@ -69,24 +70,33 @@ export function PermissionsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         pretitle="AI security"
-        title="Permissions"
-        description="Every rule across every device, exactly as written, with the file it lives in."
+        title="Rules"
+        description="Every rule that gives your agents access, on every computer, with what it does and the file it is written in."
       />
 
-      {/* The normalised capability is on the agent page. This is the line the
-          person actually typed, which is what they need to change it. */}
+      {/* The line the person actually typed, which is what they need to change
+          it, beside what it does. What the rules add up to per agent is on the
+          agent's "What it can reach" tab. */}
       <Alert>
-        <AlertTitle>Rules, not conclusions</AlertTitle>
+        <AlertTitle>A rule is what you change</AlertTitle>
         <AlertDescription>
-          These are the rules as written. What each one adds up to is on the agent&apos;s
-          Capabilities tab, where effective access is the widest grant across every file rather than
-          the winner of precedence.
+          <p>
+            Each rule is shown exactly as it is written in the settings file, next to what it does. To
+            change what an agent can reach, change its rules. To see everything one agent can reach,
+            open the agent.
+          </p>
+          <TechnicalDetails className="mt-2">
+            <p>
+              Rules as written. An agent&apos;s effective access is the widest grant across every file,
+              not the winner of precedence.
+            </p>
+          </TechnicalDetails>
         </AlertDescription>
       </Alert>
 
       {error ? (
         <Alert variant="destructive">
-          <AlertTitle>Could not load permissions</AlertTitle>
+          <AlertTitle>We could not load your rules</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
@@ -102,8 +112,8 @@ export function PermissionsPage() {
         <Panel>
           <EmptyState
             icon={<ShieldCheck />}
-            title="No permission rules reported"
-            body="Rules appear here once a device with them reports in."
+            title="No rules yet"
+            body="Rules show up here after a computer with an agent that has rules is checked."
           />
         </Panel>
       ) : permissions.length === 0 ? null : (
@@ -112,40 +122,42 @@ export function PermissionsPage() {
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search rules, devices or files"
-              aria-label="Search permission rules"
+              placeholder="Search rules, computers or files"
+              aria-label="Search rules"
               className="sm:max-w-xs"
             />
             <Select
               value={effect}
               onChange={(event) => setEffect(event.target.value as Permission["effect"] | "all")}
-              aria-label="Filter by effect"
-              className="sm:max-w-[180px]"
+              aria-label="Filter by what the rule does"
+              className="sm:max-w-[200px]"
             >
-              <option value="all">All effects</option>
-              <option value="allow">Allow</option>
-              <option value="ask">Ask</option>
-              <option value="deny">Deny</option>
+              <option value="all">All rules</option>
+              <option value="allow">{EFFECT_LABELS.allow}</option>
+              <option value="ask">{EFFECT_LABELS.ask}</option>
+              <option value="deny">{EFFECT_LABELS.deny}</option>
             </Select>
           </PanelBody>
           <PanelTableWrap>
             <Table>
               <THead>
                 <TR>
-                  <TH>Rule</TH>
+                  <TH>What it does</TH>
+                  <TH>Rule, exactly as written</TH>
                   <TH>Effect</TH>
-                  <TH>Scope</TH>
+                  <TH>Where it is set</TH>
                   <TH>Agent</TH>
-                  <TH>Device</TH>
+                  <TH>Computer</TH>
                   <TH>File</TH>
                 </TR>
               </THead>
               <TBody>
                 {visible.map((permission, index) => (
                   <TR key={`${permission.agent_id}:${permission.source_path}:${permission.rule}:${index}`}>
+                    <TD className="min-w-64 text-sm">{describeRule(permission)}</TD>
                     <TD className="font-mono text-xs">{permission.rule}</TD>
                     <TD className={cn("font-medium", EFFECT_CLASSES[permission.effect])}>
-                      {permission.effect}
+                      {EFFECT_LABELS[permission.effect]}
                     </TD>
                     <TD>
                       <ScopeBadge scope={permission.scope} />
@@ -164,7 +176,7 @@ export function PermissionsPage() {
               </TBody>
             </Table>
           </PanelTableWrap>
-          {visible.length === 0 ? <EmptyState title="No rules match this filter" /> : null}
+          {visible.length === 0 ? <EmptyState title="No rules match this search" /> : null}
         </Panel>
       )}
     </div>

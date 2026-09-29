@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
 
-from aevrin_scanner_core import Finding, Grade, TargetType, grade_scan, rule_for
+from aevrin_scanner_core import Finding, Grade, TargetType, grade_scan
 from fastapi import BackgroundTasks, HTTPException, UploadFile, status
 
 from aevrin_api.config import Settings
@@ -459,9 +459,6 @@ async def get_scan_findings(scan_id: UUID, user_id: str, db: SupabaseRest) -> li
     # scanner happened to finish first led the list, so a critical could sit
     # below a dozen lows on the one screen that has to convey urgency.
     rows.sort(key=_finding_sort_key)
-    # `impact` is looked up from the rule catalogue here, not stored on the
-    # row: one place owns the prose, and the client never needs a copy of it.
-    return [
-        FindingOut(**r, impact=(rule.impact if (rule := rule_for(r.get("rule_id"))) else None))
-        for r in rows
-    ]
+    # `impact` and `plain` are looked up from the rule catalogue, not stored
+    # on the row: one place owns the prose, and the client never needs a copy.
+    return [FindingOut.from_row(r) for r in rows]

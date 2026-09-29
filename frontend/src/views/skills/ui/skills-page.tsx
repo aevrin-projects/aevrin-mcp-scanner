@@ -60,23 +60,22 @@ export function SkillsPage() {
       <PageHeader
         pretitle="AI security"
         title="Skills"
-        description="Instructions your agents load on their own, and where each one came from."
+        description="Saved instructions your agents can follow on their own, and where each one came from."
       />
 
       {/* Not correlated the way MCP servers are, and saying so beats a
           number that looks authoritative and is not. */}
       <Alert>
-        <AlertTitle>One row per installation</AlertTitle>
+        <AlertTitle>Each copy is listed on its own</AlertTitle>
         <AlertDescription>
-          A skill is a folder of prose on a machine, with no URL or package to pin it to. Two skills
-          sharing a name are not evidence of being the same skill, so they are listed separately
-          rather than merged.
+          A skill is a folder of written instructions on a computer. Two skills with the same name
+          can say different things, so we list every copy separately instead of treating them as one.
         </AlertDescription>
       </Alert>
 
       {error ? (
         <Alert variant="destructive">
-          <AlertTitle>Could not load skills</AlertTitle>
+          <AlertTitle>We could not load your skills</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
@@ -92,8 +91,8 @@ export function SkillsPage() {
         <Panel>
           <EmptyState
             icon={<Sparkles />}
-            title="No skills reported"
-            body="Skills appear here once a device that has them reports in."
+            title="No skills yet"
+            body="Skills show up here after a computer with skills is checked."
           />
         </Panel>
       ) : skills.length === 0 ? null : (
@@ -112,10 +111,10 @@ export function SkillsPage() {
               <THead>
                 <TR>
                   <TH>Skill</TH>
-                  <TH>Scope</TH>
+                  <TH>Where it is set</TH>
                   <TH>Agent</TH>
-                  <TH>Device</TH>
-                  <TH>Source</TH>
+                  <TH>Computer</TH>
+                  <TH>File</TH>
                 </TR>
               </THead>
               <TBody>

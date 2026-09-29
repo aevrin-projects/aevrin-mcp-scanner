@@ -17,6 +17,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 
 from aevrin_api.config import Settings
+from aevrin_api.controllers import agent_controller
 from aevrin_api.db import SupabaseRest
 from aevrin_api.schemas.ai import (
     ExplainRequest,
@@ -195,6 +196,8 @@ async def _gather_evidence(
         return await _finding_evidence(db, user_id=user_id, finding_id=subject_id)
     if subject_type == "scan":
         return await _scan_evidence(db, user_id=user_id, scan_id=subject_id)
+    if subject_type == "agent_posture":
+        return await _agent_evidence(db, user_id=user_id, agent_id=subject_id)
     return None
 
 
@@ -237,6 +240,64 @@ async def _finding_evidence(
             "unreliable_stages": scan.get("unreliable_stages") or [],
         },
         context={"target_type": scan.get("target_type")},
+    )
+
+
+async def _agent_evidence(
+    db: SupabaseRest, *, user_id: str, agent_id: str
+) -> dict[str, Any] | None:
+    """An agent's posture, read exactly as the agent page reads it.
+
+    Through `agent_controller.get_agent`, not a copy of it: the same
+    `ReadScope` decides who may see the snapshot (the caller's own devices and
+    their workspace's, nobody else's), and the same scoring and server grades
+    produce the score the explanation is about. A second read path here would
+    be a second place to get tenancy wrong and a second place for the score to
+    drift from the page beside it.
+    """
+    try:
+        agent = await agent_controller.get_agent(UUID(agent_id), user_id, db)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            raise PermissionError("Agent not found.") from exc
+        raise
+    snapshot = agent.snapshot
+    return evidence.build_evidence(
+        subject_type="agent_posture",
+        subject_id=agent_id,
+        posture_factors=[f.model_dump() for f in agent.risk_factors],
+        agent_capabilities=[
+            {
+                "capability": c.capability.value,
+                "level": c.level.value,
+                "subject": c.subject,
+                "granted_by": [e.detail for e in c.evidence],
+            }
+            for c in snapshot.capabilities
+        ],
+        permission_rules=[
+            {"rule": p.rule, "effect": p.effect, "scope": p.scope.value}
+            for p in snapshot.permissions
+        ],
+        credentials_metadata=[
+            {"kind": c.kind, "source": c.source, "present": c.present}
+            for c in snapshot.credentials
+        ],
+        skills=[{"name": s.name, "description": s.description} for s in snapshot.skills],
+        coverage={
+            "complete": agent.coverage_complete,
+            "unreliable_stages": snapshot.coverage.not_checked,
+        },
+        context={
+            "agent": agent.agent_name,
+            "posture_score": f"{agent.posture_score}/100, where 100 is the safest",
+            "risk_level": agent.risk,
+            "confidence": agent.confidence,
+            "asks_a_person_before_acting": not snapshot.unattended,
+            "permission_mode": snapshot.default_permission_mode,
+            "mcp_servers": len(snapshot.mcp_servers),
+            "hooks": len(snapshot.hooks),
+        },
     )
 
 
