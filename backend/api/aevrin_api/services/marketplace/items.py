@@ -29,6 +29,15 @@ ITEM_TYPES: tuple[str, ...] = (
 # `catalog.build_install_config` knows.
 _RUNTIMES = frozenset({"npx", "uvx", "docker", "dnx", "node", "python", "pipx"})
 
+# Package formats the official MCP Registry defines that no generated client
+# config can launch: an MCP Bundle (`.mcpb`) is a file a desktop client
+# installs, and a cargo crate is built rather than run. A synced server often
+# lists one beside an npm package (Context7 does), so they are skipped rather
+# than refused: the gate judges an item on what can be launched, and the
+# config builder never picks one. 697 mcpb and 39 cargo packages were
+# blocking otherwise complete servers when this was added.
+UNLAUNCHABLE_PACKAGE_TYPES = frozenset({"mcpb", "cargo"})
+
 # A published package name never contains whitespace or shell punctuation.
 # It is pasted into every client config Aevrin generates for the server.
 _SHELL_SHAPED = re.compile(r"""[\s;|&$`<>()'"\\]""")
@@ -175,6 +184,16 @@ def clean_content(raw: Any) -> dict[str, Any]:
         raise InvalidItem(_format_errors("content", exc)) from exc
 
 
+def launchable_packages(installation: Any) -> list[dict[str, Any]]:
+    """The packages a generated client config can launch, in listed order."""
+    packages = (installation or {}).get("packages") if isinstance(installation, dict) else None
+    return [
+        package
+        for package in packages or []
+        if not (isinstance(package, dict) and package.get("registry_type") in UNLAUNCHABLE_PACKAGE_TYPES)
+    ]
+
+
 def clean_installation(raw: Any) -> dict[str, Any]:
     """Validate an admin's `installation` and return the document to store."""
     try:
@@ -209,6 +228,8 @@ def validate_item(row: dict[str, Any]) -> list[str]:
         problems.extend(_format_errors("content", exc))
 
     installation = row.get("installation") or {}
+    if isinstance(installation, dict) and "packages" in installation:
+        installation = {**installation, "packages": launchable_packages(installation)}
     try:
         spec = InstallationSpec.model_validate(installation)
     except ValidationError as exc:

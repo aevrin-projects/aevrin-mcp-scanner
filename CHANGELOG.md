@@ -41,6 +41,14 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **A synced server that also ships an MCP Bundle could not be published**
+  (Context7, for one). The official registry lists `mcpb` bundles and
+  `cargo` crates beside npm and PyPI packages; the gate's package model
+  refused both, so the whole item failed (697 bundles and 39 crates). The
+  gate now skips those formats and judges the item on what can be
+  launched, and the config builder and the scan hand-off pick the first
+  launchable package instead of the first listed, so a bundle never becomes
+  `npx <bundle URL>` in a copied config. An unknown type is still refused.
 - **5,265 synced packages could never pass the publish gate.** The
   registry sync stores an absent `runtime_hint` as `""`, and the gate read
   that as an unknown launcher. It is now read as absent, which the config

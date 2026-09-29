@@ -57,7 +57,9 @@ export function scanHandoff(
   const remote = httpsUrl(listing.installation.remotes?.[0]?.url);
   if (remote) return { kind: "link", href: scanLink("live_mcp_server", remote) };
 
-  const pkg = listing.installation.packages?.[0];
+  // The first package the CLI can run, not simply the first listed: a synced
+  // server often lists an MCP Bundle (.mcpb) or a crate beside its npm package.
+  const pkg = listing.installation.packages?.find((p) => p.registry_type in RUNNERS);
   const runner = pkg ? RUNNERS[pkg.registry_type] : undefined;
   if (!pkg || !runner || !PLAIN.test(pkg.identifier)) return null;
   const version = pkg.version && PLAIN.test(pkg.version) ? `@${pkg.version}` : "";

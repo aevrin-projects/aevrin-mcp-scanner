@@ -507,3 +507,40 @@ def test_an_unknown_launcher_is_still_refused(hint: str) -> None:
     """The hint becomes the `command` in every config a user copies."""
     row = {"title": "T", "description": "D", "item_type": "mcp_server", "installation": _package(hint)}
     assert any("runtime_hint must be one of" in p for p in items.validate_item(row))
+
+
+_NPM = {"registry_type": "npm", "identifier": "@upstash/context7-mcp", "version": "4.1.1",
+        "runtime_hint": "", "transport": "stdio"}
+_BUNDLE = {"registry_type": "mcpb", "version": "4.1.1", "runtime_hint": "", "transport": "stdio",
+           "identifier": "https://github.com/upstash/context7/releases/download/mcpb-v4.1.1/context7.mcpb"}
+
+
+def test_a_bundle_beside_an_npm_package_does_not_block_publishing() -> None:
+    """Context7, as the official registry lists it: an npm package and an MCP
+    Bundle. The bundle used to fail the package model and block the item."""
+    row = {"title": "Context7", "description": "D", "item_type": "mcp_server",
+           "installation": {"packages": [_NPM, _BUNDLE]}}
+    assert items.validate_item(row) == []
+
+
+def test_a_server_that_only_ships_a_bundle_has_nothing_to_install() -> None:
+    row = {"title": "T", "description": "D", "item_type": "mcp_server",
+           "installation": {"packages": [_BUNDLE, {**_BUNDLE, "registry_type": "cargo"}]}}
+    problems = items.validate_item(row)
+    assert len(problems) == 1
+    assert "package, a remote endpoint, or a repository" in problems[0]
+
+
+def test_an_unknown_package_type_is_still_refused() -> None:
+    row = {"title": "T", "description": "D", "item_type": "mcp_server",
+           "installation": {"packages": [{**_NPM, "registry_type": "npmm"}]}}
+    assert any("registry_type" in p for p in items.validate_item(row))
+
+
+def test_the_generated_config_never_launches_a_bundle() -> None:
+    """`npx <bundle URL>` would be a broken command in every copied config."""
+    from aevrin_api.services.marketplace.catalog import build_install_config
+
+    listing = {"slug": "context7", "installation": {"packages": [_BUNDLE, _NPM], "remotes": []}}
+    config, _ = build_install_config(listing, "claude-code")
+    assert config["mcpServers"]["context7"]["args"] == ["@upstash/context7-mcp@4.1.1"]

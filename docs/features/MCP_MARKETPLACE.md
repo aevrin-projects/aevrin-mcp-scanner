@@ -112,7 +112,14 @@ reasons as sentences; the admin UI shows them verbatim and does not
 pre-check anything itself. It is pure (reads only the row):
 
 - a title and description;
-- `content` and `installation` match their schemas;
+- `content` and `installation` match their schemas. Packages of a type the
+  official registry defines but no generated config can launch
+  (`items.UNLAUNCHABLE_PACKAGE_TYPES`: `mcpb` bundles and `cargo` crates)
+  are skipped, not refused, so Context7's bundle beside its npm package no
+  longer blocks it; the config builder and the scan hand-off pick the first
+  package they can launch. An empty `runtime_hint` (how the sync stores an
+  absent one) means the registry type's default launcher; any other value
+  outside the launcher allow-list is refused;
 - per type: a `prompt` needs its prompt text, a `skill` its instructions,
   an `mcp_server` a package, a remote endpoint or a repository, a
   `repository` or `template` its repository URL; any other type needs a

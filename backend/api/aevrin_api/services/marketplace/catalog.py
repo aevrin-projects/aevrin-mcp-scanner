@@ -19,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from aevrin_api.db import SupabaseRest, select_all
-from aevrin_api.services.marketplace import normalize
+from aevrin_api.services.marketplace import items, normalize
 from aevrin_api.services.marketplace.ranking import DEFAULT_SORT, SORT_ORDERS
 
 logger = logging.getLogger("aevrin.marketplace.catalog")
@@ -466,7 +466,8 @@ def build_install_config(
     name = listing.get("slug", "server")
     warnings: list[str] = []
 
-    packages = installation.get("packages") or []
+    # Never a bundle or a crate: `npx <bundle URL>` would be a broken command.
+    packages = items.launchable_packages(installation)
     remotes = installation.get("remotes") or []
 
     if packages:
