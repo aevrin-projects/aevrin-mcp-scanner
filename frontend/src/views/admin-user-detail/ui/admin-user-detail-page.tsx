@@ -78,7 +78,7 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <StatusPill status={detail.status} />
           <span className="capitalize">{detail.effective_tier}</span>
-          {detail.entitled_tier !== detail.effective_tier ? (
+          {detail.entitled_tier && detail.entitled_tier !== detail.effective_tier ? (
             <span>
               · <span className="capitalize">{detail.entitled_tier}</span> limits through workspace{" "}
               {detail.workspace?.name ?? ""}
@@ -137,11 +137,14 @@ export function AdminUserDetailPage({ params }: { params: Promise<{ id: string }
           </AdminCard>
 
           <AdminCard title="Payments" icon={<Receipt className="size-4 text-brand-text" />}>
-            {detail.payments.length === 0 ? (
+            {/* `?? []`: the frontend and the API deploy separately, and an API
+                that predates this field sends none. Crashing the whole page for
+                one missing card would hide everything else on it. */}
+            {(detail.payments ?? []).length === 0 ? (
               <p className="text-sm text-muted-foreground">No checkouts started.</p>
             ) : (
               <ul className="space-y-2.5 text-sm">
-                {detail.payments.map((p) => (
+                {(detail.payments ?? []).map((p) => (
                   <li key={p.id} className="space-y-0.5">
                     <div className="flex items-center justify-between gap-3">
                       <span className="capitalize">
@@ -542,7 +545,8 @@ function DangerZone({ detail, onDone }: { detail: AdminUserDetail; onDone: () =>
       toast.success(
         `Deleted ${result.email}: ${result.scans_deleted} scans, ${result.findings_deleted} findings, ${result.payments_deleted} payments.`,
       );
-      router.push("/admin/users");
+      // The account list is /admin; /admin/users has no index page.
+      router.push("/admin");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not delete the account.");
       setBusy(false);

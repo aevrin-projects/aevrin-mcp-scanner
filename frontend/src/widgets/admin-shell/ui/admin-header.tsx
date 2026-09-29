@@ -30,6 +30,12 @@ const SEGMENT_LABELS: Record<string, string> = {
   users: "Accounts",
 };
 
+/** Segments whose own path is not a page. `/admin/users` has no index: the
+ *  account list is `/admin`, so a crumb built from the path linked to a 404. */
+const SEGMENT_HREFS: Record<string, string> = {
+  users: "/admin",
+};
+
 function labelFor(segment: string): string {
   const known = SEGMENT_LABELS[segment];
   if (known) return known;
@@ -44,8 +50,11 @@ export function AdminHeader() {
 
   const crumbs = segments.map((segment, index) => ({
     segment,
+    // The path position, not the href: two crumbs can share an href now
+    // (Admin and Accounts both go to /admin), and React keys must not collide.
+    key: segments.slice(0, index + 1).join("/"),
     label: labelFor(segment),
-    href: `/${segments.slice(0, index + 1).join("/")}`,
+    href: SEGMENT_HREFS[segment] ?? `/${segments.slice(0, index + 1).join("/")}`,
     isLast: index === segments.length - 1,
   }));
 
@@ -57,7 +66,7 @@ export function AdminHeader() {
         <Breadcrumb>
           <BreadcrumbList>
             {crumbs.map((crumb) => (
-              <BreadcrumbItem key={crumb.href}>
+              <BreadcrumbItem key={crumb.key}>
                 {crumb.isLast ? (
                   <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
                 ) : (

@@ -7,7 +7,7 @@ export function TermsPage() {
       <div className="mx-auto max-w-2xl px-6 py-16">
         <h1 className="text-2xl font-semibold tracking-tight">Terms of Service</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Last updated: August 3, 2026.
+          Last updated: September 29, 2026.
         </p>
 
         <div className="mt-8 flex flex-col gap-6 text-sm leading-relaxed text-muted-foreground">
@@ -23,11 +23,17 @@ export function TermsPage() {
           <section>
             <h2 className="font-medium text-foreground">Accounts and usage limits</h2>
             <p className="mt-1">
-              Each plan (Free, Hobby, Pro, Team) includes a fixed number of scans per month across
-              three separate categories (CLI, Claude Code hook, and dashboard) that reset on a
-              rolling monthly cycle from your signup date. Pro and Team also include a fixed monthly
-              allowance of automated fix pull requests, billed and reset the same way. We may adjust
-              these limits from time to time; published limits at the time you use the service apply.
+              The Free, Hobby and Pro plans include a fixed number of scans per month in each of four
+              separate categories (CLI, Claude Code hook, dashboard, and agent posture), reset on a
+              rolling monthly cycle from your signup date. The Team plan has no monthly scan cap. We
+              may adjust these limits from time to time; published limits at the time you use the
+              service apply.
+            </p>
+            <p className="mt-2">
+              A Team plan is bought by a workspace owner for a number of seats, which sets how many
+              people the workspace can hold. While the owner&apos;s Team plan is active, every member
+              of that workspace receives Team plan limits. When it ends, members return to the limits
+              of their own plan.
             </p>
           </section>
           <section>
@@ -44,7 +50,9 @@ export function TermsPage() {
             <p className="mt-1">
               Paid plans use Razorpay Standard Checkout and are purchased one cycle at a time.
               Aevrin does not automatically renew or automatically charge another cycle. Paid
-              access remains active through the displayed paid-until date.
+              access remains active through the displayed paid-until date. Team is priced per seat,
+              for at least three seats. Charges are not prorated: buying a different plan or seat
+              count takes effect immediately and extends the paid-until date by one full cycle.
             </p>
           </section>
           <section>

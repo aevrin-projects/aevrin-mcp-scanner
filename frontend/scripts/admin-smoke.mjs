@@ -114,6 +114,14 @@ const userDetail = {
   api_key_count: 2,
   github_connected: true,
   seats: 5,
+  entitled_tier: "team",
+  workspace: { org_id: "org-1", name: "Acme", role: "Member", is_owner: false, seat_limit: null, seats_used: null },
+  payments: [
+    {
+      id: "pay-1", tier: "pro", cycle: "monthly", seats: 1, amount_paise: 2800, currency: "USD",
+      status: "paid", razorpay_order_id: "order_1", razorpay_payment_id: "pay_1", created_at: now, verified_at: now,
+    },
+  ],
 };
 
 const analytics = {
@@ -138,6 +146,7 @@ const analytics = {
   cli_active_accounts: 25,
   hook_active_accounts: 14,
   hook_cached_targets: 88,
+  revenue_by_currency: { USD: { total: 91000, in_window: 4500 }, INR: { total: 1099000, in_window: 109900 } },
   revenue_paise_in_window: 4500000,
   revenue_paise_total: 91000000,
 };
@@ -308,7 +317,14 @@ for (const viewport of viewports) {
       const request = routeCtl.request();
       const isApiCall = request.resourceType() === "xhr" || request.resourceType() === "fetch";
       const url = request.url();
-      if (!isApiCall || !url.includes("/admin/")) return routeCtl.fallback();
+      // Same-origin fetches are Next.js prefetching its own pages (`?_rsc=`),
+      // which share the /admin/ path with the API; only the API is stubbed.
+      const sameOrigin = new URL(url).origin === new URL(baseUrl).origin;
+      // The app-wide page-view beacon (features/analytics). Not part of the
+      // admin interface, and with no API running it only adds a refused
+      // connection to every page's console.
+      if (isApiCall && !sameOrigin && url.includes("/events/pageview")) return routeCtl.fulfill({ status: 204 });
+      if (!isApiCall || sameOrigin || !url.includes("/admin/")) return routeCtl.fallback();
       const match = ROUTES.find(([pattern]) => pattern.test(url));
       if (!match) {
         failures.push(`${route}: unstubbed admin request ${url}`);
@@ -322,7 +338,18 @@ for (const viewport of viewports) {
       });
     });
 
-    await page.goto(`${baseUrl}${route}`, { waitUntil: "networkidle" });
+    // Requests still open when the page fails to settle are named, not
+    // swallowed: a timeout alone says nothing about which request never ended.
+    const inFlight = new Set();
+    page.on("request", (r) => inFlight.add(r.url()));
+    page.on("requestfinished", (r) => inFlight.delete(r.url()));
+    page.on("requestfailed", (r) => inFlight.delete(r.url()));
+    await page.goto(`${baseUrl}${route}`, { waitUntil: "load" });
+    try {
+      await page.waitForLoadState("networkidle", { timeout: 20_000 });
+    } catch {
+      failures.push(`${viewport.name} ${route}: never settled; still in flight: ${[...inFlight].join(", ") || "(none)"}`);
+    }
     // The gate polls its session before rendering children, and charts mount
     // after their container measures; audit the settled page, not a frame of it.
     await page.waitForTimeout(1200);
@@ -383,7 +410,8 @@ for (const viewport of viewports) {
   await context.route("**/*", async (routeCtl) => {
     const request = routeCtl.request();
     const isApiCall = request.resourceType() === "xhr" || request.resourceType() === "fetch";
-    if (!isApiCall || !request.url().includes("/admin/")) return routeCtl.fallback();
+    const sameOrigin = new URL(request.url()).origin === new URL(baseUrl).origin;
+    if (!isApiCall || sameOrigin || !request.url().includes("/admin/")) return routeCtl.fallback();
     const match = ROUTES.find(([pattern]) => pattern.test(request.url()));
     return match
       ? routeCtl.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(match[1]) })
@@ -392,7 +420,7 @@ for (const viewport of viewports) {
   await page.goto(`${baseUrl}/admin`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1000);
 
-  for (const label of ["Analytics", "Accounts", "Marketplace", "Audit log"]) {
+  for (const label of ["Analytics", "Accounts", "Registry", "Audit log"]) {
     const link = page.getByRole("link", { name: label, exact: true }).first();
     if ((await link.count()) === 0) {
       failures.push(`sidebar is missing a link to ${label}`);
@@ -407,7 +435,10 @@ for (const viewport of viewports) {
 
   // The active page must be announced, not only tinted: the active state is a
   // background colour, which is no signal at all to a screen reader.
-  const current = await page.locator('[aria-current="page"]').count();
+  // Scoped to the sidebar: the header breadcrumb marks its own current item
+  // with aria-current="page" too, correctly, and counting the whole page made
+  // that look like a second active sidebar entry.
+  const current = await page.locator('[data-slot="sidebar"] [aria-current="page"]').count();
   if (current !== 1) {
     failures.push(`expected exactly one aria-current="page" in the sidebar, found ${current}`);
   }

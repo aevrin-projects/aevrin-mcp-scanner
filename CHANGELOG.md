@@ -114,6 +114,30 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ### Fixed
 
+- **The admin breadcrumb's "Accounts" link, and the page shown after deleting
+  an account, went to a 404.** Both pointed at `/admin/users`, which has no
+  index page; the account list is `/admin`. Crumbs are now keyed by path
+  position, since two can share a link.
+- **The admin account page could crash against an API that predates the
+  billing fields.** The frontend and API deploy separately; the page now
+  treats a missing `payments` or `entitled_tier` as absent rather than
+  failing whole.
+- **docs.mcp.aevrin.net blocked its own Cloudflare Web Analytics beacon**,
+  logging a CSP error on every page and collecting nothing. `script-src`
+  now allows `https://static.cloudflareinsights.com`; the beacon reports to
+  the site's own `/cdn-cgi/rum`, which `connect-src 'self'` already covered.
+- **The Terms of Service described plans that no longer exist**: a monthly
+  allowance of automated-fix pull requests and three scan categories. They
+  now describe four categories, Team's lack of a monthly cap, per-seat Team
+  with members inheriting its limits, and that charges are not prorated.
+- **The browser smoke tests could not pass on a correct build.**
+  `public-smoke.mjs` checked five pages that moved to `frontend-public` and
+  prices from a retired table; `admin-smoke.mjs` stubbed Next.js's own
+  same-origin page prefetches as if they were API calls, looked for a
+  "Marketplace" sidebar entry that is now "Registry", counted the
+  breadcrumb's `aria-current` as a second active sidebar entry, and hung
+  without saying which request never finished. Both now pass; a page that
+  never settles is reported with the requests still in flight.
 - **The deploy reported the Caddyfile installed when it was not.** The live
   `/etc/caddy/Caddyfile` is a read-only bind mount, so writing it from inside
   the container failed; bash suspends `set -e` inside a function used as an
@@ -219,6 +243,23 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
   (ADR-033), and nothing has produced one since. A stored finding that still
   carries one of those ids renders the way any unrecognised rule id does:
   its own title and remediation, with no catalogue impact text.
+
+### Security
+
+- **Workspace permissions are enforced, and the ones nothing checked are
+  gone** (ADR-051). A workspace member now needs `scans.run` to start a scan
+  (dashboard, `aevrin scan`, CLI upload, agent snapshot upload) or cancel
+  one; `scans.delete` to delete a scan or clear history; `findings.triage` to
+  triage (dashboard and `aevrin findings triage`); `agents.delete` to forget
+  an agent. A refusal is `403` naming the role and the permission, and
+  spends no quota; the hook answers `not_permitted` instead of starting a
+  scan and says the install was not checked. Someone in no workspace is
+  unaffected. `marketplace.submit`, `marketplace.publish`, `mcp.manage`,
+  `ai_providers.manage`, `policy.manage` and `billing.manage` are removed
+  from the catalogue and from stored roles (migration
+  `0050_permission_catalogue.sql`). New workspaces' Security Admin role
+  holds run, delete, triage and remove agents. The dashboard hides controls
+  a member's role cannot use. The guards live in `services/membership.py`.
 
 ## [0.5.0] - 2026-09-06 (CLI)
 

@@ -7,8 +7,15 @@
 # collapsible sidebar were non-functional. frontend/'s CSP already carries
 # 'unsafe-inline' in script-src for the identical reason; this brings docs
 # in line with it rather than being the one exception.
+#
+# static.cloudflareinsights.com: Cloudflare Web Analytics is enabled for this
+# site and injects its beacon at the edge. Blocked, it logged a CSP error on
+# every page and collected nothing. The host, not the file: the injected URL
+# is beacon.min.js/<version>, which a path-exact source would not match. The
+# beacon reports to this site's own /cdn-cgi/rum when auto-injected, so
+# connect-src 'self' already covers it (Cloudflare Web Analytics FAQ).
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   Referrer-Policy: strict-origin-when-cross-origin
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
