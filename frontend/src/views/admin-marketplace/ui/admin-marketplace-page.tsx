@@ -312,7 +312,11 @@ export function AdminMarketplacePage() {
           >
             {rows.length === 0 ? (
               <div className="px-5 py-4">
-                <EmptyState title="No items match" body="Try clearing the filters, or create a new item." />
+                {statusFilter || typeFilter || debouncedSearch ? (
+                  <EmptyState title="No items match" body="Try clearing the filters, or create a new item." />
+                ) : (
+                  <EmptyState title="No items yet" body="Create an item with New item. It starts as a draft." />
+                )}
               </div>
             ) : (
               <>

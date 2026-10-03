@@ -360,8 +360,8 @@ console.
 
 | Job | Cron (UTC) | Calls |
 |---|---|---|
-| `uptime` | `0 * * * *` (hourly) | `POST /scheduler/uptime-check`, then `POST /scheduler/registry-popularity` in a loop of up to 12 calls (GitHub stars for up to 1,000 GitHub-hosted listings of any status per call, 45 seconds of GitHub requests at most, never-fetched first; needs `GITHUB_TOKEN` on the API, says `skipped` without it and `github_error` when GitHub refuses it). GitHub runs this "hourly" schedule every four to eight hours in practice; run it by hand with `gh workflow run scheduler.yml -f job=uptime` |
-| `weekly` | `15 3 * * 0` (Sun 03:15) | `POST /scheduler/registry-sync`, then `POST /scheduler/provider-sync` |
+| `uptime` | `0 * * * *` (hourly) | `POST /scheduler/uptime-check`, then `POST /scheduler/registry-popularity` in a loop of up to 12 calls (GitHub stars for up to 1,000 GitHub-hosted listings of any status per call, 45 seconds of GitHub requests at most, never-fetched first; needs `GITHUB_TOKEN` on the API, says `skipped` without it and `github_error` when GitHub refuses it; each call then recomputes published items' `ranking_score`, which only the now-unscheduled registry sync used to do). GitHub runs this "hourly" schedule every four to eight hours in practice; run it by hand with `gh workflow run scheduler.yml -f job=uptime` |
+| `weekly` | `15 3 * * 0` (Sun 03:15) | `POST /scheduler/provider-sync` (the AI model catalogue). The registry sync step was removed on 2026-10-03 when the registry was emptied; `POST /scheduler/registry-sync` still exists to run by hand, see `docs/features/MCP_MARKETPLACE.md#emptied-registry` |
 
 Both jobs declare `environment: aws` and read the token out of
 `AEVRIN_ENV_OVERRIDES`, the same KEY=VALUE blob that deploys it to
@@ -391,12 +391,10 @@ this is a *substring* of one, so without the explicit mask it would be
 unmasked everywhere and one `set -x` away from the log.
 
 GitHub's scheduled runs are best-effort and can be delayed or dropped under
-load. Nothing here is damaged by that: every endpoint is idempotent, the
-registry sync is incremental against its own watermark, and the uptime job
+load. Nothing here is damaged by that: every endpoint is idempotent, and the uptime job
 publishes the count of checks actually recorded rather than assuming a
 cadence - a missed run appears as a gap the status page reports as "no
-data", never as uptime. The `weekly` job's provider step runs `if: always()`
-so an MCP-registry outage does not also skip the AI catalogue refresh.
+data", never as uptime.
 
 The `uptime` step fails the run when the API does not answer. That is
 deliberate: an unreachable API is exactly the gap the status page will show,

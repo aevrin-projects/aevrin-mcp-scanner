@@ -9,7 +9,7 @@ skills, prompts, agents, templates, repositories, tools and more. People browse 
 MCP (see [Using the registry from an agent](/agents)).
 
 An administrator decides what is published. Nothing reaches the public registry automatically:
-not a server synced from the official MCP Registry, and not a user's suggestion.
+not a server from the official MCP Registry, and not a user's suggestion.
 
 **The registry is for discovery.** Publishing an item is curation, not a security verdict: Aevrin
 does not scan, grade or security-check anything it lists, and no item shows a grade or a scan
@@ -53,13 +53,16 @@ for them.
 
 ## Where MCP servers come from
 
-Aevrin reads the [official MCP Registry](https://registry.modelcontextprotocol.io), a public list
-of server metadata (name, description, version, repository, packaging). It does not fork the
-registry, mirror it as authoritative, or replace it. It adds three things the registry
-deliberately leaves out: curation, ranking, and ready-to-copy client configuration.
+The [official MCP Registry](https://registry.modelcontextprotocol.io) is a public list of server
+metadata (name, description, version, repository, packaging). Aevrin does not fork it, mirror it as
+authoritative, or replace it, and it does not import it on a schedule: every MCP server in the
+Aevrin Registry is added by an administrator, from its repository or endpoint or by hand. The
+Aevrin Registry adds three things the official one deliberately leaves out: curation, ranking, and
+ready-to-copy client configuration.
 
-Servers read from the registry arrive as **drafts**. An administrator chooses which ones to
-publish: one at a time, or in bulk for the drafts that meet a stated quality bar (see
+An administrator can still read the official registry in once by hand. Servers read that way
+arrive as **drafts**, and an administrator chooses which ones to publish: one at a time, or in bulk
+for the drafts that meet a stated quality bar (see
 [Administration](/admin#applying-the-popularity-bar)).
 
 Every item shows its provenance:
@@ -97,16 +100,11 @@ administrator, who can also relate items to each other.
 - It does not install anything on your machine or change your agent's configuration. It gives you
   configuration to copy. See [Installing](/install).
 
-## Update schedule
+## Where items come from
 
-A scheduled job runs roughly weekly and:
+Every item in the Aevrin Registry is added by an Aevrin administrator. Nothing is imported
+automatically from the official MCP Registry. For every item with a GitHub repository, its stars,
+forks, open issues, recent activity and licence are refreshed from GitHub on a schedule.
 
-1. Pulls servers changed since the last successful run from the official MCP Registry. New ones
-   are stored as drafts.
-2. Records any new versions in each item's version list.
-3. Refreshes GitHub and npm metadata for the items whose data is oldest.
-4. Recomputes ranking scores.
-
-It never overwrites what an administrator curated. If the official registry is unreachable, the
-Aevrin Registry stays online with what it has. If GitHub is unreachable, the previously stored star
-count is kept rather than overwritten with zero.
+A refresh never overwrites what an administrator curated. If GitHub is unreachable, the previously
+stored star count is kept rather than overwritten with zero.

@@ -1,7 +1,7 @@
 # Database
 
 Supabase (Postgres + Auth). Migrations live in
-`backend/infra/migrations/`, numbered `0001`-`0049` sequentially - read
+`backend/infra/migrations/`, numbered `0001`-`0052` sequentially - read
 them in order to see how the schema arrived at its current shape; never
 edit a historical migration to make current schema prettier.
 
@@ -163,7 +163,7 @@ workspace" rule the RLS select policy states (`services/membership.py`
 `org_id` indexes. No migration was needed for it.
 
 **MCP Marketplace** (`0037_mcp_marketplace.sql`)
-`mcp_categories` (17 seeded), `mcp_listings`, `mcp_listing_versions`,
+`mcp_categories` (17 seeded by 0037, all deleted by 0052), `mcp_listings`, `mcp_listing_versions`,
 `mcp_submissions`, `mcp_reports`, `mcp_events`, `mcp_favorites`, and
 `org_mcp_policies` (dropped by `0049`). The scan columns this migration put
 on `mcp_listings` and `mcp_listing_versions` are dropped by `0049` too. See
@@ -208,6 +208,17 @@ Left alone on purpose: `scans` rows with `invocation_channel =
 `event_type` check allowing `scan_completed`/`grade_changed`, and the
 `mcp_submissions` check still allowing the legacy `scanning` status. Every
 drop is `if exists`, so a re-run is a no-op. `DECISIONS.md` ADR-049.
+
+**Emptied registry** (`0052_empty_registry.sql`)
+Data only, no schema change. Deletes every row of `mcp_listing_links`,
+`mcp_favorites`, `mcp_reports`, `mcp_events`, `mcp_listing_versions`,
+`mcp_submissions`, `mcp_listings` and `mcp_categories`, children before
+parents, so the registry holds no item and no category (including the
+categories 0037 and 0048 seeded). Deleting the `mcp_events` rows also
+removes the registry sync's watermark. `admin_audit_log`, scans, findings
+and every account, workspace and billing table are left alone. Safe to run
+twice; ends with a `select` of each table's row count. `DECISIONS.md`
+ADR-057.
 
 **AI providers** (`0038_ai_providers.sql`)
 `ai_provider_models`, `ai_provider_sync_state`, `ai_provider_model_changes`,

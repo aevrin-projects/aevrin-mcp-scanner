@@ -32,12 +32,12 @@ const MESSAGES: Record<string, { title: string; description: string }> = {
   github_email: {
     title: "GitHub didn't share an email address",
     description:
-      "Sign-in completed, but GitHub returned no email address, and an account needs one. Try Google instead, or let us know at support@aevrin.net.",
+      "Sign-in completed, but GitHub returned no email address, and an account needs one. Try Google instead, or let us know at ujjwal@aevrin.net.",
   },
   google_email: {
     title: "Google didn't share an email address",
     description:
-      "Sign-in completed, but Google returned no email address, and an account needs one. Try GitHub instead, or let us know at support@aevrin.net.",
+      "Sign-in completed, but Google returned no email address, and an account needs one. Try GitHub instead, or let us know at ujjwal@aevrin.net.",
   },
   exchange_failed: {
     title: "That sign-in link has expired",

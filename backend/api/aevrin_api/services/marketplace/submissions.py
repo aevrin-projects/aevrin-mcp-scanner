@@ -138,6 +138,17 @@ async def find_duplicate(db: SupabaseRest, url: str) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
 
+async def known_categories(db: SupabaseRest) -> set[str]:
+    """The category slugs that exist.
+
+    Inferred categories are kept only when they name one of these. The admin
+    editor refuses an unknown slug on save ("create it first"), so an item
+    written with one could not be edited; and with the registry emptied
+    (migration 0052) there are no categories at all until an admin adds them.
+    """
+    return {row["slug"] for row in await db.select("mcp_categories", {}, columns="slug")}
+
+
 async def derive_listing(
     db: SupabaseRest,
     settings: Settings,
@@ -212,7 +223,10 @@ async def derive_listing(
         "homepage_url": homepage_url,
         "publisher": publisher[:200] or None,
         "license": license_id,
-        "categories": infer_categories(title, description, readme[:4000] if readme else ""),
+        "categories": sorted(
+            set(infer_categories(title, description, readme[:4000] if readme else ""))
+            & await known_categories(db)
+        ),
         "tags": infer_tags(title, description),
         "price_type": infer_price_type(
             license_id=license_id,

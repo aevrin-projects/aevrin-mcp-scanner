@@ -348,7 +348,7 @@ async def verify_payment(
         if not current or current[0].get("status") != "paid":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="This payment could not be activated. Contact support@aevrin.net with your order id.",
+                detail="This payment could not be activated. Contact ujjwal@aevrin.net with your order id.",
             )
         account = await get_or_create_account(db, user_id)
         stored = account.get("paid_until")

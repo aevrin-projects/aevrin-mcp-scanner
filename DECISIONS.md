@@ -2340,3 +2340,44 @@ factor without one fails `test_agent_posture_risk.py`. Every cached AI
 explanation is regenerated once, on its next request, at the user's cost
 with their provider. The CLI still prints the technical reasons; showing
 the plain ones there is possible later from the same fields.
+
+
+## ADR-057: The registry is filled by hand; the official-registry sync is no longer scheduled
+
+**Date:** 2026-10-03
+
+**Context.** The registry was filled from the official MCP Registry by a
+weekly sync, which landed about 18,000 servers as drafts for admins to
+publish (ADR-053 to ADR-055). The owner asked for `/marketplace` and
+`/admin/marketplace` to start from nothing: every item, skill and category
+removed, and nothing coming back on its own.
+
+**Decision.**
+1. Migration `0052_empty_registry.sql` deletes every row of every registry
+   table (`mcp_listing_links`, `mcp_favorites`, `mcp_reports`,
+   `mcp_events`, `mcp_listing_versions`, `mcp_submissions`,
+   `mcp_listings`, `mcp_categories`). Data only, no schema change, safe to
+   run twice. `admin_audit_log` rows about past registry actions stay:
+   the audit log is append-only evidence.
+2. The weekly "Sync the MCP registry" step is removed from
+   `scheduler.yml`. The endpoint and `sync.run_registry_sync` (renamed
+   from `run_weekly_sync`) stay as the way to run it once by hand or to
+   schedule it again; the hourly popularity refresh stays and does
+   nothing while the registry is empty.
+3. Inferred categories are kept only when the category exists
+   (`submissions.known_categories`), because the admin editor refuses an
+   unknown category on save and there are none after `0052`.
+
+**Consequences.** Every item is added by an administrator, and a category
+must be created before an item can use it. The bulk "Apply popularity
+bar" control has nothing to publish until drafts exist again. The sync
+was also the only thing that recomputed `ranking_score`, so that moved to
+the hourly popularity call (`POST /scheduler/registry-popularity` runs
+`sync.recompute_rankings` after the star refresh) and "Recommended" keeps
+moving. Fetching npm downloads and missing READMEs for published items
+stops with the sync; an admin's "Refresh metadata" still does it for one
+item. A sync run by hand after `0052` is a full crawl that lands the
+whole official registry (about 18,000 servers) as drafts again, because
+the deleted `mcp_events` rows included its watermark. Reversible only by running the sync again (or
+from a backup taken before applying `0052`): the deleted favourites,
+reports and suggestions are not recoverable from the official registry.

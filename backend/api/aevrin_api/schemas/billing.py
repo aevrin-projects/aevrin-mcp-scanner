@@ -42,7 +42,7 @@ class CheckoutRequest(BaseModel):
             # The same ceiling an admin grant has (SeatsIn), so a purchase can
             # never write a number the admin panel could not.
             if self.seats > TEAM_MAX_SEATS:
-                raise ValueError(f"Team is sold up to {TEAM_MAX_SEATS} seats; contact support@aevrin.net for more")
+                raise ValueError(f"Team is sold up to {TEAM_MAX_SEATS} seats; contact ujjwal@aevrin.net for more")
         elif self.seats != 1:
             raise ValueError(f"{self.tier} does not support multiple seats")
         return self

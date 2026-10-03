@@ -520,8 +520,8 @@ async def set_status(
 # --------------------------------------------------------------------------
 # Publishing qualifying drafts in bulk
 #
-# The registry sync lands every official-registry server as a draft, and
-# keeps doing so: nothing automated publishes (ADR-048). This is the one
+# The registry sync lands every official-registry server as a draft (it is
+# run only by hand since ADR-057): nothing automated publishes (ADR-048). This is the one
 # admin action that publishes many drafts at once, and only those that meet
 # the quality bar below (DECISIONS.md ADR-053). Every item still goes
 # through `set_status`, so through the one publish gate, its own
@@ -958,7 +958,8 @@ async def admin_summary(db: SupabaseRest) -> dict[str, Any]:
 
     Exact counts (`db.count`), not a projection counted in Python: PostgREST
     returns at most `MAX_ROWS` rows per response and says nothing when it
-    truncates, and the catalogue is past 18,000 rows. The counts run
+    truncates, and the catalogue held over 18,000 rows before it was emptied
+    (migration 0052) and can again if the registry sync is run. The counts run
     concurrently; each is a HEAD request that carries no rows.
     """
     listing_count = functools.partial(db.count, "mcp_listings")

@@ -421,7 +421,8 @@ def test_type_counts_cover_only_what_the_public_can_see() -> None:
 
 def test_the_sync_lands_new_servers_as_drafts(monkeypatch: pytest.MonkeyPatch) -> None:
     db = FakeDb()
-    candidate = {"slug": "acme", "title": "Acme", "status": "should-be-overwritten"}
+    candidate = {"slug": "acme", "title": "Acme", "status": "should-be-overwritten",
+                 "categories": ["developer-tools", "other"]}
     monkeypatch.setattr(sync, "registry_server_to_listing", lambda server: dict(candidate))
 
     async def no_version(*args: Any, **kwargs: Any) -> None:
@@ -429,9 +430,12 @@ def test_the_sync_lands_new_servers_as_drafts(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(sync, "_ensure_version_row", no_version)
     server = type("Server", (), {"name": "io.github.acme/server"})()
-    run(sync._upsert_from_registry(db, server, sync.SyncReport(started_at="2026-09-29T00:00:00+00:00")))  # type: ignore[arg-type]
+    run(sync._upsert_from_registry(db, server, sync.SyncReport(started_at="2026-09-29T00:00:00+00:00"), {"developer-tools"}))  # type: ignore[arg-type]
 
     assert db.rows("mcp_listings")[0]["status"] == "draft"
+    # "other" is not a category that exists, so it is not written: the admin
+    # editor would refuse to save the item with it.
+    assert db.rows("mcp_listings")[0]["categories"] == ["developer-tools"]
 
 
 def test_the_sync_does_not_overwrite_a_curated_listing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -444,7 +448,7 @@ def test_the_sync_does_not_overwrite_a_curated_listing(monkeypatch: pytest.Monke
         "title": "Upstream title", "repository_url": None, "homepage_url": None,
         "registry_url": "https://registry.example/acme", "publisher": "acme",
         "install_targets": [], "installation": {}, "latest_version": "1.1.0",
-        "registry_updated_at": "2026-09-29T00:00:00+00:00",
+        "registry_updated_at": "2026-09-29T00:00:00+00:00", "categories": [],
     }
     monkeypatch.setattr(sync, "registry_server_to_listing", lambda server: dict(upstream))
 
@@ -453,7 +457,7 @@ def test_the_sync_does_not_overwrite_a_curated_listing(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(sync, "_ensure_version_row", no_version)
     server = type("Server", (), {"name": "io.github.acme/server"})()
-    run(sync._upsert_from_registry(db, server, sync.SyncReport(started_at="2026-09-29T00:00:00+00:00")))  # type: ignore[arg-type]
+    run(sync._upsert_from_registry(db, server, sync.SyncReport(started_at="2026-09-29T00:00:00+00:00"), set()))  # type: ignore[arg-type]
 
     stored = db.rows("mcp_listings")[0]
     assert stored["title"] == "Curated title"
@@ -544,3 +548,22 @@ def test_the_generated_config_never_launches_a_bundle() -> None:
     listing = {"slug": "context7", "installation": {"packages": [_BUNDLE, _NPM], "remotes": []}}
     config, _ = build_install_config(listing, "claude-code")
     assert config["mcpServers"]["context7"]["args"] == ["@upstash/context7-mcp@4.1.1"]
+
+
+def test_an_item_from_a_url_keeps_only_categories_that_exist(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The admin editor refuses an unknown category on save, so an item
+    # created with one could not be edited. With the registry emptied (0052)
+    # no category exists until an admin adds one.
+    db = FakeDb()
+    db.rows("mcp_categories").append({"slug": "developer-tools"})
+    monkeypatch.setattr(submissions, "infer_categories", lambda *a: ["other", "developer-tools"])
+    row = run(submissions.derive_listing(
+        db, None, kind="remote", url="https://mcp.example.com/mcp", user_id="u"  # type: ignore[arg-type]
+    ))
+    assert row["categories"] == ["developer-tools"]
+
+    db.tables["mcp_categories"] = []
+    row = run(submissions.derive_listing(
+        db, None, kind="remote", url="https://mcp.example.com/mcp", user_id="u"  # type: ignore[arg-type]
+    ))
+    assert row["categories"] == []

@@ -17,14 +17,14 @@ Agents search the same index through `search_registry`. See
 
 The row of type chips above the results narrows the registry to one kind of item: MCP servers,
 skills, prompts, templates and so on. Each chip shows how many published items of that type exist.
-With no type chosen and no search, the page shows three rails first: **Featured**, **Most viewed
-this month** and **Recently added**.
+With no type chosen and no search, the page shows two rails first: **Featured** and **Recently
+added**.
 
 ## Filters
 
 | Filter | Applies to | What it does |
 | --- | --- | --- |
-| Category | Every type | One of the registry's categories, inferred from the publisher's own text for synced servers and set by an administrator otherwise |
+| Category | Every type | One of the registry's categories, set by an administrator. An item added from a URL starts with the ones its own text suggests, among the categories that exist |
 | Pricing | MCP servers | Open source, free, freemium, or paid |
 | Client | MCP servers | Only servers that actually declare a transport the client supports |
 
@@ -72,12 +72,12 @@ Some details worth knowing:
   fetched is not being called unpopular.
 - **Documentation is measured by presence, not quality.** Whether a README exists, not whether it
   is any good. A scoring function that quietly rates prose is one nobody can audit.
+- **Scores are recomputed on a schedule**, each time GitHub stars are refreshed (every few hours),
+  so a newly added item scores zero only until the next refresh.
 
 ## Categories
 
-Developer Tools, Databases, Cloud, Search, Productivity, Communication, Business, Finance,
-Analytics, DevOps, Security, Browser / Web, Files / Storage, Marketing, AI / ML, Research,
-Frontend, Backend, Testing, Design, Automation, Other.
+Categories are created by an administrator. The category filter lists the ones that exist, each
+with the number of published items in it.
 
-An item can belong to several. Administrators can add categories; a category that still has items
-in it cannot be deleted.
+An item can belong to several. A category that still has items in it cannot be deleted.

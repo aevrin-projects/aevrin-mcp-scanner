@@ -107,7 +107,7 @@ export function BulkPublishControl({ onPublished }: { onPublished: () => void })
             <DialogTitle>Apply popularity bar</DialogTitle>
             <DialogDescription>
               Publishes the registry drafts that meet the bar and sets published MCP servers below it back
-              to draft. The registry sync keeps adding new servers as drafts.
+              to draft.
             </DialogDescription>
             <form
               className="mt-2 flex flex-wrap items-end gap-2"

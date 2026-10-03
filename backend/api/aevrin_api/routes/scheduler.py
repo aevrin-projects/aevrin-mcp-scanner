@@ -29,7 +29,11 @@ from aevrin_api.db import SupabaseRest
 from aevrin_api.routes.deps import get_db
 from aevrin_api.services import status as status_service
 from aevrin_api.services.ai.provider_sync import sync_all_providers
-from aevrin_api.services.marketplace.sync import refresh_popularity, run_weekly_sync
+from aevrin_api.services.marketplace.sync import (
+    recompute_rankings,
+    refresh_popularity,
+    run_registry_sync,
+)
 
 logger = logging.getLogger("aevrin.scheduler")
 
@@ -66,7 +70,9 @@ async def registry_sync(
 ) -> Any:
     """Pull the MCP Registry, refresh metadata, and recompute rankings.
 
-    Intended weekly. Incremental by default: only servers the registry says
+    Not scheduled since 2026-10-03: the owner emptied the registry (0052)
+    and adds items by hand, so this runs only when called by hand.
+    Incremental by default: only servers the registry says
     have changed since the last successful run are fetched. `full=true`
     ignores that watermark.
 
@@ -74,7 +80,7 @@ async def registry_sync(
     unreachable. The catalogue stays online; it simply stops growing until the
     next run.
     """
-    report = await run_weekly_sync(db, settings, full=full)
+    report = await run_registry_sync(db, settings, full=full)
     return report.as_dict()
 
 
@@ -88,9 +94,15 @@ async def registry_popularity(
     decides which drafts to publish reads what this writes.
 
     Returns a report. When `GITHUB_TOKEN` is not set it says so in `skipped`
-    and writes nothing, rather than reporting an empty run as a success.
+    and writes no stars, rather than reporting an empty run as a success.
+
+    Then recomputes published listings' ranking scores from what is stored,
+    stars or not: the registry sync used to do that, and it is no longer
+    scheduled (ADR-057), so without this "Recommended" would never move.
     """
-    return await refresh_popularity(db, settings)
+    report = await refresh_popularity(db, settings)
+    report["ranking_failures"] = await recompute_rankings(db)
+    return report
 
 
 @router.post("/provider-sync", dependencies=[Depends(require_scheduler_token)])

@@ -1,17 +1,17 @@
-"""The weekly job: pull the registry, refresh metadata, recompute rankings.
+"""The registry sync: pull the registry, refresh metadata, recompute rankings.
 
-Run on a schedule against the official MCP Registry, GitHub, and npm. It is a
-plain async function invoked by whatever the platform already uses to run
-things on a timer -- EventBridge hitting an endpoint, a container task, cron.
-There is deliberately no scheduler here, no queue, and no worker pool: this is
-one function that reads some HTTP and writes some rows.
+Runs against the official MCP Registry, GitHub, and npm when
+POST /scheduler/registry-sync is called. It ran weekly until 2026-10-03 and
+is now run only by hand (ADR-057); the hourly `refresh_popularity` below is
+still scheduled. There is deliberately no scheduler here, no queue, and no
+worker pool: this is one function that reads some HTTP and writes some rows.
 
 Three properties it has to hold.
 
 **It never takes the marketplace down.** Every external call is allowed to
-fail. A registry outage means the catalogue stops growing for a week; it does
-not mean the catalogue stops serving. Failures are counted and reported, not
-raised.
+fail. A registry outage means the catalogue does not grow on that run; it
+does not mean the catalogue stops serving. Failures are counted and
+reported, not raised.
 
 **It never overwrites a fact with a blank.** If GitHub does not answer, the
 stored star count stays exactly as it was. Nulling it because a refresh failed
@@ -48,7 +48,7 @@ from aevrin_api.services.marketplace.normalize import (
     registry_server_to_listing,
 )
 from aevrin_api.services.marketplace.ranking import compute_ranking
-from aevrin_api.services.marketplace.submissions import unique_slug
+from aevrin_api.services.marketplace.submissions import known_categories, unique_slug
 
 logger = logging.getLogger("aevrin.marketplace.sync")
 
@@ -57,7 +57,7 @@ logger = logging.getLogger("aevrin.marketplace.sync")
 # this leaves ample headroom for the rest of the product's GitHub use.
 _GITHUB_REFRESH_BUDGET = 400
 # Concurrency against third-party APIs. Low on purpose: this is a background
-# job with a whole week to finish, and being a good citizen costs nothing.
+# job, and being a good citizen costs nothing.
 _FETCH_CONCURRENCY = 5
 # Metadata older than this is stale enough to be worth a request.
 _METADATA_MAX_AGE = timedelta(days=6)
@@ -103,11 +103,12 @@ class SyncReport:
         }
 
 
-async def run_weekly_sync(
+async def run_registry_sync(
     db: SupabaseRest, settings: Settings, *, full: bool = False
 ) -> SyncReport:
-    """One complete pass. Safe to run more often than weekly; safe to re-run
-    after a failure.
+    """One complete pass. Not scheduled since 2026-10-03 (the owner emptied
+    the registry and adds items by hand); run once by hand through
+    POST /scheduler/registry-sync. Safe to re-run after a failure.
 
     `full` ignores the incremental watermark and crawls everything, which is
     what an admin wants after a schema change or a long outage.
@@ -129,15 +130,16 @@ async def run_weekly_sync(
         await _record_sync_state(db, report)
         return report
 
+    categories = await known_categories(db)
     for server in servers:
         try:
-            await _upsert_from_registry(db, server, report)
+            await _upsert_from_registry(db, server, report, categories)
         except Exception as exc:
             report.failures.append(f"{server.name}: {exc}")
             logger.warning("failed to ingest %s", server.name, exc_info=True)
 
     await _refresh_metadata(db, settings, report)
-    await _recompute_rankings(db, report)
+    report.failures.extend(await recompute_rankings(db))
 
     report.finished_at = datetime.now(UTC)
     await _record_sync_state(db, report)
@@ -196,7 +198,7 @@ async def _record_sync_state(db: SupabaseRest, report: SyncReport) -> None:
 
 
 async def _upsert_from_registry(
-    db: SupabaseRest, server: RegistryServer, report: SyncReport
+    db: SupabaseRest, server: RegistryServer, report: SyncReport, categories: set[str]
 ) -> None:
     """Create or update one listing, and record a version row if the version
     is new to us.
@@ -210,6 +212,8 @@ async def _upsert_from_registry(
     has reviewed it.
     """
     candidate = registry_server_to_listing(server)
+    # Only categories that exist (submissions.known_categories explains why).
+    candidate["categories"] = [slug for slug in candidate["categories"] if slug in categories]
 
     existing_rows = await db.select(
         "mcp_listings",
@@ -340,7 +344,7 @@ async def refresh_listing_metadata(
 ) -> bool:
     """Re-read what the upstream repository says about itself. True if written.
 
-    Used by the weekly sync and by an admin's "Refresh metadata". Writes only
+    Used by the registry sync and by an admin's "Refresh metadata". Writes only
     fields the repository owns - popularity, maintenance signals, licence, the
     README - never the title, description, tags, categories or `content`
     an administrator wrote. `refetch_readme` is the admin's explicit request;
@@ -399,7 +403,7 @@ async def refresh_listing_metadata(
 async def refresh_popularity(db: SupabaseRest, settings: Settings) -> dict[str, Any]:
     """Bring GitHub popularity up to date for every listing hosted on GitHub.
 
-    Every status, not only published. The weekly `_refresh_metadata` covers
+    Every status, not only published. The registry sync's `_refresh_metadata` covers
     published listings only (it also fetches READMEs), so a draft never had
     its stars measured, and the popularity bar that decides which drafts to
     publish was judging nearly all of them on no data: 10,991 GitHub-hosted
@@ -538,14 +542,17 @@ def _npm_identifier(installation: dict[str, Any]) -> str | None:
     return None
 
 
-async def _recompute_rankings(db: SupabaseRest, report: SyncReport) -> None:
-    """Recompute every published listing's ranking score.
+async def recompute_rankings(db: SupabaseRest) -> list[str]:
+    """Recompute every published listing's ranking score; return failures.
 
-    Done in bulk at the end rather than per-listing during ingestion, because
-    ranking reads metadata that ingestion may have only just written, and
-    because a score computed from half-refreshed inputs would be replaced an
-    instant later anyway.
+    Done in bulk rather than per listing, because ranking reads metadata that
+    was only just written, and a score computed from half-refreshed inputs
+    would be replaced an instant later anyway. Called at the end of the
+    registry sync and after every hourly popularity refresh: with the sync no
+    longer scheduled (ADR-057), the popularity run is what keeps
+    "Recommended" current for items an administrator added.
     """
+    failures: list[str] = []
     rows = await select_all(
         db,
         "mcp_listings",
@@ -566,7 +573,8 @@ async def _recompute_rankings(db: SupabaseRest, report: SyncReport) -> None:
             try:
                 await db.update("mcp_listings", {"id": row["id"]}, {"ranking_score": new_score})
             except Exception as exc:  # noqa: BLE001
-                report.failures.append(f"ranking {row['id']}: {exc}")
+                failures.append(f"ranking {row['id']}: {exc}")
+    return failures
 
 
 async def _event(

@@ -90,8 +90,8 @@ carries a security state.
                           delete (typed slug confirmation, audited)
 ```
 
-- `draft` is the only state any automated path creates. The weekly
-  registry sync inserts new servers as `draft`; a suggestion is created in
+- `draft` is the only state any automated path creates. The registry
+  sync (run by hand only since ADR-057) inserts new servers as `draft`; a suggestion is created in
   `review` and only an admin decision moves it on. An admin may publish
   many synced drafts at once with
   [Apply popularity bar](#publishing-qualifying-drafts), which is still
@@ -133,8 +133,11 @@ remote endpoint resolves its hostname (the SSRF guard), a blocking call.
 
 ### Publishing qualifying drafts
 
-The registry holds tens of thousands of synced drafts; the sync keeps
-landing new ones as drafts and does not change. `admin.bulk_publish`
+Built for the tens of thousands of drafts the registry sync landed. Since
+migration `0052` the registry is empty and the sync runs only by hand
+([Emptied registry](#emptied-registry)), so there is nothing for it to
+publish until the sync is run again; the preview then reports zero
+everywhere. `admin.bulk_publish`
 (`GET` previews, `POST` publishes, `/admin/marketplace/bulk-publish`)
 applies a fixed popularity bar (`DECISIONS.md` ADR-053, raised and made
 two-way by ADR-054): it publishes the drafts that meet it and sets the
@@ -176,7 +179,7 @@ so a better draft for the same repository can take its place.
 ### Popularity refresh
 
 `sync.refresh_popularity` (`POST /scheduler/registry-popularity`, hourly)
-is what gives drafts a star count at all. The weekly `_refresh_metadata`
+is what gives drafts a star count at all. The registry sync's `_refresh_metadata`
 covers published listings only (it also fetches READMEs), so before this
 existed 10,991 GitHub-hosted listings had never been measured and the bar
 judged them on nothing. It reads every listing whose repository is on
@@ -239,7 +242,7 @@ copied into client configs and offered to the scan page as a target). Only
 
 `mcp_listing_versions` is a bare list of versions the registry has seen:
 `id`, `listing_id`, `version`, `first_seen_at` (migration `0049` dropped
-every scan column). A row is added by the weekly sync for each new upstream
+every scan column). A row is added by the registry sync for each new upstream
 version, when a suggestion creates an MCP server (the tagged release, or
 `unversioned`), when an admin creates an MCP server by hand
 (`unversioned`), and when an admin edit changes `latest_version`. Editing
@@ -264,7 +267,9 @@ and "re-index" is not an operation. Queries go through
 `catalog.search_listings` filters by `item_type`, category, technology,
 capability, price type and install target. There is no grade filter and no
 security sort.
-Sorts are in `ranking.SORT_ORDERS`; `trending` is views then favourites
+The browse view's rails are Featured and Recently added; the "Most viewed
+this month" rail was removed on 2026-10-03, and the sort it used stays in
+the sort dropdown. Sorts are in `ranking.SORT_ORDERS`; `trending` is views then favourites
 among items updated in the last 30 days (`catalog.TRENDING_WINDOW`), and
 the UI labels it "Most viewed this month", not "trending", because that is
 what it measures. `GET /marketplace/types` returns per-type counts of
@@ -333,14 +338,19 @@ a notice that it is untrusted data, not instructions. Admin-authored
   Explicit column lists (`LIST_COLUMNS`, `DETAIL_COLUMNS`,
   `VERSION_COLUMNS`), never `select *`. Deliberately has **no "Verified"
   badge**: a verification claim needs documented criteria, and none exist.
-- **`sync.py`** - the weekly job (`POST /scheduler/registry-sync`):
+- **`sync.py`** - the registry sync (`POST /scheduler/registry-sync`, not
+  scheduled since 2026-10-03, see [Emptied registry](#emptied-registry)):
   incremental pull since the last successful sync, new servers inserted as
   `draft`, new versions recorded as bare version rows. For an item an admin has moved
   out of `draft`, sync updates only upstream-owned fields
   (`latest_version`, `registry_updated_at`, `registry_url`), so it never
   overwrites curation. `refresh_listing_metadata` refreshes GitHub and npm
   signals and licence, and is also what the admin "Refresh metadata"
-  action calls.
+  action calls. `_refresh_metadata` (a missing README and npm downloads,
+  for published listings) runs nowhere else, so while the sync is
+  unscheduled it does not run. `recompute_rankings` (`ranking_score`) runs
+  at the end of the sync and after every hourly popularity call
+  (`routes/scheduler.py`), so "Recommended" stays current either way.
 - **`submissions.py`** - user suggestions. Validates the source URL
   (HTTPS only, GitHub classified before DNS resolution, otherwise the
   `network_safety.py` SSRF check), creates the item in `review` status, and
@@ -454,3 +464,44 @@ tool, foreign `Host` refused). See
 off to), [`../reference/CLI.md`](../reference/CLI.md)
 (`aevrin mcp-server`), `frontend-docs/content/(marketplace)/*.mdx`
 (user-facing).
+
+## Emptied registry
+
+On 2026-10-03 the owner asked for the registry to start from nothing.
+Migration `0052_empty_registry.sql` deletes every item of every type, every
+category, and everything attached to them (related links, favourites,
+reports, timelines, versions, suggestions). It changes no schema and keeps
+`admin_audit_log` rows about past registry actions. In the same change the
+weekly registry sync was removed from `.github/workflows/scheduler.yml`, so
+the official registry's servers do not come back as drafts. Items are added
+by an administrator, and categories are created in the admin category
+manager before an item can use them (ADR-057).
+
+Inferred categories are kept only when they exist
+(`submissions.known_categories`): an item created from a URL, or by a sync
+run by hand, would otherwise carry a slug like `other` that the admin
+editor then refuses to save.
+
+What still runs on a schedule: the hourly popularity refresh, which keeps
+GitHub stars, forks, open issues, upkeep and licence current for every
+listing with a GitHub repository (with an empty registry it finds nothing
+due), followed by recomputing every published item's `ranking_score`,
+which only the sync used to do. What no longer runs, because only the sync
+did it: fetching npm downloads and missing READMEs for published listings;
+an admin's "Refresh metadata" still does that for one item.
+
+To run the sync once by hand, with the scheduler token. It is a full crawl
+after `0052`, which also deleted its watermark rows, so it lands every
+server in the official registry (about 18,000) as a draft again:
+
+```bash
+curl -X POST -H "X-Scheduler-Token: $SCHEDULER_TOKEN" --max-time 900 https://api.mcp.aevrin.net/scheduler/registry-sync
+```
+
+The API sits behind Cloudflare, which answers 524 to a request that runs
+past 100 seconds, and a full crawl can. A 524 is then not the report: the
+API's own log line `registry_sync_completed` (or `registry_sync_failed`)
+says how the run ended.
+
+To schedule it again, put back the "Sync the MCP registry" step in the
+`weekly` job of `scheduler.yml` (in git history before this change).

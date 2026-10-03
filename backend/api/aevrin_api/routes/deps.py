@@ -27,7 +27,7 @@ def get_db(settings: Annotated[Settings, Depends(get_settings)]) -> SupabaseRest
 # account was blocked for abuse learns only that access ended, not which
 # signal caught them, which would otherwise be a tuning oracle.
 _ACCOUNT_INACTIVE_DETAIL = (
-    "This account is not active. Contact support@aevrin.net if you think that's wrong."
+    "This account is not active. Contact ujjwal@aevrin.net if you think that's wrong."
 )
 
 

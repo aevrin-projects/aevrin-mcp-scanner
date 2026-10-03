@@ -83,15 +83,13 @@ export function MarketplacePage() {
     listCategories().then(setCategories).catch(() => setCategories([]));
     listTypes().then(setTypes).catch(() => setTypes([]));
     void (async () => {
-      const [featured, trending, recent] = await Promise.all([
+      const [featured, recent] = await Promise.all([
         browseListings({ featured: true, pageSize: RAIL_SIZE }).catch(() => null),
-        browseListings({ sort: "trending", pageSize: RAIL_SIZE }).catch(() => null),
         browseListings({ sort: "recently_added", pageSize: RAIL_SIZE }).catch(() => null),
       ]);
       setRails(
         [
           { title: "Featured", items: featured?.items ?? [] },
-          { title: SORT_LABELS.trending, items: trending?.items ?? [] },
           { title: "Recently added", items: recent?.items ?? [] },
         ].filter((rail) => rail.items.length > 0),
       );
@@ -309,10 +307,16 @@ export function MarketplacePage() {
           }
         />
       ) : items.length === 0 && !loading ? (
-        <EmptyState
-          title="Nothing matches those filters"
-          body="Try a broader search, or a different type or category."
-        />
+        // With no search or filter, an empty result is an empty registry, and
+        // "try a broader search" would point at a control that cannot help.
+        browsing ? (
+          <EmptyState title="Nothing is listed yet" body="Items appear here once an administrator publishes them." />
+        ) : (
+          <EmptyState
+            title="Nothing matches those filters"
+            body="Try a broader search, or a different type or category."
+          />
+        )
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

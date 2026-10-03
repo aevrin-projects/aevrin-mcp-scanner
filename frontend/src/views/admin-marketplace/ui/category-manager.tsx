@@ -18,7 +18,9 @@ type Category = { slug: string; name: string; description: string | null; sort_o
  * use would leave items filed somewhere nothing can browse to.
  */
 export function CategoryManager({ onChanged }: { onChanged: () => void }) {
-  const [categories, setCategories] = useState<Category[]>([]);
+  // null while not known (not loaded yet, or the load failed), so "No
+  // categories yet" is shown only for a list the API returned empty.
+  const [categories, setCategories] = useState<Category[] | null>(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -29,7 +31,7 @@ export function CategoryManager({ onChanged }: { onChanged: () => void }) {
     marketplaceAdminApi
       .categories()
       .then((rows) => !cancelled && setCategories(rows))
-      .catch(() => !cancelled && setCategories([]));
+      .catch(() => !cancelled && setCategories(null));
     return () => {
       cancelled = true;
     };
@@ -87,8 +89,13 @@ export function CategoryManager({ onChanged }: { onChanged: () => void }) {
             {message}
           </p>
         ) : null}
+        {categories?.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No categories yet. An item can be filed only under a category that exists, so add one first.
+          </p>
+        ) : null}
         <ul className="flex flex-wrap gap-1.5">
-          {categories.map((category) => (
+          {(categories ?? []).map((category) => (
             <li
               key={category.slug}
               className="inline-flex items-center gap-1 rounded-md border border-border py-0.5 pr-0.5 pl-2 text-xs"

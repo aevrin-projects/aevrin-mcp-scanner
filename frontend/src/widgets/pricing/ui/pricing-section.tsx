@@ -366,7 +366,7 @@ export function PricingSection({ headingLevel = "h2" }: { headingLevel?: "h1" | 
             toast.error(
               err instanceof ApiError
                 ? err.message
-                : `The payment went through but activation could not be confirmed. Contact support@aevrin.net with order ${razorpay_order_id}.`,
+                : `The payment went through but activation could not be confirmed. Contact ujjwal@aevrin.net with order ${razorpay_order_id}.`,
               { duration: Infinity },
             );
           }

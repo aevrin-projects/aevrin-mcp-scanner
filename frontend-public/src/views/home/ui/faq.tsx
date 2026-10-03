@@ -92,7 +92,7 @@ export function Faq() {
             <p className="mt-4 max-w-xs text-[15px] leading-6 text-[var(--mk-muted)]">
               Something not answered here?{" "}
               <a
-                href="mailto:support@aevrin.net"
+                href="mailto:ujjwal@aevrin.net"
                 className="font-medium text-[var(--mk-fg)] underline decoration-[var(--mk-line-strong)] underline-offset-4 hover:decoration-current"
               >
                 Write to support

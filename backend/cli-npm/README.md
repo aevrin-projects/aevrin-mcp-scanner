@@ -16,4 +16,4 @@ index.
 
 Complete documentation: https://mcp.aevrin.net/docs
 
-Support: support@aevrin.net
+Support: ujjwal@aevrin.net

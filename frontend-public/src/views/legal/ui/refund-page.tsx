@@ -91,8 +91,8 @@ export function RefundPage() {
             <h2 className="font-medium text-foreground">How to request a refund</h2>
             <p className="mt-1">
               Email{" "}
-              <a href="mailto:support@aevrin.net" className="underline underline-offset-2">
-                support@aevrin.net
+              <a href="mailto:ujjwal@aevrin.net" className="underline underline-offset-2">
+                ujjwal@aevrin.net
               </a>{" "}
               from the address on the account, with the payment date and amount. We respond within
               3 business days. Approved refunds are issued to the original payment method through

@@ -40,8 +40,10 @@ marketplace/AI/admin/providers work is fully live)
       when somebody saves a key.
 - [x] **Wire an external scheduler.** Done, as
       `.github/workflows/scheduler.yml`: hourly `POST /scheduler/uptime-check`,
-      and `POST /scheduler/registry-sync` + `POST /scheduler/provider-sync`
-      weekly on Sundays. GitHub Actions rather than EventBridge, which
+      and `POST /scheduler/provider-sync` weekly on Sundays
+      (`POST /scheduler/registry-sync` ran weekly too until 2026-10-03,
+      when the registry was emptied and the sync unscheduled, ADR-057).
+      GitHub Actions rather than EventBridge, which
       dissolves the blocker recorded here previously: an EventBridge rule
       needs an IAM credential in someone's hands, while Actions secrets are
       readable inside a workflow run, which is the only place they are
@@ -100,9 +102,14 @@ marketplace/AI/admin/providers work is fully live)
   caller-supplied startup credentials is the highest-value improvement
   available to the scanner today, and is not yet designed - it means
   accepting secrets for the purpose of handing them to untrusted code.
-- **Synced MCP servers are drafts until an admin publishes them.** The
-  public registry grows as fast as admins curate it; publishing needs a
-  complete item, not a scan (ADR-049).
+- **The registry is filled by hand.** Migration 0052 emptied it and the
+  official-registry sync is no longer scheduled (ADR-057), so the public
+  registry grows as fast as admins add and publish items; publishing needs
+  a complete item, not a scan (ADR-049).
+- **npm downloads and missing READMEs are not fetched on a schedule.**
+  Only the registry sync did that for published items, so while it is
+  unscheduled they are fetched only by an admin's "Refresh metadata".
+  `ranking_score` is still recomputed hourly, after the popularity refresh.
 - **Registry features deliberately not built for the pilot:** collections
   (featured, categories and tags cover curation for now; a collection needs
   its own table and editor); semantic or vector search (Postgres full-text

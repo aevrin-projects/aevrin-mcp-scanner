@@ -12,16 +12,15 @@ name: Scheduled jobs
 # What this trades away, and why it is acceptable: GitHub's scheduled runs are
 # best-effort and can be delayed or dropped under load. Nothing here is
 # damaged by that. Every endpoint is idempotent and safe to call late or
-# twice, the marketplace sync is incremental against its own watermark, and
-# the uptime job publishes the count of checks it actually recorded rather
-# than assuming a fixed cadence -- a missed run shows up as a gap that is
-# reported as "no data", never as uptime.
+# twice, and the uptime job publishes the count of checks it actually
+# recorded rather than assuming a fixed cadence -- a missed run shows up as a
+# gap that is reported as "no data", never as uptime.
 
 on:
   schedule:
     # Hourly availability sample, on the hour.
     - cron: "0 * * * *"
-    # Weekly catalogue refresh, Sunday 03:15 UTC. Offset off the hour so it
+    # Weekly AI model catalogue refresh, Sunday 03:15 UTC. Offset off the hour so it
     # does not contend with the uptime run.
     - cron: "15 3 * * 0"
   workflow_dispatch:
@@ -106,10 +105,10 @@ jobs:
           [ "$code" = "200" ]
 
       - name: Refresh registry popularity
-        # So the GitHub stars the popularity bar reads are known for drafts
-        # as well as published listings (the weekly sync covers only the
-        # published ones). Runs even if the uptime sample failed: the two
-        # are independent.
+        # So the GitHub stars the popularity bar reads are known for every
+        # listing, draft or published. With an empty registry it reports
+        # nothing due and stops after one call. Runs even if the uptime
+        # sample failed: the two are independent.
         #
         # Called in a loop, not once. GitHub runs "hourly" schedules every
         # four to eight hours in practice, so one batch per run left a
@@ -136,7 +135,7 @@ jobs:
           done
 
   weekly:
-    name: Registry and provider sync
+    name: AI model catalogue refresh
     runs-on: ubuntu-latest
     environment: aws
     if: >-
@@ -167,22 +166,12 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "SCHEDULER_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
-      - name: Sync the MCP registry
-        run: |
-          code="$(curl -sS -o registry.json -w '%{http_code}' -X POST \
-            -H "X-Scheduler-Token: ${SCHEDULER_TOKEN}" \
-            --max-time 900 \
-            "${API}/scheduler/registry-sync")"
-          echo "HTTP ${code}"
-          cat registry.json || true
-          echo
-          [ "$code" = "200" ]
-
+      # The weekly MCP registry sync was removed on 2026-10-03: the owner
+      # emptied the registry (migration 0052) and adds items by hand, so the
+      # ~18,000 official-registry drafts must not come back. The endpoint
+      # stays; docs/features/MCP_MARKETPLACE.md has the command to run it
+      # once by hand, or to put this step back.
       - name: Refresh the AI model catalogue
-        # Runs even if the registry sync failed: they are independent jobs
-        # against different upstreams, and skipping the catalogue because the
-        # MCP registry was down would compound one outage into two.
-        if: always()
         run: |
           code="$(curl -sS -o providers.json -w '%{http_code}' -X POST \
             -H "X-Scheduler-Token: ${SCHEDULER_TOKEN}" \

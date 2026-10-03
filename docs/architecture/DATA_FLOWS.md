@@ -91,7 +91,7 @@ scanning environment can never look like a clean CI pass).
 ## Registry ingestion and curation
 
 ```
-Weekly scheduled job (POST /scheduler/registry-sync, HMAC-token auth)
+Registry sync, run by hand only since 2026-10-03 (POST /scheduler/registry-sync, HMAC-token auth)
     -> integrations/mcp_registry.py pulls servers changed since the last
        successful sync (a watermark, not a queue)
     -> services/marketplace/sync.py: new servers inserted as DRAFT (never

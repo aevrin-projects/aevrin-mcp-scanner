@@ -427,8 +427,8 @@ export function BillingPage() {
       <SectionCard title="Need something else?" description="Refunds, receipts for accounting, or anything billing-related.">
         <p className="text-sm leading-6 text-muted-foreground">
           Reach the same team that handles product support, no separate billing queue or phone tree.{" "}
-          <a href="mailto:support@aevrin.net" className="font-medium text-foreground underline underline-offset-2">
-            support@aevrin.net
+          <a href="mailto:ujjwal@aevrin.net" className="font-medium text-foreground underline underline-offset-2">
+            ujjwal@aevrin.net
           </a>
           .
         </p>

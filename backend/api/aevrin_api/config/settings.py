@@ -93,9 +93,10 @@ class Settings(BaseSettings):
     admin_session_idle_minutes: int = 30
 
     # ---------------------------------------------------------------- scheduler
-    # Token protecting the scheduled-job endpoints. The weekly sync and
-    # provider refresh are triggered by an external scheduler (EventBridge,
-    # cron, a container task) rather than by a signed-in human, so they
+    # Token protecting the scheduled-job endpoints. The provider refresh,
+    # uptime check and popularity refresh are triggered by an external
+    # scheduler (EventBridge, cron, a container task), and the registry sync
+    # by hand since ADR-057, rather than by a signed-in human, so they
     # authenticate with this rather than with a session.
     scheduler_token: str | None = None
 

@@ -20,6 +20,30 @@ added to `[Unreleased]` as it ships, per `CLAUDE.md`'s
 
 ## [Unreleased]
 
+### Changed
+
+- **The registry starts empty, and nothing is imported into it.** Migration
+  `0052_empty_registry.sql` deletes every item (MCP servers, skills, prompts
+  and every other type), every category, and everything attached to them, so
+  `/marketplace` and `/admin/marketplace` show nothing until an
+  administrator adds items. The weekly sync from the official MCP Registry
+  no longer runs, so its ~18,000 servers do not come back as drafts;
+  `POST /scheduler/registry-sync` still runs it once by hand (ADR-057).
+  Categories an item is given automatically are kept only if they exist,
+  so an item created from a URL can still be edited when there are none.
+  "Recommended" scores, which only that sync recomputed, are now
+  recomputed by the hourly popularity refresh instead.
+- **Support email is ujjwal@aevrin.net** everywhere: the site, the app, the
+  docs, API error messages and the CLI's npm package. Every "Contact
+  support" link is a plain email link with the subject "Aevrin support".
+- **Footer and Contact page.** The GitHub, LinkedIn and YouTube links and
+  "Operated from India. Delivered online." are gone from the footers, and
+  the Contact page no longer says Aevrin is operated from India (its
+  section is now titled "Service delivery").
+- **The marketplace no longer shows a "Most viewed this month" section.**
+  Featured and Recently added remain; the sort of the same name is still in
+  the sort menu.
+
 ### Added
 
 - **Plain language across the agent and scan pages.** The agent page now

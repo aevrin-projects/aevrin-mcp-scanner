@@ -20,7 +20,7 @@ export const baseOptions: BaseLayoutProps = {
     },
     {
       text: "Support",
-      url: "mailto:support@aevrin.net",
+      url: "mailto:ujjwal@aevrin.net",
     },
   ],
 };

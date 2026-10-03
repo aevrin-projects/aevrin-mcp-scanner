@@ -67,7 +67,7 @@ CLI `aevrin agent scan`
 ```
 
 ```
-Weekly scheduled job (POST /scheduler/registry-sync)
+Registry sync, run by hand only since 2026-10-03 (POST /scheduler/registry-sync)
     -> pulls changed servers from the official MCP Registry since the last
        successful run
     -> new servers land as drafts; new versions recorded in each item's

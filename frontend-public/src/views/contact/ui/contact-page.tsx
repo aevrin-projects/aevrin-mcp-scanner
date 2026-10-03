@@ -20,8 +20,8 @@ export function ContactPage() {
           <section>
             <h2 className="font-medium text-foreground">Billing and payments</h2>
             <p className="mt-1">
-              <a href="mailto:support@aevrin.net" className="underline underline-offset-2">
-                support@aevrin.net
+              <a href="mailto:ujjwal@aevrin.net" className="underline underline-offset-2">
+                ujjwal@aevrin.net
               </a>
             </p>
             <p className="mt-2">
@@ -38,8 +38,8 @@ export function ContactPage() {
           <section>
             <h2 className="font-medium text-foreground">Product support</h2>
             <p className="mt-1">
-              <a href="mailto:support@aevrin.net" className="underline underline-offset-2">
-                support@aevrin.net
+              <a href="mailto:ujjwal@aevrin.net" className="underline underline-offset-2">
+                ujjwal@aevrin.net
               </a>
             </p>
             <p className="mt-2">
@@ -63,10 +63,9 @@ export function ContactPage() {
           </section>
 
           <section>
-            <h2 className="font-medium text-foreground">Business details</h2>
+            <h2 className="font-medium text-foreground">Service delivery</h2>
             <p className="mt-1">
-              Aevrin is operated from India and sells software services online. Service is
-              delivered digitally through{" "}
+              Service is delivered digitally through{" "}
               <Link href="/" className="underline underline-offset-2">
                 mcp.aevrin.net
               </Link>{" "}

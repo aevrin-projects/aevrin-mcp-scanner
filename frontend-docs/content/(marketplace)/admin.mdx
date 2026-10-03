@@ -29,7 +29,9 @@ record is written before the item is removed.
 - Publish, unpublish, suspend, archive, restore, delete
 - Publish the registry drafts that meet a stated quality bar, in bulk (below)
 - Refresh an item's GitHub and npm metadata
-- Create and delete categories (a category in use cannot be deleted)
+- Create and delete categories (a category in use cannot be deleted). An item can be filed only under
+  a category that exists, so create categories before filing items under them; an item created from
+  a URL keeps only the suggested categories that already exist
 - Review suggestions and reports
 
 The editor's **Preview** tab shows the item as the public page will, in any state, and lists
@@ -52,7 +54,8 @@ recorded on the item.
 
 ## Applying the popularity bar
 
-Every server synced from the official MCP Registry arrives as a draft, and keeps doing so. **Apply
+The official MCP Registry is no longer synced on a schedule, so there are no synced drafts unless an
+administrator runs that sync by hand; every server it brings in arrives as a draft. **Apply
 popularity bar** on the registry admin page publishes, in one action, only the drafts that meet
 a star bar you choose (50 by default), and sets every published MCP server known to be below it back
 to draft. The preview shows how many drafts meet each common bar (1, 10, 25, 50, 100 and 500 stars),

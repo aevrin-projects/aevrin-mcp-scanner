@@ -24,7 +24,7 @@ export function CliPage() {
               Open complete documentation
               <ArrowRight className="size-4" />
             </Link>
-            <a href="mailto:support@aevrin.net" className={buttonVariants({ size: "lg", variant: "outline" })}>
+            <a href="mailto:ujjwal@aevrin.net?subject=Aevrin%20support" className={buttonVariants({ size: "lg", variant: "outline" })}>
               Contact support
             </a>
           </div>

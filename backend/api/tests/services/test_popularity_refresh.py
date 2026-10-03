@@ -301,3 +301,37 @@ def test_no_new_batch_starts_after_the_deadline(monkeypatch: pytest.MonkeyPatch)
     sent = _statuses(monkeypatch, [200])
     assert asyncio.run(fetch_repo_stats(_Settings(), [("a", "b")], [])) == {}  # type: ignore[arg-type]
     assert sent == []
+
+
+def test_the_hourly_call_also_keeps_rankings_current(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The registry sync used to recompute ranking scores, and it is no longer
+    # scheduled (ADR-057). Without this, "Recommended" never moves for items
+    # an administrator adds. Through the HTTP layer, as the scheduler calls it.
+    from starlette.testclient import TestClient
+
+    from aevrin_api.main import app
+    from aevrin_api.routes import scheduler
+    from aevrin_api.routes.deps import get_db
+
+    calls: list[str] = []
+
+    async def popularity(db: Any, settings: Any) -> dict[str, Any]:
+        calls.append("popularity")
+        return {"updated_listings": 0, "failures": []}
+
+    async def rankings(db: Any) -> list[str]:
+        calls.append("rankings")
+        return []
+
+    monkeypatch.setattr(scheduler, "refresh_popularity", popularity)
+    monkeypatch.setattr(scheduler, "recompute_rankings", rankings)
+    app.dependency_overrides[scheduler.require_scheduler_token] = lambda: None
+    app.dependency_overrides[get_db] = lambda: object()
+    try:
+        response = TestClient(app).post("/scheduler/registry-popularity")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200, response.text
+    assert calls == ["popularity", "rankings"]
+    assert response.json()["ranking_failures"] == []
